@@ -23,4 +23,61 @@ ${modeStr}
 The user has ${currency_symbol}${balance} in floating cash available (after all budgets and commitments).
 Budgets already set: ${budgets?.length ? budgets.map(b => b.name + ' (' + b.period + ')').join(', ') : 'none'}.
 Suggest real activities, venues, restaurants near their location that fit their budget. If in Kenya, suggest Kenya-specific places.
-Respond ONLY with a valid JSON array (no markdown, no explanation, no code fences) of 6 activity suggestions. Each object mus
+Respond ONLY with a valid JSON array (no markdown, no explanation, no code fences) of 6 activity suggestions. Each object must have exactly:
+- id: unique string like "act_1"
+- title: short name
+- emoji: one relevant emoji
+- description: 1-2 sentence description
+- estimated_cost: number in ${currency}
+- category: one of "food", "outdoor", "entertainment", "social", "relaxation", "adventure"
+- why_now: short fun reason to do it today
+- is_free: boolean
+Return ONLY the JSON array, nothing else.`;
+  }
+
+  if (type === 'opportunities') {
+    prompt = `You are a smart income assistant helping someone find legitimate online ways to earn money.
+The user has ${currency_symbol}${balance} in ${currency} and is based in Kenya.
+Suggest real, current, legitimate online earning opportunities accessible from Kenya that can be done from a phone.
+Respond ONLY with a valid JSON array (no markdown, no explanation, no code fences) of 6 opportunities. Each object must have exactly:
+- id: unique string like "opp_1"
+- title: short name
+- emoji: one relevant emoji
+- platform: name of the platform or app
+- description: 2-3 sentences on what to do and how to start
+- estimated_earnings: string like "KSh 500-2,000 per task"
+- estimated_amount: number (realistic middle estimate in ${currency})
+- time_required: string like "2-4 hours"
+- difficulty: exactly one of "Easy", "Medium", or "Hard"
+- link_hint: website or app name to search for
+Return ONLY the JSON array, nothing else.`;
+  }
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.8, maxOutputTokens: 2000 },
+        }),
+      }
+    );
+
+    const data = await response.json();
+    if (!response.ok) return res.status(500).json({ error: data.error?.message || 'Gemini API error' });
+
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    if (!rawText) return res.status(500).json({ error: 'Empty response from Gemini' });
+
+    const cleaned = rawText.replace(/```json|```/g, '').trim();
+    const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return res.status(500).json({ error: 'Could not parse AI response' });
+
+    return res.status(200).json({ results: JSON.parse(jsonMatch[0]) });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
