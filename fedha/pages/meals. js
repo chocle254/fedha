@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import Layout from '../components/Layout';
-import TransactionModal from '../components/TransactionModal';
+import TransactionModal from '../compobackgroundnents/TransactionModal';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatShort } from '../lib/utils';
 
@@ -179,4 +179,163 @@ const MEAL_PLANS = {
       ]},
       { day: 'Thursday', budget: 920, meals: [
         { time: 'Breakfast', name: 'Shakshuka + Bread + Juice', ingredients: '4 eggs poached in tomato sauce with hoho, chili, spices. Bread, fresh juice', cost: 180, cal: 820, protein: '38g', tip: 'Shakshuka is Middle Eastern but uses all Kenyan ingredients. Try it — it is excellent' },
-        { time: '10am', name: 'Greek Yogurt + Groundnuts + Mango', ingredients: '1 cup full-fat yogurt, groundnuts, fresh mango, honey', cost: 100,
+        { time: '10am', name: 'Greek Yogurt + Groundnuts + Mango', ingredients: '1 cup full-fat yogurt, groundnuts, fresh mango, honey', cost: 100, cal: 480, protein: '20g', tip: 'Full-fat yogurt has 3x more protein than low-fat. Never buy low-fat for muscle building' },
+        { time: 'Lunch', name: 'Beef Githeri + Salad + Avocado', ingredients: 'Githeri, quality beef chunks, avocado, tomato, cucumber salad', cost: 320, cal: 1100, protein: '62g', tip: 'Githeri with beef is the most nutritionally complete Kenyan meal you can make' },
+        { time: 'Dinner', name: 'Lamb Ribs + Ugali + Roasted Vegetables', ingredients: 'Lamb ribs, ugali, roasted sweet potato, carrots, hoho', cost: 340, cal: 1060, protein: '60g', tip: 'Thursday dinner treat. Lamb ribs have the best ratio of protein to fat for muscle building' },
+      ]},
+      { day: 'Friday', budget: 1000, meals: [
+        { time: 'Breakfast', name: 'Pancake Stack + Eggs + Fruit + Smoothie', ingredients: '4 thick pancakes, 3 eggs, fresh fruit salad, banana milk smoothie', cost: 200, cal: 1000, protein: '40g', tip: 'Friday big breakfast to power through the last work day and set up a great weekend' },
+        { time: '10am', name: 'Protein Smoothie', ingredients: '3 bananas, 3 tbsp PB, 1 cup milk, 2 eggs, oats, honey', cost: 100, cal: 720, protein: '28g', tip: 'Adding raw eggs to a smoothie is safe and doubles the protein. Blend well' },
+        { time: 'Lunch', name: 'Nyama Choma + Ugali + Kachumbari + Avocado', ingredients: 'Goat/beef, ugali, full kachumbari, avocado, roasted hoho', cost: 420, cal: 1280, protein: '76g', tip: 'Friday nyama choma is a Kenyan institution. Eat a big portion — you have earned it' },
+        { time: 'Dinner', name: 'Prawn / Calamari + Coconut Rice + Salad', ingredients: 'Prawns or calamari, coconut rice, fresh salad, lemon, garlic butter', cost: 350, cal: 980, protein: '52g', tip: 'Seafood is an excellent change from chicken and beef — gives you different amino acids' },
+      ]},
+      { day: 'Saturday', budget: 1100, meals: [
+        { time: 'Breakfast', name: 'Big Kenyan Brunch', ingredients: 'Chapati, 4 eggs, sausages, liver, avocado, chai, juice', cost: 280, cal: 1200, protein: '56g', tip: 'Saturday brunch is the best meal of the week. Cook slowly, eat slowly, enjoy it' },
+        { time: '10am', name: 'Mass Gainer Smoothie', ingredients: 'Banana, milk, oats, PB, honey, egg, cocoa powder', cost: 110, cal: 780, protein: '26g', tip: 'This smoothie has more calories than most store-bought weight gainers and costs KSh 110' },
+        { time: 'Lunch', name: 'Full Kuku Kienyeji + Pilau + Salad + Avocado', ingredients: 'Half local chicken, pilau, green salad, 2 avocados', cost: 500, cal: 1400, protein: '84g', tip: 'This is a complete muscle-building feast. The best Saturday lunch in Kenya' },
+        { time: 'Dinner', name: 'Beef Stir Fry + Coconut Rice + Vegetables', ingredients: 'Beef strips, basmati in coconut milk, broccoli, hoho, garlic, ginger', cost: 320, cal: 1040, protein: '60g', tip: 'Ginger and garlic reduce inflammation and help muscles recover faster' },
+      ]},
+      { day: 'Sunday', budget: 980, meals: [
+        { time: 'Breakfast', name: 'French Toast + Eggs + Avocado + Juice', ingredients: 'Thick bread, 4 eggs, 2 avocados, fresh OJ, honey', cost: 220, cal: 1020, protein: '44g', tip: 'Sunday breakfast should be the most relaxed and most enjoyable meal of the week' },
+        { time: '10am', name: 'Fruit Platter + Yogurt + Groundnuts', ingredients: 'Mango, pawpaw, banana, pineapple, full yogurt, groundnuts', cost: 130, cal: 560, protein: '16g', tip: 'Vitamin C from fresh fruit helps repair muscle tissue and absorb iron from the week' },
+        { time: 'Lunch', name: 'Sunday Roast (Kenyan Style)', ingredients: 'Roasted chicken, ugali, roasted sweet potato, kachumbari, avocado', cost: 400, cal: 1300, protein: '72g', tip: 'Rub the chicken with garlic, ginger, lemon and spices before roasting. Game changer' },
+        { time: 'Dinner', name: 'Light Soup + Bread + Eggs', ingredients: 'Tomato and onion soup with spices, 2 bread slices, 2 fried eggs', cost: 120, cal: 640, protein: '24g', tip: 'Light Sunday dinner after a big lunch. Drink milk before bed to close out the week strong' },
+      ]},
+    ]
+  }
+};
+
+const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+
+export default function MealsPage() {
+  const { wallets, budgets, loans, currency } = useApp();
+  const [activeDay, setActiveDay] = useState(0);
+  const [showTxn, setShowTxn] = useState(false);
+
+  // Calculate floating cash
+  const totalBalance = wallets.reduce((s, w) => s + Number(w.balance || 0), 0);
+  const totalBudgeted = budgets.reduce((s, b) => s + Math.max(0, Number(b.allocated || 0) - Number(b.spent || 0)), 0);
+  const totalOwed = loans.filter((l) => l.type === 'borrowed' && l.status === 'active').reduce((s, l) => s + Number(l.remaining || l.amount || 0), 0);
+  const floating = Math.max(0, totalBalance - totalBudgeted - totalOwed);
+
+  // Suggest daily food budget as 15% of floating cash, max out at 1200
+  const suggestedFoodBudget = Math.min(1200, floating * 0.15);
+
+  // Pick tier based on suggested food budget
+  const tier = suggestedFoodBudget >= 700 ? 'good' : suggestedFoodBudget >= 300 ? 'comfortable' : 'tight';
+  const plan = MEAL_PLANS[tier];
+  const dayPlan = plan.days[activeDay];
+
+  const totalCal = dayPlan.meals.reduce((s, m) => s + m.cal, 0);
+  const totalCost = dayPlan.meals.reduce((s, m) => s + m.cost, 0);
+  const totalProtein = dayPlan.meals.reduce((s, m) => s + parseInt(m.protein), 0);
+
+  const canAfford = floating >= totalCost;
+
+  return (
+    <Layout onFab={() => setShowTxn(true)}>
+      <div className="page">
+        <div className="page-header">
+          <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Meal Planner 🍽️</h1>
+          <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 16 }}>
+            Based on your KSh {Math.round(floating).toLocaleString()} floating cash
+          </div>
+
+          {/* Budget tier indicator */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: `${plan.color}12`, border: `1px solid ${plan.color}30`, borderRadius: 12, marginBottom: 16 }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: plan.color, flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: plan.color }}>{plan.label} — {plan.range}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{plan.description}</div>
+            </div>
+          </div>
+
+          {/* Can I afford today */}
+          <div style={{ padding: '10px 14px', background: canAfford ? 'var(--green-dim)' : 'var(--red-dim)', border: `1px solid ${canAfford ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`, borderRadius: 10, fontSize: 13, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: 'var(--text-2)' }}>Today's food budget</span>
+            <span className="font-num" style={{ fontWeight: 700, color: canAfford ? 'var(--green)' : 'var(--red)' }}>
+              {canAfford ? '✓' : '⚠'} KSh {totalCost} / KSh {Math.round(suggestedFoodBudget)}
+            </span>
+          </div>
+
+          {/* Day selector */}
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+            {DAYS.map((d, i) => (
+              <button key={d} className={`chip ${activeDay === i ? 'active' : ''}`} onClick={() => setActiveDay(i)} style={{ flexShrink: 0 }}>
+                {d.slice(0, 3)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ padding: '0 20px' }}>
+          {/* Daily stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
+            {[
+              { label: 'Calories', value: totalCal.toLocaleString(), unit: 'kcal', color: '#F59E0B' },
+              { label: 'Protein', value: `~${totalProtein}g`, unit: '/day', color: '#3B82F6' },
+              { label: 'Cost', value: `KSh ${totalCost}`, unit: '/day', color: plan.color },
+            ].map((s) => (
+              <div key={s.label} className="card-2" style={{ padding: '10px 12px', textAlign: 'center' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>{s.label}</div>
+                <div className="font-num" style={{ fontSize: 15, fontWeight: 700, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{s.unit}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Meal cards */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
+            {dayPlan.meals.map((meal, i) => (
+              <div key={i} className="card" style={{ padding: '16px', borderLeft: `3px solid ${plan.color}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: plan.color, fontWeight: 600, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 4 }}>{meal.time}</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{meal.name}</div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div className="font-num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--green)' }}>KSh {meal.cost}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{meal.cal} cal · {meal.protein} protein</div>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 8 }}>
+                  <span style={{ color: 'var(--text-2)' }}>Ingredients: </span>{meal.ingredients}
+                </div>
+
+                <div style={{ background: 'var(--card-2)', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5, display: 'flex', gap: 8 }}>
+                  <span style={{ color: plan.color, flexShrink: 0 }}>💡</span>
+                  <span>{meal.tip}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Weekly grocery tip */}
+          <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', marginBottom: 20 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 8 }}>Weekly Shopping Tip</div>
+            <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>
+              Buy in bulk on Sundays — beans (1kg), groundnuts (500g), unga (2kg), eggs (tray of 30), peanut butter (1 jar). Buying daily costs you 25–40% more. Cook big batches and refrigerate — saves time, gas and money.
+            </div>
+          </div>
+
+          {/* Muscle building notes */}
+          <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', marginBottom: 20 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 10 }}>For Weight + Muscle Gain</div>
+            {[
+              '🥚 Eat more than you feel like — your body is used to less right now. Force feed a little.',
+              '🥜 Add peanut butter to everything — uji, bread, smoothies. 1 jar = +10,000 cheap calories.',
+              '🥛 Drink a full glass of milk before bed every night — overnight muscle repair.',
+              '🍌 Groundnuts + banana is the cheapest high-calorie snack in Kenya. Eat it daily.',
+              '🏋️ Even 20 pushups + 20 squats daily triples how fast you gain muscle from food.',
+            ].map((tip, i) => (
+              <div key={i} style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 8, lineHeight: 1.5 }}>{tip}</div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {showTxn && <TransactionModal onClose={() => setShowTxn(false)} />}
+    </Layout>
+  );
+}
