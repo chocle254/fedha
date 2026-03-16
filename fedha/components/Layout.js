@@ -73,4 +73,5 @@ export default function Layout({ children, fab, onFab }) {
       </nav>
     </div>
   );
-   }
+}
+
