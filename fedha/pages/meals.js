@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import Layout from '../components/Layout';
-import TransactionModal from '../compobackgroundnents/TransactionModal';
+import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatShort } from '../lib/utils';
 
