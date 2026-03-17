@@ -130,7 +130,8 @@ export default function MealsPage() {
   const totalBudgeted = budgets.reduce((s, b) => s + Math.max(0, Number(b.allocated || 0) - Number(b.spent || 0)), 0);
   const totalOwed = loans.filter(l => l.type === 'borrowed' && l.status === 'active').reduce((s, l) => s + Number(l.remaining || l.amount || 0), 0);
   const floating = Math.max(0, totalBalance - totalBudgeted - totalOwed);
-  const foodBudget = Math.min(isWeekend ? 500 : 200, floating * 0.2);
+  // Always show suggestions even if balance is low — use 20% of floating or a minimum floor
+  const foodBudget = floating > 0 ? Math.min(isWeekend ? 500 : 200, Math.max(100, floating * 0.2)) : 150;
 
   function toggleIngredient(id) {
     setSelectedIngredients(prev =>
@@ -148,7 +149,7 @@ export default function MealsPage() {
     const scored = RECIPES
       .filter(r => {
         if (r.isWeekend && !isWeekend) return false;
-        if (r.cost > maxCost * 1.3) return false;
+        if (maxCost > 0 && r.cost > maxCost * 2) return false; // loose filter so results always appear
         return true;
       })
       .map(r => {
@@ -161,9 +162,10 @@ export default function MealsPage() {
       .sort((a, b) => b.totalScore - a.totalScore)
       .slice(0, hasIngredients ? 4 : 3);
 
-    // Restaurant suggestions based on floating cash — always shown
+    // Restaurant suggestions — use totalBalance so they always show even if budgets eat floating
+    const cashAvailable = Math.max(floating, totalBalance * 0.3, 100);
     const restaurants = RESTAURANTS
-      .filter(r => r.mealTypes.includes(mealType) && r.minCash <= floating)
+      .filter(r => r.mealTypes.includes(mealType) && r.minCash <= cashAvailable)
       .sort((a, b) => b.minCash - a.minCash)
       .slice(0, 4);
 
