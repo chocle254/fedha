@@ -90,6 +90,29 @@ const MEAL_TYPES = [
   { id:'dinner', label:'Dinner', icon:'🌙', maxCost:180 },
 ];
 
+// ─── RESTAURANT OPTIONS ───────────────────────────────────────────────────────
+const RESTAURANTS = [
+  { id:'r_groundnut_vendor', name:'Groundnut + Mandazi Vendor', emoji:'🥜', minCash:20, cost:30, tier:'budget', mealTypes:['snack','breakfast'], what:'Roasted groundnuts and mandazi from a street vendor — the cheapest and most nutritious snack on any street.', order:'KSh 20 cone of groundnuts + 2 mandazi. Eat together.', tip:'Groundnuts have 26g protein per 100g. Best cheap snack in Kenya.' },
+  { id:'r_chai_shop', name:'Chai Shop / Mkahawa', emoji:'☕', minCash:30, cost:45, tier:'budget', mealTypes:['breakfast','snack'], what:'Mandazi, mahamri, chapati, milky chai, uji — the classic Kenyan morning.', order:'Ask for "chai ya maziwa" and 2-3 mandazi or chapati. Add boiled eggs for KSh 10-15 each.', tip:'Most chai shops have boiled eggs even if not on the menu. Always ask.' },
+  { id:'r_mutura', name:'Mutura / Roast Meat Stand', emoji:'🔥', minCash:50, cost:80, tier:'budget', mealTypes:['snack','dinner'], what:'Mutura (Kenyan sausage), roast meat, mishkaki — grilled street food with kachumbari and lemon.', order:'Ask for "roho" (a mix of everything). Always ask for kachumbari on the side.', tip:'The busiest stand is always the freshest. Busy = good.' },
+  { id:'r_mama_mboga', name:'Mama Mboga / Kibanda', emoji:'🏪', minCash:60, cost:90, tier:'budget', mealTypes:['breakfast','lunch','dinner'], what:'Ugali, beans, sukuma, rice with stew, chapati — proper home-cooked food at the cheapest sit-down prices.', order:'Point at what you want. Say "full plate" for a bigger portion. Ask what the stew of the day is.', tip:'Find a kibanda near school — fresh food every day at half the price of a proper restaurant.' },
+  { id:'r_chips_mayai', name:'Chips Mayai Joint', emoji:'🍟', minCash:80, cost:120, tier:'budget', mealTypes:['lunch','dinner','snack'], what:'Chips mayai — crispy fries cooked into an egg omelette. A Kenyan street food classic.', order:'Ask for "full" chips mayai with kachumbari. Some places add mince meat inside — ask.', tip:'Ask them to make it fresh if it has been sitting. Takes 10 minutes and tastes much better.' },
+  { id:'r_local_hotel', name:'Local Hotel / Restaurant', emoji:'🍽️', minCash:150, cost:220, tier:'mid', mealTypes:['lunch','dinner'], what:'Proper sit-down Kenyan food — nyama stew, pilau, ugali, rice, fish, chapati with better presentation than kibanda.', order:'Ask for the "special" — freshest thing they made that day. Combo meals (ugali + protein + veg) give more food for less.', tip:'Local hotels usually have better value combo deals than ordering separately. Ask before you order.' },
+  { id:'r_nyama_choma', name:'Nyama Choma Joint', emoji:'🥩', minCash:300, cost:450, tier:'mid', mealTypes:['lunch','dinner'], what:'Roasted goat or beef by weight, with ugali and kachumbari. The true Kenyan social meal.', order:'Order at least 500g — less and you will still be hungry. Ask for mixed cuts. Add roasted hoho on the side.', tip:'Best eaten with someone on a weekend. Weekends are literally made for nyama choma.' },
+  { id:'r_java', name:'Java / Café Style', emoji:'☕', minCash:280, cost:380, tier:'mid', mealTypes:['breakfast','snack'], what:'Espresso drinks, smoothies, toasted sandwiches, eggs, pancakes — Western café in a nice environment. Good for bae.', order:'Breakfast platter or eggs benedict is the best value. Split a big breakfast with bae and add drinks.', tip:'Weekday mornings are calmer and sometimes cheaper. Check for specials before ordering full price.' },
+  { id:'r_pizza', name:'Pizza Inn / Debonairs', emoji:'🍕', minCash:350, cost:500, tier:'mid', mealTypes:['lunch','dinner'], what:'Pizza, burgers, chicken — proper fast food chains. Good treat meal especially with bae.', order:'Weekday lunch specials are the best value — slice + drink combo. Individual slices cheaper than a whole pizza solo.', tip:'Best for a casual treat with bae. Check lunchtime specials — sometimes excellent value.' },
+  { id:'r_buffet', name:'Buffet / Sunday Roast', emoji:'🍱', minCash:500, cost:650, tier:'treat', mealTypes:['lunch'], what:'All-you-can-eat — proteins, carbs, salads, desserts. The best value high-end option for a big meal.', order:'Start with salads and proteins first before loading up on carbs. That way you eat more protein before getting full.', tip:'Sunday buffets are the best value eat-out option. Unlimited food and you will not need to cook the rest of the day.' },
+  { id:'r_seafood', name:'Seafood / Fish Restaurant', emoji:'🐠', minCash:500, cost:700, tier:'treat', mealTypes:['lunch','dinner'], what:'Grilled tilapia, calamari, prawns — restaurant-quality seafood that beats anything you cook at home.', order:'Grilled is healthier than fried. Whole tilapia is usually the best value. Add kachumbari and ugali.', tip:'Perfect for a special occasion. Grilled fish at a good restaurant is genuinely different from home cooking.' },
+  { id:'r_steakhouse', name:'Steakhouse / Grill', emoji:'🥩', minCash:700, cost:950, tier:'treat', mealTypes:['dinner'], what:'Proper grilled steaks, ribs, burgers — a full grill experience worth saving for.', order:'Ask for medium rare if you have never tried it. Add chips and salad. Share a dessert with bae.', tip:'A good steakhouse is worth saving for once a month. Friday evening with bae is the perfect time.' },
+];
+
+const TIER_COLORS = {
+  budget: { bg:'rgba(16,185,129,0.08)', border:'rgba(16,185,129,0.2)', label:'#10B981', badge:'Budget' },
+  mid:    { bg:'rgba(59,130,246,0.08)', border:'rgba(59,130,246,0.2)',  label:'#3B82F6', badge:'Mid-range' },
+  treat:  { bg:'rgba(236,72,153,0.08)', border:'rgba(236,72,153,0.2)', label:'#EC4899', badge:'Treat' },
+};
+
+
 export default function MealsPage() {
   const { wallets, budgets, loans, currency, addTransaction } = useApp();
   const [selectedIngredients, setSelectedIngredients] = useState([]);
@@ -119,27 +142,32 @@ export default function MealsPage() {
   function getSuggestions() {
     const type = MEAL_TYPES.find(t => t.id === mealType);
     const maxCost = Math.min(type.maxCost, foodBudget);
+    const hasIngredients = selectedIngredients.length > 0;
 
-    // Score recipes by: matching ingredients, budget fit, weekend status
+    // Score recipes — if no ingredients selected, show affordable ones ranked by cost fit
     const scored = RECIPES
       .filter(r => {
-        // Weekend recipes only on weekend, weekday recipes always available
         if (r.isWeekend && !isWeekend) return false;
-        // Must fit budget
         if (r.cost > maxCost * 1.3) return false;
         return true;
       })
       .map(r => {
         const hasRequired = r.requires.filter(req => selectedIngredients.includes(req));
         const missingRequired = r.requires.filter(req => !selectedIngredients.includes(req));
-        const matchScore = hasRequired.length / r.requires.length;
+        const matchScore = hasIngredients ? hasRequired.length / r.requires.length : 0.5;
         const costScore = 1 - Math.abs(r.cost - maxCost * 0.7) / maxCost;
         return { ...r, matchScore, missingRequired, totalScore: matchScore * 0.7 + costScore * 0.3 };
       })
       .sort((a, b) => b.totalScore - a.totalScore)
+      .slice(0, hasIngredients ? 4 : 3);
+
+    // Restaurant suggestions based on floating cash — always shown
+    const restaurants = RESTAURANTS
+      .filter(r => r.mealTypes.includes(mealType) && r.minCash <= floating)
+      .sort((a, b) => b.minCash - a.minCash)
       .slice(0, 4);
 
-    setSuggestions({ recipes: scored, foodBudget, maxCost, isWeekend });
+    setSuggestions({ recipes: scored, restaurants, foodBudget, maxCost, isWeekend, hasIngredients });
   }
 
   // Ingredients user should add to buy based on balance
@@ -243,9 +271,9 @@ export default function MealsPage() {
           )}
 
           {/* Suggest button */}
-          <button className="btn-primary" onClick={getSuggestions} disabled={selectedIngredients.length === 0}
+          <button className="btn-primary" onClick={getSuggestions} 
             style={{ marginBottom:20 }}>
-            {selectedIngredients.length === 0 ? 'Select ingredients above first' : `🍽️ Suggest ${MEAL_TYPES.find(t=>t.id===mealType)?.label} Meals`}
+            `🍽️ Suggest ${MEAL_TYPES.find(t=>t.id===mealType)?.label} Meals${selectedIngredients.length > 0 ? ' (with your ingredients)' : ''}`
           </button>
 
           {/* Suggestions */}
@@ -320,6 +348,44 @@ export default function MealsPage() {
                   );
                 })}
               </div>
+
+              {/* Restaurant options */}
+              {suggestions.restaurants && suggestions.restaurants.length > 0 && (
+                <div style={{ marginTop:8 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
+                    <div className="section-title" style={{ marginBottom:0 }}>OR EAT OUT</div>
+                    <div style={{ fontSize:12, color:'var(--text-3)', flex:1 }}>Based on your {formatShort(floating, currency)} available</div>
+                  </div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:24 }}>
+                    {suggestions.restaurants.map(r => {
+                      const tc = TIER_COLORS[r.tier];
+                      return (
+                        <div key={r.id} style={{ background:tc.bg, border:`1px solid ${tc.border}`, borderRadius:12, padding:'14px 16px' }}>
+                          <div style={{ display:'flex', alignItems:'flex-start', gap:10, marginBottom:8 }}>
+                            <span style={{ fontSize:24, flexShrink:0 }}>{r.emoji}</span>
+                            <div style={{ flex:1 }}>
+                              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:2 }}>
+                                <div style={{ fontSize:14, fontWeight:700 }}>{r.name}</div>
+                                <span style={{ fontSize:10, fontWeight:700, color:tc.label, background:`${tc.label}20`, padding:'2px 8px', borderRadius:100 }}>{tc.badge}</span>
+                              </div>
+                              <div style={{ fontSize:12, color:'var(--text-3)' }}>{r.what}</div>
+                            </div>
+                            <div className="font-num" style={{ fontSize:14, fontWeight:700, color:tc.label, flexShrink:0 }}>~KSh {r.cost}</div>
+                          </div>
+                          <div style={{ fontSize:12, color:'var(--text-2)', background:'rgba(0,0,0,0.15)', padding:'8px 10px', borderRadius:8, marginBottom:8, lineHeight:1.5 }}>
+                            <span style={{ fontWeight:600 }}>What to order: </span>{r.order}
+                          </div>
+                          <div style={{ fontSize:12, color:'var(--text-3)', lineHeight:1.4 }}>💡 {r.tip}</div>
+                          <button onClick={() => setRecordingMeal({ ...r, name:r.name, isRestaurant:true })}
+                            style={{ marginTop:10, width:'100%', padding:'9px', background:'transparent', border:`1px solid ${tc.border}`, borderRadius:8, color:tc.label, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'Outfit' }}>
+                            I'm going here — record this expense
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
