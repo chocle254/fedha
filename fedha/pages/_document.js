@@ -9,13 +9,19 @@ export default function Document() {
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Fedha" />
-        <meta name="description" content="Personal finance tracker — wallets, budgets, loans & goals" />
+        <meta name="description" content="Personal finance, meals, workouts and daily planner" />
         <meta name="format-detection" content="telephone=no" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="theme-color" content="#080C18" />
+        <meta name="theme-color" content="#0A0D17" />
+
+        {/* Favicon */}
+        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+        <link rel="alternate icon" href="/icon.svg" />
+        <link rel="apple-touch-icon" href="/icon.svg" />
+        <link rel="mask-icon" href="/icon.svg" color="#10B981" />
+
+        {/* PWA manifest */}
         <link rel="manifest" href="/manifest.json" />
-        <link rel="apple-touch-icon" href="/icon-192.png" />
-        <link rel="icon" type="image/png" sizes="32x32" href="/icon-192.png" />
       </Head>
       <body>
         <Main />
