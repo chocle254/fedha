@@ -13,14 +13,15 @@ const NAV = [
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
     </svg>
   )},
-  { href:'/wallets', label:'Wallets', icon:(a) => (
-    <svg viewBox="0 0 24 24" fill={a?'currentColor':'none'} stroke="currentColor" strokeWidth="1.8">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-    </svg>
-  )},
   { href:'/budgets', label:'Budget', icon:(a) => (
     <svg viewBox="0 0 24 24" fill={a?'currentColor':'none'} stroke="currentColor" strokeWidth="1.8">
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+    </svg>
+  )},
+  { href:'/workout', label:'Workout', icon:(a) => (
+    <svg viewBox="0 0 24 24" fill={a?'currentColor':'none'} stroke="currentColor" strokeWidth="1.8">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+      <circle cx="12" cy="12" r="9" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   )},
   { href:'/meals', label:'Meals', icon:(a) => (
@@ -33,22 +34,12 @@ const NAV = [
       <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
     </svg>
   )},
-  { href:'/health', label:'Health', icon:(a) => (
-    <svg viewBox="0 0 24 24" fill={a?'currentColor':'none'} stroke="currentColor" strokeWidth="1.8">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-    </svg>
-  )},
-  { href:'/reports', label:'Reports', icon:(a) => (
-    <svg viewBox="0 0 24 24" fill={a?'currentColor':'none'} stroke="currentColor" strokeWidth="1.8">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
-    </svg>
-  )},
 ];
 
 export default function Layout({ children, fab, onFab }) {
   const router = useRouter();
   const { isOnline } = useApp();
+
   return (
     <div style={{ background:'var(--bg)', minHeight:'100vh' }}>
       {!isOnline && (
@@ -57,15 +48,18 @@ export default function Layout({ children, fab, onFab }) {
           Offline — changes saved locally
         </div>
       )}
+
       <main>{children}</main>
+
       {fab !== false && (
         <button className="fab" onClick={onFab} aria-label="Add transaction">+</button>
       )}
+
       <nav className="bottom-nav">
         {NAV.map(({ href, label, icon }) => {
           const active = router.pathname === href;
           return (
-            <Link key={href} href={href} className={`nav-item ${active ? 'active' : ''}`}>
+            <Link key={href} href={href} className={`nav-item ${active?'active':''}`}>
               {icon(active)}
               {label}
             </Link>
