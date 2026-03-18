@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="112" fill="#0A0D17"/>
+  
+  <!-- Outer glow ring -->
+  <circle cx="256" cy="256" r="190" fill="none" stroke="#10B981" stroke-width="6" opacity="0.3"/>
+  
+  <!-- Inner circle -->
+  <circle cx="256" cy="256" r="160" fill="#0E1525"/>
+  
+  <!-- F letter mark -->
+  <!-- Vertical bar -->
+  <rect x="168" y="148" width="44" height="216" rx="12" fill="#10B981"/>
+  <!-- Top horizontal bar -->
+  <rect x="168" y="148" width="148" height="44" rx="12" fill="#10B981"/>
+  <!-- Middle horizontal bar -->
+  <rect x="168" y="234" width="120" height="40" rx="10" fill="#10B981" opacity="0.85"/>
+  
+  <!-- Small coin accent bottom right -->
+  <circle cx="330" cy="340" r="38" fill="#0A0D17" stroke="#10B981" stroke-width="5"/>
+  <text x="330" y="352" text-anchor="middle" font-family="Georgia, serif" font-size="32" font-weight="bold" fill="#10B981">₭</text>
+</svg>
