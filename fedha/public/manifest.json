@@ -1,23 +1,19 @@
 {
   "name": "Fedha — Personal Finance",
   "short_name": "Fedha",
-  "description": "Track your money, wallets, budgets, loans and savings goals",
+  "description": "Track money, meals, workouts and your daily plan",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0A0D17",
-  "theme_color": "#10B981",
+  "theme_color": "#0A0D17",
   "orientation": "portrait",
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ],
-  "categories": ["finance", "productivity"],
+  "categories": ["finance", "health", "productivity"],
   "shortcuts": [
-    {
-      "name": "Add Transaction",
-      "short_name": "Add",
-      "url": "/transactions?add=1",
-      "description": "Quickly add a new transaction"
-    }
+    { "name": "Add Transaction", "short_name": "Add", "url": "/transactions?add=1", "description": "Quickly add a new transaction" },
+    { "name": "Today's Workout", "short_name": "Workout", "url": "/workout", "description": "Start today's workout" },
+    { "name": "Meal Plan", "short_name": "Meals", "url": "/meals", "description": "See today's meals" }
   ]
 }
