@@ -7,6 +7,7 @@ import {
   getLoans, saveLoan, deleteLoan,
   getGoals, saveGoal, deleteGoal,
   getIncomePlans, saveIncomePlan, deleteIncomePlan,
+  getChallenges, saveChallenge, deleteChallenge,
   getSetting, setSetting, seedDefaultData,
 } from '../lib/db';
 
@@ -19,6 +20,7 @@ export function AppProvider({ children }) {
   const [loans, setLoans] = useState([]);
   const [goals, setGoals] = useState([]);
   const [incomePlans, setIncomePlans] = useState([]);
+  const [challenges, setChallenges] = useState([]);
   const [currency, setCurrencyState] = useState('KES');
   const [isOnline, setIsOnline] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -26,13 +28,14 @@ export function AppProvider({ children }) {
   // Load all data
   const loadAll = useCallback(async () => {
     await seedDefaultData();
-    const [ws, ts, bs, ls, gs, ips, cur] = await Promise.all([
+    const [ws, ts, bs, ls, gs, ips, chs, cur] = await Promise.all([
       getWallets(),
       getTransactions(),
       getBudgets(),
       getLoans(),
       getGoals(),
       getIncomePlans(),
+      getChallenges(),
       getSetting('currency', 'KES'),
     ]);
     setWallets(ws);
@@ -41,6 +44,7 @@ export function AppProvider({ children }) {
     setLoans(ls);
     setGoals(gs);
     setIncomePlans(ips);
+    setChallenges(chs);
     setCurrencyState(cur);
     setLoading(false);
   }, []);
@@ -167,6 +171,24 @@ export function AppProvider({ children }) {
     setIncomePlans((prev) => prev.filter((x) => x.id !== id));
   }, []);
 
+  // ─── CHALLENGES ─────────────────────────────────────────────────────────────
+  const addChallenge = useCallback(async (data) => {
+    const c = await saveChallenge({ id: genId(), completed: [], start_date: todayISO(), created_at: new Date().toISOString(), ...data });
+    setChallenges((prev) => [...prev, c]);
+    return c;
+  }, []);
+
+  const updateChallenge = useCallback(async (challenge) => {
+    const c = await saveChallenge(challenge);
+    setChallenges((prev) => prev.map((x) => (x.id === c.id ? c : x)));
+    return c;
+  }, []);
+
+  const removeChallenge = useCallback(async (id) => {
+    await deleteChallenge(id);
+    setChallenges((prev) => prev.filter((x) => x.id !== id));
+  }, []);
+
   // ─── SETTINGS ───────────────────────────────────────────────────────────────
   const setCurrency = useCallback(async (cur) => {
     await setSetting('currency', cur);
@@ -188,6 +210,7 @@ export function AppProvider({ children }) {
       loans, addLoan, updateLoan, removeLoan,
       goals, addGoal, updateGoal, removeGoal,
       incomePlans, addIncomePlan, updateIncomePlan, removeIncomePlan,
+      challenges, addChallenge, updateChallenge, removeChallenge,
       totalBalance, totalLoaned, totalBorrowed, netWorth,
       reload: loadAll,
     }}>

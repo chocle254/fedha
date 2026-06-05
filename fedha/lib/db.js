@@ -1,7 +1,7 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'fedha_db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbPromise = null;
 
@@ -39,6 +39,9 @@ function getDB() {
         if (!db.objectStoreNames.contains('food_logs')) {
           const fs = db.createObjectStore('food_logs', { keyPath: 'id' });
           fs.createIndex('date', 'date');
+        }
+        if (!db.objectStoreNames.contains('challenges')) {
+          db.createObjectStore('challenges', { keyPath: 'id' });
         }
       },
     });
@@ -238,6 +241,22 @@ export async function saveFoodLog(entry) {
 export async function deleteFoodLog(id) {
   const db = await getDB();
   return db.delete('food_logs', id);
+}
+
+// ─── CHALLENGES ──────────────────────────────────────────────────────────────
+export async function getChallenges() {
+  const db = await getDB();
+  return db.getAll('challenges');
+}
+export async function saveChallenge(challenge) {
+  const db = await getDB();
+  const record = { synced: false, ...challenge, updated_at: new Date().toISOString() };
+  await db.put('challenges', record);
+  return record;
+}
+export async function deleteChallenge(id) {
+  const db = await getDB();
+  return db.delete('challenges', id);
 }
 
 // ─── SEED DEFAULT DATA ────────────────────────────────────────────────────────
