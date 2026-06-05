@@ -1,7 +1,7 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'fedha_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise = null;
 
@@ -35,6 +35,10 @@ function getDB() {
         }
         if (!db.objectStoreNames.contains('settings')) {
           db.createObjectStore('settings', { keyPath: 'key' });
+        }
+        if (!db.objectStoreNames.contains('food_logs')) {
+          const fs = db.createObjectStore('food_logs', { keyPath: 'id' });
+          fs.createIndex('date', 'date');
         }
       },
     });
@@ -214,6 +218,26 @@ export async function saveIncomePlan(plan) {
 export async function deleteIncomePlan(id) {
   const db = await getDB();
   return db.delete('income_plans', id);
+}
+
+// ─── FOOD LOGS ───────────────────────────────────────────────────────────────
+export async function getFoodLogs(date) {
+  const db = await getDB();
+  if (date) {
+    const all = await db.getAllFromIndex('food_logs', 'date', date);
+    return all.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  }
+  return db.getAll('food_logs');
+}
+export async function saveFoodLog(entry) {
+  const db = await getDB();
+  const record = { synced: false, ...entry, updated_at: new Date().toISOString() };
+  await db.put('food_logs', record);
+  return record;
+}
+export async function deleteFoodLog(id) {
+  const db = await getDB();
+  return db.delete('food_logs', id);
 }
 
 // ─── SEED DEFAULT DATA ────────────────────────────────────────────────────────
