@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useApp } from '../context/AppContext';
@@ -18,27 +19,42 @@ const NAV = [
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
     </svg>
   )},
-  { href:'/workout', label:'Workout', icon:(a) => (
-    <svg viewBox="0 0 24 24" fill={a?'currentColor':'none'} stroke="currentColor" strokeWidth="1.8">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-      <circle cx="12" cy="12" r="9" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  )},
-  { href:'/meals', label:'Meals', icon:(a) => (
+  { href:'/meals', label:'Food', icon:(a) => (
     <svg viewBox="0 0 24 24" fill={a?'currentColor':'none'} stroke="currentColor" strokeWidth="1.8">
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
     </svg>
   )},
-  { href:'/planner', label:'Planner', icon:(a) => (
-    <svg viewBox="0 0 24 24" fill={a?'currentColor':'none'} stroke="currentColor" strokeWidth="1.8">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-    </svg>
-  )},
 ];
+
+// Secondary pages surfaced through the "More" menu
+const MORE = [
+  { href:'/goals',    label:'Savings Goals', emoji:'🎯', desc:'What you are saving for' },
+  { href:'/wallets',  label:'Wallets',       emoji:'👛', desc:'Accounts & balances' },
+  { href:'/reports',  label:'Reports',       emoji:'📊', desc:'Spending insights' },
+  { href:'/workout',  label:'Workout',       emoji:'💪', desc:'Training log' },
+  { href:'/planner',  label:'Planner',       emoji:'📅', desc:'Schedule & tasks' },
+  { href:'/discover', label:'Discover',      emoji:'🧭', desc:'Tips & explore' },
+  { href:'/health',   label:'Health',        emoji:'❤️', desc:'Wellness tracking' },
+];
+
+const MORE_HREFS = MORE.map((m) => m.href);
+
+function MoreIcon(a) {
+  return (
+    <svg viewBox="0 0 24 24" fill={a?'currentColor':'none'} stroke="currentColor" strokeWidth="1.8">
+      <circle cx="5" cy="12" r="1.6" />
+      <circle cx="12" cy="12" r="1.6" />
+      <circle cx="19" cy="12" r="1.6" />
+    </svg>
+  );
+}
 
 export default function Layout({ children, fab, onFab }) {
   const router = useRouter();
   const { isOnline } = useApp();
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  const moreActive = MORE_HREFS.includes(router.pathname);
 
   return (
     <div style={{ background:'var(--bg)', minHeight:'100vh' }}>
@@ -55,6 +71,35 @@ export default function Layout({ children, fab, onFab }) {
         <button className="fab" onClick={onFab} aria-label="Add transaction">+</button>
       )}
 
+      {/* More menu sheet */}
+      {moreOpen && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setMoreOpen(false)}>
+          <div className="modal-sheet">
+            <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+            <div className="modal-header">
+              <span style={{ fontSize: 16, fontWeight: 700 }}>More</span>
+              <button className="btn-icon" onClick={() => setMoreOpen(false)} aria-label="Close">✕</button>
+            </div>
+            <div style={{ padding: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {MORE.map((m) => {
+                const active = router.pathname === m.href;
+                return (
+                  <Link key={m.href} href={m.href} onClick={() => setMoreOpen(false)} style={{ textDecoration: 'none' }}>
+                    <div className="card-2" style={{ padding: '14px 14px', display: 'flex', flexDirection: 'column', gap: 8, borderColor: active ? 'var(--green)' : 'var(--border)' }}>
+                      <span style={{ fontSize: 26 }}>{m.emoji}</span>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: active ? 'var(--green)' : 'var(--text)' }}>{m.label}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{m.desc}</div>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       <nav className="bottom-nav">
         {NAV.map(({ href, label, icon }) => {
           const active = router.pathname === href;
@@ -65,6 +110,14 @@ export default function Layout({ children, fab, onFab }) {
             </Link>
           );
         })}
+        <button
+          className={`nav-item ${moreActive ? 'active' : ''}`}
+          onClick={() => setMoreOpen(true)}
+          aria-label="More pages"
+        >
+          {MoreIcon(moreActive)}
+          More
+        </button>
       </nav>
     </div>
   );

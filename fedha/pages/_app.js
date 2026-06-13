@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AppProvider } from '../context/AppContext';
 import '../styles/globals.css';
 
@@ -44,10 +44,24 @@ function NotificationScheduler() {
 }
 
 export default function App({ Component, pageProps }) {
+  // This app stores all data in IndexedDB, which only exists in the browser.
+  // Defer rendering the page until the client has mounted so the server HTML
+  // and the first client paint match exactly (prevents hydration mismatches
+  // caused by date/time and client-only data rendered during initial render).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   return (
     <AppProvider>
       <NotificationScheduler />
-      <Component {...pageProps} />
+      {mounted ? (
+        <Component {...pageProps} />
+      ) : (
+        <div
+          aria-hidden="true"
+          style={{ background: 'var(--bg)', minHeight: '100vh' }}
+        />
+      )}
     </AppProvider>
   );
 }

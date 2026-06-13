@@ -1,3 +1,4 @@
+
 import { v4 as uuidv4 } from 'uuid';
 import { format, formatDistanceToNow, isPast, isToday, isTomorrow } from 'date-fns';
 
@@ -5,25 +6,57 @@ export const genId = () => uuidv4();
 
 export const CURRENCIES = {
   KES: { symbol: 'KSh', locale: 'en-KE' },
-  USD: { symbol: '$', locale: 'en-US' },
-  EUR: { symbol: '€', locale: 'de-DE' },
-  GBP: { symbol: '£', locale: 'en-GB' },
+  USD: { symbol: '$',   locale: 'en-US' },
+  EUR: { symbol: '€',   locale: 'de-DE' },
+  GBP: { symbol: '£',   locale: 'en-GB' },
   UGX: { symbol: 'USh', locale: 'en-UG' },
   TZS: { symbol: 'TSh', locale: 'en-TZ' },
 };
 
-export function formatCurrency(amount, currency = 'KES') {
+// ─── EXCHANGE RATES ───────────────────────────────────────────────────────────
+// ALL money is STORED in the base currency (KES). Display currency is converted
+// at render time. _rates[X] = "1 base unit = X units of currency X".
+let _baseCurrency = 'KES';
+let _rates = { KES: 1, USD: 0.0077, EUR: 0.0071, GBP: 0.0061, UGX: 28.5, TZS: 19.5 }; // offline fallback
+
+export function setRates(rates, base = 'KES') {
+  if (rates && typeof rates === 'object') _rates = { ..._rates, ...rates };
+  if (base) _baseCurrency = base;
+}
+export function getRates() { return { ..._rates }; }
+export function getBaseCurrency() { return _baseCurrency; }
+
+// base amount -> display currency
+export function convertAmount(amount, displayCurrency = _baseCurrency) {
+  const a = Number(amount) || 0;
+  const rate = _rates[displayCurrency];
+  return rate ? a * rate : a;
+}
+// display-currency amount -> base (use this when SAVING user-entered amounts)
+export function toBaseAmount(amount, displayCurrency = _baseCurrency) {
+  const a = Number(amount) || 0;
+  const rate = _rates[displayCurrency];
+  return rate ? a / rate : a;
+}
+
+export function formatCurrency(amount, currency = _baseCurrency) {
   const cfg = CURRENCIES[currency] || CURRENCIES.KES;
-  const num = Number(amount) || 0;
+  const num = convertAmount(amount, currency);
   return `${cfg.symbol} ${num.toLocaleString(cfg.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function formatShort(amount, currency = 'KES') {
+export function formatShort(amount, currency = _baseCurrency) {
   const cfg = CURRENCIES[currency] || CURRENCIES.KES;
-  const n = Number(amount) || 0;
+  const n = convertAmount(amount, currency);
   if (Math.abs(n) >= 1_000_000) return `${cfg.symbol} ${(n / 1_000_000).toFixed(1)}M`;
   if (Math.abs(n) >= 1_000) return `${cfg.symbol} ${(n / 1_000).toFixed(1)}K`;
-  return formatCurrency(n, currency);
+  return formatCurrency(amount, currency);
+}
+
+// ─── LOCAL DATE HELPERS (fixes UTC "wrong day" bug for KES/UTC+3) ───────────────
+function pad(n) { return n < 10 ? `0${n}` : `${n}`; }
+export function localISO(d = new Date()) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 export function formatDate(dateStr) {
@@ -33,35 +66,24 @@ export function formatDate(dateStr) {
   if (isTomorrow(d)) return 'Tomorrow';
   return format(d, 'dd MMM yyyy');
 }
-
 export function formatDateRelative(dateStr) {
   if (!dateStr) return '';
   return formatDistanceToNow(new Date(dateStr), { addSuffix: true });
 }
-
 export function isOverdue(dateStr) {
   return dateStr && isPast(new Date(dateStr)) && !isToday(new Date(dateStr));
 }
-
 export function getDaysUntil(dateStr) {
   if (!dateStr) return null;
-  const diff = new Date(dateStr) - new Date();
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  return Math.ceil((new Date(dateStr) - new Date()) / (1000 * 60 * 60 * 24));
 }
-
-export function todayISO() {
-  return new Date().toISOString().split('T')[0];
-}
+export function todayISO() { return localISO(new Date()); }
 
 export function monthRange(offset = 0) {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth() + offset, 1);
   const end = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0);
-  return {
-    from: start.toISOString().split('T')[0],
-    to: end.toISOString().split('T')[0],
-    label: format(start, 'MMMM yyyy'),
-  };
+  return { from: localISO(start), to: localISO(end), label: format(start, 'MMMM yyyy') };
 }
 
 // ─── CATEGORIES ──────────────────────────────────────────────────────────────
@@ -83,33 +105,24 @@ export const CATEGORIES = [
   { id: 'investment',  label: 'Investment',       icon: '📈',  color: '#22C55E' },
   { id: 'other',       label: 'Other',            icon: '📦',  color: '#94A3B8' },
 ];
-
 export function getCategoryById(id) {
   return CATEGORIES.find((c) => c.id === id) || CATEGORIES[CATEGORIES.length - 1];
 }
-
-export const EXPENSE_CATEGORIES = CATEGORIES.filter((c) =>
-  !['salary', 'freelance', 'investment'].includes(c.id)
-);
-export const INCOME_CATEGORIES = CATEGORIES.filter((c) =>
-  ['salary', 'freelance', 'investment', 'business', 'other'].includes(c.id)
-);
+export const EXPENSE_CATEGORIES = CATEGORIES.filter((c) => !['salary', 'freelance', 'investment'].includes(c.id));
+export const INCOME_CATEGORIES = CATEGORIES.filter((c) => ['salary', 'freelance', 'investment', 'business', 'other'].includes(c.id));
 
 // ─── CHART HELPERS ────────────────────────────────────────────────────────────
 export function groupByDay(transactions, days = 7) {
   const result = [];
   for (let i = days - 1; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const key = d.toISOString().split('T')[0];
-    const label = format(d, 'EEE');
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const key = localISO(d);
     const income = transactions.filter((t) => t.date === key && t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
     const expense = transactions.filter((t) => t.date === key && t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
-    result.push({ label, date: key, income, expense });
+    result.push({ label: format(d, 'EEE'), date: key, income, expense });
   }
   return result;
 }
-
 export function groupByCategory(transactions) {
   const map = {};
   transactions.filter((t) => t.type === 'expense').forEach((t) => {
@@ -119,7 +132,6 @@ export function groupByCategory(transactions) {
   });
   return Object.values(map).sort((a, b) => b.value - a.value);
 }
-
 export function groupByMonth(transactions, months = 6) {
   const result = [];
   for (let i = months - 1; i >= 0; i--) {

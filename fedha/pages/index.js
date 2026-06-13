@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
+import SavingsMotivator from '../components/SavingsMotivator';
+import SavingsChallenges from '../components/SavingsChallenges';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatShort, formatDate, formatDateRelative, getCategoryById, groupByDay, monthRange } from '../lib/utils';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
@@ -107,6 +109,12 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+
+        {/* Savings motivation */}
+        <SavingsMotivator />
+
+        {/* Savings challenges */}
+        <SavingsChallenges />
 
         {/* 7-day chart */}
         <div className="section">
