@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY not set in environment variables' });
 
-  const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce } = req.body;
+  const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup } = req.body;
   let prompt = '';
 
   const varietyStr = nonce ? `\nFreshness token: ${nonce}. Give a DIFFERENT, fresh set of ideas than you might usually pick — avoid repeating the obvious defaults.` : '';
@@ -80,6 +80,44 @@ Return a JSON object: { "results": [ ...6 items ] }. Each item has exactly:
 - description (1-2 sentences), is_free (boolean).`;
   }
 
+  if (type === 'startup_analysis') {
+    if (!startup) return res.status(400).json({ error: 'Startup data required' });
+
+    const stagesText = Object.entries(startup.stages || {})
+      .map(([stageId, stageData]) => {
+        if (!stageData || Object.keys(stageData).length === 0) return null;
+        const fields = Object.entries(stageData).map(([k, v]) => `${k}: ${v}`).join('\n  ');
+        return `${stageId}:\n  ${fields}`;
+      })
+      .filter(Boolean)
+      .join('\n\n');
+
+    prompt = `You are a startup advisor. Analyze this startup and provide strategic feedback.
+
+Startup Name: ${startup.name}
+${startup.accelerator ? `Accelerator: ${startup.accelerator}` : ''}
+
+Journey Data:
+${stagesText || '(Minimal data filled in)'}
+
+Provide a comprehensive analysis. Return a JSON object with exactly these fields:
+{
+  "strengths": "2-3 compelling reasons why this startup could succeed. Focus on unique positioning, market opportunity, and execution capability.",
+  "risks": "2-3 key challenges or red flags to watch out for. Be honest about market saturation, technical challenges, or business model concerns.",
+  "competitors": [
+    {
+      "name": "A real competing app/product",
+      "description": "What they do in 1-2 sentences",
+      "your_edge": "Specific advantage this startup has over them (e.g. cheaper pricing, better UX, untapped market)"
+    },
+    ...3-4 competitors total
+  ],
+  "next_steps": "3-4 critical things to focus on next (specific, actionable, prioritized by impact)"
+}
+
+Be specific, data-driven where possible, and constructive. Don't be afraid to point out real issues.`;
+  }
+
   try {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -111,6 +149,18 @@ Return a JSON object: { "results": [ ...6 items ] }. Each item has exactly:
       if (!m) return res.status(500).json({ error: 'Could not parse AI response', raw: rawText });
       parsed = JSON.parse(m[0]);
     }
+
+    // For startup_analysis, return the full object (not just results)
+    if (type === 'startup_analysis') {
+      try {
+        const obj = JSON.parse(rawText);
+        return res.status(200).json({ analysis: obj });
+      } catch {
+        console.error('Failed to parse startup analysis:', rawText);
+        return res.status(500).json({ error: 'Could not parse analysis response' });
+      }
+    }
+
     return res.status(200).json({ results: parsed });
   } catch (err) {
     console.error('AI route error:', err);
