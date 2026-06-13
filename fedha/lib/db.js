@@ -1,49 +1,70 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'fedha_db';
-const DB_VERSION = 3;
+const DB_VERSION = 2; // bumped: added "challenges" store
 
 let dbPromise = null;
+
+// ── Safari/iOS IndexedDB cold-start fix ──────────────────────────────────────
+// WebKit has a bug where the first IndexedDB access after launch hangs/returns
+// empty. This waits until IndexedDB is actually ready before we open it.
+function idbReady() {
+  if (typeof indexedDB === 'undefined' || !indexedDB.databases) return Promise.resolve();
+  const isSafari =
+    typeof navigator !== 'undefined' &&
+    /Safari/.test(navigator.userAgent) &&
+    !/Chrome|Chromium|Android/.test(navigator.userAgent);
+  if (!isSafari) return Promise.resolve();
+  let intervalId;
+  return new Promise((resolve) => {
+    const check = () => indexedDB.databases().finally(resolve);
+    intervalId = setInterval(check, 100);
+    check();
+  }).finally(() => clearInterval(intervalId));
+}
+
+async function requestPersistence() {
+  try {
+    if (navigator?.storage?.persist && navigator?.storage?.persisted) {
+      const already = await navigator.storage.persisted();
+      if (!already) await navigator.storage.persist();
+    }
+  } catch (e) {
+    console.warn('[fedha] persistent storage request failed:', e?.message);
+  }
+}
 
 function getDB() {
   if (typeof window === 'undefined') return null;
   if (!dbPromise) {
-    dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains('wallets')) {
-          db.createObjectStore('wallets', { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('transactions')) {
-          const ts = db.createObjectStore('transactions', { keyPath: 'id' });
-          ts.createIndex('date', 'date');
-          ts.createIndex('wallet_id', 'wallet_id');
-          ts.createIndex('type', 'type');
-        }
-        if (!db.objectStoreNames.contains('budgets')) {
-          db.createObjectStore('budgets', { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('loans')) {
-          const ls = db.createObjectStore('loans', { keyPath: 'id' });
-          ls.createIndex('due_date', 'due_date');
-          ls.createIndex('status', 'status');
-        }
-        if (!db.objectStoreNames.contains('goals')) {
-          db.createObjectStore('goals', { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('income_plans')) {
-          db.createObjectStore('income_plans', { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('settings')) {
-          db.createObjectStore('settings', { keyPath: 'key' });
-        }
-        if (!db.objectStoreNames.contains('food_logs')) {
-          const fs = db.createObjectStore('food_logs', { keyPath: 'id' });
-          fs.createIndex('date', 'date');
-        }
-        if (!db.objectStoreNames.contains('challenges')) {
-          db.createObjectStore('challenges', { keyPath: 'id' });
-        }
-      },
+    dbPromise = (async () => {
+      await idbReady();
+      await requestPersistence();
+      return openDB(DB_NAME, DB_VERSION, {
+        upgrade(db) {
+          if (!db.objectStoreNames.contains('wallets')) db.createObjectStore('wallets', { keyPath: 'id' });
+          if (!db.objectStoreNames.contains('transactions')) {
+            const ts = db.createObjectStore('transactions', { keyPath: 'id' });
+            ts.createIndex('date', 'date');
+            ts.createIndex('wallet_id', 'wallet_id');
+            ts.createIndex('type', 'type');
+          }
+          if (!db.objectStoreNames.contains('budgets')) db.createObjectStore('budgets', { keyPath: 'id' });
+          if (!db.objectStoreNames.contains('loans')) {
+            const ls = db.createObjectStore('loans', { keyPath: 'id' });
+            ls.createIndex('due_date', 'due_date');
+            ls.createIndex('status', 'status');
+          }
+          if (!db.objectStoreNames.contains('goals')) db.createObjectStore('goals', { keyPath: 'id' });
+          if (!db.objectStoreNames.contains('income_plans')) db.createObjectStore('income_plans', { keyPath: 'id' });
+          if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
+          if (!db.objectStoreNames.contains('challenges')) db.createObjectStore('challenges', { keyPath: 'id' });
+        },
+      });
+    })().catch((e) => {
+      console.error('[fedha] Failed to open IndexedDB:', e);
+      dbPromise = null; // allow a retry on next call
+      throw e;
     });
   }
   return dbPromise;
@@ -51,9 +72,14 @@ function getDB() {
 
 // ─── SETTINGS ────────────────────────────────────────────────────────────────
 export async function getSetting(key, fallback = null) {
-  const db = await getDB();
-  const row = await db.get('settings', key);
-  return row ? row.value : fallback;
+  try {
+    const db = await getDB();
+    const row = await db.get('settings', key);
+    return row ? row.value : fallback;
+  } catch (e) {
+    console.error('[fedha] getSetting failed:', key, e?.message);
+    return fallback;
+  }
 }
 export async function setSetting(key, value) {
   const db = await getDB();
@@ -95,33 +121,29 @@ export async function saveTransaction(tx) {
   const record = { synced: false, ...tx, updated_at: now };
   await db.put('transactions', record);
 
-  // Update source wallet balance
   const wallet = await db.get('wallets', tx.wallet_id);
   if (wallet) {
-    if (tx.type === 'income') wallet.balance = (wallet.balance || 0) + Number(tx.amount);
-    else wallet.balance = (wallet.balance || 0) - Number(tx.amount);
+    if (tx.type === 'income') wallet.balance = (Number(wallet.balance) || 0) + Number(tx.amount);
+    else wallet.balance = (Number(wallet.balance) || 0) - Number(tx.amount);
     await db.put('wallets', { ...wallet, updated_at: now });
   }
 
-  // Transfer: credit destination wallet
   if (tx.type === 'transfer' && tx.to_wallet_id) {
     const toWallet = await db.get('wallets', tx.to_wallet_id);
     if (toWallet) {
-      toWallet.balance = (toWallet.balance || 0) + Number(tx.amount);
+      toWallet.balance = (Number(toWallet.balance) || 0) + Number(tx.amount);
       await db.put('wallets', { ...toWallet, updated_at: now });
     }
   }
 
-  // Update budget envelope spent amount
   if (tx.type === 'expense' && tx.category) {
     const budgets = await db.getAll('budgets');
     const budget = budgets.find((b) => b.category === tx.category);
     if (budget) {
-      budget.spent = (budget.spent || 0) + Number(tx.amount);
+      budget.spent = (Number(budget.spent) || 0) + Number(tx.amount);
       await db.put('budgets', { ...budget, updated_at: now });
     }
   }
-
   return record;
 }
 
@@ -131,146 +153,84 @@ export async function deleteTransaction(id) {
   if (!tx) return;
   const now = new Date().toISOString();
 
-  // Reverse wallet balance
   const wallet = await db.get('wallets', tx.wallet_id);
   if (wallet) {
-    if (tx.type === 'income') wallet.balance -= Number(tx.amount);
-    else wallet.balance += Number(tx.amount);
+    if (tx.type === 'income') wallet.balance = (Number(wallet.balance) || 0) - Number(tx.amount);
+    else wallet.balance = (Number(wallet.balance) || 0) + Number(tx.amount);
     await db.put('wallets', { ...wallet, updated_at: now });
   }
   if (tx.type === 'transfer' && tx.to_wallet_id) {
     const toWallet = await db.get('wallets', tx.to_wallet_id);
     if (toWallet) {
-      toWallet.balance -= Number(tx.amount);
+      toWallet.balance = (Number(toWallet.balance) || 0) - Number(tx.amount);
       await db.put('wallets', { ...toWallet, updated_at: now });
     }
   }
-
-  // Reverse budget spend
   if (tx.type === 'expense' && tx.category) {
     const budgets = await db.getAll('budgets');
     const budget = budgets.find((b) => b.category === tx.category);
     if (budget) {
-      budget.spent = Math.max(0, (budget.spent || 0) - Number(tx.amount));
+      budget.spent = Math.max(0, (Number(budget.spent) || 0) - Number(tx.amount));
       await db.put('budgets', { ...budget, updated_at: now });
     }
   }
-
   return db.delete('transactions', id);
 }
 
-// ─── BUDGETS ─────────────────────────────────────────────────────────────────
-export async function getBudgets() {
+// Recompute every wallet balance from the transaction ledger (fixes drift).
+export async function reconcileWalletBalances() {
   const db = await getDB();
-  return db.getAll('budgets');
+  const [wallets, txns] = await Promise.all([db.getAll('wallets'), db.getAll('transactions')]);
+  const totals = {};
+  wallets.forEach((w) => { totals[w.id] = Number(w.opening_balance) || 0; });
+  txns.forEach((t) => {
+    const amt = Number(t.amount) || 0;
+    if (t.type === 'income') totals[t.wallet_id] = (totals[t.wallet_id] || 0) + amt;
+    else if (t.type === 'expense') totals[t.wallet_id] = (totals[t.wallet_id] || 0) - amt;
+    else if (t.type === 'transfer') {
+      totals[t.wallet_id] = (totals[t.wallet_id] || 0) - amt;
+      if (t.to_wallet_id) totals[t.to_wallet_id] = (totals[t.to_wallet_id] || 0) + amt;
+    }
+  });
+  const now = new Date().toISOString();
+  for (const w of wallets) {
+    const next = totals[w.id] || 0;
+    if (next !== Number(w.balance)) await db.put('wallets', { ...w, balance: next, updated_at: now });
+  }
+  return db.getAll('wallets');
 }
+
+// ─── BUDGETS ─────────────────────────────────────────────────────────────────
+export async function getBudgets() { const db = await getDB(); return db.getAll('budgets'); }
 export async function saveBudget(budget) {
   const db = await getDB();
   const record = { synced: false, ...budget, updated_at: new Date().toISOString() };
-  await db.put('budgets', record);
-  return record;
+  await db.put('budgets', record); return record;
 }
-export async function deleteBudget(id) {
-  const db = await getDB();
-  return db.delete('budgets', id);
-}
+export async function deleteBudget(id) { const db = await getDB(); return db.delete('budgets', id); }
 
 // ─── LOANS ───────────────────────────────────────────────────────────────────
-export async function getLoans() {
-  const db = await getDB();
-  return db.getAll('loans');
-}
+export async function getLoans() { const db = await getDB(); return db.getAll('loans'); }
 export async function saveLoan(loan) {
   const db = await getDB();
   const record = { synced: false, ...loan, updated_at: new Date().toISOString() };
-  await db.put('loans', record);
-  return record;
+  await db.put('loans', record); return record;
 }
-export async function deleteLoan(id) {
-  const db = await getDB();
-  return db.delete('loans', id);
-}
+export async function deleteLoan(id) { const db = await getDB(); return db.delete('loans', id); }
 
 // ─── GOALS ───────────────────────────────────────────────────────────────────
-export async function getGoals() {
-  const db = await getDB();
-  return db.getAll('goals');
-}
+export async function getGoals() { const db = await getDB(); return db.getAll('goals'); }
 export async function saveGoal(goal) {
   const db = await getDB();
   const record = { synced: false, ...goal, updated_at: new Date().toISOString() };
-  await db.put('goals', record);
-  return record;
+  await db.put('goals', record); return record;
 }
-export async function deleteGoal(id) {
-  const db = await getDB();
-  return db.delete('goals', id);
-}
+export async function deleteGoal(id) { const db = await getDB(); return db.delete('goals', id); }
 
 // ─── INCOME PLANS ─────────────────────────────────────────────────────────────
-export async function getIncomePlans() {
-  const db = await getDB();
-  return db.getAll('income_plans');
-}
+export async function getIncomePlans() { const db = await getDB(); return db.getAll('income_plans'); }
 export async function saveIncomePlan(plan) {
   const db = await getDB();
-  const record = { synced: false, ...plan, updated_at: new Date().toISOString() };
-  await db.put('income_plans', record);
-  return record;
-}
-export async function deleteIncomePlan(id) {
-  const db = await getDB();
-  return db.delete('income_plans', id);
-}
+  const record = { synced: false, ...plan, updated_at: new Date().toI
 
-// ─── FOOD LOGS ───────────────────────────────────────────────────────────────
-export async function getFoodLogs(date) {
-  const db = await getDB();
-  if (date) {
-    const all = await db.getAllFromIndex('food_logs', 'date', date);
-    return all.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-  }
-  return db.getAll('food_logs');
-}
-export async function saveFoodLog(entry) {
-  const db = await getDB();
-  const record = { synced: false, ...entry, updated_at: new Date().toISOString() };
-  await db.put('food_logs', record);
-  return record;
-}
-export async function deleteFoodLog(id) {
-  const db = await getDB();
-  return db.delete('food_logs', id);
-}
-
-// ─── CHALLENGES ──────────────────────────────────────────────────────────────
-export async function getChallenges() {
-  const db = await getDB();
-  return db.getAll('challenges');
-}
-export async function saveChallenge(challenge) {
-  const db = await getDB();
-  const record = { synced: false, ...challenge, updated_at: new Date().toISOString() };
-  await db.put('challenges', record);
-  return record;
-}
-export async function deleteChallenge(id) {
-  const db = await getDB();
-  return db.delete('challenges', id);
-}
-
-// ─── SEED DEFAULT DATA ────────────────────────────────────────────────────────
-export async function seedDefaultData() {
-  const db = await getDB();
-  const existing = await db.getAll('wallets');
-  if (existing.length > 0) return;
-
-  const now = new Date().toISOString();
-  const defaults = [
-    { id: 'mpesa', name: 'M-Pesa', type: 'mobile', balance: 0, currency: 'KES', color: '#10B981', icon: '📱', created_at: now, updated_at: now, synced: false },
-    { id: 'bank', name: 'Bank Account', type: 'bank', balance: 0, currency: 'KES', color: '#3B82F6', icon: '🏦', created_at: now, updated_at: now, synced: false },
-    { id: 'cash', name: 'Cash', type: 'cash', balance: 0, currency: 'KES', color: '#F59E0B', icon: '💵', created_at: now, updated_at: now, synced: false },
-    { id: 'airtel', name: 'Airtel Money', type: 'mobile', balance: 0, currency: 'KES', color: '#EF4444', icon: '📲', created_at: now, updated_at: now, synced: false },
-  ];
-  for (const w of defaults) await db.put('wallets', w);
-}
+<AssistantMessageContentPart partEncoded="eyJjcmVhdGVkQXQiOjE3ODEzNjA1Nzg5NzgsImZpbmlzaGVkQXQiOjE3ODEzNjA1Nzg5NzgsImxhc3RQYXJ0U2VudEF0IjoxNzgxMzYwNTc4OTc4LCJpZCI6IjRZWFZkZUxLSUh0aEJpYmsiLCJ0eXBlIjoidGFzay1zdG9wcGVkLXYxIiwicGFydHMiOlt7InR5cGUiOiJtYW51YWxseS1zdG9wcGVkLW9uLWNsaWVudCJ9XX0=" />
