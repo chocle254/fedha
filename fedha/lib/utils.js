@@ -5,25 +5,54 @@ export const genId = () => uuidv4();
 
 export const CURRENCIES = {
   KES: { symbol: 'KSh', locale: 'en-KE' },
-  USD: { symbol: '$', locale: 'en-US' },
-  EUR: { symbol: '€', locale: 'de-DE' },
-  GBP: { symbol: '£', locale: 'en-GB' },
+  USD: { symbol: '$',   locale: 'en-US' },
+  EUR: { symbol: '€',   locale: 'de-DE' },
+  GBP: { symbol: '£',   locale: 'en-GB' },
   UGX: { symbol: 'USh', locale: 'en-UG' },
   TZS: { symbol: 'TSh', locale: 'en-TZ' },
 };
 
-export function formatCurrency(amount, currency = 'KES') {
+// ─── EXCHANGE RATES ────────────────────────────────────────────────────────
+// All money is STORED in the base currency (default KES). When the user picks a
+// display currency, we convert at render time. _rates[X] = "1 base = X of currency".
+let _baseCurrency = 'KES';
+let _rates = {
+  // Approximate offline fallback (overwritten by live rates when online).
+  KES: 1, USD: 0.0077, EUR: 0.0071, GBP: 0.0061, UGX: 28.5, TZS: 19.5,
+};
+
+export function setRates(rates, base = 'KES') {
+  if (rates && typeof rates === 'object') _rates = { ..._rates, ...rates };
+  if (base) _baseCurrency = base;
+}
+export function getRates() { return { ..._rates }; }
+export function getBaseCurrency() { return _baseCurrency; }
+
+// Convert an amount that is stored in the base currency into the display currency.
+export function convertAmount(amount, displayCurrency = _baseCurrency) {
+  const a = Number(amount) || 0;
+  const rate = _rates[displayCurrency];
+  return rate ? a * rate : a;
+}
+
+export function formatCurrency(amount, currency = _baseCurrency) {
   const cfg = CURRENCIES[currency] || CURRENCIES.KES;
-  const num = Number(amount) || 0;
+  const num = convertAmount(amount, currency);
   return `${cfg.symbol} ${num.toLocaleString(cfg.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function formatShort(amount, currency = 'KES') {
+export function formatShort(amount, currency = _baseCurrency) {
   const cfg = CURRENCIES[currency] || CURRENCIES.KES;
-  const n = Number(amount) || 0;
+  const n = convertAmount(amount, currency);
   if (Math.abs(n) >= 1_000_000) return `${cfg.symbol} ${(n / 1_000_000).toFixed(1)}M`;
   if (Math.abs(n) >= 1_000) return `${cfg.symbol} ${(n / 1_000).toFixed(1)}K`;
-  return formatCurrency(n, currency);
+  return formatCurrency(amount, currency);
+}
+
+// ─── LOCAL DATE HELPERS (fixes UTC "wrong day" bug for KES/UTC+3 users) ──────
+function pad(n) { return n < 10 ? `0${n}` : `${n}`; }
+export function localISO(d = new Date()) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 export function formatDate(dateStr) {
@@ -50,18 +79,14 @@ export function getDaysUntil(dateStr) {
 }
 
 export function todayISO() {
-  return new Date().toISOString().split('T')[0];
+  return localISO(new Date());
 }
 
 export function monthRange(offset = 0) {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth() + offset, 1);
   const end = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0);
-  return {
-    from: start.toISOString().split('T')[0],
-    to: end.toISOString().split('T')[0],
-    label: format(start, 'MMMM yyyy'),
-  };
+  return { from: localISO(start), to: localISO(end), label: format(start, 'MMMM yyyy') };
 }
 
 // ─── CATEGORIES ──────────────────────────────────────────────────────────────
@@ -101,7 +126,7 @@ export function groupByDay(transactions, days = 7) {
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
-    const key = d.toISOString().split('T')[0];
+    const key = localISO(d);
     const label = format(d, 'EEE');
     const income = transactions.filter((t) => t.date === key && t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
     const expense = transactions.filter((t) => t.date === key && t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
