@@ -7,43 +7,77 @@ export default async function handler(req, res) {
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY not set in environment variables' });
 
-  const { type, balance, currency, location, dateMode, budgets, currency_symbol } = req.body;
+  const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce } = req.body;
   let prompt = '';
+
+  const varietyStr = nonce ? `\nFreshness token: ${nonce}. Give a DIFFERENT, fresh set of ideas than you might usually pick — avoid repeating the obvious defaults.` : '';
 
   if (type === 'activities') {
     const locationStr = location?.city
-      ? `The user is near: ${location.city} (coordinates: ${location.lat}, ${location.lng}).`
+      ? `The user is physically located in/near ${location.city} (GPS coordinates: ${location.lat}, ${location.lng}). EVERY single suggestion MUST be a real place, venue, event or experience that actually exists IN or very close to ${location.city} — within roughly 15km. Do NOT suggest places in other cities or other countries. If you are unsure of a specific venue name in ${location.city}, suggest a realistic type of spot that genuinely exists there (e.g. a popular local park, mall, eatery, or viewpoint in ${location.city}).`
       : `No location provided — suggest general affordable activities.`;
     const modeStr = dateMode
-      ? `This is for a romantic date — suggest couple-friendly, fun, memorable date activities.`
-      : `This is for personal enjoyment — suggest fun solo or social activities.`;
-    prompt = `You are a fun personal finance assistant helping someone enjoy their money wisely.
+      ? `This is for a romantic date — suggest couple-friendly, fun, memorable, exciting date activities. Make them feel special and worth doing.`
+      : `This is for personal enjoyment — suggest genuinely FUN, exciting solo or social activities the user will actually be excited to do. Avoid boring or generic suggestions like "go for a walk" unless paired with something specific and fun.`;
+    prompt = `You are a fun, energetic local guide helping someone enjoy their money wisely.
 
 ${locationStr}
-${modeStr}
+${modeStr}${varietyStr}
 
 The user has ${currency_symbol}${balance} in floating cash available (after all budgets).
 Budgets already set: ${budgets?.length ? budgets.map(b => b.name + ' (' + b.period + ')').join(', ') : 'none'}.
 
-Suggest real, current activities, venues, restaurants or experiences near their location that fit their budget. If in Kenya, suggest Kenya-specific places.
+Suggest 6 real, current, FUN activities, venues, restaurants or experiences that genuinely exist near the user's exact location and fit their budget. Mix free and paid. If in Kenya, use real Kenyan place names.
 
 Return a JSON object: { "results": [ ...6 items ] }. Each item has exactly:
-- id (string like "act_1"), title, emoji, description (1-2 sentences, mention real place names),
+- id (string like "act_1"), title, emoji, description (1-2 lively sentences, mention the real place name AND the city ${location?.city || ''}),
 - estimated_cost (number in ${currency}), category (one of "food","outdoor","entertainment","social","relaxation","adventure"),
 - why_now (short fun reason), is_free (boolean).`;
   }
 
   if (type === 'opportunities') {
-    prompt = `You are a smart income assistant helping someone in Kenya find legitimate online ways to earn money.
+    prompt = `You are a sharp income scout helping a tech-savvy person in Kenya find LESS OBVIOUS, higher-value online earning opportunities — the "hidden gems" most people don't know about.
 
-The user currently has ${currency_symbol}${balance} available in ${currency}.
+The user currently has ${currency_symbol}${balance} available in ${currency}.${varietyStr}
 
-Suggest real, current, legitimate online earning opportunities doable from a phone or basic computer, accessible from Kenya/Africa, active in 2026, with no large upfront cost.
+Focus on lesser-known but legitimate platforms and gigs active in 2026, such as: smart-contract / security audit contests and bug bounties (e.g. Code4rena, Sherlock, Cantina, Immunefi, HackenProof), data-labelling and AI-training micro-tasks (e.g. Atlas/Capture-style annotation platforms, Outlier, DataAnnotation, Remotasks-style tools), crypto/web3 testnet incentives and quests, paid open-source bounties (e.g. Algora, Gitcoin), UX research panels, and niche freelance marketplaces. AVOID the generic obvious ones (basic surveys, Fiverr gig spam) unless framed in a clever, higher-earning way.
+
+Do NOT state a single fixed exact price. Instead express realistic POTENTIAL earnings as a range, because actual pay depends on effort and skill.
 
 Return a JSON object: { "results": [ ...6 items ] }. Each item has exactly:
-- id (string like "opp_1"), title, emoji, platform, description (2-3 sentences),
-- estimated_earnings (string like "KSh 500-2,000 per task"), estimated_amount (number, realistic middle estimate in ${currency}),
-- time_required (string), difficulty (one of "Easy","Medium","Hard"), link_hint (website/app name).`;
+- id (string like "opp_1"), title, emoji, platform, description (2-3 sentences explaining why it's a hidden opportunity and how to start),
+- estimated_earnings (string POTENTIAL range like "KSh 5,000 - 80,000 per audit" or "Up to $500/mo"), estimated_amount (number, realistic middle potential estimate in ${currency}),
+- time_required (string), difficulty (one of "Easy","Medium","Hard"), link_hint (the platform website/app name).`;
+  }
+
+  if (type === 'hackathons') {
+    const locStr = location?.city ? `The user is based in ${location.city}.` : '';
+    prompt = `You are a hackathon scout. ${locStr}${varietyStr}
+
+List 6 realistic UPCOMING hackathons a developer could join in 2026, mostly the kind hosted on Devpost, plus a few major ones (ETHGlobal, MLH, Major League Hacking, company hackathons, African tech hackathons). Include a mix of online/global and (if location known) some accessible from the user's region.
+
+Return a JSON object: { "results": [ ...6 items ] }. Each item has exactly:
+- id (string like "hack_1"), name, organizer, emoji,
+- prize_pool (string like "$50,000" or "KSh 1,000,000"), themes (short comma string),
+- mode (one of "Online","Hybrid","In-person"), location (city/country or "Global"),
+- deadline (a realistic future ISO date string YYYY-MM-DD within the next 4 months),
+- url_hint (e.g. "devpost.com"), description (1-2 sentences).`;
+  }
+
+  if (type === 'tech_events') {
+    const locStr = location?.city
+      ? `The user is in ${location.city} (coordinates ${location.lat}, ${location.lng}). Suggest tech events, meetups, conferences and developer gatherings that realistically happen IN or near ${location.city}.`
+      : `No location given — suggest notable global/online tech events and meetups.`;
+    prompt = `You are a local tech-scene guide. ${locStr}${varietyStr}
+
+List 6 realistic upcoming tech events (meetups, conferences, dev community gatherings, workshops, demo days) for 2026.
+
+Return a JSON object: { "results": [ ...6 items ] }. Each item has exactly:
+- id (string like "evt_1"), name, emoji, organizer,
+- category (one of "Meetup","Conference","Workshop","Hackathon","Demo Day","Networking"),
+- venue (real-sounding venue or "Online"), city (${location?.city || 'varies'}),
+- date (realistic future ISO date YYYY-MM-DD within next 3 months),
+- description (1-2 sentences), is_free (boolean).`;
   }
 
   try {

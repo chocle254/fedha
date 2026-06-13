@@ -131,6 +131,10 @@ export default function DiscoverPage() {
   const [bookingActivity, setBookingActivity] = useState(null);
   const [bookingAmount, setBookingAmount] = useState('');
   const [walletId, setWalletId] = useState(wallets[0]?.id || '');
+  // Earn Online — record actual amount earned when marking done
+  const [payingOpp, setPayingOpp] = useState(null);
+  const [payAmount, setPayAmount] = useState('');
+  const [payWalletId, setPayWalletId] = useState(wallets[0]?.id || '');
 
   const currencySymbols = { KES: 'KSh', USD: '$', EUR: '€', GBP: '£', UGX: 'USh', TZS: 'TSh' };
   const symbol = currencySymbols[currency] || currency;
@@ -172,6 +176,7 @@ export default function DiscoverPage() {
           currency_symbol: symbol,
           location,
           dateMode,
+          nonce: Date.now(),
           budgets: budgets.map((b) => ({ name: b.name, period: b.period })),
         }),
       });
@@ -197,6 +202,7 @@ export default function DiscoverPage() {
           balance: Math.max(0, floating),
           currency,
           currency_symbol: symbol,
+          nonce: Date.now(),
         }),
       });
       const data = await res.json();
@@ -220,18 +226,28 @@ export default function DiscoverPage() {
     setOpportunities((prev) => prev.filter((o) => o.id !== opp.id));
   }
 
-  // Mark pending opp as done → record income transaction
-  async function markDone(pendingOpp) {
+  // Mark pending opp as done → ask for the ACTUAL amount earned, then record it
+  function markDone(pendingOpp) {
+    setPayingOpp(pendingOpp);
+    setPayAmount(pendingOpp.estimated_amount ? String(pendingOpp.estimated_amount) : '');
+    setPayWalletId(wallets[0]?.id || '');
+  }
+
+  // Confirm actual earnings → record income transaction
+  async function confirmEarning() {
+    if (!payingOpp || !payAmount || Number(payAmount) <= 0) return;
     await addTransaction({
       type: 'income',
-      amount: pendingOpp.estimated_amount,
-      wallet_id: wallets[0]?.id,
+      amount: Number(payAmount),
+      wallet_id: payWalletId || wallets[0]?.id,
       category: 'freelance',
-      description: `${pendingOpp.title} — ${pendingOpp.platform || 'Online'}`,
+      description: `${payingOpp.title} — ${payingOpp.platform || 'Online'}`,
       date: todayISO(),
       currency,
     });
-    setPending((prev) => prev.filter((p) => p.pending_id !== pendingOpp.pending_id));
+    setPending((prev) => prev.filter((p) => p.pending_id !== payingOpp.pending_id));
+    setPayingOpp(null);
+    setPayAmount('');
   }
 
   // Book activity spend
@@ -359,8 +375,15 @@ export default function DiscoverPage() {
 
               {activities.length > 0 && (
                 <div>
-                  <div className="section-title" style={{ marginBottom: 12 }}>
-                    {dateMode ? '💕 Date Ideas Near You' : '🎉 Activities Near You'}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <div className="section-title" style={{ marginBottom: 0 }}>
+                      {dateMode ? '💕 Date Ideas Near You' : '🎉 Activities Near You'}
+                    </div>
+                    <button onClick={fetchActivities} disabled={loading}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 100, color: loading ? 'var(--text-3)' : 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: loading ? 'default' : 'pointer', fontFamily: 'Outfit' }}>
+                      <span style={{ display: 'inline-block', transition: 'transform 0.4s', transform: loading ? 'rotate(360deg)' : 'none' }}>🔄</span>
+                      {loading ? 'Refreshing…' : 'Refresh'}
+                    </button>
                   </div>
                   {activities.map((a) => (
                     <ActivityCard key={a.id} item={a} currency={currency}
@@ -383,7 +406,7 @@ export default function DiscoverPage() {
           {tab === 'opportunities' && (
             <div>
               <div style={{ padding: '12px 14px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 12, marginBottom: 16, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
-                💡 AI will search the web for real, current online earning opportunities accessible from Kenya. Click "I'll do this!" to track it — mark done when paid.
+                💡 AI surfaces lesser-known, higher-value gigs — audit contests, bug bounties, AI data tasks & more — with potential earnings. Tap "I'll do this!" to track it, then enter what you actually made when paid.
               </div>
 
               <button className="btn-primary" onClick={fetchOpportunities} disabled={loading} style={{ marginBottom: 20, background: 'var(--blue)' }}>
@@ -409,8 +432,8 @@ export default function DiscoverPage() {
               {!loading && opportunities.length === 0 && (
                 <div className="empty-state">
                   <div className="icon">💼</div>
-                  <h3>Find ways to earn online</h3>
-                  <p>AI will search the web for current freelance gigs, tasks, and income ideas you can start today</p>
+                  <h3>Find hidden ways to earn online</h3>
+                  <p>AI surfaces lesser-known, higher-value opportunities — audit contests, bounties & AI tasks — with their earning potential</p>
                 </div>
               )}
 
@@ -451,6 +474,37 @@ export default function DiscoverPage() {
               </div>
               <button className="btn-primary" onClick={confirmBooking} disabled={!bookingAmount}>
                 Record Expense
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Record actual earnings modal */}
+      {payingOpp && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setPayingOpp(null)}>
+          <div className="modal-sheet">
+            <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+            <div className="modal-header">
+              <span style={{ fontSize: 16, fontWeight: 700 }}>{payingOpp.emoji} Record Your Earnings</span>
+              <button className="btn-icon" onClick={() => setPayingOpp(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
+                Nice work on <strong style={{ color: 'var(--text)' }}>{payingOpp.title}</strong>! Enter how much you actually made — this gets added as income.
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Amount Earned</label>
+                <input className="input font-num" type="number" inputMode="decimal" placeholder="0.00" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} style={{ fontSize: 22, fontWeight: 600 }} autoFocus />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Add To Wallet</label>
+                <select className="input" value={payWalletId} onChange={(e) => setPayWalletId(e.target.value)}>
+                  {wallets.map((w) => <option key={w.id} value={w.id}>{w.icon} {w.name}</option>)}
+                </select>
+              </div>
+              <button className="btn-primary" onClick={confirmEarning} disabled={!payAmount || Number(payAmount) <= 0}>
+                ✓ Record {payAmount ? formatCurrency(payAmount, currency) : 'Earnings'}
               </button>
             </div>
           </div>
