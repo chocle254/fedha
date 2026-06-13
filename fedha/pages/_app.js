@@ -33,6 +33,35 @@ function NotificationScheduler() {
         const completed = await getSetting(`planner_done_${todayISO()}`, []);
         await checkMissedBlocks(blocks, completed);
       }
+
+      // Notify about registered hackathons close to their deadline
+      const { getHackathons } = await import('../lib/db');
+      const { countdownTo } = await import('../lib/utils');
+      const { showNotif, VIBRATE } = await import('../lib/notifications');
+      const hacks = await getHackathons();
+      const alertedKey = `hack_alerted_${todayISO()}`;
+      const alerted = await getSetting(alertedKey, []);
+      const newlyAlerted = [...alerted];
+      for (const h of hacks || []) {
+        if (!h.deadline) continue;
+        const c = countdownTo(h.deadline);
+        // within 3 days, not past, and not already alerted today
+        if (c && !c.past && c.total < 3 * 86400000 && !alerted.includes(h.id)) {
+          await showNotif({
+            title: `⏰ ${h.name} deadline is near!`,
+            body: `${c.days > 0 ? `${c.days}d ${c.hours}h` : `${c.hours}h ${c.minutes}m`} left${h.project_name ? ` — finish "${h.project_name}"` : ''}. Submit before it closes!`,
+            tag: `hack_${h.id}`,
+            vibrate: VIBRATE.urgent,
+            requireInteraction: true,
+          });
+          newlyAlerted.push(h.id);
+        }
+      }
+      if (newlyAlerted.length !== alerted.length) await getSetting && setSettingSafe(alertedKey, newlyAlerted);
+    }
+
+    async function setSettingSafe(key, value) {
+      try { const { setSetting } = await import('../lib/db'); await setSetting(key, value); } catch {}
     }
 
     // Small delay so IndexedDB is ready

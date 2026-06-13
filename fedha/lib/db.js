@@ -2,7 +2,7 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'fedha_db';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 let dbPromise = null;
 
@@ -60,6 +60,11 @@ function getDB() {
             const fs = db.createObjectStore('food_logs', { keyPath: 'id' }); fs.createIndex('date', 'date');
           }
           if (!db.objectStoreNames.contains('challenges')) db.createObjectStore('challenges', { keyPath: 'id' });
+          if (!db.objectStoreNames.contains('hackathons')) {
+            const hs = db.createObjectStore('hackathons', { keyPath: 'id' });
+            hs.createIndex('deadline', 'deadline');
+          }
+          if (!db.objectStoreNames.contains('startups')) db.createObjectStore('startups', { keyPath: 'id' });
         },
       });
     })().catch((e) => {
@@ -178,6 +183,16 @@ export async function deleteFoodLog(id) { const db = await getDB(); return db.de
 export async function getChallenges() { return safeGetAll('challenges'); }
 export async function saveChallenge(c) { const db = await getDB(); const r = { synced: false, ...c, updated_at: new Date().toISOString() }; await db.put('challenges', r); return r; }
 export async function deleteChallenge(id) { const db = await getDB(); return db.delete('challenges', id); }
+
+// ─── HACKATHONS ──────────────────────────────────────────────────────────────
+export async function getHackathons() { return safeGetAll('hackathons'); }
+export async function saveHackathon(h) { const db = await getDB(); const r = { synced: false, ...h, updated_at: new Date().toISOString() }; await db.put('hackathons', r); return r; }
+export async function deleteHackathon(id) { const db = await getDB(); return db.delete('hackathons', id); }
+
+// ─── STARTUPS ────────────────────────────────────────────────────────────────
+export async function getStartups() { return safeGetAll('startups'); }
+export async function saveStartup(s) { const db = await getDB(); const r = { synced: false, ...s, updated_at: new Date().toISOString() }; await db.put('startups', r); return r; }
+export async function deleteStartup(id) { const db = await getDB(); return db.delete('startups', id); }
 
 // ─── SEED DEFAULT DATA ──────────────────────────────────────────────────────────
 export async function seedDefaultData() {

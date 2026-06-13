@@ -10,6 +10,8 @@ import {
   getGoals, saveGoal, deleteGoal,
   getIncomePlans, saveIncomePlan, deleteIncomePlan,
   getChallenges, saveChallenge, deleteChallenge,
+  getHackathons, saveHackathon, deleteHackathon,
+  getStartups, saveStartup, deleteStartup,
   getSetting, setSetting, seedDefaultData,
 } from '../lib/db';
 
@@ -24,6 +26,8 @@ export function AppProvider({ children }) {
   const [goals, setGoals] = useState([]);
   const [incomePlans, setIncomePlans] = useState([]);
   const [challenges, setChallenges] = useState([]);
+  const [hackathons, setHackathons] = useState([]);
+  const [startups, setStartups] = useState([]);
   const [currency, setCurrencyState] = useState('KES');
   const [isOnline, setIsOnline] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -31,13 +35,15 @@ export function AppProvider({ children }) {
 
   const loadAll = useCallback(async () => {
     await seedDefaultData();
-    const [ws, ts, bs, ls, gs, ips, chs, cur, cachedRates] = await Promise.all([
+    const [ws, ts, bs, ls, gs, ips, chs, hks, sts, cur, cachedRates] = await Promise.all([
       getWallets(), getTransactions(), getBudgets(), getLoans(),
       getGoals(), getIncomePlans(), getChallenges(),
+      getHackathons(), getStartups(),
       getSetting('currency', 'KES'), getSetting('fx_rates', null),
     ]);
     setWallets(ws); setTransactions(ts); setBudgets(bs); setLoans(ls);
-    setGoals(gs); setIncomePlans(ips); setChallenges(chs); setCurrencyState(cur);
+    setGoals(gs); setIncomePlans(ips); setChallenges(chs);
+    setHackathons(hks); setStartups(sts); setCurrencyState(cur);
 
     // Use cached rates immediately (offline-first), then refresh from network.
     if (cachedRates) { setRates(cachedRates, BASE_CURRENCY); setFxVersion((v) => v + 1); }
@@ -103,6 +109,16 @@ export function AppProvider({ children }) {
   const updateChallenge = useCallback(async (challenge) => { const c = await saveChallenge(challenge); setChallenges((p) => p.map((x) => (x.id === c.id ? c : x))); return c; }, []);
   const removeChallenge = useCallback(async (id) => { await deleteChallenge(id); setChallenges((p) => p.filter((x) => x.id !== id)); }, []);
 
+  // ─── HACKATHONS ────────────────────────────────────────────────────────────
+  const addHackathon = useCallback(async (data) => { const h = await saveHackathon({ id: genId(), tasks: [], created_at: new Date().toISOString(), ...data }); setHackathons((p) => [...p, h]); return h; }, []);
+  const updateHackathon = useCallback(async (hack) => { const h = await saveHackathon(hack); setHackathons((p) => p.map((x) => (x.id === h.id ? h : x))); return h; }, []);
+  const removeHackathon = useCallback(async (id) => { await deleteHackathon(id); setHackathons((p) => p.filter((x) => x.id !== id)); }, []);
+
+  // ─── STARTUPS ──────────────────────────────────────────────────────────────
+  const addStartup = useCallback(async (data) => { const s = await saveStartup({ id: genId(), stages: {}, created_at: new Date().toISOString(), ...data }); setStartups((p) => [...p, s]); return s; }, []);
+  const updateStartup = useCallback(async (startup) => { const s = await saveStartup(startup); setStartups((p) => p.map((x) => (x.id === s.id ? s : x))); return s; }, []);
+  const removeStartup = useCallback(async (id) => { await deleteStartup(id); setStartups((p) => p.filter((x) => x.id !== id)); }, []);
+
   // ─── SETTINGS ──────────────────────────────────────────────────────────────
   const setCurrency = useCallback(async (cur) => { await setSetting('currency', cur); setCurrencyState(cur); }, []);
 
@@ -122,6 +138,8 @@ export function AppProvider({ children }) {
       goals, addGoal, updateGoal, removeGoal,
       incomePlans, addIncomePlan, updateIncomePlan, removeIncomePlan,
       challenges, addChallenge, updateChallenge, removeChallenge,
+      hackathons, addHackathon, updateHackathon, removeHackathon,
+      startups, addStartup, updateStartup, removeStartup,
       totalBalance, totalLoaned, totalBorrowed, netWorth,
       reload: loadAll,
     }}>

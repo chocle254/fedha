@@ -35,6 +35,7 @@ const MORE = [
   { href:'/planner',  label:'Planner',       emoji:'📅', desc:'Schedule & tasks' },
   { href:'/discover', label:'Discover',      emoji:'🧭', desc:'Tips & explore' },
   { href:'/health',   label:'Health',        emoji:'❤️', desc:'Wellness tracking' },
+  { href:'/tech-hub', label:'Tech Hub',      emoji:'🚀', desc:'Hackathons & startups' },
 ];
 
 const MORE_HREFS = MORE.map((m) => m.href);

@@ -79,6 +79,54 @@ export function getDaysUntil(dateStr) {
 }
 export function todayISO() { return localISO(new Date()); }
 
+// ─── COUNTDOWN ────────────────────────────────────────────────────────────────
+// Returns { days, hours, minutes, total, past } until an ISO date/deadline.
+export function countdownTo(dateStr) {
+  if (!dateStr) return null;
+  const target = new Date(dateStr);
+  // If only a date (no time) was given, treat deadline as end of that day.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) target.setHours(23, 59, 59, 999);
+  const diff = target - new Date();
+  const past = diff <= 0;
+  const abs = Math.abs(diff);
+  const days = Math.floor(abs / 86400000);
+  const hours = Math.floor((abs % 86400000) / 3600000);
+  const minutes = Math.floor((abs % 3600000) / 60000);
+  return { days, hours, minutes, total: diff, past };
+}
+export function formatCountdown(dateStr) {
+  const c = countdownTo(dateStr);
+  if (!c) return '';
+  if (c.past) return 'Ended';
+  if (c.days > 0) return `${c.days}d ${c.hours}h left`;
+  if (c.hours > 0) return `${c.hours}h ${c.minutes}m left`;
+  return `${c.minutes}m left`;
+}
+
+// ─── IMAGE RESIZE (to keep IndexedDB light) ─────────────────────────────────────
+export function resizeImage(file, maxSize = 800, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    if (!file) return reject(new Error('No file'));
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxSize) { height = Math.round((height * maxSize) / width); width = maxSize; }
+        else if (height > maxSize) { width = Math.round((width * maxSize) / height); height = maxSize; }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export function monthRange(offset = 0) {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth() + offset, 1);

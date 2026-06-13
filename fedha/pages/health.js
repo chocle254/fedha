@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatShort, monthRange } from '../lib/utils';
+import { getSetting, setSetting } from '../lib/db';
 
 const ZIIDI_COLOR = '#10B981';
 
@@ -12,6 +13,14 @@ export default function HealthPage() {
   const [ziidiAmount, setZiidiAmount] = useState('');
   const [showZiidiSetup, setShowZiidiSetup] = useState(false);
   const [walletId, setWalletId] = useState(wallets[0]?.id || '');
+  // Ziidi "standby for next update" flow — remember the floating-cash level at the last save
+  const [ziidiBasis, setZiidiBasis] = useState(null);
+  const [lastSaved, setLastSaved] = useState(0);
+
+  useEffect(() => {
+    getSetting('ziidi_basis', null).then((v) => { if (v != null) setZiidiBasis(Number(v)); });
+    getSetting('ziidi_last_saved', 0).then((v) => setLastSaved(Number(v) || 0));
+  }, []);
 
   const { from, to } = monthRange(0);
   const monthTxns = transactions.filter(t => t.date >= from && t.date <= to);
@@ -47,8 +56,24 @@ export default function HealthPage() {
   const scoreColor = score >= 70 ? '#10B981' : score >= 45 ? '#F59E0B' : '#EF4444';
   const scoreLabel = score >= 70 ? 'Healthy 💚' : score >= 45 ? 'Needs Attention 🟡' : 'Critical — Act Now 🔴';
 
+  // Ziidi "standby" gate: after a save, hide the split numbers and show motivation
+  // until the user's floating cash grows again (i.e. a balance/income update arrives).
+  const newMoneySinceSave = ziidiBasis == null || floating > ziidiBasis + 1;
+  const showSplit = newMoneySinceSave;
+
   // Recommendations
   const recs = [];
+
+  // Show celebratory motivation right after a save, before the next balance update.
+  if (ziidiBasis != null && !showSplit && lastSaved > 0) {
+    recs.push({
+      type: 'success',
+      icon: '🎉',
+      title: `Great — you've made a saving of ${formatShort(lastSaved, currency)}!`,
+      body: `That money is now locked in Ziidi. Standby for the next update — when fresh cash lands in your wallet, Fedha will show you the new amount to move to Ziidi. Keep the momentum going! 💪`,
+      action: null,
+    });
+  }
 
   if (savings < 0) {
     recs.push({ type:'danger', icon:'🚨', title:'You are spending more than you earn', body:`You spent ${formatShort(Math.abs(savings), currency)} more than you earned this month. Cut food costs by planning meals around what you have. Reduce impulse buys.`, action:null });
@@ -59,7 +84,7 @@ export default function HealthPage() {
     recs.push({ type:'warning', icon:'💰', title:`Save at least KSh ${suggestSave.toLocaleString()} this month`, body:`That is 10% of your income. Even saving KSh ${Math.round(suggestSave/4).toLocaleString()} a week builds a cushion fast. Move it to Ziidi immediately when income arrives.`, action:'ziidi' });
   }
 
-  if (savingsRate >= 10) {
+  if (showSplit && savingsRate >= 10) {
     const ziidiSuggest = Math.round(monthIncome * 0.15);
     const leisureSuggest = Math.round(floating * 0.3);
     const foodSuggest = Math.round(floating * 0.25);
@@ -83,7 +108,7 @@ export default function HealthPage() {
     recs.push({ type:'warning', icon:'📤', title:`You owe ${formatShort(totalBorrowed, currency)} — pay loans before saving`, body:'Loans cost more the longer they sit. Pay the smallest loan first (quick win), then attack the next. Do not borrow more while you still have active loans.', action:null });
   }
 
-  if (floating > 500 && savingsRate >= 0) {
+  if (showSplit && floating > 500 && savingsRate >= 0) {
     const food = Math.round(floating * 0.25);
     const save = Math.round(floating * 0.20);
     const leisure = Math.round(floating * 0.30);
@@ -101,6 +126,14 @@ export default function HealthPage() {
       await addGoal({ name:'Ziidi — Emergency Fund', target: Math.max(amount * 10, 5000), current: amount, icon:'🏦', color:'#10B981', deadline:null });
     }
     await addTransaction({ type:'expense', amount, wallet_id: walletId, category:'savings', description:'Ziidi Emergency Fund', date: new Date().toISOString().split('T')[0], currency });
+
+    // Lock in the "standby for next update" state: basis = floating cash AFTER this save.
+    const newBasis = Math.max(0, floating - amount);
+    setZiidiBasis(newBasis);
+    setLastSaved(amount);
+    await setSetting('ziidi_basis', newBasis);
+    await setSetting('ziidi_last_saved', amount);
+
     setShowZiidiSetup(false);
     setZiidiAmount('');
   }
