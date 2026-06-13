@@ -1,3 +1,4 @@
+
 import { v4 as uuidv4 } from 'uuid';
 import { format, formatDistanceToNow, isPast, isToday, isTomorrow } from 'date-fns';
 
@@ -12,14 +13,11 @@ export const CURRENCIES = {
   TZS: { symbol: 'TSh', locale: 'en-TZ' },
 };
 
-// ─── EXCHANGE RATES ────────────────────────────────────────────────────────
-// All money is STORED in the base currency (default KES). When the user picks a
-// display currency, we convert at render time. _rates[X] = "1 base = X of currency".
+// ─── EXCHANGE RATES ───────────────────────────────────────────────────────────
+// ALL money is STORED in the base currency (KES). Display currency is converted
+// at render time. _rates[X] = "1 base unit = X units of currency X".
 let _baseCurrency = 'KES';
-let _rates = {
-  // Approximate offline fallback (overwritten by live rates when online).
-  KES: 1, USD: 0.0077, EUR: 0.0071, GBP: 0.0061, UGX: 28.5, TZS: 19.5,
-};
+let _rates = { KES: 1, USD: 0.0077, EUR: 0.0071, GBP: 0.0061, UGX: 28.5, TZS: 19.5 }; // offline fallback
 
 export function setRates(rates, base = 'KES') {
   if (rates && typeof rates === 'object') _rates = { ..._rates, ...rates };
@@ -28,11 +26,17 @@ export function setRates(rates, base = 'KES') {
 export function getRates() { return { ..._rates }; }
 export function getBaseCurrency() { return _baseCurrency; }
 
-// Convert an amount that is stored in the base currency into the display currency.
+// base amount -> display currency
 export function convertAmount(amount, displayCurrency = _baseCurrency) {
   const a = Number(amount) || 0;
   const rate = _rates[displayCurrency];
   return rate ? a * rate : a;
+}
+// display-currency amount -> base (use this when SAVING user-entered amounts)
+export function toBaseAmount(amount, displayCurrency = _baseCurrency) {
+  const a = Number(amount) || 0;
+  const rate = _rates[displayCurrency];
+  return rate ? a / rate : a;
 }
 
 export function formatCurrency(amount, currency = _baseCurrency) {
@@ -49,7 +53,7 @@ export function formatShort(amount, currency = _baseCurrency) {
   return formatCurrency(amount, currency);
 }
 
-// ─── LOCAL DATE HELPERS (fixes UTC "wrong day" bug for KES/UTC+3 users) ──────
+// ─── LOCAL DATE HELPERS (fixes UTC "wrong day" bug for KES/UTC+3) ───────────────
 function pad(n) { return n < 10 ? `0${n}` : `${n}`; }
 export function localISO(d = new Date()) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -62,25 +66,18 @@ export function formatDate(dateStr) {
   if (isTomorrow(d)) return 'Tomorrow';
   return format(d, 'dd MMM yyyy');
 }
-
 export function formatDateRelative(dateStr) {
   if (!dateStr) return '';
   return formatDistanceToNow(new Date(dateStr), { addSuffix: true });
 }
-
 export function isOverdue(dateStr) {
   return dateStr && isPast(new Date(dateStr)) && !isToday(new Date(dateStr));
 }
-
 export function getDaysUntil(dateStr) {
   if (!dateStr) return null;
-  const diff = new Date(dateStr) - new Date();
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  return Math.ceil((new Date(dateStr) - new Date()) / (1000 * 60 * 60 * 24));
 }
-
-export function todayISO() {
-  return localISO(new Date());
-}
+export function todayISO() { return localISO(new Date()); }
 
 export function monthRange(offset = 0) {
   const now = new Date();
@@ -108,33 +105,24 @@ export const CATEGORIES = [
   { id: 'investment',  label: 'Investment',       icon: '📈',  color: '#22C55E' },
   { id: 'other',       label: 'Other',            icon: '📦',  color: '#94A3B8' },
 ];
-
 export function getCategoryById(id) {
   return CATEGORIES.find((c) => c.id === id) || CATEGORIES[CATEGORIES.length - 1];
 }
-
-export const EXPENSE_CATEGORIES = CATEGORIES.filter((c) =>
-  !['salary', 'freelance', 'investment'].includes(c.id)
-);
-export const INCOME_CATEGORIES = CATEGORIES.filter((c) =>
-  ['salary', 'freelance', 'investment', 'business', 'other'].includes(c.id)
-);
+export const EXPENSE_CATEGORIES = CATEGORIES.filter((c) => !['salary', 'freelance', 'investment'].includes(c.id));
+export const INCOME_CATEGORIES = CATEGORIES.filter((c) => ['salary', 'freelance', 'investment', 'business', 'other'].includes(c.id));
 
 // ─── CHART HELPERS ────────────────────────────────────────────────────────────
 export function groupByDay(transactions, days = 7) {
   const result = [];
   for (let i = days - 1; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
+    const d = new Date(); d.setDate(d.getDate() - i);
     const key = localISO(d);
-    const label = format(d, 'EEE');
     const income = transactions.filter((t) => t.date === key && t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
     const expense = transactions.filter((t) => t.date === key && t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
-    result.push({ label, date: key, income, expense });
+    result.push({ label: format(d, 'EEE'), date: key, income, expense });
   }
   return result;
 }
-
 export function groupByCategory(transactions) {
   const map = {};
   transactions.filter((t) => t.type === 'expense').forEach((t) => {
@@ -144,7 +132,6 @@ export function groupByCategory(transactions) {
   });
   return Object.values(map).sort((a, b) => b.value - a.value);
 }
-
 export function groupByMonth(transactions, months = 6) {
   const result = [];
   for (let i = months - 1; i >= 0; i--) {
