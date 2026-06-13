@@ -219,7 +219,13 @@ export default function StartupDetail() {
                             style={{ resize: 'vertical', minHeight: 56, lineHeight: 1.5 }}
                           />
                         </div>
-              ))}
+                      ))}
+                      <button className="btn-secondary" onClick={() => saveStage(stage.id)} style={{ marginTop: 8 }}>Save Stage</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
