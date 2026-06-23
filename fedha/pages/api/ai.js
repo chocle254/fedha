@@ -123,13 +123,27 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
     if (!image) return res.status(400).json({ error: 'Photo required for beauty analysis' });
     const selected = Array.isArray(areas) && areas.length ? areas : ['skin', 'teeth', 'hair'];
     const areaText = selected.join(', ');
-    prompt = `You are a friendly, knowledgeable grooming and skincare coach. Look carefully at the selfie photo provided and give an honest, encouraging self-care assessment for these areas only: ${areaText}.
+    prompt = `You are a careful, knowledgeable grooming and skincare coach. A wrong suggestion can damage someone's skin or hair, so you must REASON BEFORE YOU RECOMMEND. Look carefully at the selfie photo and give an honest, encouraging self-care assessment for these areas only: ${areaText}.
 
-Base every observation on what you can actually SEE in the photo (skin texture/tone/shine, teeth visible in a smile, hairline/scalp/hair density). If an area is not clearly visible, say so in its observation and give general best-practice tips instead of guessing. Keep advice safe, realistic and drugstore-affordable. Never diagnose medical conditions — if something looks like it needs a doctor or dentist, gently suggest seeing one. Be warm and motivating, never harsh about appearance.
+CRITICAL REASONING PROCESS — for each requested area, think in this exact order before writing any recommendation:
+1. OBSERVE: List only what is literally visible in the photo (skin texture/tone/shine/redness, teeth/gum visibility, hairline/scalp/density). Do not invent details.
+2. PATTERN: From those observations, infer the most likely pattern (e.g. "shine in T-zone + matte cheeks => combination skin"). State your confidence (high/medium/low).
+3. RISK CHECK: Before recommending anything, ask "could this harm them if my read is wrong?" Reject any aggressive, irreversible, or skin/hair-barrier-damaging advice. Prefer the gentlest option that fits multiple possible patterns.
+4. RECOMMEND: Only then give advice that is safe even if your pattern guess is slightly off.
 
-Return a JSON object with EXACTLY this shape (include ONLY the keys for the requested areas: ${areaText}, plus overall and score):
+SAFETY RULES (must always follow):
+- Start gentle and low-strength; never recommend strong actives (high-percentage retinoids, acids, harsh bleaching, DIY chemical treatments) as a first step.
+- Always advise patch-testing any new product and introducing only ONE new product at a time so reactions are traceable.
+- Never advise combining multiple actives at once, over-washing, picking, or aggressive scrubbing/heat.
+- For hair: protect the scalp barrier; suggest reversible habits (oils, gentle washing) before anything like minoxidil, and tell them to research/consult first.
+- If an area is not clearly visible OR your confidence is low, say so plainly and give only general best-practice tips instead of specific guesses.
+- Never diagnose medical conditions — if something looks like it may need a doctor, dermatologist, or dentist, gently say so.
+- Keep advice realistic and drugstore-affordable. Be warm and motivating, never harsh about appearance.
+
+Return a JSON object with EXACTLY this shape (include ONLY the area keys in: ${areaText}, plus reasoning, overall and score):
 {
-  "overall": "1-2 warm sentences summarizing how things look and the single most impactful habit to start.",
+  "reasoning": ["short plain-language step showing your observe→pattern→risk-check thinking, one string per requested area, e.g. 'Skin: visible shine on forehead but dry-looking cheeks (medium confidence) => combination; chose a mild, non-stripping routine in case it's actually sensitive.'"],
+  "overall": "1-2 warm sentences summarizing how things look and the single most impactful, low-risk habit to start.",
   "score": 0-100 integer self-care score based on what is visible,
   "skin": {
     "type": "one of: dry, oily, combination, normal, sensitive",

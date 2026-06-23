@@ -104,6 +104,20 @@ function AnalysisView({ analysis, areas }) {
         </div>
       </div>
 
+      {Array.isArray(analysis.reasoning) && analysis.reasoning.length > 0 && (
+        <div className="card" style={{ padding: '14px 16px', marginBottom: 16, border: '1px solid rgba(122,162,255,0.25)' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>How I reasoned this</div>
+          <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {analysis.reasoning.map((r, i) => (
+              <li key={i} style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5 }}>{r}</li>
+            ))}
+          </ul>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 10, lineHeight: 1.5 }}>
+            Patch-test any new product and add only one at a time. If your skin or hair reacts, stop and see a professional.
+          </div>
+        </div>
+      )}
+
       {AREAS.filter((a) => areas.includes(a.id)).map((a) => (
         <AreaCard key={a.id} area={a} data={analysis[a.id]} />
       ))}
