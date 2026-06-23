@@ -1,5 +1,6 @@
 // pages/api/ai.js — uses Groq (free, generous, OpenAI-compatible). Set GROQ_API_KEY.
 const GROQ_MODEL = 'llama-3.3-70b-versatile'; // free & strong; or 'llama-3.1-8b-instant' for speed
+const GROQ_VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'; // multimodal — accepts images
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -7,7 +8,7 @@ export default async function handler(req, res) {
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY not set in environment variables' });
 
-  const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup } = req.body;
+  const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup, image, areas } = req.body;
   let prompt = '';
 
   const varietyStr = nonce ? `\nFreshness token: ${nonce}. Give a DIFFERENT, fresh set of ideas than you might usually pick — avoid repeating the obvious defaults.` : '';
@@ -118,18 +119,62 @@ Provide a comprehensive analysis. Return a JSON object with exactly these fields
 Be specific, data-driven where possible, and constructive. Don't be afraid to point out real issues.`;
   }
 
+  if (type === 'beauty_analysis') {
+    if (!image) return res.status(400).json({ error: 'Photo required for beauty analysis' });
+    const selected = Array.isArray(areas) && areas.length ? areas : ['skin', 'teeth', 'hair'];
+    const areaText = selected.join(', ');
+    prompt = `You are a friendly, knowledgeable grooming and skincare coach. Look carefully at the selfie photo provided and give an honest, encouraging self-care assessment for these areas only: ${areaText}.
+
+Base every observation on what you can actually SEE in the photo (skin texture/tone/shine, teeth visible in a smile, hairline/scalp/hair density). If an area is not clearly visible, say so in its observation and give general best-practice tips instead of guessing. Keep advice safe, realistic and drugstore-affordable. Never diagnose medical conditions — if something looks like it needs a doctor or dentist, gently suggest seeing one. Be warm and motivating, never harsh about appearance.
+
+Return a JSON object with EXACTLY this shape (include ONLY the keys for the requested areas: ${areaText}, plus overall and score):
+{
+  "overall": "1-2 warm sentences summarizing how things look and the single most impactful habit to start.",
+  "score": 0-100 integer self-care score based on what is visible,
+  "skin": {
+    "type": "one of: dry, oily, combination, normal, sensitive",
+    "observation": "what you see (1-2 sentences)",
+    "concerns": ["short concern", "..."],
+    "routine": ["concrete step 1", "step 2", "step 3"],
+    "products": ["specific affordable product type, e.g. 'jojoba or rosehip facial oil for dryness'", "..."]
+  },
+  "teeth": {
+    "observation": "what you see about teeth/gums/smile (1-2 sentences)",
+    "concerns": ["..."],
+    "routine": ["concrete step 1", "step 2"],
+    "products": ["e.g. 'soft-bristle brush', 'fluoride toothpaste', 'whitening strips if wanted'"]
+  },
+  "hair": {
+    "observation": "what you see about hair/hairline/scalp/density (1-2 sentences)",
+    "concerns": ["e.g. 'thinning at temples', 'dry ends'"],
+    "routine": ["concrete step 1", "step 2", "step 3"],
+    "products": ["e.g. 'rosemary or castor oil for scalp', 'sulfate-free shampoo', 'consider minoxidil for thinning — research first'"]
+  }
+}
+Only include the skin, teeth, and/or hair keys that are in this list: ${areaText}.`;
+  }
+
+  const isVision = type === 'beauty_analysis';
+
   try {
+    const userContent = isVision
+      ? [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: image } },
+        ]
+      : prompt;
+
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
       body: JSON.stringify({
-        model: GROQ_MODEL,
-        temperature: 0.8,
+        model: isVision ? GROQ_VISION_MODEL : GROQ_MODEL,
+        temperature: isVision ? 0.5 : 0.8,
         max_tokens: 2000,
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: 'You output only valid JSON. No markdown, no commentary.' },
-          { role: 'user', content: prompt },
+          { role: 'user', content: userContent },
         ],
       }),
     });
@@ -150,13 +195,13 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
       parsed = JSON.parse(m[0]);
     }
 
-    // For startup_analysis, return the full object (not just results)
-    if (type === 'startup_analysis') {
+    // For analysis types, return the full object (not just results)
+    if (type === 'startup_analysis' || type === 'beauty_analysis') {
       try {
         const obj = JSON.parse(rawText);
         return res.status(200).json({ analysis: obj });
       } catch {
-        console.error('Failed to parse startup analysis:', rawText);
+        console.error('Failed to parse analysis:', rawText);
         return res.status(500).json({ error: 'Could not parse analysis response' });
       }
     }
