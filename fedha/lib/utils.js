@@ -127,6 +127,154 @@ export function resizeImage(file, maxSize = 800, quality = 0.82) {
   });
 }
 
+// ─── ONLINE JOB PAYOUT CALCULATOR ──────────────────────────────────────────────
+// Lock periods: 1st–15th (paid on 21st) and 16th–end (paid on 7th of next month).
+// Threshold per lock period; if not met, the earned amount carries into the next
+// period, and the user must beat the threshold there to unlock the full payout.
+export function lockPeriodFor(date = new Date()) {
+  const d = new Date(date);
+  const y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
+  if (day <= 15) {
+    const start = new Date(y, m, 1);
+    const end = new Date(y, m, 15);
+    const payout = new Date(y, m, 21); // paid on the 21st, same month
+    return { half: 1, start, end, payout, label: `${format(start, 'd')}–15 ${format(start, 'MMM')}` };
+  }
+  const start = new Date(y, m, 16);
+  const end = new Date(y, m + 1, 0); // last day of month
+  const payout = new Date(y, m + 1, 7); // paid on the 7th, next month
+  return { half: 2, start, end, payout, label: `16–${format(end, 'd')} ${format(start, 'MMM')}` };
+}
+
+// The lock period immediately before the one containing `date`.
+export function prevLockPeriodFor(date = new Date()) {
+  const cur = lockPeriodFor(date);
+  const dayBefore = new Date(cur.start);
+  dayBefore.setDate(dayBefore.getDate() - 1);
+  return lockPeriodFor(dayBefore);
+}
+
+// entries: [{ date, amount }] amounts in display currency the user entered.
+// job: { threshold, multiplier, carryover, perTask, minutesPerTask }
+export function computeJobProgress(job = {}, now = new Date()) {
+  const threshold = Number(job.threshold) || 20;
+  const multiplier = Number(job.multiplier) || 1;
+  const perTask = Number(job.perTask) || 0;
+  const minutesPerTask = Number(job.minutesPerTask) || 0;
+  const target = threshold * multiplier;
+
+  const period = lockPeriodFor(now);
+  const startISO = localISO(period.start);
+  const endISO = localISO(period.end);
+
+  const entries = Array.isArray(job.entries) ? job.entries : [];
+  const periodEntries = entries.filter((e) => e.date >= startISO && e.date <= endISO);
+  const earnedThisPeriod = periodEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+  // Auto carryover: if the PREVIOUS lock period didn't beat the threshold, its
+  // earnings roll into this period and still count toward unlocking a payout.
+  const prev = prevLockPeriodFor(now);
+  const prevStart = localISO(prev.start), prevEnd = localISO(prev.end);
+  const prevEarned = entries.filter((e) => e.date >= prevStart && e.date <= prevEnd).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const carryover = prevEarned > 0 && prevEarned < threshold ? prevEarned : 0;
+
+  const earnedTotal = earnedThisPeriod + carryover; // carryover counts toward unlocking
+
+  const remaining = Math.max(0, target - earnedTotal);
+  const metThreshold = earnedTotal >= threshold;       // base threshold beaten → will be paid
+  const metTarget = earnedTotal >= target;             // user's chosen (multiplied) goal hit
+
+  // Days left in this lock period (inclusive of today)
+  const c = countdownTo(endISO);
+  const daysLeft = Math.max(1, (c?.days ?? 0) + 1);
+
+  // Tasks math (only meaningful if perTask provided)
+  const tasksRemaining = perTask > 0 ? Math.ceil(remaining / perTask) : null;
+  const tasksPerDay = tasksRemaining != null ? Math.ceil(tasksRemaining / daysLeft) : null;
+  const minutesPerDay = tasksPerDay != null && minutesPerTask > 0 ? tasksPerDay * minutesPerTask : null;
+  const amountPerDay = remaining > 0 ? remaining / daysLeft : 0;
+
+  return {
+    target, threshold, multiplier, carryover,
+    period, daysLeft,
+    earnedThisPeriod, earnedTotal, remaining,
+    metThreshold, metTarget,
+    perTask, minutesPerTask,
+    tasksRemaining, tasksPerDay, minutesPerDay, amountPerDay,
+    progressPct: target > 0 ? Math.min(100, (earnedTotal / target) * 100) : 0,
+  };
+}
+
+// ─── WORK SESSIONS & DAY PLANNING ───────────────────────────────────────────────
+export function parseHHMM(s) {
+  if (!s || typeof s !== 'string') return 9 * 60;
+  const [h, m] = s.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+export function fmtClock(totalMin) {
+  const m = (((Math.round(totalMin) % 1440) + 1440) % 1440);
+  const h = Math.floor(m / 60), mm = m % 60;
+  const ampm = h < 12 ? 'AM' : 'PM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${mm < 10 ? '0' + mm : mm} ${ampm}`;
+}
+export function fmtDuration(min) {
+  const m = Math.max(0, Math.round(min));
+  const h = Math.floor(m / 60), mm = m % 60;
+  if (h && mm) return `${h}h ${mm}m`;
+  if (h) return `${h}h`;
+  return `${mm}m`;
+}
+
+// Sum up tracked work time. A session = { date, start (ISO), end (ISO|null) }.
+// A session with no end is "active" (currently running).
+export function summarizeSessions(sessions = [], now = new Date()) {
+  const todayKey = localISO(now);
+  let secToday = 0, active = null;
+  for (const s of sessions) {
+    if (!s?.start) continue;
+    const start = new Date(s.start);
+    if (!s.end) { active = s; if (s.date === todayKey) secToday += (now - start) / 1000; continue; }
+    if (s.date === todayKey) secToday += (new Date(s.end) - start) / 1000;
+  }
+  return { minutesToday: Math.max(0, Math.round(secToday / 60)), active };
+}
+
+// Build a wellness-aware schedule that fits `workMinutes` of tasks around showers,
+// meals, exercise and micro-breaks, starting at `startTime` ("HH:MM").
+export function buildDayPlan(workMinutes, startTime = '09:00') {
+  const plan = [];
+  let cursor = parseHHMM(startTime);
+  const WORK_BLOCK = 50, MICRO = 10;
+  let remaining = Math.max(0, Math.round(workMinutes || 0));
+
+  plan.push({ type: 'shower', label: 'Shower & freshen up', duration: 20, start: cursor });
+  cursor += 20;
+
+  let worked = 0, ate = false, moved = false;
+  while (remaining > 0) {
+    const block = Math.min(WORK_BLOCK, remaining);
+    plan.push({ type: 'work', label: `Work — ${block} min of tasks`, duration: block, start: cursor });
+    cursor += block; remaining -= block; worked += block;
+    if (remaining <= 0) break;
+
+    if (!ate && worked >= 150) { plan.push({ type: 'eat', label: 'Eat a proper meal', duration: 30, start: cursor }); cursor += 30; ate = true; continue; }
+    if (!moved && worked >= 90) { plan.push({ type: 'exercise', label: 'Move — quick exercise or walk', duration: 15, start: cursor }); cursor += 15; moved = true; continue; }
+    plan.push({ type: 'break', label: 'Stretch, water, rest your eyes', duration: MICRO, start: cursor }); cursor += MICRO;
+  }
+  plan.push({ type: 'done', label: 'Goal done — log off & relax', duration: 0, start: cursor });
+  return { plan, endsAt: cursor };
+}
+
+// Reminders fired while a session runs, keyed by elapsed active minutes.
+export const SESSION_CHECKPOINTS = [
+  { at: 50,  type: 'break',    msg: 'Stretch and rest your eyes for a few minutes.' },
+  { at: 110, type: 'eat',      msg: 'Grab a snack or meal — fuel up.' },
+  { at: 170, type: 'exercise', msg: 'Move your body: a short walk or quick exercise.' },
+  { at: 230, type: 'break',    msg: 'Another break — water and a stretch.' },
+  { at: 300, type: 'eat',      msg: 'Time for a proper meal.' },
+];
+
 export function monthRange(offset = 0) {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth() + offset, 1);
