@@ -50,7 +50,7 @@ export default function Dashboard() {
   const monthTxns = transactions.filter((t) => t.date >= from && t.date <= to);
   const monthExpense = monthTxns.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
   const monthIncome = monthTxns.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
-  const chartData = getBalanceChart(transactions, 7);
+  const chartData = getBalanceChart(transactions, totalBalance, 7);
   const recent = transactions.slice(0, 5);
   const activeLoans = loans.filter((l) => l.status === 'active');
   const overBudget = budgets.filter((b) => (b.spent || 0) > b.allocated);
