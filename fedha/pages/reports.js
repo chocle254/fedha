@@ -31,7 +31,7 @@ function CustomPieTooltip({ active, payload, currency }) {
 }
 
 export default function ReportsPage() {
-  const { transactions, wallets, goals, loans, budgets, currency, setCurrency } = useApp();
+  const { transactions, wallets, goals, loans, budgets, currency, setCurrency, netWorth, totalGoalSaved } = useApp();
   const [tab, setTab] = useState('overview');
   const [period, setPeriod] = useState('month');
   const [showTxn, setShowTxn] = useState(false);
@@ -59,8 +59,6 @@ export default function ReportsPage() {
   const totalBalance = wallets.reduce((s, w) => s + Number(w.balance || 0), 0);
   const totalBorrowed = loans.filter((l) => l.type === 'borrowed' && l.status === 'active').reduce((s, l) => s + Number(l.remaining || l.amount), 0);
   const totalLent = loans.filter((l) => l.type === 'lent' && l.status === 'active').reduce((s, l) => s + Number(l.remaining || l.amount), 0);
-  const totalGoalSaved = goals.reduce((s, g) => s + (g.current || 0), 0);
-  const netWorth = totalBalance + totalLent - totalBorrowed;
 
   async function exportCSV() {
     const header = 'Date,Type,Category,Amount,Wallet,Description,Impulse\n';

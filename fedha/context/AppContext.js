@@ -126,7 +126,8 @@ export function AppProvider({ children }) {
   const totalBalance = wallets.reduce((s, w) => s + (Number(w.balance) || 0), 0);
   const totalLoaned = loans.filter((l) => l.type === 'lent' && l.status === 'active').reduce((s, l) => s + Number(l.remaining || l.amount), 0);
   const totalBorrowed = loans.filter((l) => l.type === 'borrowed' && l.status === 'active').reduce((s, l) => s + Number(l.remaining || l.amount), 0);
-  const netWorth = totalBalance + totalLoaned - totalBorrowed;
+  const totalGoalSaved = goals.reduce((s, g) => s + (g.current || 0), 0);
+  const netWorth = totalBalance + totalLoaned + totalGoalSaved - totalBorrowed;
 
   return (
     <AppContext.Provider value={{
@@ -140,7 +141,7 @@ export function AppProvider({ children }) {
       challenges, addChallenge, updateChallenge, removeChallenge,
       hackathons, addHackathon, updateHackathon, removeHackathon,
       startups, addStartup, updateStartup, removeStartup,
-      totalBalance, totalLoaned, totalBorrowed, netWorth,
+      totalBalance, totalLoaned, totalBorrowed, totalGoalSaved, netWorth,
       reload: loadAll,
     }}>
       {children}
