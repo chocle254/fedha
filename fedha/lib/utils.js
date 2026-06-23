@@ -127,6 +127,84 @@ export function resizeImage(file, maxSize = 800, quality = 0.82) {
   });
 }
 
+// ─── ONLINE JOB PAYOUT CALCULATOR ──────────────────────────────────────────────
+// Lock periods: 1st–15th (paid on 21st) and 16th–end (paid on 7th of next month).
+// Threshold per lock period; if not met, the earned amount carries into the next
+// period, and the user must beat the threshold there to unlock the full payout.
+export function lockPeriodFor(date = new Date()) {
+  const d = new Date(date);
+  const y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
+  if (day <= 15) {
+    const start = new Date(y, m, 1);
+    const end = new Date(y, m, 15);
+    const payout = new Date(y, m, 21); // paid on the 21st, same month
+    return { half: 1, start, end, payout, label: `${format(start, 'd')}–15 ${format(start, 'MMM')}` };
+  }
+  const start = new Date(y, m, 16);
+  const end = new Date(y, m + 1, 0); // last day of month
+  const payout = new Date(y, m + 1, 7); // paid on the 7th, next month
+  return { half: 2, start, end, payout, label: `16–${format(end, 'd')} ${format(start, 'MMM')}` };
+}
+
+// The lock period immediately before the one containing `date`.
+export function prevLockPeriodFor(date = new Date()) {
+  const cur = lockPeriodFor(date);
+  const dayBefore = new Date(cur.start);
+  dayBefore.setDate(dayBefore.getDate() - 1);
+  return lockPeriodFor(dayBefore);
+}
+
+// entries: [{ date, amount }] amounts in display currency the user entered.
+// job: { threshold, multiplier, carryover, perTask, minutesPerTask }
+export function computeJobProgress(job = {}, now = new Date()) {
+  const threshold = Number(job.threshold) || 20;
+  const multiplier = Number(job.multiplier) || 1;
+  const perTask = Number(job.perTask) || 0;
+  const minutesPerTask = Number(job.minutesPerTask) || 0;
+  const target = threshold * multiplier;
+
+  const period = lockPeriodFor(now);
+  const startISO = localISO(period.start);
+  const endISO = localISO(period.end);
+
+  const entries = Array.isArray(job.entries) ? job.entries : [];
+  const periodEntries = entries.filter((e) => e.date >= startISO && e.date <= endISO);
+  const earnedThisPeriod = periodEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+  // Auto carryover: if the PREVIOUS lock period didn't beat the threshold, its
+  // earnings roll into this period and still count toward unlocking a payout.
+  const prev = prevLockPeriodFor(now);
+  const prevStart = localISO(prev.start), prevEnd = localISO(prev.end);
+  const prevEarned = entries.filter((e) => e.date >= prevStart && e.date <= prevEnd).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const carryover = prevEarned > 0 && prevEarned < threshold ? prevEarned : 0;
+
+  const earnedTotal = earnedThisPeriod + carryover; // carryover counts toward unlocking
+
+  const remaining = Math.max(0, target - earnedTotal);
+  const metThreshold = earnedTotal >= threshold;       // base threshold beaten → will be paid
+  const metTarget = earnedTotal >= target;             // user's chosen (multiplied) goal hit
+
+  // Days left in this lock period (inclusive of today)
+  const c = countdownTo(endISO);
+  const daysLeft = Math.max(1, (c?.days ?? 0) + 1);
+
+  // Tasks math (only meaningful if perTask provided)
+  const tasksRemaining = perTask > 0 ? Math.ceil(remaining / perTask) : null;
+  const tasksPerDay = tasksRemaining != null ? Math.ceil(tasksRemaining / daysLeft) : null;
+  const minutesPerDay = tasksPerDay != null && minutesPerTask > 0 ? tasksPerDay * minutesPerTask : null;
+  const amountPerDay = remaining > 0 ? remaining / daysLeft : 0;
+
+  return {
+    target, threshold, multiplier, carryover,
+    period, daysLeft,
+    earnedThisPeriod, earnedTotal, remaining,
+    metThreshold, metTarget,
+    perTask, minutesPerTask,
+    tasksRemaining, tasksPerDay, minutesPerDay, amountPerDay,
+    progressPct: target > 0 ? Math.min(100, (earnedTotal / target) * 100) : 0,
+  };
+}
+
 export function monthRange(offset = 0) {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth() + offset, 1);

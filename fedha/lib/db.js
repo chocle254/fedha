@@ -2,7 +2,7 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'fedha_db';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 let dbPromise = null;
 
@@ -69,6 +69,7 @@ function getDB() {
             const bls = db.createObjectStore('beauty_logs', { keyPath: 'id' });
             bls.createIndex('date', 'date');
           }
+          if (!db.objectStoreNames.contains('online_jobs')) db.createObjectStore('online_jobs', { keyPath: 'id' });
         },
       });
     })().catch((e) => {
@@ -208,6 +209,17 @@ export async function getBeautyLogs() {
 }
 export async function saveBeautyLog(entry) { const db = await getDB(); const r = { synced: false, ...entry, updated_at: new Date().toISOString() }; await db.put('beauty_logs', r); return r; }
 export async function deleteBeautyLog(id) { const db = await getDB(); return db.delete('beauty_logs', id); }
+
+// ─── ONLINE JOBS ─────────────────────────────────────────────────────────────
+export async function getOnlineJobs() {
+  try {
+    const db = await getDB();
+    const all = await db.getAll('online_jobs');
+    return all.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  } catch (e) { console.error('[fedha] read online_jobs failed:', e?.message); return []; }
+}
+export async function saveOnlineJob(job) { const db = await getDB(); const r = { synced: false, ...job, updated_at: new Date().toISOString() }; await db.put('online_jobs', r); return r; }
+export async function deleteOnlineJob(id) { const db = await getDB(); return db.delete('online_jobs', id); }
 
 // ─── SEED DEFAULT DATA ──────────────────────────────────────────────────────────
 export async function seedDefaultData() {

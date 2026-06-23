@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
+import OnlineJobs from '../components/OnlineJobs';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatShort, genId, todayISO } from '../lib/utils';
 
@@ -294,10 +295,11 @@ export default function DiscoverPage() {
           {/* Tabs */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
             <button className={`chip ${tab === 'activities' ? 'active' : ''}`} onClick={() => setTab('activities')}>🎉 Activities</button>
-            <button className={`chip ${tab === 'opportunities' ? 'active' : ''}`} onClick={() => setTab('opportunities')}>💼 Earn Online</button>
+            <button className={`chip ${tab === 'jobs' ? 'active' : ''}`} onClick={() => setTab('jobs')}>💼 My Jobs</button>
+            <button className={`chip ${tab === 'opportunities' ? 'active' : ''}`} onClick={() => setTab('opportunities')}>🔍 Earn Online</button>
             {pending.length > 0 && (
               <button className={`chip ${tab === 'pending' ? 'active' : ''}`} onClick={() => setTab('pending')} style={{ position: 'relative' }}>
-                ⏳ Pending
+                ��� Pending
                 <span style={{ background: 'var(--green)', color: '#000', borderRadius: 100, fontSize: 10, fontWeight: 700, padding: '1px 6px', marginLeft: 4 }}>{pending.length}</span>
               </button>
             )}
@@ -318,7 +320,10 @@ export default function DiscoverPage() {
             </div>
           )}
 
-          {/* ── ACTIVITIES ────────────────────────────────────────────── */}
+          {/* ── MY JOBS ───────────────────────────────────────────────── */}
+          {tab === 'jobs' && <OnlineJobs />}
+
+          {/* ── ACTIVITIES ──────────────────────────────��─────────────── */}
           {tab === 'activities' && (
             <div>
               {/* Bae mode toggle */}
