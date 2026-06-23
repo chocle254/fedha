@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   genId, todayISO, localISO, computeJobProgress, formatDate,
-  summarizeSessions, buildDayPlan, fmtClock, fmtDuration, SESSION_CHECKPOINTS,
+  summarizeSessions, buildDayPlan, fmtClock, fmtDuration, SESSION_CHECKPOINTS, BREAK_MOTIVATION,
 } from '../lib/utils';
 
 const JOB_CURRENCIES = { USD: '$', KES: 'KSh', EUR: '€', GBP: '£', UGX: 'USh', TZS: 'TSh' };
@@ -165,8 +165,54 @@ function Stat({ label, value, accent }) {
 function requestNotify() {
   try { if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {}); } catch {}
 }
-function notify(title, body) {
-  try { if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification(title, { body }); } catch {}
+function notify(title, body, opts = {}) {
+  try {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    new Notification(title, { body, tag: opts.tag, renotify: !!opts.renotify, silent: !!opts.silent });
+  } catch {}
+}
+
+const BREAK_DEFAULT_MIN = { break: 20, eat: 45, exercise: 20, shower: 30 };
+const BREAK_TITLE = { eat: 'Meal break 🍽️', exercise: 'Move your body 🏃', break: 'Reboot break ☕', shower: 'Shower & reset 🚿' };
+
+// ─── FULL-SCREEN BREAK OVERLAY ────────────────────────────────────────────────────
+// Blocks the whole app with a persistent countdown so the break actually happens.
+// Remaining time is derived from `startedAt`, so closing/returning keeps counting.
+function BreakOverlay({ brk, now, onEnd }) {
+  const endsAt = new Date(brk.startedAt).getTime() + brk.mins * 60000;
+  const remMs = Math.max(0, endsAt - now);
+  const totalSec = Math.ceil(remMs / 1000);
+  const mm = Math.floor(totalSec / 60);
+  const ss = totalSec % 60;
+  const pct = Math.min(100, ((brk.mins * 60000 - remMs) / (brk.mins * 60000)) * 100);
+  const motivation = BREAK_MOTIVATION[Math.floor(now / 8000) % BREAK_MOTIVATION.length];
+  const done = remMs <= 0;
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(8,12,20,0.82)', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 28, textAlign: 'center' }}>
+      <div style={{ fontSize: 64, marginBottom: 8 }}>{PLAN_ICON[brk.type] || '⏸️'}</div>
+      <div style={{ fontSize: 13, color: 'var(--green)', fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 6 }}>{done ? 'Break complete' : 'Break time — step away'}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 18, maxWidth: 320 }}>{brk.msg}</div>
+
+      <div className="font-num" style={{ fontSize: 72, fontWeight: 800, color: '#fff', lineHeight: 1, marginBottom: 16 }}>
+        {mm}:{ss < 10 ? '0' + ss : ss}
+      </div>
+
+      <div style={{ width: 'min(320px, 80vw)', height: 8, background: 'rgba(255,255,255,0.15)', borderRadius: 4, overflow: 'hidden', marginBottom: 24 }}>
+        <div style={{ height: '100%', width: `${pct}%`, background: 'var(--green)', borderRadius: 4, transition: 'width 0.5s' }} />
+      </div>
+
+      <div style={{ fontSize: 15, color: 'rgba(237,242,255,0.85)', fontStyle: 'italic', maxWidth: 340, lineHeight: 1.5, marginBottom: 28 }}>“{motivation}”</div>
+
+      {done ? (
+        <button className="btn-primary" onClick={onEnd} style={{ background: 'var(--green)', color: '#000', maxWidth: 280 }}>I’m rebooted — back to work</button>
+      ) : (
+        <button onClick={onEnd} style={{ background: 'none', border: 'none', color: 'rgba(237,242,255,0.4)', fontSize: 12, cursor: 'pointer', fontFamily: 'Outfit', textDecoration: 'underline' }}>
+          Skip break (not recommended)
+        </button>
+      )}
+    </div>
+  );
 }
 
 // ─── TODAY: WORK TIMER + WELLNESS REMINDERS ───────────────────────────────────────
