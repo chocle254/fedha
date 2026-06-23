@@ -35,6 +35,7 @@ const MORE = [
   { href:'/planner',  label:'Planner',       emoji:'📅', desc:'Schedule & tasks' },
   { href:'/discover', label:'Discover',      emoji:'🧭', desc:'Tips & explore' },
   { href:'/health',   label:'Health',        emoji:'❤️', desc:'Wellness tracking' },
+  { href:'/beauty',   label:'Beauty',        emoji:'💆', desc:'Skin, teeth & hair care' },
   { href:'/tech-hub', label:'Tech Hub',      emoji:'🚀', desc:'Hackathons & startups' },
 ];
 

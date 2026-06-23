@@ -1,5 +1,6 @@
 // pages/api/ai.js — uses Groq (free, generous, OpenAI-compatible). Set GROQ_API_KEY.
 const GROQ_MODEL = 'llama-3.3-70b-versatile'; // free & strong; or 'llama-3.1-8b-instant' for speed
+const GROQ_VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'; // multimodal — accepts images
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -7,7 +8,7 @@ export default async function handler(req, res) {
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY not set in environment variables' });
 
-  const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup } = req.body;
+  const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup, image, areas } = req.body;
   let prompt = '';
 
   const varietyStr = nonce ? `\nFreshness token: ${nonce}. Give a DIFFERENT, fresh set of ideas than you might usually pick — avoid repeating the obvious defaults.` : '';
@@ -118,18 +119,76 @@ Provide a comprehensive analysis. Return a JSON object with exactly these fields
 Be specific, data-driven where possible, and constructive. Don't be afraid to point out real issues.`;
   }
 
+  if (type === 'beauty_analysis') {
+    if (!image) return res.status(400).json({ error: 'Photo required for beauty analysis' });
+    const selected = Array.isArray(areas) && areas.length ? areas : ['skin', 'teeth', 'hair'];
+    const areaText = selected.join(', ');
+    prompt = `You are a careful, knowledgeable grooming and skincare coach. A wrong suggestion can damage someone's skin or hair, so you must REASON BEFORE YOU RECOMMEND. Look carefully at the selfie photo and give an honest, encouraging self-care assessment for these areas only: ${areaText}.
+
+CRITICAL REASONING PROCESS — for each requested area, think in this exact order before writing any recommendation:
+1. OBSERVE: List only what is literally visible in the photo (skin texture/tone/shine/redness, teeth/gum visibility, hairline/scalp/density). Do not invent details.
+2. PATTERN: From those observations, infer the most likely pattern (e.g. "shine in T-zone + matte cheeks => combination skin"). State your confidence (high/medium/low).
+3. RISK CHECK: Before recommending anything, ask "could this harm them if my read is wrong?" Reject any aggressive, irreversible, or skin/hair-barrier-damaging advice. Prefer the gentlest option that fits multiple possible patterns.
+4. RECOMMEND: Only then give advice that is safe even if your pattern guess is slightly off.
+
+SAFETY RULES (must always follow):
+- Start gentle and low-strength; never recommend strong actives (high-percentage retinoids, acids, harsh bleaching, DIY chemical treatments) as a first step.
+- Always advise patch-testing any new product and introducing only ONE new product at a time so reactions are traceable.
+- Never advise combining multiple actives at once, over-washing, picking, or aggressive scrubbing/heat.
+- For hair: protect the scalp barrier; suggest reversible habits (oils, gentle washing) before anything like minoxidil, and tell them to research/consult first.
+- If an area is not clearly visible OR your confidence is low, say so plainly and give only general best-practice tips instead of specific guesses.
+- Never diagnose medical conditions — if something looks like it may need a doctor, dermatologist, or dentist, gently say so.
+- Keep advice realistic and drugstore-affordable. Be warm and motivating, never harsh about appearance.
+
+Return a JSON object with EXACTLY this shape (include ONLY the area keys in: ${areaText}, plus reasoning, overall and score):
+{
+  "reasoning": ["short plain-language step showing your observe→pattern→risk-check thinking, one string per requested area, e.g. 'Skin: visible shine on forehead but dry-looking cheeks (medium confidence) => combination; chose a mild, non-stripping routine in case it's actually sensitive.'"],
+  "overall": "1-2 warm sentences summarizing how things look and the single most impactful, low-risk habit to start.",
+  "score": 0-100 integer self-care score based on what is visible,
+  "skin": {
+    "type": "one of: dry, oily, combination, normal, sensitive",
+    "observation": "what you see (1-2 sentences)",
+    "concerns": ["short concern", "..."],
+    "routine": ["concrete step 1", "step 2", "step 3"],
+    "products": ["specific affordable product type, e.g. 'jojoba or rosehip facial oil for dryness'", "..."]
+  },
+  "teeth": {
+    "observation": "what you see about teeth/gums/smile (1-2 sentences)",
+    "concerns": ["..."],
+    "routine": ["concrete step 1", "step 2"],
+    "products": ["e.g. 'soft-bristle brush', 'fluoride toothpaste', 'whitening strips if wanted'"]
+  },
+  "hair": {
+    "observation": "what you see about hair/hairline/scalp/density (1-2 sentences)",
+    "concerns": ["e.g. 'thinning at temples', 'dry ends'"],
+    "routine": ["concrete step 1", "step 2", "step 3"],
+    "products": ["e.g. 'rosemary or castor oil for scalp', 'sulfate-free shampoo', 'consider minoxidil for thinning — research first'"]
+  }
+}
+Only include the skin, teeth, and/or hair keys that are in this list: ${areaText}.`;
+  }
+
+  const isVision = type === 'beauty_analysis';
+
   try {
+    const userContent = isVision
+      ? [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: image } },
+        ]
+      : prompt;
+
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
       body: JSON.stringify({
-        model: GROQ_MODEL,
-        temperature: 0.8,
+        model: isVision ? GROQ_VISION_MODEL : GROQ_MODEL,
+        temperature: isVision ? 0.5 : 0.8,
         max_tokens: 2000,
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: 'You output only valid JSON. No markdown, no commentary.' },
-          { role: 'user', content: prompt },
+          { role: 'user', content: userContent },
         ],
       }),
     });
@@ -150,13 +209,13 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
       parsed = JSON.parse(m[0]);
     }
 
-    // For startup_analysis, return the full object (not just results)
-    if (type === 'startup_analysis') {
+    // For analysis types, return the full object (not just results)
+    if (type === 'startup_analysis' || type === 'beauty_analysis') {
       try {
         const obj = JSON.parse(rawText);
         return res.status(200).json({ analysis: obj });
       } catch {
-        console.error('Failed to parse startup analysis:', rawText);
+        console.error('Failed to parse analysis:', rawText);
         return res.status(500).json({ error: 'Could not parse analysis response' });
       }
     }
