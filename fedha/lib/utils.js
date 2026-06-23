@@ -191,17 +191,28 @@ export function groupByMonth(transactions, months = 6) {
   return result;
 }
 
-export function getBalanceChart(transactions, days = 7) {
+export function getBalanceChart(transactions, currentBalance, days = 7) {
   const result = [];
-  let runningBalance = 0;
   
+  // Calculate cumulative balance for each day by summing all transactions up to that day
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
     const key = localISO(d);
-    const income = transactions.filter((t) => t.date === key && t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
-    const expense = transactions.filter((t) => t.date === key && t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
-    runningBalance += income - expense;
-    result.push({ label: format(d, 'EEE'), date: key, balance: runningBalance });
+    
+    // Sum all transactions up to and including this day
+    const txnsUpToDay = transactions.filter((t) => t.date <= key);
+    const totalNetUpToDay = txnsUpToDay.reduce((s, t) => {
+      return s + (t.type === 'income' ? Number(t.amount) : -Number(t.amount));
+    }, 0);
+    
+    // Balance on this day = current balance - (all transactions after this day)
+    const txnsAfterDay = transactions.filter((t) => t.date > key);
+    const totalNetAfterDay = txnsAfterDay.reduce((s, t) => {
+      return s + (t.type === 'income' ? Number(t.amount) : -Number(t.amount));
+    }, 0);
+    
+    const balance = currentBalance - totalNetAfterDay;
+    result.push({ label: format(d, 'EEE'), date: key, balance });
   }
   return result;
 }
