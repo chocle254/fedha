@@ -1,9 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
-import { genId, todayISO, computeJobProgress, formatDate } from '../lib/utils';
+import {
+  genId, todayISO, localISO, computeJobProgress, formatDate,
+  summarizeSessions, buildDayPlan, fmtClock, fmtDuration, SESSION_CHECKPOINTS,
+} from '../lib/utils';
 
 const JOB_CURRENCIES = { USD: '$', KES: 'KSh', EUR: '€', GBP: '£', UGX: 'USh', TZS: 'TSh' };
 const fmt = (n, sym) => `${sym}${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const PLAN_ICON = { shower: '🚿', work: '💻', eat: '🍽️', exercise: '🏃', break: '☕', done: '✅' };
 
 // ─── ADD / EDIT JOB FORM ────────────────────────────────────────────────────────
 function JobForm({ initial, onSave, onClose }) {
@@ -156,6 +161,128 @@ function Stat({ label, value, accent }) {
   );
 }
 
+// ─── NOTIFICATION HELPERS ───────────────────────────────────────────────────────
+function requestNotify() {
+  try { if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {}); } catch {}
+}
+function notify(title, body) {
+  try { if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification(title, { body }); } catch {}
+}
+
+// ─── TODAY: WORK TIMER + WELLNESS REMINDERS ───────────────────────────────────────
+function TodayPanel({ job, onUpdate }) {
+  const sessions = job.sessions || [];
+  const [tick, setTick] = useState(Date.now());
+  const [reminder, setReminder] = useState(null);
+  const firedRef = useRef(new Set());
+
+  const { minutesToday, active } = summarizeSessions(sessions, new Date(tick));
+  const todaysSessions = sessions.filter((s) => s.date === localISO() && s.end);
+
+  // Tick every 15s while a session is running so the clock + reminders update.
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setTick(Date.now()), 15000);
+    return () => clearInterval(id);
+  }, [active]);
+
+  // Fire wellness reminders as elapsed work time crosses each checkpoint.
+  useEffect(() => {
+    if (!active) return;
+    const elapsed = (Date.now() - new Date(active.start)) / 60000;
+    for (const cp of SESSION_CHECKPOINTS) {
+      const key = `${active.id}-${cp.at}`;
+      if (elapsed >= cp.at && !firedRef.current.has(key)) {
+        firedRef.current.add(key);
+        setReminder({ type: cp.type, msg: cp.msg });
+        const titles = { eat: 'Time to eat 🍽️', exercise: 'Move your body 🏃', break: 'Take a break ☕' };
+        notify(titles[cp.type] || 'Take a break', cp.msg);
+      }
+    }
+  }, [tick, active]);
+
+  async function start() {
+    requestNotify();
+    const s = { id: genId(), date: localISO(), start: new Date().toISOString(), end: null };
+    await onUpdate({ ...job, sessions: [...sessions, s] });
+    setTick(Date.now());
+  }
+  async function stop() {
+    await onUpdate({ ...job, sessions: sessions.map((s) => (s.id === active.id ? { ...s, end: new Date().toISOString() } : s)) });
+    firedRef.current = new Set();
+    setReminder(null);
+    setTick(Date.now());
+  }
+
+  return (
+    <div className="card" style={{ padding: '16px', marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div className="section-title" style={{ margin: 0 }}>⏱️ Today’s Work</div>
+        <div className="font-num" style={{ fontSize: 13, color: 'var(--text-3)' }}>{fmtDuration(minutesToday)} tracked</div>
+      </div>
+
+      {active ? (
+        <div style={{ textAlign: 'center', marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase' }}>Working since {fmtClock(new Date(active.start).getHours() * 60 + new Date(active.start).getMinutes())}</div>
+          <div className="font-num" style={{ fontSize: 34, fontWeight: 700, color: 'var(--green)', margin: '4px 0' }}>{fmtDuration((Date.now() - new Date(active.start)) / 60000)}</div>
+        </div>
+      ) : (
+        <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>Start the timer when you begin tasks. Fedha tracks your hours and reminds you to shower, eat and move so you don’t burn out.</div>
+      )}
+
+      {reminder && active && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 12, marginBottom: 12 }}>
+          <span style={{ fontSize: 22 }}>{PLAN_ICON[reminder.type] || '⏰'}</span>
+          <div style={{ flex: 1, fontSize: 13, color: 'var(--text)', fontWeight: 600 }}>{reminder.msg}</div>
+          <button onClick={() => setReminder(null)} style={{ background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 16 }}>✕</button>
+        </div>
+      )}
+
+      <button className="btn-primary" onClick={active ? stop : start}
+        style={{ background: active ? 'var(--red)' : 'var(--green)', color: active ? '#fff' : '#000' }}>
+        {active ? '■ End Work Session' : '▶ Start Work Session'}
+      </button>
+
+      {todaysSessions.length > 0 && (
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {todaysSessions.map((s) => (
+            <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-3)' }}>
+              <span>{fmtClock(new Date(s.start).getHours() * 60 + new Date(s.start).getMinutes())} – {fmtClock(new Date(s.end).getHours() * 60 + new Date(s.end).getMinutes())}</span>
+              <span className="font-num">{fmtDuration((new Date(s.end) - new Date(s.start)) / 60000)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── DAY SCHEDULE PLAN ────────────────────────────────────────────────────────────
+function DayPlan({ job, minutesPerDay, onUpdate }) {
+  const startTime = job.dayStart || '09:00';
+  const { plan, endsAt } = buildDayPlan(minutesPerDay, startTime);
+  return (
+    <div className="card" style={{ padding: '16px', marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <div className="section-title" style={{ margin: 0 }}>🗓️ Your Day Plan</div>
+        <input type="time" value={startTime} onChange={(e) => onUpdate({ ...job, dayStart: e.target.value })}
+          className="input" style={{ width: 'auto', padding: '6px 8px', fontSize: 13 }} />
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>~{fmtDuration(minutesPerDay)} of tasks today, balanced with breaks. Wrap up around <strong style={{ color: 'var(--text)' }}>{fmtClock(endsAt)}</strong>.</div>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {plan.map((item, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: i < plan.length - 1 ? '1px solid var(--border)' : 'none' }}>
+            <div className="font-num" style={{ width: 64, fontSize: 12, color: 'var(--text-3)', fontWeight: 600 }}>{fmtClock(item.start)}</div>
+            <span style={{ fontSize: 18 }}>{PLAN_ICON[item.type] || '•'}</span>
+            <div style={{ flex: 1, fontSize: 13, color: item.type === 'work' ? 'var(--text)' : 'var(--text-2)', fontWeight: item.type === 'work' ? 600 : 500 }}>{item.label}</div>
+            {item.duration > 0 && <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{fmtDuration(item.duration)}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── JOB DETAIL ───────────────────────────────────────────────────────────────
 function JobDetail({ job, onBack }) {
   const { updateOnlineJob, removeOnlineJob } = useApp();
@@ -209,6 +336,9 @@ function JobDetail({ job, onBack }) {
         </div>
       </div>
 
+      {/* Today's work timer + wellness reminders */}
+      <TodayPanel job={job} onUpdate={updateOnlineJob} />
+
       {/* Calculator: tasks/day to hit goal */}
       <div className="card" style={{ padding: '16px', marginBottom: 16 }}>
         <div className="section-title" style={{ marginBottom: 12 }}>📊 Daily Plan to Hit Goal</div>
@@ -237,6 +367,11 @@ function JobDetail({ job, onBack }) {
           </>
         )}
       </div>
+
+      {/* Wellness-aware day schedule */}
+      {p.minutesPerDay != null && p.minutesPerDay > 0 && (
+        <DayPlan job={job} minutesPerDay={p.minutesPerDay} onUpdate={updateOnlineJob} />
+      )}
 
       {/* Log button */}
       <button className="btn-primary" onClick={() => setShowLog(true)} style={{ marginBottom: 20, background: 'var(--green)', color: '#000' }}>+ Log Today's Earnings</button>

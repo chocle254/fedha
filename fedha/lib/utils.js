@@ -205,6 +205,76 @@ export function computeJobProgress(job = {}, now = new Date()) {
   };
 }
 
+// ─── WORK SESSIONS & DAY PLANNING ───────────────────────────────────────────────
+export function parseHHMM(s) {
+  if (!s || typeof s !== 'string') return 9 * 60;
+  const [h, m] = s.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+export function fmtClock(totalMin) {
+  const m = (((Math.round(totalMin) % 1440) + 1440) % 1440);
+  const h = Math.floor(m / 60), mm = m % 60;
+  const ampm = h < 12 ? 'AM' : 'PM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${mm < 10 ? '0' + mm : mm} ${ampm}`;
+}
+export function fmtDuration(min) {
+  const m = Math.max(0, Math.round(min));
+  const h = Math.floor(m / 60), mm = m % 60;
+  if (h && mm) return `${h}h ${mm}m`;
+  if (h) return `${h}h`;
+  return `${mm}m`;
+}
+
+// Sum up tracked work time. A session = { date, start (ISO), end (ISO|null) }.
+// A session with no end is "active" (currently running).
+export function summarizeSessions(sessions = [], now = new Date()) {
+  const todayKey = localISO(now);
+  let secToday = 0, active = null;
+  for (const s of sessions) {
+    if (!s?.start) continue;
+    const start = new Date(s.start);
+    if (!s.end) { active = s; if (s.date === todayKey) secToday += (now - start) / 1000; continue; }
+    if (s.date === todayKey) secToday += (new Date(s.end) - start) / 1000;
+  }
+  return { minutesToday: Math.max(0, Math.round(secToday / 60)), active };
+}
+
+// Build a wellness-aware schedule that fits `workMinutes` of tasks around showers,
+// meals, exercise and micro-breaks, starting at `startTime` ("HH:MM").
+export function buildDayPlan(workMinutes, startTime = '09:00') {
+  const plan = [];
+  let cursor = parseHHMM(startTime);
+  const WORK_BLOCK = 50, MICRO = 10;
+  let remaining = Math.max(0, Math.round(workMinutes || 0));
+
+  plan.push({ type: 'shower', label: 'Shower & freshen up', duration: 20, start: cursor });
+  cursor += 20;
+
+  let worked = 0, ate = false, moved = false;
+  while (remaining > 0) {
+    const block = Math.min(WORK_BLOCK, remaining);
+    plan.push({ type: 'work', label: `Work — ${block} min of tasks`, duration: block, start: cursor });
+    cursor += block; remaining -= block; worked += block;
+    if (remaining <= 0) break;
+
+    if (!ate && worked >= 150) { plan.push({ type: 'eat', label: 'Eat a proper meal', duration: 30, start: cursor }); cursor += 30; ate = true; continue; }
+    if (!moved && worked >= 90) { plan.push({ type: 'exercise', label: 'Move — quick exercise or walk', duration: 15, start: cursor }); cursor += 15; moved = true; continue; }
+    plan.push({ type: 'break', label: 'Stretch, water, rest your eyes', duration: MICRO, start: cursor }); cursor += MICRO;
+  }
+  plan.push({ type: 'done', label: 'Goal done — log off & relax', duration: 0, start: cursor });
+  return { plan, endsAt: cursor };
+}
+
+// Reminders fired while a session runs, keyed by elapsed active minutes.
+export const SESSION_CHECKPOINTS = [
+  { at: 50,  type: 'break',    msg: 'Stretch and rest your eyes for a few minutes.' },
+  { at: 110, type: 'eat',      msg: 'Grab a snack or meal — fuel up.' },
+  { at: 170, type: 'exercise', msg: 'Move your body: a short walk or quick exercise.' },
+  { at: 230, type: 'break',    msg: 'Another break — water and a stretch.' },
+  { at: 300, type: 'eat',      msg: 'Time for a proper meal.' },
+];
+
 export function monthRange(offset = 0) {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth() + offset, 1);
