@@ -181,6 +181,7 @@ export function computeJobProgress(job = {}, now = new Date()) {
   const earnedTotal = earnedThisPeriod + carryover; // carryover counts toward unlocking
 
   const remaining = Math.max(0, target - earnedTotal);
+  const toThreshold = Math.max(0, threshold - earnedTotal); // amount still needed to UNLOCK payout
   const metThreshold = earnedTotal >= threshold;       // base threshold beaten → will be paid
   const metTarget = earnedTotal >= target;             // user's chosen (multiplied) goal hit
 
@@ -197,7 +198,7 @@ export function computeJobProgress(job = {}, now = new Date()) {
   return {
     target, threshold, multiplier, carryover,
     period, daysLeft,
-    earnedThisPeriod, earnedTotal, remaining,
+    earnedThisPeriod, earnedTotal, remaining, toThreshold,
     metThreshold, metTarget,
     perTask, minutesPerTask,
     tasksRemaining, tasksPerDay, minutesPerDay, amountPerDay,
@@ -240,40 +241,119 @@ export function summarizeSessions(sessions = [], now = new Date()) {
   return { minutesToday: Math.max(0, Math.round(secToday / 60)), active };
 }
 
-// Build a wellness-aware schedule that fits `workMinutes` of tasks around showers,
-// meals, exercise and micro-breaks, starting at `startTime` ("HH:MM").
+// Build a wellness-aware schedule that fits `workMinutes` of tasks around a real
+// reboot break after every 60-min block, an afternoon shower, meals and exercise,
+// starting at `startTime` ("HH:MM"). Atlas-style heavy-thinking work, so breaks
+// are long enough to actually reset your eyes and mood.
 export function buildDayPlan(workMinutes, startTime = '09:00') {
   const plan = [];
   let cursor = parseHHMM(startTime);
-  const WORK_BLOCK = 50, MICRO = 10;
+  const WORK_BLOCK = 60;   // one block = ~2 tasks
+  const REBOOT = 20;       // proper reboot between blocks
   let remaining = Math.max(0, Math.round(workMinutes || 0));
 
-  plan.push({ type: 'shower', label: 'Shower & freshen up', duration: 20, start: cursor });
-  cursor += 20;
-
-  let worked = 0, ate = false, moved = false;
+  let worked = 0, showered = false, lunched = false, dined = false, moved = false;
+  let blocks = 0;
   while (remaining > 0) {
     const block = Math.min(WORK_BLOCK, remaining);
-    plan.push({ type: 'work', label: `Work — ${block} min of tasks`, duration: block, start: cursor });
+    blocks += 1;
+    plan.push({ type: 'work', label: `Work block ${blocks} — ${block} min of tasks`, duration: block, start: cursor });
     cursor += block; remaining -= block; worked += block;
     if (remaining <= 0) break;
 
-    if (!ate && worked >= 150) { plan.push({ type: 'eat', label: 'Eat a proper meal', duration: 30, start: cursor }); cursor += 30; ate = true; continue; }
-    if (!moved && worked >= 90) { plan.push({ type: 'exercise', label: 'Move — quick exercise or walk', duration: 15, start: cursor }); cursor += 15; moved = true; continue; }
-    plan.push({ type: 'break', label: 'Stretch, water, rest your eyes', duration: MICRO, start: cursor }); cursor += MICRO;
+    // Afternoon shower (you shower in the afternoon, not the morning)
+    if (!showered && cursor >= 14 * 60) { plan.push({ type: 'shower', label: 'Afternoon shower & reset', duration: 30, start: cursor }); cursor += 30; showered = true; continue; }
+    // Lunch around midday
+    if (!lunched && cursor >= 13 * 60) { plan.push({ type: 'eat', label: 'Lunch — eat properly, step away from the screen', duration: 45, start: cursor }); cursor += 45; lunched = true; continue; }
+    // Dinner in the evening
+    if (!dined && cursor >= 19 * 60) { plan.push({ type: 'eat', label: 'Dinner break', duration: 45, start: cursor }); cursor += 45; dined = true; continue; }
+    // One movement session after a couple hours
+    if (!moved && worked >= 120) { plan.push({ type: 'exercise', label: 'Move — walk or quick exercise to reboot', duration: 20, start: cursor }); cursor += 20; moved = true; continue; }
+    // Otherwise a proper reboot break — rest eyes, water, breathe
+    plan.push({ type: 'break', label: 'Reboot — rest your eyes, water, breathe', duration: REBOOT, start: cursor }); cursor += REBOOT;
   }
   plan.push({ type: 'done', label: 'Goal done — log off & relax', duration: 0, start: cursor });
   return { plan, endsAt: cursor };
 }
 
-// Reminders fired while a session runs, keyed by elapsed active minutes.
+// Breaks enforced while a session runs, keyed by elapsed active minutes.
+// `mins` is how long the enforced break lasts. A reminder also fires 5 min before.
 export const SESSION_CHECKPOINTS = [
-  { at: 50,  type: 'break',    msg: 'Stretch and rest your eyes for a few minutes.' },
-  { at: 110, type: 'eat',      msg: 'Grab a snack or meal — fuel up.' },
-  { at: 170, type: 'exercise', msg: 'Move your body: a short walk or quick exercise.' },
-  { at: 230, type: 'break',    msg: 'Another break — water and a stretch.' },
-  { at: 300, type: 'eat',      msg: 'Time for a proper meal.' },
+  { at: 60,  type: 'break',    mins: 20, msg: 'Reboot break — rest your eyes, drink water, breathe.' },
+  { at: 140, type: 'eat',      mins: 45, msg: 'Meal break — step away and eat properly.' },
+  { at: 225, type: 'exercise', mins: 20, msg: 'Move your body — a short walk or quick exercise.' },
+  { at: 305, type: 'break',    mins: 20, msg: 'Another reboot — eyes off the screen, stretch.' },
+  { at: 385, type: 'shower',   mins: 30, msg: 'Shower & reset — you have earned it.' },
+  { at: 465, type: 'eat',      mins: 45, msg: 'Eat again and recharge.' },
+  { at: 545, type: 'break',    mins: 20, msg: 'Reboot break — protect your mood and focus.' },
 ];
+
+// Rotating motivation shown on the full-screen break overlay.
+export const BREAK_MOTIVATION = [
+  'Your mind is your tool — sharpen it by resting it.',
+  'Rest is part of the work. You earn more clear-headed.',
+  'Step away. The tasks will still be there, you will just be faster.',
+  'Tired eyes make slow work. Blink, breathe, look far away.',
+  'You are not a machine — and that is your advantage.',
+  'A calm mind beats a rushed one. Reboot fully.',
+  'Every break is an investment in tomorrow’s focus.',
+  'Slow down to speed up. You are doing great.',
+];
+
+// ─── TIMEZONE CONVERSION (→ Kenya / EAT, UTC+3) ─────────────────────────────────
+// Common timezone abbreviations → UTC offset in hours. Kenya (EAT) is +3.
+export const TZ_ABBREVIATIONS = [
+  { abbr: 'PT',  name: 'US Pacific',        offset: -7 },
+  { abbr: 'PST', name: 'US Pacific (std)',  offset: -8 },
+  { abbr: 'PDT', name: 'US Pacific (DST)',  offset: -7 },
+  { abbr: 'MT',  name: 'US Mountain',       offset: -6 },
+  { abbr: 'CT',  name: 'US Central',        offset: -5 },
+  { abbr: 'CST', name: 'US Central (std)',  offset: -6 },
+  { abbr: 'CDT', name: 'US Central (DST)',  offset: -5 },
+  { abbr: 'ET',  name: 'US Eastern',        offset: -4 },
+  { abbr: 'EST', name: 'US Eastern (std)',  offset: -5 },
+  { abbr: 'EDT', name: 'US Eastern (DST)',  offset: -4 },
+  { abbr: 'BRT', name: 'Brazil',            offset: -3 },
+  { abbr: 'UTC', name: 'UTC',               offset: 0 },
+  { abbr: 'GMT', name: 'GMT (London std)',  offset: 0 },
+  { abbr: 'BST', name: 'London (summer)',   offset: 1 },
+  { abbr: 'WAT', name: 'West Africa',       offset: 1 },
+  { abbr: 'CET', name: 'Central Europe',    offset: 1 },
+  { abbr: 'CEST',name: 'Central Europe DST',offset: 2 },
+  { abbr: 'EAT', name: 'East Africa (Kenya)', offset: 3 },
+  { abbr: 'IST', name: 'India',             offset: 5.5 },
+  { abbr: 'GST', name: 'Gulf (Dubai)',      offset: 4 },
+  { abbr: 'SGT', name: 'Singapore',         offset: 8 },
+  { abbr: 'JST', name: 'Japan',             offset: 9 },
+  { abbr: 'AEST',name: 'Australia East',    offset: 10 },
+];
+const NAIROBI_OFFSET = 3;
+
+export function tzOffsetFor(abbr) {
+  const t = TZ_ABBREVIATIONS.find((z) => z.abbr === String(abbr || '').toUpperCase());
+  return t ? t.offset : 0;
+}
+
+// Convert a wall-clock date+time in a source zone to the true instant (ISO) and a
+// Kenya-time (EAT) display label. date='YYYY-MM-DD', time='HH:MM'.
+export function toNairobi(date, time, tzAbbr) {
+  if (!date || !time) return null;
+  const [y, mo, d] = date.split('-').map(Number);
+  const [h, mi] = time.split(':').map(Number);
+  const srcOffset = tzOffsetFor(tzAbbr);
+  // UTC instant = wall-clock treated as UTC, minus the source offset.
+  const utcMs = Date.UTC(y, mo - 1, d, h, mi) - srcOffset * 3600000;
+  const iso = new Date(utcMs).toISOString();
+  // Kenya wall-clock = UTC + 3, read with UTC getters to ignore device tz.
+  const k = new Date(utcMs + NAIROBI_OFFSET * 3600000);
+  let hh = k.getUTCHours();
+  const mm = k.getUTCMinutes();
+  const ampm = hh < 12 ? 'AM' : 'PM';
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const label = `${k.getUTCDate()} ${months[k.getUTCMonth()]}, ${h12}:${mm < 10 ? '0' + mm : mm} ${ampm} EAT`;
+  return { iso, label };
+}
 
 export function monthRange(offset = 0) {
   const now = new Date();

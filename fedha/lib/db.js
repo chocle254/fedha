@@ -199,17 +199,6 @@ export async function getStartups() { return safeGetAll('startups'); }
 export async function saveStartup(s) { const db = await getDB(); const r = { synced: false, ...s, updated_at: new Date().toISOString() }; await db.put('startups', r); return r; }
 export async function deleteStartup(id) { const db = await getDB(); return db.delete('startups', id); }
 
-// ─── BEAUTY LOGS ─────────────────────────────────────────────────────────────
-export async function getBeautyLogs() {
-  try {
-    const db = await getDB();
-    const all = await db.getAll('beauty_logs');
-    return all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  } catch (e) { console.error('[fedha] read beauty_logs failed:', e?.message); return []; }
-}
-export async function saveBeautyLog(entry) { const db = await getDB(); const r = { synced: false, ...entry, updated_at: new Date().toISOString() }; await db.put('beauty_logs', r); return r; }
-export async function deleteBeautyLog(id) { const db = await getDB(); return db.delete('beauty_logs', id); }
-
 // ─── ONLINE JOBS ─────────────────────────────────────────────────────────────
 export async function getOnlineJobs() {
   try {

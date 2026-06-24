@@ -12,7 +12,6 @@ import {
   getChallenges, saveChallenge, deleteChallenge,
   getHackathons, saveHackathon, deleteHackathon,
   getStartups, saveStartup, deleteStartup,
-  getBeautyLogs, saveBeautyLog, deleteBeautyLog,
   getOnlineJobs, saveOnlineJob, deleteOnlineJob,
   getSetting, setSetting, seedDefaultData,
 } from '../lib/db';
@@ -30,7 +29,6 @@ export function AppProvider({ children }) {
   const [challenges, setChallenges] = useState([]);
   const [hackathons, setHackathons] = useState([]);
   const [startups, setStartups] = useState([]);
-  const [beautyLogs, setBeautyLogs] = useState([]);
   const [onlineJobs, setOnlineJobs] = useState([]);
   const [currency, setCurrencyState] = useState('KES');
   const [isOnline, setIsOnline] = useState(true);
@@ -39,15 +37,15 @@ export function AppProvider({ children }) {
 
   const loadAll = useCallback(async () => {
     await seedDefaultData();
-    const [ws, ts, bs, ls, gs, ips, chs, hks, sts, bls, ojs, cur, cachedRates] = await Promise.all([
+    const [ws, ts, bs, ls, gs, ips, chs, hks, sts, ojs, cur, cachedRates] = await Promise.all([
       getWallets(), getTransactions(), getBudgets(), getLoans(),
       getGoals(), getIncomePlans(), getChallenges(),
-      getHackathons(), getStartups(), getBeautyLogs(), getOnlineJobs(),
+      getHackathons(), getStartups(), getOnlineJobs(),
       getSetting('currency', 'KES'), getSetting('fx_rates', null),
     ]);
     setWallets(ws); setTransactions(ts); setBudgets(bs); setLoans(ls);
     setGoals(gs); setIncomePlans(ips); setChallenges(chs);
-    setHackathons(hks); setStartups(sts); setBeautyLogs(bls); setOnlineJobs(ojs); setCurrencyState(cur);
+    setHackathons(hks); setStartups(sts); setOnlineJobs(ojs); setCurrencyState(cur);
 
     // Use cached rates immediately (offline-first), then refresh from network.
     if (cachedRates) { setRates(cachedRates, BASE_CURRENCY); setFxVersion((v) => v + 1); }
@@ -123,10 +121,6 @@ export function AppProvider({ children }) {
   const updateStartup = useCallback(async (startup) => { const s = await saveStartup(startup); setStartups((p) => p.map((x) => (x.id === s.id ? s : x))); return s; }, []);
   const removeStartup = useCallback(async (id) => { await deleteStartup(id); setStartups((p) => p.filter((x) => x.id !== id)); }, []);
 
-  // ─── BEAUTY LOGS ───────────────────────────────────────────────────────────
-  const addBeautyLog = useCallback(async (data) => { const b = await saveBeautyLog({ id: genId(), date: todayISO(), created_at: new Date().toISOString(), ...data }); setBeautyLogs((p) => [b, ...p]); return b; }, []);
-  const removeBeautyLog = useCallback(async (id) => { await deleteBeautyLog(id); setBeautyLogs((p) => p.filter((x) => x.id !== id)); }, []);
-
   // ─── ONLINE JOBS ───────────────────────────────────────────────────────────
   const addOnlineJob = useCallback(async (data) => { const j = await saveOnlineJob({ id: genId(), entries: [], created_at: new Date().toISOString(), ...data }); setOnlineJobs((p) => [...p, j]); return j; }, []);
   const updateOnlineJob = useCallback(async (job) => { const j = await saveOnlineJob(job); setOnlineJobs((p) => p.map((x) => (x.id === j.id ? j : x))); return j; }, []);
@@ -154,7 +148,6 @@ export function AppProvider({ children }) {
       challenges, addChallenge, updateChallenge, removeChallenge,
       hackathons, addHackathon, updateHackathon, removeHackathon,
       startups, addStartup, updateStartup, removeStartup,
-      beautyLogs, addBeautyLog, removeBeautyLog,
       onlineJobs, addOnlineJob, updateOnlineJob, removeOnlineJob,
       totalBalance, totalLoaned, totalBorrowed, totalGoalSaved, netWorth,
       reload: loadAll,
