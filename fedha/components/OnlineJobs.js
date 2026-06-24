@@ -218,95 +218,121 @@ function BreakOverlay({ brk, now, onEnd }) {
 // ─── TODAY: WORK TIMER + WELLNESS REMINDERS ───────────────────────────────────────
 function TodayPanel({ job, onUpdate }) {
   const sessions = job.sessions || [];
-  const [tick, setTick] = useState(Date.now());
-  const [reminder, setReminder] = useState(null);
-  const firedRef = useRef(new Set());
+  const [now, setNow] = useState(Date.now());
+  const firedRef = useRef(new Set());      // checkpoints whose break already triggered
+  const preFiredRef = useRef(new Set());   // 5-min-before reminders already sent
 
-  const { minutesToday, active } = summarizeSessions(sessions, new Date(tick));
+  const { minutesToday, active } = summarizeSessions(sessions, new Date(now));
   const todaysSessions = sessions.filter((s) => s.date === localISO() && s.end);
+  const activeBreak = job.activeBreak || null;
 
-  // Tick every 15s while a session is running so the clock + reminders update.
+  // Tick every second while a session OR a break is running.
   useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => setTick(Date.now()), 15000);
+    if (!active && !activeBreak) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [active]);
+  }, [active, activeBreak]);
 
-  // Fire wellness reminders as elapsed work time crosses each checkpoint.
+  // Notify once when a break's countdown reaches zero.
+  const breakDoneNotified = useRef(false);
   useEffect(() => {
-    if (!active) return;
-    const elapsed = (Date.now() - new Date(active.start)) / 60000;
+    if (!activeBreak) { breakDoneNotified.current = false; return; }
+    const endsAt = new Date(activeBreak.startedAt).getTime() + activeBreak.mins * 60000;
+    if (now >= endsAt && !breakDoneNotified.current) {
+      breakDoneNotified.current = true;
+      notify('Break over — back to work 💪', 'Your reboot is complete. Tap to resume.', { tag: 'break', renotify: true });
+    }
+  }, [now, activeBreak]);
+
+  // Watch elapsed work time → 5-min warning, then start an enforced break.
+  useEffect(() => {
+    if (!active || activeBreak) return;
+    const elapsed = (now - new Date(active.start).getTime()) / 60000;
     for (const cp of SESSION_CHECKPOINTS) {
+      const preKey = `${active.id}-${cp.at}-pre`;
+      if (elapsed >= cp.at - 5 && elapsed < cp.at && !preFiredRef.current.has(preKey)) {
+        preFiredRef.current.add(preKey);
+        notify(`${BREAK_TITLE[cp.type] || 'Break'} in 5 min`, `Wrap up your task — ${cp.msg}`, { tag: 'pre-break', renotify: true });
+      }
       const key = `${active.id}-${cp.at}`;
       if (elapsed >= cp.at && !firedRef.current.has(key)) {
         firedRef.current.add(key);
-        setReminder({ type: cp.type, msg: cp.msg });
-        const titles = { eat: 'Time to eat 🍽️', exercise: 'Move your body 🏃', break: 'Take a break ☕' };
-        notify(titles[cp.type] || 'Take a break', cp.msg);
+        const brk = { id: genId(), type: cp.type, mins: cp.mins, msg: cp.msg, startedAt: new Date().toISOString() };
+        notify(BREAK_TITLE[cp.type] || 'Break time', `${cp.msg} (${cp.mins} min)`, { tag: 'break', renotify: true });
+        onUpdate({ ...job, activeBreak: brk });
       }
     }
-  }, [tick, active]);
+  }, [now, active, activeBreak]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function start() {
     requestNotify();
     const s = { id: genId(), date: localISO(), start: new Date().toISOString(), end: null };
     await onUpdate({ ...job, sessions: [...sessions, s] });
-    setTick(Date.now());
+    setNow(Date.now());
   }
   async function stop() {
-    await onUpdate({ ...job, sessions: sessions.map((s) => (s.id === active.id ? { ...s, end: new Date().toISOString() } : s)) });
+    await onUpdate({ ...job, activeBreak: null, sessions: sessions.map((s) => (s.id === active.id ? { ...s, end: new Date().toISOString() } : s)) });
     firedRef.current = new Set();
-    setReminder(null);
-    setTick(Date.now());
+    preFiredRef.current = new Set();
+    setNow(Date.now());
+  }
+  async function endBreak() {
+    await onUpdate({ ...job, activeBreak: null });
+    breakDoneNotified.current = false;
+    setNow(Date.now());
   }
 
   return (
-    <div className="card" style={{ padding: '16px', marginBottom: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <div className="section-title" style={{ margin: 0 }}>⏱️ Today’s Work</div>
-        <div className="font-num" style={{ fontSize: 13, color: 'var(--text-3)' }}>{fmtDuration(minutesToday)} tracked</div>
+    <>
+      {activeBreak && <BreakOverlay brk={activeBreak} now={now} onEnd={endBreak} />}
+      <div className="card" style={{ padding: '16px', marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div className="section-title" style={{ margin: 0 }}>⏱️ Today’s Work</div>
+          <div className="font-num" style={{ fontSize: 13, color: 'var(--text-3)' }}>{fmtDuration(minutesToday)} tracked</div>
+        </div>
+
+        {active ? (
+          <div style={{ textAlign: 'center', marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase' }}>Working since {fmtClock(new Date(active.start).getHours() * 60 + new Date(active.start).getMinutes())}</div>
+            <div className="font-num" style={{ fontSize: 34, fontWeight: 700, color: 'var(--green)', margin: '4px 0' }}>{fmtDuration((now - new Date(active.start).getTime()) / 60000)}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>Next break after 60 min of work</div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>Start the timer when you begin tasks. Fedha tracks your hours and locks the screen for a proper reboot break after each 60-min block so your eyes and mood stay fresh.</div>
+        )}
+
+        <button className="btn-primary" onClick={active ? stop : start}
+          style={{ background: active ? 'var(--red)' : 'var(--green)', color: active ? '#fff' : '#000' }}>
+          {active ? '■ End Work Session' : '▶ Start Work Session'}
+        </button>
+
+        {todaysSessions.length > 0 && (
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {todaysSessions.map((s) => (
+              <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-3)' }}>
+                <span>{fmtClock(new Date(s.start).getHours() * 60 + new Date(s.start).getMinutes())} – {fmtClock(new Date(s.end).getHours() * 60 + new Date(s.end).getMinutes())}</span>
+                <span className="font-num">{fmtDuration((new Date(s.end) - new Date(s.start)) / 60000)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-
-      {active ? (
-        <div style={{ textAlign: 'center', marginBottom: 12 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase' }}>Working since {fmtClock(new Date(active.start).getHours() * 60 + new Date(active.start).getMinutes())}</div>
-          <div className="font-num" style={{ fontSize: 34, fontWeight: 700, color: 'var(--green)', margin: '4px 0' }}>{fmtDuration((Date.now() - new Date(active.start)) / 60000)}</div>
-        </div>
-      ) : (
-        <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>Start the timer when you begin tasks. Fedha tracks your hours and reminds you to shower, eat and move so you don’t burn out.</div>
-      )}
-
-      {reminder && active && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 12, marginBottom: 12 }}>
-          <span style={{ fontSize: 22 }}>{PLAN_ICON[reminder.type] || '⏰'}</span>
-          <div style={{ flex: 1, fontSize: 13, color: 'var(--text)', fontWeight: 600 }}>{reminder.msg}</div>
-          <button onClick={() => setReminder(null)} style={{ background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 16 }}>✕</button>
-        </div>
-      )}
-
-      <button className="btn-primary" onClick={active ? stop : start}
-        style={{ background: active ? 'var(--red)' : 'var(--green)', color: active ? '#fff' : '#000' }}>
-        {active ? '■ End Work Session' : '▶ Start Work Session'}
-      </button>
-
-      {todaysSessions.length > 0 && (
-        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {todaysSessions.map((s) => (
-            <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-3)' }}>
-              <span>{fmtClock(new Date(s.start).getHours() * 60 + new Date(s.start).getMinutes())} – {fmtClock(new Date(s.end).getHours() * 60 + new Date(s.end).getMinutes())}</span>
-              <span className="font-num">{fmtDuration((new Date(s.end) - new Date(s.start)) / 60000)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+    </>
   );
 }
 
 // ─── DAY SCHEDULE PLAN ────────────────────────────────────────────────────────────
-function DayPlan({ job, minutesPerDay, onUpdate }) {
+function DayPlan({ job, minutesPerDay, tasksPerDay, perTask, sym, onUpdate }) {
   const startTime = job.dayStart || '09:00';
   const { plan, endsAt } = buildDayPlan(minutesPerDay, startTime);
+
+  // Tasks already submitted today → live countdown of tasks left for the day.
+  const todayKey = localISO();
+  const earnedToday = (job.entries || []).filter((e) => e.date === todayKey).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const doneToday = perTask > 0 ? Math.floor(earnedToday / perTask) : 0;
+  const leftToday = tasksPerDay != null ? Math.max(0, tasksPerDay - doneToday) : null;
+  const pct = tasksPerDay ? Math.min(100, (doneToday / tasksPerDay) * 100) : 0;
+
   return (
     <div className="card" style={{ padding: '16px', marginBottom: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -314,7 +340,21 @@ function DayPlan({ job, minutesPerDay, onUpdate }) {
         <input type="time" value={startTime} onChange={(e) => onUpdate({ ...job, dayStart: e.target.value })}
           className="input" style={{ width: 'auto', padding: '6px 8px', fontSize: 13 }} />
       </div>
-      <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>~{fmtDuration(minutesPerDay)} of tasks today, balanced with breaks. Wrap up around <strong style={{ color: 'var(--text)' }}>{fmtClock(endsAt)}</strong>.</div>
+
+      {leftToday != null && (
+        <div style={{ padding: '12px 14px', background: leftToday === 0 ? 'rgba(34,197,94,0.12)' : 'var(--surface-2)', border: `1px solid ${leftToday === 0 ? 'rgba(34,197,94,0.3)' : 'var(--border)'}`, borderRadius: 12, marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+            <span style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 600 }}>Tasks left today</span>
+            <span className="font-num" style={{ fontSize: 22, fontWeight: 800, color: leftToday === 0 ? 'var(--green)' : 'var(--text)' }}>{leftToday === 0 ? 'Done 🎉' : leftToday}</span>
+          </div>
+          <div style={{ height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: 'var(--green)', borderRadius: 3, transition: 'width 0.4s' }} />
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>{doneToday} of {tasksPerDay} done · log earnings to count them down</div>
+        </div>
+      )}
+
+      <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>~{fmtDuration(minutesPerDay)} of tasks today, balanced with proper reboot breaks. Wrap up around <strong style={{ color: 'var(--text)' }}>{fmtClock(endsAt)}</strong>.</div>
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         {plan.map((item, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: i < plan.length - 1 ? '1px solid var(--border)' : 'none' }}>
@@ -378,7 +418,7 @@ function JobDetail({ job, onBack }) {
             ? `🎉 Goal smashed! You're ${fmt(p.earnedTotal - p.target, sym)} past your ${job.multiplier}× target.`
             : p.metThreshold
               ? `✓ Threshold of ${fmt(p.threshold, sym)} beaten — you'll get paid on the ${p.period.payout.getDate()}th. ${fmt(p.remaining, sym)} more to hit your ${job.multiplier}× goal.`
-              : `${fmt(p.remaining, sym)} more to beat the ${fmt(p.threshold, sym)} threshold. Miss it and it carries to next period.`}
+              : `${fmt(p.toThreshold, sym)} more to beat the ${fmt(p.threshold, sym)} threshold and unlock payout. Then ${fmt(p.remaining, sym)} more to reach your ${job.multiplier}× goal. Miss the threshold and it carries to next period.`}
         </div>
       </div>
 
@@ -416,7 +456,7 @@ function JobDetail({ job, onBack }) {
 
       {/* Wellness-aware day schedule */}
       {p.minutesPerDay != null && p.minutesPerDay > 0 && (
-        <DayPlan job={job} minutesPerDay={p.minutesPerDay} onUpdate={updateOnlineJob} />
+        <DayPlan job={job} minutesPerDay={p.minutesPerDay} tasksPerDay={p.tasksPerDay} perTask={p.perTask} sym={sym} onUpdate={updateOnlineJob} />
       )}
 
       {/* Log button */}

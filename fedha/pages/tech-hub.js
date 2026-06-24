@@ -3,7 +3,7 @@ import Link from 'next/link';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
-import { genId, countdownTo, formatCountdown, formatDate, resizeImage } from '../lib/utils';
+import { genId, countdownTo, formatCountdown, formatDate, resizeImage, toNairobi, TZ_ABBREVIATIONS } from '../lib/utils';
 import { fetchRepos, sortRepos, REPO_SORTS } from '../lib/github';
 import { getSetting, setSetting } from '../lib/db';
 
@@ -86,7 +86,7 @@ function RepoPicker({ onPick }) {
 }
 
 // ─── HACKATHON MODAL ──────────────────────────────────────────────────────────
-const EMPTY_HACK = { name: '', prize_pool: '', project_name: '', themes: '', deadline: '', repo_url: '', project_image: '', mode: '', organizer: '' };
+const EMPTY_HACK = { name: '', prize_pool: '', project_name: '', themes: '', deadline: '', repo_url: '', project_image: '', mode: '', organizer: '', submitted: false, results_date: '', results_time: '', results_tz: 'ET', meeting_link: '' };
 
 function HackathonModal({ initial, onClose, onSave }) {
   const [form, setForm] = useState({ ...EMPTY_HACK, ...initial });
@@ -147,6 +147,35 @@ function HackathonModal({ initial, onClose, onSave }) {
             <RepoPicker onPick={(r) => setForm((f) => ({ ...f, repo_url: r.html_url, project_name: f.project_name || r.name }))} />
           )}
 
+          {/* Submission + results scheduling */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+            <button type="button" onClick={() => setForm((f) => ({ ...f, submitted: !f.submitted }))}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'var(--card-2)', border: `1px solid ${form.submitted ? 'var(--green)' : 'var(--border)'}`, borderRadius: 10, padding: '10px 12px', cursor: 'pointer' }}>
+              <span style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${form.submitted ? 'var(--green)' : 'var(--border)'}`, background: form.submitted ? 'var(--green)' : 'transparent', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>{form.submitted && '✓'}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>I&apos;ve submitted my project</span>
+            </button>
+          </div>
+
+          {form.submitted && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-2)', fontWeight: 600 }}>📣 Results announcement — enter the time in its original timezone and Fedha converts it to Kenya time (EAT) and alerts you.</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <div style={{ flex: 1 }}><Field label="Results date"><input className="input" type="date" value={form.results_date} onChange={set('results_date')} /></Field></div>
+                <div style={{ width: 110 }}><Field label="Time"><input className="input" type="time" value={form.results_time} onChange={set('results_time')} /></Field></div>
+              </div>
+              <Field label="Timezone (as announced)">
+                <select className="input" value={form.results_tz} onChange={set('results_tz')}>
+                  {TZ_ABBREVIATIONS.map((z) => <option key={z.abbr} value={z.abbr}>{z.abbr} — {z.name} (UTC{z.offset >= 0 ? '+' : ''}{z.offset})</option>)}
+                </select>
+              </Field>
+              {form.results_date && form.results_time && (() => {
+                const k = toNairobi(form.results_date, form.results_time, form.results_tz);
+                return k ? <div style={{ fontSize: 13, color: 'var(--green)', fontWeight: 700 }}>🇰🇪 In Kenya: {k.label}</div> : null;
+              })()}
+              <Field label="Meeting / results link (optional)"><input className="input" placeholder="e.g. Zoom or Meet link to join" value={form.meeting_link} onChange={set('meeting_link')} /></Field>
+            </div>
+          )}
+
           <button className="btn-primary" disabled={!form.name.trim()} onClick={() => onSave(form)}>
             {initial?.id ? 'Save Changes' : 'Register Hackathon'}
           </button>
@@ -161,6 +190,32 @@ function Field({ label, children }) {
     <div>
       <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>{label}</label>
       {children}
+    </div>
+  );
+}
+
+// ─── RESULTS ANNOUNCEMENT BANNER ───────────────────────────────────────────────
+function ResultsBanner({ hack }) {
+  const [, setTick] = useState(0);
+  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 30000); return () => clearInterval(t); }, []);
+  if (!hack.submitted || !hack.results_date || !hack.results_time) return null;
+  const k = toNairobi(hack.results_date, hack.results_time, hack.results_tz);
+  if (!k) return null;
+  const c = countdownTo(k.iso);
+  const live = c && !c.past;
+  return (
+    <div style={{ background: c?.past ? 'var(--green-dim)' : 'rgba(59,130,246,0.1)', border: `1px solid ${c?.past ? 'rgba(16,185,129,0.3)' : 'rgba(59,130,246,0.25)'}`, borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
+      <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>📣 Results announcement</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{k.label}</div>
+      <div style={{ fontSize: 12, color: c?.past ? 'var(--green)' : 'var(--blue)', fontWeight: 700, marginTop: 2 }}>
+        {c?.past ? '🎉 Results are out — check now!' : `⏱ in ${formatCountdown(k.iso)}`}
+      </div>
+      {hack.meeting_link && (
+        <a href={hack.meeting_link.startsWith('http') ? hack.meeting_link : `https://${hack.meeting_link}`} target="_blank" rel="noreferrer"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10, padding: '9px', background: live ? 'var(--blue)' : 'var(--card-2)', border: live ? 'none' : '1px solid var(--border)', borderRadius: 8, color: live ? '#fff' : 'var(--text)', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+          🎥 Join results meeting ↗
+        </a>
+      )}
     </div>
   );
 }
@@ -196,6 +251,8 @@ function MyHackathonCard({ hack, onEdit, onDelete, onToggleTask, onAddTask, onDe
         </div>
 
         {hack.deadline && <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>Deadline: {formatDate(hack.deadline)}</div>}
+
+        <ResultsBanner hack={hack} />
 
         {hack.repo_url && (
           <a href={hack.repo_url} target="_blank" rel="noreferrer"
@@ -300,6 +357,30 @@ export default function TechHubPage() {
 
   useEffect(() => { getSetting('last_location', null).then((v) => { if (v) { setLocation(v); setLocStatus('got'); } }); }, []);
 
+  // Ask for notification permission once, then alert when any results time arrives.
+  const firedResults = useRef(new Set());
+  useEffect(() => {
+    try { if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {}); } catch {}
+    const check = () => {
+      for (const h of hackathons) {
+        if (!h.submitted || !h.results_date || !h.results_time) continue;
+        const k = toNairobi(h.results_date, h.results_time, h.results_tz);
+        if (!k) continue;
+        if (Date.now() >= new Date(k.iso).getTime() && !firedResults.current.has(h.id)) {
+          firedResults.current.add(h.id);
+          try {
+            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+              new Notification(`📣 ${h.name} results are out!`, { body: h.meeting_link ? 'Tap to join the results meeting.' : 'Check the platform now.', tag: `results-${h.id}` });
+            }
+          } catch {}
+        }
+      }
+    };
+    check();
+    const t = setInterval(check, 30000);
+    return () => clearInterval(t);
+  }, [hackathons]);
+
   function getLocation() {
     if (!navigator.geolocation) { setLocStatus('denied'); return; }
     setLocStatus('loading');
@@ -340,7 +421,7 @@ export default function TechHubPage() {
     setHackModal(null);
   }
   function registerFromDiscover(item) {
-    setHackModal({ name: item.name, prize_pool: item.prize_pool || '', themes: item.themes || '', deadline: item.deadline || '', organizer: item.organizer || '', mode: item.mode || '', project_name: '', repo_url: '', project_image: '' });
+    setHackModal({ name: item.name, prize_pool: item.prize_pool || '', themes: item.themes || '', deadline: item.deadline || '', organizer: item.organizer || '', mode: item.mode || '', project_name: '', repo_url: '', project_image: '', submitted: false, results_date: '', results_time: '', results_tz: 'ET', meeting_link: '' });
   }
   // task ops
   function toggleTask(hack, taskId) {
@@ -378,7 +459,7 @@ export default function TechHubPage() {
           <div style={{ marginBottom: 16 }}>
             {locStatus === 'got' ? (
               <div style={{ padding: '8px 14px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 10, fontSize: 12, color: 'var(--green)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                📍 {location?.city} <button onClick={getLocation} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 12 }}>rescan</button>
+                ��� {location?.city} <button onClick={getLocation} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 12 }}>rescan</button>
               </div>
             ) : (
               <button onClick={getLocation} disabled={locStatus === 'loading'}
