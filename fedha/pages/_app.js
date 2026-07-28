@@ -36,7 +36,7 @@ function NotificationScheduler() {
 
       // Notify about registered hackathons close to their deadline
       const { getHackathons } = await import('../lib/db');
-      const { countdownTo } = await import('../lib/utils');
+      const { countdownTo, URGENT_MS } = await import('../lib/utils');
       const { showNotif, VIBRATE } = await import('../lib/notifications');
       const hacks = await getHackathons();
       const alertedKey = `hack_alerted_${todayISO()}`;
@@ -44,9 +44,10 @@ function NotificationScheduler() {
       const newlyAlerted = [...alerted];
       for (const h of hacks || []) {
         if (!h.deadline) continue;
+        if ((h.status || (h.submitted ? 'submitted' : 'active')) !== 'active') continue;
         const c = countdownTo(h.deadline);
-        // within 3 days, not past, and not already alerted today
-        if (c && !c.past && c.total < 3 * 86400000 && !alerted.includes(h.id)) {
+        // within the shared urgency window, not past, and not already alerted today
+        if (c && !c.past && c.total < URGENT_MS && !alerted.includes(h.id)) {
           await showNotif({
             title: `⏰ ${h.name} deadline is near!`,
             body: `${c.days > 0 ? `${c.days}d ${c.hours}h` : `${c.hours}h ${c.minutes}m`} left${h.project_name ? ` — finish "${h.project_name}"` : ''}. Submit before it closes!`,
