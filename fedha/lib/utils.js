@@ -81,6 +81,10 @@ export function todayISO() { return localISO(new Date()); }
 
 // ─── COUNTDOWN ────────────────────────────────────────────────────────────────
 // Returns { days, hours, minutes, total, past } until an ISO date/deadline.
+// "Near deadline" threshold shared by the Tech Hub urgency badge/section and
+// the push-notification scheduler in _app.js, so both agree on what's urgent.
+export const URGENT_MS = 3 * 86400000;
+
 export function countdownTo(dateStr) {
   if (!dateStr) return null;
   const target = new Date(dateStr);
