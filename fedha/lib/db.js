@@ -2,7 +2,7 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'fedha_db';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 let dbPromise = null;
 
@@ -70,6 +70,7 @@ function getDB() {
             bls.createIndex('date', 'date');
           }
           if (!db.objectStoreNames.contains('online_jobs')) db.createObjectStore('online_jobs', { keyPath: 'id' });
+          if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' });
         },
       });
     })().catch((e) => {
@@ -198,6 +199,11 @@ export async function deleteHackathon(id) { const db = await getDB(); return db.
 export async function getStartups() { return safeGetAll('startups'); }
 export async function saveStartup(s) { const db = await getDB(); const r = { synced: false, ...s, updated_at: new Date().toISOString() }; await db.put('startups', r); return r; }
 export async function deleteStartup(id) { const db = await getDB(); return db.delete('startups', id); }
+
+// ─── PROJECTS (Showroom) ─────────────────────────────────────────────────────
+export async function getProjects() { return safeGetAll('projects'); }
+export async function saveProject(p) { const db = await getDB(); const r = { synced: false, ...p, updated_at: new Date().toISOString() }; await db.put('projects', r); return r; }
+export async function deleteProject(id) { const db = await getDB(); return db.delete('projects', id); }
 
 // ─── ONLINE JOBS ─────────────────────────────────────────────────────────────
 export async function getOnlineJobs() {
