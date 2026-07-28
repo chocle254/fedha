@@ -1,11 +1,25 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
-import { genId, countdownTo, formatCountdown, formatDate, resizeImage, toNairobi, TZ_ABBREVIATIONS } from '../lib/utils';
+import { genId, countdownTo, formatCountdown, formatDate, resizeImage, toNairobi, TZ_ABBREVIATIONS, URGENT_MS } from '../lib/utils';
 import { fetchRepos, sortRepos, REPO_SORTS } from '../lib/github';
 import { getSetting, setSetting } from '../lib/db';
+
+// ─── HACKATHON STATUS ─────────────────────────────────────────────────────────
+// Backward-compatible with older records that only have the `submitted` boolean:
+// if `status` was never set, derive it from `submitted` instead of migrating data.
+function hackStatus(h) {
+  return h.status || (h.submitted ? 'submitted' : 'active');
+}
+// "Almost hitting deadline but haven't submitted" — the higher-priority bucket.
+function isUrgent(h) {
+  if (hackStatus(h) !== 'active' || !h.deadline) return false;
+  const c = countdownTo(h.deadline);
+  return !!c && !c.past && c.total < URGENT_MS;
+}
 
 // ─── LIVE COUNTDOWN ───────────────────────────────────────────────────────────
 function Countdown({ deadline }) {
@@ -16,7 +30,7 @@ function Countdown({ deadline }) {
   }, []);
   const c = countdownTo(deadline);
   if (!c) return null;
-  const urgent = !c.past && c.total < 3 * 86400000;
+  const urgent = !c.past && c.total < URGENT_MS;
   const color = c.past ? 'var(--text-3)' : urgent ? 'var(--red)' : 'var(--green)';
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color }}>
@@ -86,12 +100,14 @@ function RepoPicker({ onPick }) {
 }
 
 // ─── HACKATHON MODAL ──────────────────────────────────────────────────────────
-const EMPTY_HACK = { name: '', prize_pool: '', project_name: '', themes: '', deadline: '', repo_url: '', project_image: '', mode: '', organizer: '', submitted: false, results_date: '', results_time: '', results_tz: 'ET', meeting_link: '' };
+const EMPTY_HACK = { name: '', prize_pool: '', project_name: '', themes: '', deadline: '', repo_url: '', project_image: '', mode: '', organizer: '', status: 'active', submitted: false, certificate_image: '', results_date: '', results_time: '', results_tz: 'ET', meeting_link: '' };
 
 function HackathonModal({ initial, onClose, onSave }) {
   const [form, setForm] = useState({ ...EMPTY_HACK, ...initial });
   const [imgBusy, setImgBusy] = useState(false);
+  const [certBusy, setCertBusy] = useState(false);
   const fileRef = useRef(null);
+  const certFileRef = useRef(null);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   async function handleImage(e) {
@@ -100,6 +116,14 @@ function HackathonModal({ initial, onClose, onSave }) {
     setImgBusy(true);
     try { const data = await resizeImage(file); setForm((f) => ({ ...f, project_image: data })); }
     catch {} finally { setImgBusy(false); }
+  }
+
+  async function handleCertImage(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCertBusy(true);
+    try { const data = await resizeImage(file, 1000); setForm((f) => ({ ...f, certificate_image: data })); }
+    catch {} finally { setCertBusy(false); }
   }
 
   return (
@@ -147,16 +171,50 @@ function HackathonModal({ initial, onClose, onSave }) {
             <RepoPicker onPick={(r) => setForm((f) => ({ ...f, repo_url: r.html_url, project_name: f.project_name || r.name }))} />
           )}
 
-          {/* Submission + results scheduling */}
+          {/* Status + results scheduling */}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-            <button type="button" onClick={() => setForm((f) => ({ ...f, submitted: !f.submitted }))}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'var(--card-2)', border: `1px solid ${form.submitted ? 'var(--green)' : 'var(--border)'}`, borderRadius: 10, padding: '10px 12px', cursor: 'pointer' }}>
-              <span style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${form.submitted ? 'var(--green)' : 'var(--border)'}`, background: form.submitted ? 'var(--green)' : 'transparent', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>{form.submitted && '✓'}</span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>I&apos;ve submitted my project</span>
-            </button>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Status</label>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[
+                { id: 'active', label: '🛠 Active' },
+                { id: 'submitted', label: '📨 Submitted' },
+                { id: 'completed', label: '🏁 Completed' },
+              ].map((s) => (
+                <button key={s.id} type="button" onClick={() => setForm((f) => ({ ...f, status: s.id }))}
+                  style={{
+                    flex: 1, padding: '9px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit',
+                    background: form.status === s.id ? 'var(--green-dim)' : 'var(--card-2)',
+                    border: `1px solid ${form.status === s.id ? 'var(--green)' : 'var(--border)'}`,
+                    color: form.status === s.id ? 'var(--green)' : 'var(--text-2)',
+                  }}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {form.submitted && (
+          {form.status === 'completed' && (
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Certificate</label>
+              {form.certificate_image ? (
+                <div style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(245,197,107,0.35)' }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={form.certificate_image} alt="Certificate preview" style={{ width: '100%', display: 'block', maxHeight: 200, objectFit: 'cover' }} />
+                  <button onClick={() => setForm((f) => ({ ...f, certificate_image: '' }))}
+                    style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: 100, color: '#fff', width: 28, height: 28, cursor: 'pointer' }}>✕</button>
+                </div>
+              ) : (
+                <button onClick={() => certFileRef.current?.click()} disabled={certBusy}
+                  style={{ width: '100%', padding: '14px', background: 'var(--gold-dim)', border: '1px dashed rgba(245,197,107,0.4)', borderRadius: 12, color: 'var(--gold)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit' }}>
+                  {certBusy ? 'Processing…' : '🎓 Add your certificate'}
+                </button>
+              )}
+              <input ref={certFileRef} type="file" accept="image/*" onChange={handleCertImage} style={{ display: 'none' }} />
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>Shows up framed in the Certificates Room ✨</div>
+            </div>
+          )}
+
+          {form.status !== 'active' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 12, padding: 14 }}>
               <div style={{ fontSize: 12, color: 'var(--text-2)', fontWeight: 600 }}>📣 Results announcement — enter the time in its original timezone and Fedha converts it to Kenya time (EAT) and alerts you.</div>
               <div style={{ display: 'flex', gap: 10 }}>
@@ -176,7 +234,7 @@ function HackathonModal({ initial, onClose, onSave }) {
             </div>
           )}
 
-          <button className="btn-primary" disabled={!form.name.trim()} onClick={() => onSave(form)}>
+          <button className="btn-primary" disabled={!form.name.trim()} onClick={() => onSave({ ...form, submitted: form.status !== 'active' })}>
             {initial?.id ? 'Save Changes' : 'Register Hackathon'}
           </button>
         </div>
@@ -221,18 +279,18 @@ function ResultsBanner({ hack }) {
 }
 
 // ─── REGISTERED HACKATHON CARD ────────────────────────────────────────────────
-function MyHackathonCard({ hack, onEdit, onDelete, onToggleTask, onAddTask, onDeleteTask }) {
+function MyHackathonCard({ hack, onEdit, onDelete, onToggleTask, onAddTask, onDeleteTask, onSetStatus }) {
   const [newTask, setNewTask] = useState('');
   const tasks = hack.tasks || [];
   const done = tasks.filter((t) => t.done).length;
   const pct = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
-  const c = countdownTo(hack.deadline);
+  const st = hackStatus(hack);
 
   return (
-    <div className="card" style={{ padding: 0, marginBottom: 12, overflow: 'hidden', borderColor: c && !c.past && c.total < 3 * 86400000 ? 'rgba(239,68,68,0.4)' : 'var(--border)' }}>
+    <div className="card" style={{ padding: 0, marginBottom: 12, overflow: 'hidden', borderColor: isUrgent(hack) ? 'rgba(239,68,68,0.4)' : 'var(--border)' }}>
       {hack.project_image && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={hack.project_image || "/placeholder.svg"} alt={hack.project_name || hack.name} style={{ width: '100%', height: 130, objectFit: 'cover', display: 'block' }} />
+        <img src={hack.project_image} alt={hack.project_name || hack.name} style={{ width: '100%', height: 130, objectFit: 'cover', display: 'block' }} />
       )}
       <div style={{ padding: 16 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
@@ -240,17 +298,29 @@ function MyHackathonCard({ hack, onEdit, onDelete, onToggleTask, onAddTask, onDe
             <div style={{ fontSize: 16, fontWeight: 700 }}>{hack.name}</div>
             {hack.project_name && <div style={{ fontSize: 13, color: 'var(--blue)', fontWeight: 600, marginTop: 2 }}>📦 {hack.project_name}</div>}
           </div>
+          {onSetStatus && (
+            <button onClick={() => onSetStatus(st === 'completed' ? 'submitted' : 'completed')} className="btn-icon"
+              aria-label={st === 'completed' ? 'Reopen' : 'Mark as completed'} title={st === 'completed' ? 'Reopen' : 'Mark as completed'}>
+              {st === 'completed' ? '↩️' : '🏁'}
+            </button>
+          )}
           <button onClick={onEdit} className="btn-icon" aria-label="Edit">✏️</button>
           <button onClick={onDelete} className="btn-icon" aria-label="Delete">🗑️</button>
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+          {st === 'submitted' && <span style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.25)', color: 'var(--blue)', fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 100 }}>📨 Awaiting judging</span>}
+          {st === 'completed' && <span style={{ background: 'var(--gold-dim)', border: '1px solid rgba(245,197,107,0.3)', color: 'var(--gold)', fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 100 }}>🏁 Completed</span>}
           {hack.prize_pool && <span style={{ background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.2)', color: 'var(--green)', fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 100 }}>🏆 {hack.prize_pool}</span>}
-          {hack.deadline && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: 100 }}><Countdown deadline={hack.deadline} /></span>}
+          {hack.deadline && st === 'active' && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: 100 }}><Countdown deadline={hack.deadline} /></span>}
           {hack.themes && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 12, padding: '3px 10px', borderRadius: 100 }}>{hack.themes}</span>}
         </div>
 
         {hack.deadline && <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>Deadline: {formatDate(hack.deadline)}</div>}
+
+        {st === 'completed' && !hack.certificate_image && (
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>🎓 Add your certificate from Edit — it'll be framed in the Certificates Room</div>
+        )}
 
         <ResultsBanner hack={hack} />
 
@@ -332,11 +402,267 @@ function DiscoverCard({ item, kind, onAdd }) {
   );
 }
 
+// ─── 3-COLUMN THUMBNAIL GRID (active + completed hackathons) ──────────────────
+function HackThumbGrid({ hacks, onOpen, completed }) {
+  if (hacks.length === 0) return null;
+  return (
+    <div className="hack-grid">
+      {hacks.map((h, i) => (
+        <button key={h.id} type="button" className="hack-thumb" style={{ animationDelay: `${i * 40}ms` }} onClick={() => onOpen(h.id)}>
+          {h.project_image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={h.project_image} alt="" />
+          ) : (
+            <div className="hack-thumb-fallback">{completed ? '🏁' : '🚀'}</div>
+          )}
+          <div className="hack-thumb-scrim">
+            <span className="hack-thumb-name">{h.project_name || h.name}</span>
+          </div>
+          {completed && h.certificate_image && <span className="hack-thumb-badge" title="Certificate earned">🎓</span>}
+          {!completed && h.prize_pool && <span className="hack-thumb-badge" title={h.prize_pool}>🏆</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ─── TAP-A-THUMBNAIL DETAIL SHEET (reuses the full card in a bottom sheet) ─────
+function HackDetailSheet({ hack, onClose, onEdit, onDelete, onToggleTask, onAddTask, onDeleteTask, onSetStatus }) {
+  if (!hack) return null;
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-sheet" style={{ maxHeight: '88vh' }}>
+        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+        <div style={{ padding: '0 16px 16px' }}>
+          <MyHackathonCard hack={hack} onEdit={onEdit} onDelete={onDelete} onToggleTask={onToggleTask} onAddTask={onAddTask} onDeleteTask={onDeleteTask} onSetStatus={onSetStatus} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── AWAITING-JUDGING ROW (compact — kept separate from the busy card view) ───
+function AwaitingRow({ hack, onOpen }) {
+  const k = hack.results_date && hack.results_time ? toNairobi(hack.results_date, hack.results_time, hack.results_tz) : null;
+  return (
+    <button type="button" className="awaiting-row" onClick={() => onOpen(hack.id)}>
+      <div className="awaiting-thumb">
+        {hack.project_image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={hack.project_image} alt="" />
+        ) : <span>📨</span>}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{hack.name}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{k ? `📣 Results ${k.label}` : 'Awaiting judging'}</div>
+      </div>
+      <span style={{ color: 'var(--text-3)', fontSize: 16, flexShrink: 0 }}>›</span>
+    </button>
+  );
+}
+
+// ─── CERTIFICATES ROOM ─────────────────────────────────────────────────────────
+// A small museum: each certificate framed and spot-lit, with a pointer-tracked
+// tilt on hover (desktop) and a scroll-triggered reveal that works everywhere.
+function CertificateFrame({ hack, index }) {
+  const ref = useRef(null);
+  const [rot, setRot] = useState({ x: 0, y: 0 });
+  const [hovered, setHovered] = useState(false);
+
+  function handleMove(e) {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width - 0.5;
+    const py = (e.clientY - r.top) / r.height - 0.5;
+    setRot({ x: py * -8, y: px * 8 });
+  }
+  function handleLeave() { setRot({ x: 0, y: 0 }); setHovered(false); }
+
+  const when = hack.results_date ? formatDate(hack.results_date) : (hack.deadline ? formatDate(hack.deadline) : '');
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 36 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.35 }}
+      transition={{ duration: 0.55, delay: Math.min(index, 8) * 0.08, ease: [0.22, 1, 0.36, 1] }}
+      className="cert-slot"
+    >
+      <motion.div
+        ref={ref}
+        className="cert-frame"
+        onMouseMove={handleMove}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={handleLeave}
+        whileTap={{ scale: 0.97 }}
+        animate={{ rotateX: rot.x, rotateY: rot.y, scale: hovered ? 1.03 : 1 }}
+        transition={{ type: 'spring', stiffness: 220, damping: 18 }}
+        style={{ transformStyle: 'preserve-3d' }}
+      >
+        <div className="cert-glow" />
+        <div className="cert-shine" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={hack.certificate_image} alt={`${hack.name} certificate`} />
+      </motion.div>
+      <div className="cert-plaque">
+        <div className="cert-plaque-name">{hack.name}</div>
+        {(hack.organizer || when) && <div className="cert-plaque-meta">{[hack.organizer, when].filter(Boolean).join(' · ')}</div>}
+      </div>
+    </motion.div>
+  );
+}
+
+function CertificatesRoom({ hackathons }) {
+  const withCerts = hackathons.filter((h) => h.certificate_image);
+  if (withCerts.length === 0) {
+    return (
+      <div className="empty-state">
+        <div className="icon">🖼️</div>
+        <h3>The gallery is empty</h3>
+        <p>Mark a hackathon as completed and add its certificate — it&apos;ll be framed here.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="cert-gallery">
+      <div className="cert-gallery-grid">
+        {withCerts.map((h, i) => <CertificateFrame key={h.id} hack={h} index={i} />)}
+      </div>
+    </div>
+  );
+}
+
+// ─── PROJECT SHOWROOM ──────────────────────────────────────────────────────────
+const EMPTY_PROJECT = { name: '', description: '', site_url: '', repo_url: '', image: '' };
+
+function ProjectModal({ initial, onClose, onSave }) {
+  const [form, setForm] = useState({ ...EMPTY_PROJECT, ...initial });
+  const [imgBusy, setImgBusy] = useState(false);
+  const fileRef = useRef(null);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  async function handleImage(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImgBusy(true);
+    try { const data = await resizeImage(file); setForm((f) => ({ ...f, image: data })); }
+    catch {} finally { setImgBusy(false); }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-sheet" style={{ maxHeight: '92vh' }}>
+        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+        <div className="modal-header">
+          <span style={{ fontSize: 16, fontWeight: 700 }}>{initial?.id ? 'Edit Project' : 'Add a Project'}</span>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{ overflowY: 'auto' }}>
+          <Field label="Project Name"><input className="input" placeholder="e.g. Arena 2.0" value={form.name} onChange={set('name')} autoFocus /></Field>
+          <Field label="Short Documentation">
+            <textarea className="input" placeholder="e.g. Competitive gaming tournament platform built natively on AWS" value={form.description} onChange={set('description')} rows={3} maxLength={220} style={{ resize: 'vertical', fontFamily: 'Outfit' }} />
+          </Field>
+
+          <div>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Thumbnail</label>
+            {form.image ? (
+              <div style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={form.image} alt="Project preview" style={{ width: '100%', display: 'block', maxHeight: 160, objectFit: 'cover' }} />
+                <button onClick={() => setForm((f) => ({ ...f, image: '' }))}
+                  style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: 100, color: '#fff', width: 28, height: 28, cursor: 'pointer' }}>✕</button>
+              </div>
+            ) : (
+              <button onClick={() => fileRef.current?.click()} disabled={imgBusy}
+                style={{ width: '100%', padding: '14px', background: 'var(--card-2)', border: '1px dashed var(--border)', borderRadius: 12, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit' }}>
+                {imgBusy ? 'Processing…' : '📷 Add a thumbnail'}
+              </button>
+            )}
+            <input ref={fileRef} type="file" accept="image/*" onChange={handleImage} style={{ display: 'none' }} />
+          </div>
+
+          <Field label="Website (optional)"><input className="input" placeholder="e.g. devsfield.vercel.app" value={form.site_url} onChange={set('site_url')} /></Field>
+
+          <div>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>GitHub Repo (optional)</label>
+            {form.repo_url ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px' }}>
+                <span style={{ fontSize: 16 }}>🔗</span>
+                <span style={{ flex: 1, fontSize: 13, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{form.repo_url}</span>
+                <button onClick={() => setForm((f) => ({ ...f, repo_url: '' }))} style={{ background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer' }}>change</button>
+              </div>
+            ) : (
+              <RepoPicker onPick={(r) => setForm((f) => ({ ...f, repo_url: r.html_url, name: f.name || r.name, description: f.description || r.description || '' }))} />
+            )}
+          </div>
+
+          <button className="btn-primary" disabled={!form.name.trim()} onClick={() => onSave(form)}>
+            {initial?.id ? 'Save Changes' : 'Add to Showroom'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ShowroomCard({ project, onEdit, onDelete }) {
+  return (
+    <div className="showroom-card">
+      <div className="showroom-thumb" onClick={onEdit}>
+        {project.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={project.image} alt={project.name} />
+        ) : '🗂️'}
+      </div>
+      <div className="showroom-body">
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+          <div className="showroom-name" style={{ flex: 1 }}>{project.name}</div>
+          <button onClick={onDelete} style={{ background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 13, flexShrink: 0 }} aria-label="Delete">🗑️</button>
+        </div>
+        {project.description && <div className="showroom-desc">{project.description}</div>}
+        {(project.site_url || project.repo_url) && (
+          <div className="showroom-links">
+            {project.site_url && (
+              <a href={project.site_url.startsWith('http') ? project.site_url : `https://${project.site_url}`} target="_blank" rel="noreferrer" className="showroom-link">🌐 Site</a>
+            )}
+            {project.repo_url && <a href={project.repo_url} target="_blank" rel="noreferrer" className="showroom-link">🔗 Code</a>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ShowroomSection({ projects, onAdd, onEdit, onDelete }) {
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div className="section-title" style={{ marginBottom: 0 }}>Project Showroom</div>
+        <button onClick={onAdd} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>+ Add</button>
+      </div>
+      {projects.length === 0 ? (
+        <div className="empty-state"><div className="icon">🗂️</div><h3>No projects yet</h3><p>Add what you&apos;ve built — a link and a couple lines are enough</p></div>
+      ) : (
+        <div className="showroom-grid">
+          {projects.map((p) => <ShowroomCard key={p.id} project={p} onEdit={() => onEdit(p)} onDelete={() => onDelete(p.id)} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function TechHubPage() {
-  const { hackathons, addHackathon, updateHackathon, removeHackathon, startups, addStartup, removeStartup } = useApp();
+  const {
+    hackathons, addHackathon, updateHackathon, removeHackathon,
+    startups, addStartup, removeStartup,
+    projects, addProject, updateProject, removeProject,
+  } = useApp();
   const [tab, setTab] = useState('hackathons');
   const [showTxn, setShowTxn] = useState(false);
+  const [detailHackId, setDetailHackId] = useState(null);
+  const [projModal, setProjModal] = useState(null); // {} for new, object for edit, null for closed
 
   // location (shared by AI fetches)
   const [location, setLocation] = useState(null);
@@ -441,10 +767,22 @@ export default function TechHubPage() {
     setStartupName(''); setStartupAcc(''); setShowStartupForm(false);
   }
 
-  const sortedHacks = [...hackathons].sort((a, b) => {
-    if (!a.deadline) return 1; if (!b.deadline) return -1;
-    return new Date(a.deadline) - new Date(b.deadline);
-  });
+  function changeHackStatus(hack, status) {
+    updateHackathon({ ...hack, status, submitted: status !== 'active' });
+  }
+
+  async function saveProjectForm(form) {
+    if (projModal?.id) await updateProject({ ...projModal, ...form });
+    else await addProject(form);
+    setProjModal(null);
+  }
+
+  const byDeadline = (a, b) => { if (!a.deadline) return 1; if (!b.deadline) return -1; return new Date(a.deadline) - new Date(b.deadline); };
+  const urgentHacks = hackathons.filter(isUrgent).sort(byDeadline);
+  const activeHacks = hackathons.filter((h) => hackStatus(h) === 'active' && !isUrgent(h)).sort(byDeadline);
+  const submittedHacks = hackathons.filter((h) => hackStatus(h) === 'submitted').sort(byDeadline);
+  const completedHacks = hackathons.filter((h) => hackStatus(h) === 'completed').sort(byDeadline);
+  const detailHack = hackathons.find((h) => h.id === detailHackId) || null;
 
   return (
     <Layout onFab={() => setShowTxn(true)}>
@@ -469,10 +807,12 @@ export default function TechHubPage() {
             )}
           </div>
 
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="tab-scroll">
             <button className={`chip ${tab === 'hackathons' ? 'active' : ''}`} onClick={() => setTab('hackathons')}>🏆 Hackathons</button>
             <button className={`chip ${tab === 'events' ? 'active' : ''}`} onClick={() => setTab('events')}>📅 Events</button>
             <button className={`chip ${tab === 'startups' ? 'active' : ''}`} onClick={() => setTab('startups')}>💡 Startups</button>
+            <button className={`chip ${tab === 'certificates' ? 'active' : ''}`} onClick={() => setTab('certificates')}>🖼 Certificates</button>
+            <button className={`chip ${tab === 'showroom' ? 'active' : ''}`} onClick={() => setTab('showroom')}>🗂 Showroom</button>
           </div>
         </div>
 
@@ -490,16 +830,48 @@ export default function TechHubPage() {
                 <div className="section-title" style={{ marginBottom: 0 }}>My Hackathons</div>
                 <button onClick={() => setHackModal({})} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>+ Register</button>
               </div>
-              {sortedHacks.length === 0 ? (
+
+              {hackathons.length === 0 ? (
                 <div className="empty-state"><div className="icon">🏆</div><h3>No hackathons yet</h3><p>Register one to track your project, tasks and deadline countdown</p></div>
-              ) : sortedHacks.map((h) => (
-                <MyHackathonCard key={h.id} hack={h}
-                  onEdit={() => setHackModal(h)}
-                  onDelete={() => removeHackathon(h.id)}
-                  onToggleTask={(tid) => toggleTask(h, tid)}
-                  onAddTask={(text) => addTask(h, text)}
-                  onDeleteTask={(tid) => deleteTask(h, tid)} />
-              ))}
+              ) : (
+                <>
+                  {urgentHacks.length > 0 && (
+                    <div style={{ marginBottom: 20 }}>
+                      <div className="urgent-banner">⚡ {urgentHacks.length} deadline{urgentHacks.length > 1 ? 's' : ''} closing soon — not submitted yet</div>
+                      {urgentHacks.map((h) => (
+                        <MyHackathonCard key={h.id} hack={h}
+                          onEdit={() => setHackModal(h)}
+                          onDelete={() => removeHackathon(h.id)}
+                          onToggleTask={(tid) => toggleTask(h, tid)}
+                          onAddTask={(text) => addTask(h, text)}
+                          onDeleteTask={(tid) => deleteTask(h, tid)}
+                          onSetStatus={(s) => changeHackStatus(h, s)} />
+                      ))}
+                    </div>
+                  )}
+
+                  {activeHacks.length > 0 && (
+                    <div style={{ marginBottom: 20 }}>
+                      <div className="section-title">In progress</div>
+                      <HackThumbGrid hacks={activeHacks} onOpen={setDetailHackId} />
+                    </div>
+                  )}
+
+                  {submittedHacks.length > 0 && (
+                    <div style={{ marginBottom: 20 }}>
+                      <div className="section-title">Awaiting judging</div>
+                      {submittedHacks.map((h) => <AwaitingRow key={h.id} hack={h} onOpen={setDetailHackId} />)}
+                    </div>
+                  )}
+
+                  {completedHacks.length > 0 && (
+                    <div style={{ marginBottom: 4 }}>
+                      <div className="section-title">Completed</div>
+                      <HackThumbGrid hacks={completedHacks} onOpen={setDetailHackId} completed />
+                    </div>
+                  )}
+                </>
+              )}
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 12px' }}>
                 <div className="section-title" style={{ marginBottom: 0 }}>Upcoming on Devpost & more</div>
@@ -514,6 +886,22 @@ export default function TechHubPage() {
                 </div>
               ) : discHacks.map((h) => <DiscoverCard key={h.id} item={h} kind="hack" onAdd={registerFromDiscover} />)}
             </div>
+          )}
+
+          {/* ── CERTIFICATES ROOM ──────────────────────────── */}
+          {tab === 'certificates' && (
+            <div>
+              <div className="section-title">Certificates Room</div>
+              <CertificatesRoom hackathons={hackathons} />
+            </div>
+          )}
+
+          {/* ── PROJECT SHOWROOM ───────────────────────────── */}
+          {tab === 'showroom' && (
+            <ShowroomSection projects={projects}
+              onAdd={() => setProjModal({})}
+              onEdit={(p) => setProjModal(p)}
+              onDelete={(id) => removeProject(id)} />
           )}
 
           {/* ── EVENTS ─────────────────────────────────────── */}
@@ -571,6 +959,19 @@ export default function TechHubPage() {
 
       {hackModal !== null && (
         <HackathonModal initial={hackModal} onClose={() => setHackModal(null)} onSave={saveHack} />
+      )}
+      {detailHack && (
+        <HackDetailSheet hack={detailHack}
+          onClose={() => setDetailHackId(null)}
+          onEdit={() => { setHackModal(detailHack); setDetailHackId(null); }}
+          onDelete={() => { removeHackathon(detailHack.id); setDetailHackId(null); }}
+          onToggleTask={(tid) => toggleTask(detailHack, tid)}
+          onAddTask={(text) => addTask(detailHack, text)}
+          onDeleteTask={(tid) => deleteTask(detailHack, tid)}
+          onSetStatus={(s) => changeHackStatus(detailHack, s)} />
+      )}
+      {projModal !== null && (
+        <ProjectModal initial={projModal} onClose={() => setProjModal(null)} onSave={saveProjectForm} />
       )}
       {showTxn && <TransactionModal onClose={() => setShowTxn(false)} />}
     </Layout>
