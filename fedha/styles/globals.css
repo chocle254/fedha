@@ -20,6 +20,8 @@
   --text-3: #3D5070;
   --radius: 16px;
   --radius-sm: 10px;
+  --gold: #F5C56B;
+  --gold-dim: rgba(245, 197, 107, 0.12);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -326,3 +328,223 @@ select.input option { background: var(--card-2); }
 .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
 .empty-state h3 { font-size: 16px; color: var(--text-2); margin-bottom: 6px; }
 .empty-state p { font-size: 14px; }
+
+/* ─── TECH HUB: scrollable tab row (fits 5 chips without wrapping) ───────────── */
+.tab-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+}
+.tab-scroll::-webkit-scrollbar { display: none; }
+.tab-scroll .chip { flex-shrink: 0; }
+
+/* ─── TECH HUB: urgent (deadline-soon, not submitted) banner ─────────────────── */
+.urgent-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--red-dim);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 12px;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+/* ─── TECH HUB: 3-column thumbnail grid (active + completed hackathons) ─────── */
+.hack-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.hack-thumb {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--card-2);
+  padding: 0;
+  cursor: pointer;
+  animation: thumbIn 0.4s ease backwards;
+  transition: transform 0.15s, border-color 0.15s;
+}
+.hack-thumb:active { transform: scale(0.96); }
+.hack-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hack-thumb-fallback {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px;
+}
+.hack-thumb-scrim {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 16px 6px 6px;
+  background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
+  display: flex;
+}
+.hack-thumb-name {
+  font-size: 11px; font-weight: 700; color: #fff;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hack-thumb-badge {
+  position: absolute; top: 6px; right: 6px;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px;
+}
+@keyframes thumbIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ─── TECH HUB: compact "awaiting judging" rows ──────────────────────────────── */
+.awaiting-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--card-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  font-family: 'Outfit', sans-serif;
+  text-align: left;
+  transition: border-color 0.15s;
+}
+.awaiting-row:active { transform: scale(0.99); }
+.awaiting-thumb {
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--card);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+}
+.awaiting-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ─── CERTIFICATES ROOM: a small museum, framed and spot-lit ─────────────────── */
+.cert-gallery {
+  position: relative;
+  border-radius: var(--radius);
+  padding: 24px 14px;
+  background:
+    radial-gradient(ellipse at 20% 0%, rgba(245, 197, 107, 0.07) 0%, transparent 55%),
+    radial-gradient(ellipse at 80% 100%, rgba(245, 197, 107, 0.05) 0%, transparent 55%),
+    var(--bg-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.cert-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 26px 14px;
+  position: relative;
+  z-index: 1;
+}
+@media (min-width: 640px) {
+  .cert-gallery-grid { grid-template-columns: repeat(3, 1fr); }
+}
+.cert-slot { display: flex; flex-direction: column; }
+.cert-frame {
+  position: relative;
+  border-radius: 14px;
+  border: 1px solid rgba(245, 197, 107, 0.35);
+  background: linear-gradient(160deg, #1a1710 0%, #0e0d09 100%);
+  padding: 10px;
+  overflow: hidden;
+  box-shadow: 0 20px 45px -20px rgba(0,0,0,0.6), 0 0 0 1px rgba(245, 197, 107, 0.08) inset;
+}
+.cert-frame img {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  display: block;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.cert-glow {
+  position: absolute;
+  top: -30%; left: 50%;
+  transform: translateX(-50%);
+  width: 140%; height: 160%;
+  background: radial-gradient(ellipse at center, rgba(245, 197, 107, 0.22) 0%, transparent 65%);
+  pointer-events: none;
+  z-index: 0;
+}
+.cert-shine {
+  position: absolute; inset: 0;
+  z-index: 2;
+  background: linear-gradient(115deg, transparent 40%, rgba(245, 197, 107, 0.16) 49%, rgba(245, 197, 107, 0.22) 50%, rgba(245, 197, 107, 0.16) 51%, transparent 60%);
+  background-size: 300% 300%;
+  animation: certShine 6s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes certShine {
+  0%, 100% { background-position: 200% 200%; }
+  50% { background-position: -60% -60%; }
+}
+.cert-plaque {
+  text-align: center;
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: var(--card-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.cert-plaque-name {
+  font-size: 12px; font-weight: 700; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cert-plaque-meta {
+  font-size: 10.5px; color: var(--text-3); margin-top: 2px; letter-spacing: 0.3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ─── PROJECT SHOWROOM ────────────────────────────────────────────────────────── */
+.showroom-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.showroom-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.showroom-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background: var(--card-2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px;
+  overflow: hidden;
+  cursor: pointer;
+}
+.showroom-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.showroom-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.showroom-name { font-size: 14px; font-weight: 700; color: var(--text); }
+.showroom-desc {
+  font-size: 12px; color: var(--text-2); line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.showroom-links { display: flex; gap: 6px; margin-top: auto; padding-top: 4px; }
+.showroom-link {
+  flex: 1; text-align: center;
+  padding: 6px 4px;
+  border-radius: 8px;
+  background: var(--card-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 11px; font-weight: 700;
+  text-decoration: none;
+}
