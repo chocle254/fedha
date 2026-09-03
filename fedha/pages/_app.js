@@ -34,6 +34,20 @@ function NotificationScheduler() {
         await checkMissedBlocks(blocks, completed);
       }
 
+      // ── Real push: works even when the app is fully closed ──────────────
+      // The setTimeout scheduling above only runs while this tab is alive.
+      // This subscribes the browser to Web Push and mirrors the same
+      // meal/planner data to Supabase so a server-side Edge Function can
+      // send the reminder as an actual push message.
+      try {
+        const { ensurePushSubscription, syncReminderSettings, listenForSubscriptionRotation } = await import('../lib/push');
+        listenForSubscriptionRotation();
+        await ensurePushSubscription();
+        await syncReminderSettings({ mealWeekPlan: mealPlan, plannerBlocks: blocks, plannerNotifs: notifEnabled });
+      } catch (e) {
+        console.warn('[fedha] push setup skipped:', e?.message);
+      }
+
       // Notify about registered hackathons close to their deadline
       const { getHackathons } = await import('../lib/db');
       const { countdownTo, URGENT_MS } = await import('../lib/utils');
