@@ -36,18 +36,21 @@ export function AppProvider({ children }) {
   const [isOnline, setIsOnline] = useState(true);
   const [loading, setLoading] = useState(true);
   const [fxVersion, setFxVersion] = useState(0); // bump to re-render converted amounts
+  const [savingsPlanDays, setSavingsPlanDaysState] = useState(null); // chosen timeframe for the goals savings plan
 
   const loadAll = useCallback(async () => {
     await seedDefaultData();
-    const [ws, ts, bs, ls, gs, ips, chs, hks, sts, ojs, prs, cur, cachedRates] = await Promise.all([
+    const [ws, ts, bs, ls, gs, ips, chs, hks, sts, ojs, prs, cur, cachedRates, spd] = await Promise.all([
       getWallets(), getTransactions(), getBudgets(), getLoans(),
       getGoals(), getIncomePlans(), getChallenges(),
       getHackathons(), getStartups(), getOnlineJobs(), getProjects(),
       getSetting('currency', 'KES'), getSetting('fx_rates', null),
+      getSetting('savings_plan_days', null),
     ]);
     setWallets(ws); setTransactions(ts); setBudgets(bs); setLoans(ls);
     setGoals(gs); setIncomePlans(ips); setChallenges(chs);
     setHackathons(hks); setStartups(sts); setOnlineJobs(ojs); setProjects(prs); setCurrencyState(cur);
+    setSavingsPlanDaysState(spd);
 
     // Use cached rates immediately (offline-first), then refresh from network.
     if (cachedRates) { setRates(cachedRates, BASE_CURRENCY); setFxVersion((v) => v + 1); }
@@ -135,6 +138,7 @@ export function AppProvider({ children }) {
 
   // ─── SETTINGS ──────────────────────────────────────────────────────────────
   const setCurrency = useCallback(async (cur) => { await setSetting('currency', cur); setCurrencyState(cur); }, []);
+  const setSavingsPlanDays = useCallback(async (days) => { await setSetting('savings_plan_days', days); setSavingsPlanDaysState(days); }, []);
 
   // ─── DERIVED ───────────────────────────────────────────────────────────────
   const totalBalance = wallets.reduce((s, w) => s + (Number(w.balance) || 0), 0);
@@ -146,6 +150,7 @@ export function AppProvider({ children }) {
   return (
     <AppContext.Provider value={{
       loading, isOnline, currency, setCurrency, fxVersion,
+      savingsPlanDays, setSavingsPlanDays,
       wallets, addWallet, updateWallet, removeWallet,
       transactions, addTransaction, removeTransaction,
       budgets, addBudget, updateBudget, removeBudget,
