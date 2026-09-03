@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { genId, todayISO, CATEGORIES, INCOME_CATEGORIES, EXPENSE_CATEGORIES } from '../lib/utils';
+import SavingsAllocationPrompt from './SavingsAllocationPrompt';
 
 export default function TransactionModal({ onClose }) {
-  const { wallets, addTransaction, currency } = useApp();
+  const { wallets, goals, addTransaction, updateGoal, currency } = useApp();
   const [type, setType] = useState('expense');
   const [amount, setAmount] = useState('');
   const [walletId, setWalletId] = useState(wallets[0]?.id || '');
@@ -13,8 +14,10 @@ export default function TransactionModal({ onClose }) {
   const [date, setDate] = useState(todayISO());
   const [isImpulse, setIsImpulse] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pendingDeposit, setPendingDeposit] = useState(null); // { amount, walletId } — set after an income save, while the savings prompt is open
 
   const cats = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const hasActiveGoals = goals.some((g) => (g.current || 0) < g.target);
 
   async function handleSubmit() {
     if (!amount || Number(amount) <= 0) return;
@@ -31,10 +34,50 @@ export default function TransactionModal({ onClose }) {
         is_impulse: isImpulse,
         currency,
       });
-      onClose();
+      // Just deposited money — if there are unfinished savings goals, offer to
+      // set a portion aside before closing out.
+      if (type === 'income' && hasActiveGoals) {
+        setPendingDeposit({ amount: Number(amount), walletId });
+      } else {
+        onClose();
+      }
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleAllocationConfirm(cutAmount, allocations) {
+    if (cutAmount > 0) {
+      // Move the cut portion out of the wallet it just landed in...
+      await addTransaction({
+        type: 'expense',
+        amount: cutAmount,
+        wallet_id: pendingDeposit.walletId,
+        category: 'savings',
+        description: 'Set aside for savings goals',
+        date: todayISO(),
+        currency,
+      });
+      // ...and into each goal, proportional to how much it still needs.
+      for (const a of allocations) {
+        if (a.allocated > 0) {
+          const goal = goals.find((g) => g.id === a.id);
+          if (goal) await updateGoal({ ...goal, current: (goal.current || 0) + a.allocated });
+        }
+      }
+    }
+    setPendingDeposit(null);
+    onClose();
+  }
+
+  if (pendingDeposit) {
+    return (
+      <SavingsAllocationPrompt
+        depositAmount={pendingDeposit.amount}
+        onConfirm={handleAllocationConfirm}
+        onSkip={() => { setPendingDeposit(null); onClose(); }}
+      />
+    );
   }
 
   return (
