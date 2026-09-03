@@ -144,10 +144,10 @@ export default function GoalsPage() {
               </div>
             </div>
           )}
-          <SavingsPlanCard remaining={totalTarget - totalSaved} />
         </div>
 
         <div style={{ padding: '0 20px' }}>
+          <SavingsPlanCard remaining={totalTarget - totalSaved} />
           {activeGoals.length === 0 && completedGoals.length === 0 ? (
             <div className="empty-state" style={{ paddingTop: 60 }}>
               <div className="icon">🎯</div>
