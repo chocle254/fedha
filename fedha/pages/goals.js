@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
+import SavingsPlanCard from '../components/SavingsPlanCard';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatShort, formatDate, getDaysUntil, genId } from '../lib/utils';
 
@@ -143,6 +144,7 @@ export default function GoalsPage() {
               </div>
             </div>
           )}
+          <SavingsPlanCard remaining={totalTarget - totalSaved} />
         </div>
 
         <div style={{ padding: '0 20px' }}>
