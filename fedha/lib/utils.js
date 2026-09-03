@@ -423,6 +423,50 @@ export function groupByMonth(transactions, months = 6) {
   return result;
 }
 
+// ─── SAVINGS PLANNING ─────────────────────────────────────────────────────────
+// Given a total amount still needed and a timeframe (in days), work out how
+// much needs to be set aside daily / weekly / monthly to hit it in time.
+export const SAVINGS_PLAN_PRESETS = [
+  { label: '1 Month', days: 30 },
+  { label: '3 Months', days: 91 },
+  { label: '6 Months', days: 182 },
+  { label: '1 Year', days: 365 },
+];
+
+export function computeSavingsBreakdown(remaining, days) {
+  const d = Math.max(1, Math.round(Number(days) || 1));
+  const total = Math.max(0, Number(remaining) || 0);
+  const daily = total / d;
+  return { days: d, daily, weekly: daily * 7, monthly: daily * (365.25 / 12) };
+}
+
+// Spreads a contribution across active goals proportionally to how much each
+// still needs, capping every goal at its target and rolling any leftover into
+// the goals that still have room — so nothing overshoots and nothing is lost.
+export function distributeContribution(goals, amount) {
+  const pool = Math.max(0, Number(amount) || 0);
+  const state = goals.map((g) => ({ ...g, need: Math.max(0, g.target - (g.current || 0)), allocated: 0 }));
+  let left = pool;
+  let active = state.filter((g) => g.need > 0.005);
+
+  while (left > 0.005 && active.length > 0) {
+    const totalNeed = active.reduce((s, g) => s + g.need, 0);
+    if (totalNeed <= 0.005) break;
+    let givenThisRound = 0;
+    active.forEach((g) => {
+      const share = (g.need / totalNeed) * left;
+      const give = Math.min(share, g.need);
+      g.allocated += give;
+      g.need -= give;
+      givenThisRound += give;
+    });
+    left -= givenThisRound;
+    active = active.filter((g) => g.need > 0.005);
+  }
+
+  return state.map((g) => ({ ...g, allocated: Math.round(g.allocated * 100) / 100 }));
+}
+
 export function getBalanceChart(transactions, currentBalance, days = 7) {
   const result = [];
   
