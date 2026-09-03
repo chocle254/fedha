@@ -217,6 +217,18 @@ export default function PlannerPage() {
       await setSetting('planner_notifs', true);
       scheduleAll(blocks);
       fireNotif('🟢 Fedha Planner Active', `All reminders are on. You will be notified for every block${isWeekend?' (weekend schedule)':' (weekday schedule)'}.`, false);
+
+      // Subscribe to real push right away so reminders still fire once you
+      // close the app — no need to wait for the next reload.
+      try {
+        const { ensurePushSubscription, syncReminderSettings } = await import('../lib/push');
+        await ensurePushSubscription();
+        const { getSetting } = await import('../lib/db');
+        const mealWeekPlan = await getSetting('meal_week_plan', null);
+        await syncReminderSettings({ mealWeekPlan, plannerBlocks: blocks, plannerNotifs: true });
+      } catch (e) {
+        console.warn('[fedha] push subscription on enable failed:', e?.message);
+      }
     }
   }
 
