@@ -1,232 +1,238 @@
+// Supabase-backed data layer. This used to be IndexedDB (see git history) —
+// same exported function names and shapes on purpose, so AppContext.js and
+// every page that imports from here needed zero changes. Every read/write
+// goes through Postgres RLS scoped to auth.uid(), so this only ever returns
+// or touches the signed-in user's own rows.
 
-import { openDB } from 'idb';
+import { supabase, isSupabaseEnabled } from './supabase';
 
-const DB_NAME = 'fedha_db';
-const DB_VERSION = 7;
-
-let dbPromise = null;
-
-// iOS/Safari cold-start fix: first IndexedDB access can hang/return empty.
-function idbReady() {
-  if (typeof indexedDB === 'undefined' || !indexedDB.databases) return Promise.resolve();
-  const isSafari = typeof navigator !== 'undefined' &&
-    /Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Android/.test(navigator.userAgent);
-  if (!isSafari) return Promise.resolve();
-  let id;
-  return new Promise((resolve) => {
-    const check = () => indexedDB.databases().finally(resolve);
-    id = setInterval(check, 100);
-    check();
-  }).finally(() => clearInterval(id));
+function logErr(action, err) {
+  if (err) console.error(`[fedha] ${action} failed:`, err.message);
+  return err;
 }
 
-// THE key fix for "my data keeps disappearing": ask the browser not to evict us.
-async function requestPersistence() {
-  try {
-    if (navigator?.storage?.persist && navigator?.storage?.persisted) {
-      const already = await navigator.storage.persisted();
-      if (!already) {
-        const granted = await navigator.storage.persist();
-        console.log('[fedha] persistent storage granted:', granted);
-      }
-    }
-  } catch (e) {
-    console.warn('[fedha] persist() failed:', e?.message);
-  }
-}
-
-function getDB() {
-  if (typeof window === 'undefined') return null;
-  if (!dbPromise) {
-    dbPromise = (async () => {
-      await idbReady();
-      await requestPersistence();
-      return openDB(DB_NAME, DB_VERSION, {
-        upgrade(db) {
-          if (!db.objectStoreNames.contains('wallets')) db.createObjectStore('wallets', { keyPath: 'id' });
-          if (!db.objectStoreNames.contains('transactions')) {
-            const ts = db.createObjectStore('transactions', { keyPath: 'id' });
-            ts.createIndex('date', 'date'); ts.createIndex('wallet_id', 'wallet_id'); ts.createIndex('type', 'type');
-          }
-          if (!db.objectStoreNames.contains('budgets')) db.createObjectStore('budgets', { keyPath: 'id' });
-          if (!db.objectStoreNames.contains('loans')) {
-            const ls = db.createObjectStore('loans', { keyPath: 'id' });
-            ls.createIndex('due_date', 'due_date'); ls.createIndex('status', 'status');
-          }
-          if (!db.objectStoreNames.contains('goals')) db.createObjectStore('goals', { keyPath: 'id' });
-          if (!db.objectStoreNames.contains('income_plans')) db.createObjectStore('income_plans', { keyPath: 'id' });
-          if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
-          if (!db.objectStoreNames.contains('food_logs')) {
-            const fs = db.createObjectStore('food_logs', { keyPath: 'id' }); fs.createIndex('date', 'date');
-          }
-          if (!db.objectStoreNames.contains('challenges')) db.createObjectStore('challenges', { keyPath: 'id' });
-          if (!db.objectStoreNames.contains('hackathons')) {
-            const hs = db.createObjectStore('hackathons', { keyPath: 'id' });
-            hs.createIndex('deadline', 'deadline');
-          }
-          if (!db.objectStoreNames.contains('startups')) db.createObjectStore('startups', { keyPath: 'id' });
-          if (!db.objectStoreNames.contains('beauty_logs')) {
-            const bls = db.createObjectStore('beauty_logs', { keyPath: 'id' });
-            bls.createIndex('date', 'date');
-          }
-          if (!db.objectStoreNames.contains('online_jobs')) db.createObjectStore('online_jobs', { keyPath: 'id' });
-          if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' });
-        },
-      });
-    })().catch((e) => {
-      console.error('[fedha] IndexedDB open failed:', e);
-      dbPromise = null; // allow retry next call instead of silently breaking
-      throw e;
-    });
-  }
-  return dbPromise;
-}
-
-// safe read wrapper — logs instead of silently returning empty
-async function safeGetAll(store) {
-  try { const db = await getDB(); return await db.getAll(store); }
-  catch (e) { console.error(`[fedha] read ${store} failed:`, e?.message); return []; }
-}
-
-// ─── SETTINGS ────────────────────────────────────────────────────────────────
+// ─── SETTINGS (key/value) ────────────────────────────────────────────────────
 export async function getSetting(key, fallback = null) {
-  try { const db = await getDB(); const row = await db.get('settings', key); return row ? row.value : fallback; }
-  catch (e) { console.error('[fedha] getSetting failed:', key, e?.message); return fallback; }
+  if (!isSupabaseEnabled()) return fallback;
+  try {
+    const { data, error } = await supabase.from('settings').select('value').eq('key', key).maybeSingle();
+    if (error) throw error;
+    return data ? data.value : fallback;
+  } catch (e) { console.error('[fedha] getSetting failed:', key, e?.message); return fallback; }
 }
-export async function setSetting(key, value) { const db = await getDB(); return db.put('settings', { key, value }); }
+export async function setSetting(key, value) {
+  if (!isSupabaseEnabled()) return;
+  const { error } = await supabase
+    .from('settings')
+    .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'user_id,key' });
+  logErr(`setSetting(${key})`, error);
+}
 
 // ─── WALLETS ─────────────────────────────────────────────────────────────────
-export async function getWallets() { return safeGetAll('wallets'); }
-export async function saveWallet(wallet) {
-  const db = await getDB();
-  const record = { synced: false, ...wallet, updated_at: new Date().toISOString() };
-  await db.put('wallets', record); return record;
+export async function getWallets() {
+  const { data, error } = await supabase.from('wallets').select('*').order('created_at', { ascending: true });
+  if (error) { logErr('read wallets', error); return []; }
+  return data || [];
 }
-export async function deleteWallet(id) { const db = await getDB(); return db.delete('wallets', id); }
+export async function saveWallet(wallet) {
+  const record = { ...wallet, updated_at: new Date().toISOString() };
+  const { data, error } = await supabase.from('wallets').upsert(record).select().single();
+  if (error) { logErr('save wallet', error); throw error; }
+  return data;
+}
+export async function deleteWallet(id) {
+  const { error } = await supabase.from('wallets').delete().eq('id', id);
+  logErr('delete wallet', error);
+}
 
 // ─── TRANSACTIONS ─────────────────────────────────────────────────────────────
 export async function getTransactions(filters = {}) {
-  let all = await safeGetAll('transactions');
-  if (filters.wallet_id) all = all.filter((t) => t.wallet_id === filters.wallet_id);
-  if (filters.type) all = all.filter((t) => t.type === filters.type);
-  if (filters.category) all = all.filter((t) => t.category === filters.category);
-  if (filters.from_date) all = all.filter((t) => t.date >= filters.from_date);
-  if (filters.to_date) all = all.filter((t) => t.date <= filters.to_date);
-  return all.sort((a, b) => new Date(b.date) - new Date(a.date));
+  let q = supabase.from('transactions').select('*');
+  if (filters.wallet_id) q = q.eq('wallet_id', filters.wallet_id);
+  if (filters.type) q = q.eq('type', filters.type);
+  if (filters.category) q = q.eq('category', filters.category);
+  if (filters.from_date) q = q.gte('date', filters.from_date);
+  if (filters.to_date) q = q.lte('date', filters.to_date);
+  const { data, error } = await q.order('date', { ascending: false });
+  if (error) { logErr('read transactions', error); return []; }
+  return data || [];
 }
 export async function saveTransaction(tx) {
-  const db = await getDB();
   const now = new Date().toISOString();
-  const record = { synced: false, ...tx, updated_at: now };
-  await db.put('transactions', record);
-  const wallet = await db.get('wallets', tx.wallet_id);
+  const record = { ...tx, updated_at: now };
+  const { data: saved, error } = await supabase.from('transactions').upsert(record).select().single();
+  if (error) { logErr('save transaction', error); throw error; }
+
+  const { data: wallet } = await supabase.from('wallets').select('*').eq('id', tx.wallet_id).maybeSingle();
   if (wallet) {
-    wallet.balance = (Number(wallet.balance) || 0) + (tx.type === 'income' ? Number(tx.amount) : -Number(tx.amount));
-    await db.put('wallets', { ...wallet, updated_at: now });
+    const balance = (Number(wallet.balance) || 0) + (tx.type === 'income' ? Number(tx.amount) : -Number(tx.amount));
+    await supabase.from('wallets').update({ balance, updated_at: now }).eq('id', wallet.id);
   }
   if (tx.type === 'transfer' && tx.to_wallet_id) {
-    const toW = await db.get('wallets', tx.to_wallet_id);
-    if (toW) { toW.balance = (Number(toW.balance) || 0) + Number(tx.amount); await db.put('wallets', { ...toW, updated_at: now }); }
+    const { data: toW } = await supabase.from('wallets').select('*').eq('id', tx.to_wallet_id).maybeSingle();
+    if (toW) await supabase.from('wallets').update({ balance: (Number(toW.balance) || 0) + Number(tx.amount), updated_at: now }).eq('id', toW.id);
   }
   if (tx.type === 'expense' && tx.category) {
-    const budgets = await db.getAll('budgets');
-    const b = budgets.find((x) => x.category === tx.category);
-    if (b) { b.spent = (Number(b.spent) || 0) + Number(tx.amount); await db.put('budgets', { ...b, updated_at: now }); }
+    const { data: budget } = await supabase.from('budgets').select('*').eq('category', tx.category).maybeSingle();
+    if (budget) await supabase.from('budgets').update({ spent: (Number(budget.spent) || 0) + Number(tx.amount), updated_at: now }).eq('id', budget.id);
   }
-  return record;
+  return saved;
 }
 export async function deleteTransaction(id) {
-  const db = await getDB();
-  const tx = await db.get('transactions', id);
-  if (!tx) return;
   const now = new Date().toISOString();
-  const wallet = await db.get('wallets', tx.wallet_id);
+  const { data: tx, error } = await supabase.from('transactions').delete().eq('id', id).select().maybeSingle();
+  if (error) { logErr('delete transaction', error); return; }
+  if (!tx) return;
+
+  const { data: wallet } = await supabase.from('wallets').select('*').eq('id', tx.wallet_id).maybeSingle();
   if (wallet) {
-    wallet.balance = (Number(wallet.balance) || 0) + (tx.type === 'income' ? -Number(tx.amount) : Number(tx.amount));
-    await db.put('wallets', { ...wallet, updated_at: now });
+    const balance = (Number(wallet.balance) || 0) + (tx.type === 'income' ? -Number(tx.amount) : Number(tx.amount));
+    await supabase.from('wallets').update({ balance, updated_at: now }).eq('id', wallet.id);
   }
   if (tx.type === 'transfer' && tx.to_wallet_id) {
-    const toW = await db.get('wallets', tx.to_wallet_id);
-    if (toW) { toW.balance = (Number(toW.balance) || 0) - Number(tx.amount); await db.put('wallets', { ...toW, updated_at: now }); }
+    const { data: toW } = await supabase.from('wallets').select('*').eq('id', tx.to_wallet_id).maybeSingle();
+    if (toW) await supabase.from('wallets').update({ balance: (Number(toW.balance) || 0) - Number(tx.amount), updated_at: now }).eq('id', toW.id);
   }
   if (tx.type === 'expense' && tx.category) {
-    const budgets = await db.getAll('budgets');
-    const b = budgets.find((x) => x.category === tx.category);
-    if (b) { b.spent = Math.max(0, (Number(b.spent) || 0) - Number(tx.amount)); await db.put('budgets', { ...b, updated_at: now }); }
+    const { data: budget } = await supabase.from('budgets').select('*').eq('category', tx.category).maybeSingle();
+    if (budget) await supabase.from('budgets').update({ spent: Math.max(0, (Number(budget.spent) || 0) - Number(tx.amount)), updated_at: now }).eq('id', budget.id);
   }
-  return db.delete('transactions', id);
 }
 
-// ─── BUDGETS / LOANS / GOALS / INCOME PLANS ────────────────────────────────────
-export async function getBudgets() { return safeGetAll('budgets'); }
-export async function saveBudget(b) { const db = await getDB(); const r = { synced: false, ...b, updated_at: new Date().toISOString() }; await db.put('budgets', r); return r; }
-export async function deleteBudget(id) { const db = await getDB(); return db.delete('budgets', id); }
+// ─── Small helper for the plain structured tables ───────────────────────────
+function structuredStore(table) {
+  return {
+    async getAll() {
+      const { data, error } = await supabase.from(table).select('*').order('created_at', { ascending: true });
+      if (error) { logErr(`read ${table}`, error); return []; }
+      return data || [];
+    },
+    async save(record) {
+      const row = { ...record, updated_at: new Date().toISOString() };
+      const { data, error } = await supabase.from(table).upsert(row).select().single();
+      if (error) { logErr(`save ${table}`, error); throw error; }
+      return data;
+    },
+    async remove(id) {
+      const { error } = await supabase.from(table).delete().eq('id', id);
+      logErr(`delete ${table}`, error);
+    },
+  };
+}
 
-export async function getLoans() { return safeGetAll('loans'); }
-export async function saveLoan(l) { const db = await getDB(); const r = { synced: false, ...l, updated_at: new Date().toISOString() }; await db.put('loans', r); return r; }
-export async function deleteLoan(id) { const db = await getDB(); return db.delete('loans', id); }
+const budgetsStore = structuredStore('budgets');
+export const getBudgets = () => budgetsStore.getAll();
+export const saveBudget = (b) => budgetsStore.save(b);
+export const deleteBudget = (id) => budgetsStore.remove(id);
 
-export async function getGoals() { return safeGetAll('goals'); }
-export async function saveGoal(g) { const db = await getDB(); const r = { synced: false, ...g, updated_at: new Date().toISOString() }; await db.put('goals', r); return r; }
-export async function deleteGoal(id) { const db = await getDB(); return db.delete('goals', id); }
+const loansStore = structuredStore('loans');
+export const getLoans = () => loansStore.getAll();
+export const saveLoan = (l) => loansStore.save(l);
+export const deleteLoan = (id) => loansStore.remove(id);
 
-export async function getIncomePlans() { return safeGetAll('income_plans'); }
-export async function saveIncomePlan(p) { const db = await getDB(); const r = { synced: false, ...p, updated_at: new Date().toISOString() }; await db.put('income_plans', r); return r; }
-export async function deleteIncomePlan(id) { const db = await getDB(); return db.delete('income_plans', id); }
+const goalsStore = structuredStore('goals');
+export const getGoals = () => goalsStore.getAll();
+export const saveGoal = (g) => goalsStore.save(g);
+export const deleteGoal = (id) => goalsStore.remove(id);
+
+const incomePlansStore = structuredStore('income_plans');
+export const getIncomePlans = () => incomePlansStore.getAll();
+export const saveIncomePlan = (p) => incomePlansStore.save(p);
+export const deleteIncomePlan = (id) => incomePlansStore.remove(id);
+
+// ─── Generic JSONB-backed stores (id + optional lifted column + data) ──────
+// Mirrors the old schemaless IndexedDB stores — new fields (like Tech Hub's
+// project status/progress/notes) just live in `data`, no SQL migration.
+function jsonStore(table, liftField) {
+  function rowToRecord(row) {
+    const { data, ...core } = row;
+    const record = { ...core, ...(data || {}) };
+    delete record.user_id;
+    return record;
+  }
+  function recordToRow(record) {
+    const { id, created_at, updated_at, user_id, ...rest } = record;
+    const row = { id, created_at, updated_at: new Date().toISOString() };
+    if (liftField && rest[liftField] !== undefined) { row[liftField] = rest[liftField]; delete rest[liftField]; }
+    row.data = rest;
+    return row;
+  }
+  return {
+    async getAll(filterValue) {
+      let q = supabase.from(table).select('*');
+      if (liftField && filterValue !== undefined) q = q.eq(liftField, filterValue);
+      const { data, error } = await q;
+      if (error) { logErr(`read ${table}`, error); return []; }
+      return (data || []).map(rowToRecord);
+    },
+    async save(record) {
+      const row = recordToRow(record);
+      const { data, error } = await supabase.from(table).upsert(row).select().single();
+      if (error) { logErr(`save ${table}`, error); throw error; }
+      return rowToRecord(data);
+    },
+    async remove(id) {
+      const { error } = await supabase.from(table).delete().eq('id', id);
+      logErr(`delete ${table}`, error);
+    },
+  };
+}
 
 // ─── FOOD LOGS ───────────────────────────────────────────────────────────────
+const foodLogsStore = jsonStore('food_logs', 'date');
 export async function getFoodLogs(date) {
-  try {
-    const db = await getDB();
-    if (date) { const all = await db.getAllFromIndex('food_logs', 'date', date); return all.sort((a, b) => new Date(a.created_at) - new Date(b.created_at)); }
-    return db.getAll('food_logs');
-  } catch (e) { console.error('[fedha] read food_logs failed:', e?.message); return []; }
+  const all = await foodLogsStore.getAll(date);
+  return all.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 }
-export async function saveFoodLog(entry) { const db = await getDB(); const r = { synced: false, ...entry, updated_at: new Date().toISOString() }; await db.put('food_logs', r); return r; }
-export async function deleteFoodLog(id) { const db = await getDB(); return db.delete('food_logs', id); }
+export const saveFoodLog = (entry) => foodLogsStore.save(entry);
+export const deleteFoodLog = (id) => foodLogsStore.remove(id);
 
 // ─── CHALLENGES ──────────────────────────────────────────────────────────────
-export async function getChallenges() { return safeGetAll('challenges'); }
-export async function saveChallenge(c) { const db = await getDB(); const r = { synced: false, ...c, updated_at: new Date().toISOString() }; await db.put('challenges', r); return r; }
-export async function deleteChallenge(id) { const db = await getDB(); return db.delete('challenges', id); }
+const challengesStore = jsonStore('challenges');
+export const getChallenges = () => challengesStore.getAll();
+export const saveChallenge = (c) => challengesStore.save(c);
+export const deleteChallenge = (id) => challengesStore.remove(id);
 
 // ─── HACKATHONS ──────────────────────────────────────────────────────────────
-export async function getHackathons() { return safeGetAll('hackathons'); }
-export async function saveHackathon(h) { const db = await getDB(); const r = { synced: false, ...h, updated_at: new Date().toISOString() }; await db.put('hackathons', r); return r; }
-export async function deleteHackathon(id) { const db = await getDB(); return db.delete('hackathons', id); }
+const hackathonsStore = jsonStore('hackathons', 'deadline');
+export const getHackathons = () => hackathonsStore.getAll();
+export const saveHackathon = (h) => hackathonsStore.save(h);
+export const deleteHackathon = (id) => hackathonsStore.remove(id);
 
 // ─── STARTUPS ────────────────────────────────────────────────────────────────
-export async function getStartups() { return safeGetAll('startups'); }
-export async function saveStartup(s) { const db = await getDB(); const r = { synced: false, ...s, updated_at: new Date().toISOString() }; await db.put('startups', r); return r; }
-export async function deleteStartup(id) { const db = await getDB(); return db.delete('startups', id); }
+const startupsStore = jsonStore('startups');
+export const getStartups = () => startupsStore.getAll();
+export const saveStartup = (s) => startupsStore.save(s);
+export const deleteStartup = (id) => startupsStore.remove(id);
 
 // ─── PROJECTS (Showroom) ─────────────────────────────────────────────────────
-export async function getProjects() { return safeGetAll('projects'); }
-export async function saveProject(p) { const db = await getDB(); const r = { synced: false, ...p, updated_at: new Date().toISOString() }; await db.put('projects', r); return r; }
-export async function deleteProject(id) { const db = await getDB(); return db.delete('projects', id); }
+const projectsStore = jsonStore('projects');
+export const getProjects = () => projectsStore.getAll();
+export const saveProject = (p) => projectsStore.save(p);
+export const deleteProject = (id) => projectsStore.remove(id);
 
 // ─── ONLINE JOBS ─────────────────────────────────────────────────────────────
+const onlineJobsStore = jsonStore('online_jobs');
 export async function getOnlineJobs() {
-  try {
-    const db = await getDB();
-    const all = await db.getAll('online_jobs');
-    return all.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-  } catch (e) { console.error('[fedha] read online_jobs failed:', e?.message); return []; }
+  const all = await onlineJobsStore.getAll();
+  return all.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 }
-export async function saveOnlineJob(job) { const db = await getDB(); const r = { synced: false, ...job, updated_at: new Date().toISOString() }; await db.put('online_jobs', r); return r; }
-export async function deleteOnlineJob(id) { const db = await getDB(); return db.delete('online_jobs', id); }
+export const saveOnlineJob = (job) => onlineJobsStore.save(job);
+export const deleteOnlineJob = (id) => onlineJobsStore.remove(id);
 
-// ─── SEED DEFAULT DATA ──────────────────────────────────────────────────────────
+// ─── SEED DEFAULT DATA ────────────────────────────────────────────────────────
 export async function seedDefaultData() {
-  const db = await getDB();
-  const existing = await db.getAll('wallets');
-  if (existing.length > 0) return;
+  const { data: existing, error } = await supabase.from('wallets').select('id').limit(1);
+  if (error) { logErr('seed check', error); return; }
+  if (existing && existing.length) return;
+
   const now = new Date().toISOString();
   const defaults = [
-    { id: 'mpesa', name: 'M-Pesa', type: 'mobile', balance: 0, currency: 'KES', color: '#10B981', icon: '📱', created_at: now, updated_at: now, synced: false },
-    { id: 'bank', name: 'Bank Account', type: 'bank', balance: 0, currency: 'KES', color: '#3B82F6', icon: '🏦', created_at: now, updated_at: now, synced: false },
-    { id: 'cash', name: 'Cash', type: 'cash', balance: 0, currency: 'KES', color: '#F59E0B', icon: '💵', created_at: now, updated_at: now, synced: false },
-    { id: 'airtel', name: 'Airtel Money', type: 'mobile', balance: 0, currency: 'KES', color: '#EF4444', icon: '📲', created_at: now, updated_at: now, synced: false },
+    { id: 'mpesa', name: 'M-Pesa', type: 'mobile', balance: 0, currency: 'KES', color: '#10B981', icon: '📱', created_at: now, updated_at: now },
+    { id: 'bank', name: 'Bank Account', type: 'bank', balance: 0, currency: 'KES', color: '#3B82F6', icon: '🏦', created_at: now, updated_at: now },
+    { id: 'cash', name: 'Cash', type: 'cash', balance: 0, currency: 'KES', color: '#F59E0B', icon: '💵', created_at: now, updated_at: now },
+    { id: 'airtel', name: 'Airtel Money', type: 'mobile', balance: 0, currency: 'KES', color: '#EF4444', icon: '📲', created_at: now, updated_at: now },
   ];
-  for (const w of defaults) await db.put('wallets', w);
+  const { error: insErr } = await supabase.from('wallets').insert(defaults);
+  logErr('seed insert', insErr);
 }
