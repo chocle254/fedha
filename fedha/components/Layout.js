@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useApp } from '../context/AppContext';
+import { signOut } from '../lib/supabase';
 
 const NAV = [
   { href:'/', label:'Home', icon:(a) => (
@@ -96,6 +97,15 @@ export default function Layout({ children, fab, onFab }) {
                   </Link>
                 );
               })}
+            </div>
+            <div style={{ padding: '0 16px 16px' }}>
+              <button
+                className="btn-ghost"
+                style={{ width: '100%', color: 'var(--red)' }}
+                onClick={async () => { await signOut(); router.replace('/login'); }}
+              >
+                🔒 Sign Out
+              </button>
             </div>
           </div>
         </div>
