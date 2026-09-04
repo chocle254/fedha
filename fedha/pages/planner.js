@@ -1,84 +1,191 @@
 import { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
+import { useApp } from '../context/AppContext';
 import { getSetting, setSetting } from '../lib/db';
-import { todayISO } from '../lib/utils';
+import { todayISO, computeJobProgress } from '../lib/utils';
+import { hackStatus, isUrgent, projectStatus } from './tech-hub';
+import { WEEKLY_PLAN, weekdayPlanIndex, estimateWorkoutMinutes, exerciseSummary } from './workout';
 import { format } from 'date-fns';
 
-const WEEKDAY_BLOCKS = [
-  { id:'wake',        time:'06:00', label:'Wake Up — No Phone',   type:'routine',  duration:20,  emoji:'⏰', note:'First 20 mins phone-free. Drink water, stretch, wash face.' },
-  { id:'bfast_prep',  time:'06:20', label:'Prepare Breakfast',    type:'meal',     duration:20,  emoji:'🍳', note:'Start cooking now. Check Meals tab for today\'s breakfast.' },
-  { id:'breakfast',   time:'06:40', label:'Eat Breakfast',         type:'meal',     duration:20,  emoji:'🍽️', note:'Sit down and eat. No phone while eating.' },
-  { id:'dishes1',     time:'07:00', label:'Clean Dishes',          type:'routine',  duration:10,  emoji:'🧹', note:'10 mins now saves stress later. Quick and clean.' },
-  { id:'study1',      time:'07:10', label:'Deep Study Block',      type:'study',    duration:90,  emoji:'📚', note:'Phone in another room. Hardest subject first — brain is sharpest now.' },
-  { id:'walk',        time:'08:40', label:'Walk to School',        type:'routine',  duration:10,  emoji:'🚶', note:'Leave now — 10 min walk, arrive 8:50. Early is on time.' },
-  { id:'school1',     time:'08:50', label:'School / Class',        type:'school',   duration:130, emoji:'🏫', note:'Be present. Take notes. Ask questions when confused.' },
-  { id:'snack',       time:'10:50', label:'10am Snack',            type:'meal',     duration:15,  emoji:'🍌', note:'Banana + groundnuts. Drink water. Eat quickly then back to focus.' },
-  { id:'school2',     time:'11:05', label:'School / Class',        type:'school',   duration:115, emoji:'🏫', note:'Stay present. Afternoon is for your own work.' },
-  { id:'lunch_prep',  time:'13:00', label:'Prepare Lunch',         type:'meal',     duration:25,  emoji:'🍲', note:'Start cooking now — food ready by 1:25. Check Meals tab.' },
-  { id:'lunch',       time:'13:25', label:'Eat Lunch',             type:'meal',     duration:25,  emoji:'🍽️', note:'Biggest meal of the day. Large portion — fuel for the afternoon.' },
-  { id:'dishes2',     time:'13:50', label:'Clean Up',              type:'routine',  duration:10,  emoji:'🧹', note:'Quick clean. Clear space = clear mind for study.' },
-  { id:'study2',      time:'14:00', label:'Study / Revision',      type:'study',    duration:90,  emoji:'📚', note:'Review morning notes. Do assignments. No music with lyrics.' },
-  { id:'coding',      time:'15:30', label:'Coding Block',          type:'coding',   duration:90,  emoji:'💻', note:'Build something real. Work on a project. Practice beats tutorials every time.' },
-  { id:'bae',         time:'17:00', label:'Bae Time 💕',           type:'personal', duration:90,  emoji:'💕', note:'Protected time. Phone down. Be fully present.' },
-  { id:'dinner_prep', time:'18:30', label:'Prepare Dinner',        type:'meal',     duration:20,  emoji:'🍲', note:'Start cooking. Check Meals tab for tonight\'s dinner.' },
-  { id:'dinner',      time:'18:50', label:'Eat Dinner',            type:'meal',     duration:25,  emoji:'🍽️', note:'Eat well. This fuels your overnight muscle recovery.' },
-  { id:'dishes3',     time:'19:15', label:'Clean Kitchen',         type:'routine',  duration:10,  emoji:'🧹', note:'Full clean. Good kitchen tonight = easy morning tomorrow.' },
-  { id:'freetime',    time:'19:25', label:'Free Time 🎧',          type:'personal', duration:60,  emoji:'🎧', note:'THIS is when you scroll TikTok. Not at 6am. Earned free time.' },
-  { id:'review',      time:'20:25', label:'Daily Review',          type:'routine',  duration:20,  emoji:'📝', note:'What did you learn? What to do differently? Write 3 lines.' },
-  { id:'night_prep',  time:'20:45', label:'Night Prep',            type:'routine',  duration:15,  emoji:'🌙', note:'Set clothes, pack bag, set alarm. Drink milk before bed.' },
-  { id:'sleep',       time:'21:00', label:'Sleep',                 type:'sleep',    duration:540, emoji:'😴', note:'Phone in another room. 9 hours = max muscle growth + memory.' },
-];
-
-const WEEKEND_BLOCKS = [
-  { id:'wake',           time:'07:00', label:'Wake Up — No Phone',       type:'routine',  duration:20,  emoji:'⏰', note:'Weekend — sleep in until 7. No alarm scrolling. Drink water.' },
-  { id:'bfast_prep',     time:'07:20', label:'Prepare Breakfast',         type:'meal',     duration:25,  emoji:'🍳', note:'Weekend breakfast is bigger. Check Meals tab — better meals unlocked.' },
-  { id:'breakfast',      time:'07:45', label:'Eat Breakfast',              type:'meal',     duration:30,  emoji:'🍽️', note:'Sit down. Take your time. Best breakfast of the week.' },
-  { id:'dishes1',        time:'08:15', label:'Clean Dishes',               type:'routine',  duration:15,  emoji:'🧹', note:'Clean dishes after breakfast.' },
-  { id:'laundry_sort',   time:'08:30', label:'Sort & Start Laundry',       type:'chores',   duration:30,  emoji:'👕', note:'Sort clothes, start soaking or machine wash. Do this first so clothes dry by afternoon.' },
-  { id:'study_weekend',  time:'09:00', label:'Study / Revision Block',     type:'study',    duration:120, emoji:'📚', note:'Weekend study — go deeper on topics you did not fully understand this week.' },
-  { id:'coding_weekend', time:'11:00', label:'Coding / Project Block',     type:'coding',   duration:90,  emoji:'💻', note:'Build. Ship something. Weekends are for bigger ideas.' },
-  { id:'laundry_hang',   time:'12:30', label:'Hang / Check Laundry',       type:'chores',   duration:15,  emoji:'👕', note:'Hang clothes out to dry or move to dryer. Quick task.' },
-  { id:'lunch_prep',     time:'12:45', label:'Prepare Lunch',              type:'meal',     duration:30,  emoji:'🍲', note:'Weekend lunch is better — try pilau, biryani or a special stew. Check Meals tab.' },
-  { id:'lunch',          time:'13:15', label:'Eat Lunch',                  type:'meal',     duration:30,  emoji:'🍽️', note:'Best meal of the week. Eat a generous portion.' },
-  { id:'dishes2',        time:'13:45', label:'Clean Up',                   type:'routine',  duration:15,  emoji:'🧹', note:'Full kitchen clean after lunch.' },
-  { id:'house_clean',    time:'14:00', label:'Clean House / Room',         type:'chores',   duration:60,  emoji:'🏠', note:'Full room clean — sweep, mop, arrange, take out trash. Weekly reset.' },
-  { id:'bae_weekend',    time:'15:00', label:'Bae Time 💕',                type:'personal', duration:120, emoji:'💕', note:'Weekend bae time is longer. Plan something nice — a walk, a meal together.' },
-  { id:'laundry_fold',   time:'17:00', label:'Fold & Put Away Clothes',    type:'chores',   duration:20,  emoji:'👕', note:'Fold and put away dry clothes. Feels great to have clean clothes sorted.' },
-  { id:'dinner_prep',    time:'17:30', label:'Prepare Dinner',             type:'meal',     duration:30,  emoji:'🍲', note:'Weekend dinner is special too. Take your time cooking.' },
-  { id:'dinner',         time:'18:00', label:'Eat Dinner',                 type:'meal',     duration:30,  emoji:'🍽️', note:'Relax and enjoy. Best dinner of the week.' },
-  { id:'dishes3',        time:'18:30', label:'Clean Kitchen',              type:'routine',  duration:15,  emoji:'🧹', note:'Full kitchen clean. Sets up the week ahead.' },
-  { id:'prep_next_week', time:'18:45', label:'Plan Next Week',             type:'routine',  duration:30,  emoji:'📋', note:'What do you want to achieve? Any big purchases? Buy groceries in bulk tonight or tomorrow morning.' },
-  { id:'freetime',       time:'19:15', label:'Free Time 🎧',               type:'personal', duration:90,  emoji:'🎧', note:'Extended weekend free time. Relax, music, TikTok — you\'ve earned a longer break.' },
-  { id:'review',         time:'20:45', label:'Weekly Review',              type:'routine',  duration:20,  emoji:'📝', note:'What did you achieve this week? What will you do differently next week? Write 5 lines.' },
-  { id:'sleep',          time:'21:30', label:'Sleep',                      type:'sleep',    duration:510, emoji:'😴', note:'Weekend sleep in is allowed. Phone in another room. Rest fully.' },
-];
+// ─── DAY ANCHORS ───────────────────────────────────────────────────────────
+// No more school — wake later, and build the day around a late, ~00:00-4am
+// bedtime instead of an early one. Sleep is targeted for ~00:30 so an 8am
+// wake still gives a healthy ~7.5 hours; the schedule self-adjusts if the
+// day runs long rather than ever double-booking a slot.
+const WEEKDAY_WAKE = 8 * 60;         // 08:00
+const WEEKEND_WAKE = 9 * 60;         // 09:00
+const TARGET_BEDTIME = 24 * 60 + 30; // 00:30 (next day, expressed past midnight for the calc below)
 
 const TYPE_COLORS = {
   routine:  { bg:'rgba(99,102,241,0.12)',  border:'rgba(99,102,241,0.35)',  text:'#818CF8', dot:'#6366F1' },
   meal:     { bg:'rgba(245,158,11,0.12)',  border:'rgba(245,158,11,0.35)',  text:'#FCD34D', dot:'#F59E0B' },
-  study:    { bg:'rgba(59,130,246,0.12)',  border:'rgba(59,130,246,0.35)',  text:'#93C5FD', dot:'#3B82F6' },
-  school:   { bg:'rgba(139,92,246,0.12)', border:'rgba(139,92,246,0.35)',  text:'#C4B5FD', dot:'#8B5CF6' },
-  coding:   { bg:'rgba(16,185,129,0.12)', border:'rgba(16,185,129,0.35)',  text:'#6EE7B7', dot:'#10B981' },
-  personal: { bg:'rgba(236,72,153,0.12)', border:'rgba(236,72,153,0.35)',  text:'#F9A8D4', dot:'#EC4899' },
+  coding:   { bg:'rgba(16,185,129,0.12)', border:'rgba(16,185,129,0.35)', text:'#6EE7B7', dot:'#10B981' },
+  personal: { bg:'rgba(236,72,153,0.12)', border:'rgba(236,72,153,0.35)', text:'#F9A8D4', dot:'#EC4899' },
   chores:   { bg:'rgba(234,179,8,0.12)',  border:'rgba(234,179,8,0.35)',   text:'#FDE047', dot:'#EAB308' },
+  workout:  { bg:'rgba(239,68,68,0.12)',  border:'rgba(239,68,68,0.35)',   text:'#FCA5A5', dot:'#EF4444' },
+  health:   { bg:'rgba(6,182,212,0.12)',  border:'rgba(6,182,212,0.35)',   text:'#67E8F9', dot:'#06B6D4' },
+  gaming:   { bg:'rgba(167,139,250,0.12)',border:'rgba(167,139,250,0.35)', text:'#C4B5FD', dot:'#A78BFA' },
   sleep:    { bg:'rgba(30,41,59,0.5)',    border:'rgba(51,65,85,0.5)',     text:'#475569', dot:'#334155' },
 };
-const TYPE_LABELS = { routine:'Routine', meal:'Meal', study:'Study', school:'School', coding:'Coding', personal:'Personal', chores:'Chores', sleep:'Sleep' };
+const TYPE_LABELS = { routine:'Routine', meal:'Meal', coding:'Work', personal:'Personal', chores:'Chores', workout:'Workout', health:'Health', gaming:'Gaming', sleep:'Sleep' };
 
 const NOTIF_MSGS = {
   routine: (b) => ({ title:'⏰ ' + b.label.toUpperCase(), body: b.note }),
   meal: (b) => ({ title: b.label.includes('Eat') ? '🍽️ TIME TO EAT' : '🍳 START COOKING NOW', body: b.label.includes('Eat') ? `${b.emoji} ${b.label} — eat properly, no phone` : `Cook now so food is ready on time. Check Meals tab.` }),
-  study: (b) => ({ title:'📚 STUDY TIME', body:`Put your phone in another room. ${b.note}` }),
-  coding: (b) => ({ title:'💻 CODING TIME', body:`Open your editor. Build something real. ${b.duration} minutes.` }),
-  school: (b) => ({ title:'🏫 SCHOOL TIME', body:`Be present. Take notes. Ask questions.` }),
+  coding: (b) => ({ title:`💻 ${b.label}`, body:`Phone away. ${b.note}` }),
   personal: (b) => ({ title: b.label.includes('Bae') ? '💕 BAE TIME' : '🎧 FREE TIME', body: b.note }),
   chores: (b) => ({ title:'🏠 CHORES TIME', body: b.note }),
-  sleep: (b) => ({ title:'😴 TIME TO SLEEP', body:'Phone in another room. 9 hours = best recovery.' }),
+  workout: (b) => ({ title:`🏋️ ${b.label}`, body: b.note }),
+  health: (b) => ({ title:`🛁 ${b.label}`, body: b.note }),
+  gaming: (b) => ({ title:'🎮 GAMING TIME', body: b.note }),
+  sleep: (b) => ({ title:'😴 TIME TO SLEEP', body: b.note }),
 };
 
 function t2m(t) { const [h,m] = t.split(':').map(Number); return h*60+m; }
 function m2t(m) { return `${String(Math.floor(m/60)%24).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`; }
 function fmt12(t) { const [h,m] = t.split(':').map(Number); return `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`; }
+function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
+
+// ─── PICK WHAT TO WORK ON ───────────────────────────────────────────────────
+// Looks at Tech Hub (hackathons, startups, personal projects) and My Jobs to
+// figure out what actually deserves the day's deep-work blocks, in priority
+// order: an urgent hackathon deadline beats a job, beats a startup, beats a
+// side project, beats a generic "nothing active" fallback.
+function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs }) {
+  const items = [];
+  const urgentHacks = (hackathons || []).filter(isUrgent);
+  const activeHacks = (hackathons || []).filter((h) => hackStatus(h) === 'active' && !isUrgent(h));
+  const activeProjects = (projects || []).filter((p) => ['planning', 'in_progress'].includes(projectStatus(p)));
+
+  if (urgentHacks.length) {
+    const h = urgentHacks[0];
+    items.push({ emoji: '🔥', label: `Hackathon Sprint — ${h.name}`, note: `Deadline closing soon${h.project_name ? ` — get ${h.project_name} submission-ready` : ''}. This is priority #1 today.` });
+  } else if (activeHacks.length) {
+    const h = activeHacks[0];
+    items.push({ emoji: '🏆', label: `Hackathon Work — ${h.name}`, note: `Keep building${h.project_name ? ` on ${h.project_name}` : ''}. Check your task list in Tech Hub.` });
+  }
+
+  if ((onlineJobs || []).length) {
+    const job = onlineJobs[0];
+    let prog = null;
+    try { prog = computeJobProgress(job); } catch { /* missing fields — skip the progress note */ }
+    const who = `${job.name}${job.platform ? ` on ${job.platform}` : ''}`;
+    const note = prog && !prog.metThreshold
+      ? `${who} — ${prog.daysLeft} day${prog.daysLeft === 1 ? '' : 's'} left to hit this period's payout target.`
+      : `${who} — log tasks in My Jobs as you go.`;
+    items.push({ emoji: '💼', label: `Job Work — ${job.name}`, note });
+  }
+
+  if ((startups || []).length) {
+    const s = startups[0];
+    items.push({ emoji: '🚀', label: `Startup Work — ${s.name}`, note: `Move ${s.name} forward — check your stage checklist in Tech Hub.` });
+  }
+
+  if (activeProjects.length) {
+    const p = activeProjects[0];
+    items.push({ emoji: '🗂️', label: `Project Work — ${p.name}`, note: p.description || 'Keep building — log progress in Tech Hub when you wrap up.' });
+  }
+
+  if (!items.length) {
+    items.push({ emoji: '💻', label: 'Deep Work Block', note: 'Nothing active in Tech Hub or My Jobs right now — good time to learn something new or start one.' });
+  }
+  return items;
+}
+
+function pickWork(items, i) {
+  const base = items[i % items.length];
+  const isRepeat = i >= items.length;
+  return { ...base, label: isRepeat ? `${base.label} (continued)` : base.label };
+}
+
+// ─── SCHEDULE BUILDER ────────────────────────────────────────────────────────
+// Lays blocks out one after another from wake time, so nothing ever overlaps.
+// Work blocks come from Tech Hub + My Jobs; workout blocks come from today's
+// entry in the workout plan; evening leisure absorbs whatever time is left
+// before the target bedtime.
+function buildTodayBlocks(ctx, isWeekend) {
+  const workItems = getWorkPriorityItems(ctx);
+  const dayIdx = weekdayPlanIndex(new Date());
+  const dayPlan = WEEKLY_PLAN[dayIdx];
+  const morningWorkoutMin = estimateWorkoutMinutes(dayPlan.morning.exercises);
+  const eveningWorkoutMin = dayPlan.evening.isRest ? 0 : estimateWorkoutMinutes(dayPlan.evening.exercises);
+
+  const blocks = [];
+  let cursor = isWeekend ? WEEKEND_WAKE : WEEKDAY_WAKE;
+  const push = (id, label, type, duration, emoji, note) => {
+    if (duration <= 0) return;
+    blocks.push({ id, time: m2t(cursor), label, type, duration, emoji, note });
+    cursor += duration;
+  };
+
+  push('wake', 'Wake Up — No Phone', 'routine', 20, '⏰', 'First 20 mins phone-free. Drink water, stretch, wash face.');
+  push('bfast_prep', 'Prepare Breakfast', 'meal', isWeekend ? 25 : 20, '🍳', "Start cooking now. Check Meals tab for today's breakfast.");
+  push('breakfast', 'Eat Breakfast', 'meal', isWeekend ? 30 : 20, '🍽️', 'Sit down and eat. No phone while eating.');
+  push('dishes1', 'Clean Dishes', 'routine', isWeekend ? 15 : 10, '🧹', '10 mins now saves stress later.');
+
+  if (isWeekend) {
+    push('laundry_sort', 'Sort & Start Laundry', 'chores', 30, '👕', 'Sort clothes, start soaking or machine wash — do this first so clothes dry by afternoon.');
+  }
+
+  const w1 = pickWork(workItems, 0);
+  push('work1', w1.label, 'coding', 90, w1.emoji, w1.note);
+
+  if (!isWeekend) push('snack', '10am Snack', 'meal', 15, '🍌', 'Banana + groundnuts. Drink water, then back to focus.');
+
+  const w2 = pickWork(workItems, 1);
+  push('work2', w2.label, 'coding', 90, w2.emoji, w2.note);
+
+  if (isWeekend) push('laundry_hang', 'Hang / Check Laundry', 'chores', 15, '👕', 'Hang clothes out to dry or move to the dryer.');
+
+  push('lunch_prep', 'Prepare Lunch', 'meal', isWeekend ? 30 : 25, '🍲', 'Start cooking now — check Meals tab.');
+  push('lunch', 'Eat Lunch', 'meal', isWeekend ? 30 : 25, '🍽️', 'Biggest meal of the day — fuel for the afternoon.');
+  push('dishes2', 'Clean Up', 'routine', isWeekend ? 15 : 10, '🧹', 'Quick clean. Clear space = clear mind.');
+
+  push('bath', 'Bathing / Afternoon Reset', 'health', 25, '🛁', 'Freshen up in the afternoon — you have earned it after a solid morning.');
+
+  if (morningWorkoutMin > 0) {
+    push('workout1', `Workout — ${dayPlan.focus}`, 'workout', morningWorkoutMin, '🏋️', `${dayPlan.morning.title}: ${exerciseSummary(dayPlan.morning.exercises)}`);
+  }
+
+  if (isWeekend) {
+    push('house_clean', 'Clean House / Room', 'chores', 60, '🏠', 'Full room clean — sweep, mop, arrange, take out trash.');
+  }
+
+  const w3 = pickWork(workItems, 2);
+  push('work3', w3.label, 'coding', 90, w3.emoji, w3.note);
+
+  if (isWeekend) push('laundry_fold', 'Fold & Put Away Clothes', 'chores', 20, '👕', 'Fold and put away dry clothes.');
+
+  push('bae', 'Bae Time 💕', 'personal', isWeekend ? 120 : 90, '💕', 'Protected time. Phone down. Be fully present.');
+
+  push('dinner_prep', 'Prepare Dinner', 'meal', isWeekend ? 30 : 20, '🍲', 'Start cooking. Check Meals tab for tonight.');
+  push('dinner', 'Eat Dinner', 'meal', isWeekend ? 30 : 25, '🍽️', 'Eat well — this fuels overnight recovery.');
+  push('dishes3', 'Clean Kitchen', 'routine', isWeekend ? 15 : 10, '🧹', 'Full clean. Good kitchen tonight = easy morning tomorrow.');
+
+  if (eveningWorkoutMin > 0) {
+    push('workout2', `Workout — ${dayPlan.focus} (Evening)`, 'workout', eveningWorkoutMin, '💪', `${dayPlan.evening.title}: ${exerciseSummary(dayPlan.evening.exercises)}`);
+  } else if (dayPlan.evening.isRest) {
+    push('recovery', 'Active Recovery — Stretch', 'workout', 15, '🧘', 'Rest day evening — light stretching, no heavy sets.');
+  }
+
+  if (isWeekend) push('week_plan', 'Plan Next Week', 'routine', 20, '📋', 'What do you want to achieve? Any big purchases? Check Tech Hub deadlines.');
+
+  // Gaming is fixed; Free Time stretches to soak up whatever is left before
+  // the target bedtime, so the day always lands at ~00:30 instead of drifting.
+  push('gaming', 'Gaming 🎮', 'gaming', 90, '🎮', 'Earned screen time — enjoy it guilt-free.');
+  const fixedTail = 15 + 15; // review + night prep
+  const freeMinutes = clamp(TARGET_BEDTIME - cursor - fixedTail, 30, 240);
+  push('freetime', 'Free Time 🎧', 'personal', freeMinutes, '🎧', 'Wind down however you like.');
+  push('review', 'Daily Review', 'routine', 15, '📝', 'What did you learn today? What to do differently? Write 3 lines.');
+  push('night_prep', 'Night Prep', 'routine', 15, '🌙', 'Set clothes, pack bag, set alarm. Drink milk before bed.');
+
+  const wake = isWeekend ? WEEKEND_WAKE : WEEKDAY_WAKE;
+  const bedMod = cursor % 1440;
+  const sleepMinutes = bedMod < wake ? wake - bedMod : (1440 - bedMod) + wake;
+  push('sleep', 'Sleep', 'sleep', sleepMinutes, '😴', `Phone in another room. ~${(sleepMinutes/60).toFixed(1)}h of sleep — protect it even on a late night.`);
+
+  return blocks;
+}
 
 async function requestNotif() {
   if (!('Notification' in window)) return false;
@@ -99,7 +206,7 @@ function scheduleAll(blocks) {
     const startMs = new Date().setHours(Math.floor(bMins/60), bMins%60, 0, 0);
     const diff = startMs - nowMs;
     const msgs = NOTIF_MSGS[b.type] ? NOTIF_MSGS[b.type](b) : { title:`⏰ ${b.label}`, body: b.note };
-    const important = ['meal','study','coding','sleep','school'].includes(b.type);
+    const important = ['meal','coding','sleep','workout'].includes(b.type);
 
     if (diff > 0 && diff < 86400000) {
       setTimeout(() => fireNotif(msgs.title, msgs.body, important), diff);
@@ -109,25 +216,25 @@ function scheduleAll(blocks) {
       const d = startMs - 25*60*1000 - nowMs;
       if (d > 0) setTimeout(() => fireNotif('🍳 START COOKING NOW', `Start preparing now so ${b.label.replace('Eat ','')} is ready by ${fmt12(b.time)}`, true), d);
     }
-    // Walk warning 12 min before school
-    if (b.type === 'school') {
-      const d = startMs - 12*60*1000 - nowMs;
-      if (d > 0) setTimeout(() => fireNotif('🚶 LEAVE FOR SCHOOL NOW', `Start your 10-min walk to arrive by ${fmt12(b.time)}`, true), d);
-    }
-    // 5 min warning for study/coding
-    if (b.type === 'study' || b.type === 'coding') {
+    // 5 min warning for work blocks
+    if (b.type === 'coding') {
       const d = startMs - 5*60*1000 - nowMs;
       if (d > 0) setTimeout(() => fireNotif(`⚠️ ${b.label} in 5 minutes`, `Put your phone down now. ${b.note}`), d);
+    }
+    // 5 min warning for workouts
+    if (b.type === 'workout') {
+      const d = startMs - 5*60*1000 - nowMs;
+      if (d > 0) setTimeout(() => fireNotif(`🏋️ ${b.label} in 5 minutes`, `Get changed and get water ready. ${b.note}`), d);
     }
     // 30 min wind-down before sleep
     if (b.type === 'sleep') {
       const d = startMs - 30*60*1000 - nowMs;
       if (d > 0) setTimeout(() => fireNotif('🌙 Wind Down in 30 Minutes', 'Start wrapping up everything. Put the phone down.'), d);
     }
-    // Free time notification
-    if (b.type === 'personal' && b.label.includes('Free')) {
+    // Gaming notification
+    if (b.type === 'gaming') {
       if (diff > 0 && diff < 86400000) {
-        setTimeout(() => fireNotif('🎧 FREE TIME UNLOCKED', `You have ${b.duration} minutes of earned free time. Enjoy!`), diff);
+        setTimeout(() => fireNotif('🎮 GAMING TIME UNLOCKED', `You have ${b.duration} minutes. Enjoy!`), diff);
       }
     }
   });
@@ -164,10 +271,9 @@ function EditModal({ block, onSave, onClose }) {
 }
 
 export default function PlannerPage() {
+  const { hackathons, startups, projects, onlineJobs } = useApp();
   const isWeekend = [0,6].includes(new Date().getDay());
-  const [weekdayBlocks, setWeekdayBlocks] = useState(WEEKDAY_BLOCKS);
-  const [weekendBlocks, setWeekendBlocks] = useState(WEEKEND_BLOCKS);
-  const [viewWeekend, setViewWeekend] = useState(isWeekend);
+  const [blocks, setBlocks] = useState([]);
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [notifPerm, setNotifPerm] = useState('default');
   const [completedIds, setCompletedIds] = useState([]);
@@ -175,63 +281,29 @@ export default function PlannerPage() {
   const [tab, setTab] = useState('today');
   const [editBlock, setEditBlock] = useState(null);
 
-  const blocks = viewWeekend ? weekendBlocks : weekdayBlocks;
-
-  useEffect(() => {
-    const iv = setInterval(() => setNow(new Date()), 30000);
-    return () => clearInterval(iv);
-  }, []);
-
+  // Rebuild today's schedule whenever the underlying Tech Hub / Jobs data
+  // changes, then layer any per-day manual edits on top.
   useEffect(() => {
     async function load() {
-      const wd = await getSetting('planner_weekday', null);
-      const we = await getSetting('planner_weekend', null);
-      if (wd) setWeekdayBlocks(wd);
-      if (we) setWeekendBlocks(we);
+      const generated = buildTodayBlocks({ hackathons, startups, projects, onlineJobs }, isWeekend);
+      const overrides = await getSetting(`planner_overrides_${todayISO()}`, {});
+      const merged = generated.map((b) => (overrides[b.id] ? { ...b, ...overrides[b.id] } : b));
+      setBlocks(merged);
+
       const done = await getSetting(`planner_done_${todayISO()}`, []);
       if (done) setCompletedIds(done);
       const ne = await getSetting('planner_notifs', false);
       setNotifEnabled(ne);
       if ('Notification' in window) setNotifPerm(Notification.permission);
-
-      // Backfill: older saved schedules never wrote 'planner_blocks' (a bug
-      // fixed alongside push notifications), so bring it up to date here
-      // even if the user doesn't edit anything this session.
-      await syncTodaysBlocksSetting(wd || WEEKDAY_BLOCKS, we || WEEKEND_BLOCKS);
     }
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hackathons, startups, projects, onlineJobs]);
+
+  useEffect(() => {
+    const iv = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(iv);
   }, []);
-
-  // _app.js's NotificationScheduler and lib/push.js's syncReminderSettings
-  // both read a single 'planner_blocks' setting representing *today's*
-  // schedule — they don't know about the separate weekday/weekend lists.
-  // Keep that key in sync with whichever list actually applies today
-  // (isWeekend = real today, not viewWeekend = whichever tab is open).
-  async function syncTodaysBlocksSetting(weekdayList, weekendList) {
-    const todaysBlocks = isWeekend ? weekendList : weekdayList;
-    await setSetting('planner_blocks', todaysBlocks);
-
-    // Push the update to Supabase too, so the server-side reminder sender
-    // sees new/edited blocks without waiting for the next full app reload.
-    try {
-      const notifsOn = await getSetting('planner_notifs', false);
-      if (notifsOn) {
-        const { syncReminderSettings } = await import('../lib/push');
-        const mealWeekPlan = await getSetting('meal_week_plan', null);
-        await syncReminderSettings({ mealWeekPlan, plannerBlocks: todaysBlocks, plannerNotifs: true });
-      }
-    } catch (e) {
-      console.warn('[fedha] resync after block save failed:', e?.message);
-    }
-  }
-
-  async function saveBlocks(nb, weekend) {
-    const sorted = [...nb].sort((a,b) => t2m(a.time) - t2m(b.time));
-    let newWeekday = weekdayBlocks, newWeekend = weekendBlocks;
-    if (weekend) { setWeekendBlocks(sorted); await setSetting('planner_weekend', sorted); newWeekend = sorted; }
-    else { setWeekdayBlocks(sorted); await setSetting('planner_weekday', sorted); newWeekday = sorted; }
-    await syncTodaysBlocksSetting(newWeekday, newWeekend);
-  }
 
   async function toggleDone(id) {
     const updated = completedIds.includes(id) ? completedIds.filter(x=>x!==id) : [...completedIds, id];
@@ -246,34 +318,38 @@ export default function PlannerPage() {
       setNotifEnabled(true);
       await setSetting('planner_notifs', true);
       scheduleAll(blocks);
-      fireNotif('🟢 Fedha Planner Active', `All reminders are on. You will be notified for every block${isWeekend?' (weekend schedule)':' (weekday schedule)'}.`, false);
-
-      // Subscribe to real push right away so reminders still fire once you
-      // close the app — no need to wait for the next reload.
-      try {
-        const { ensurePushSubscription, syncReminderSettings } = await import('../lib/push');
-        await ensurePushSubscription();
-        const { getSetting } = await import('../lib/db');
-        const mealWeekPlan = await getSetting('meal_week_plan', null);
-        await syncReminderSettings({ mealWeekPlan, plannerBlocks: blocks, plannerNotifs: true });
-      } catch (e) {
-        console.warn('[fedha] push subscription on enable failed:', e?.message);
-      }
+      fireNotif('🟢 Fedha Planner Active', `All reminders are on for today's ${isWeekend ? 'weekend' : 'weekday'} schedule.`, false);
     }
   }
 
   async function handleEditSave(updated) {
-    await saveBlocks(blocks.map(b => b.id===updated.id ? updated : b), viewWeekend);
+    const overrides = await getSetting(`planner_overrides_${todayISO()}`, {});
+    const next = { ...overrides, [updated.id]: updated };
+    await setSetting(`planner_overrides_${todayISO()}`, next);
+    setBlocks((prev) => prev.map((b) => (b.id === updated.id ? { ...b, ...updated } : b)));
     setEditBlock(null);
-    if (notifEnabled) scheduleAll(blocks);
+    if (notifEnabled) scheduleAll(blocks.map((b) => (b.id === updated.id ? updated : b)));
+  }
+
+  async function resetToday() {
+    await setSetting(`planner_overrides_${todayISO()}`, {});
+    setBlocks(buildTodayBlocks({ hackathons, startups, projects, onlineJobs }, isWeekend));
   }
 
   const nowMins = now.getHours()*60+now.getMinutes();
-  const currentBlock = blocks.find(b => nowMins>=t2m(b.time) && nowMins<t2m(b.time)+b.duration);
-  const currentProgress = currentBlock ? ((nowMins-t2m(currentBlock.time))/currentBlock.duration)*100 : 0;
-  const nextBlock = blocks.find(b => t2m(b.time) > nowMins);
+  const wakeMins = blocks.length ? t2m(blocks[0].time) : 0;
+  const sleepBlock = blocks.find((b) => b.type === 'sleep');
+  const currentBlock = (sleepBlock && nowMins < wakeMins)
+    ? sleepBlock
+    : blocks.find(b => nowMins>=t2m(b.time) && nowMins<t2m(b.time)+b.duration);
+  const currentProgress = currentBlock && !(sleepBlock && nowMins < wakeMins && currentBlock.id === sleepBlock.id)
+    ? ((nowMins-t2m(currentBlock.time))/currentBlock.duration)*100
+    : 0;
+  const nextBlock = (sleepBlock && nowMins < wakeMins)
+    ? blocks[0]
+    : (blocks.find(b => t2m(b.time) > nowMins) || sleepBlock);
   const totalNonSleep = blocks.filter(b => b.type!=='sleep').length;
-  const pct = Math.round((completedIds.length/totalNonSleep)*100);
+  const pct = totalNonSleep ? Math.round((completedIds.length/totalNonSleep)*100) : 0;
 
   return (
     <Layout fab={false}>
@@ -283,7 +359,7 @@ export default function PlannerPage() {
             <h1 style={{ fontSize:22, fontWeight:700 }}>Daily Planner</h1>
             <span className="font-num" style={{ fontSize:13, color:'var(--text-3)' }}>{format(now,'h:mm a')}</span>
           </div>
-          <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:16 }}>{format(now,'EEEE, d MMMM yyyy')}</div>
+          <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:16 }}>{format(now,'EEEE, d MMMM yyyy')} · auto-built from Tech Hub, My Jobs &amp; today's workout</div>
 
           {/* Notif banners */}
           {!notifEnabled && notifPerm !== 'denied' && (
@@ -291,7 +367,7 @@ export default function PlannerPage() {
               <span style={{ fontSize:22 }}>🔔</span>
               <div>
                 <div style={{ fontSize:14, fontWeight:600, color:'var(--green)', fontFamily:'Outfit' }}>Turn On All Reminders</div>
-                <div style={{ fontSize:12, color:'var(--text-3)' }}>Meals (with cooking warnings), school walk, study, coding, bae time, free time, sleep</div>
+                <div style={{ fontSize:12, color:'var(--text-3)' }}>Meals, work blocks, workouts, bathing, gaming and sleep</div>
               </div>
             </button>
           )}
@@ -302,19 +378,14 @@ export default function PlannerPage() {
           )}
           {notifEnabled && (
             <div style={{ padding:'10px 14px', background:'var(--green-dim)', border:'1px solid rgba(16,185,129,0.2)', borderRadius:10, fontSize:13, color:'var(--green)', marginBottom:14, display:'flex', alignItems:'center', gap:8 }}>
-              🔔 All reminders active for today's {viewWeekend ? 'weekend' : 'weekday'} schedule
+              🔔 All reminders active for today's {isWeekend ? 'weekend' : 'weekday'} schedule
             </div>
           )}
 
-          {/* Weekday / Weekend toggle */}
-          <div style={{ display:'flex', gap:8, marginBottom:8 }}>
-            <button className={`chip ${!viewWeekend?'active':''}`} onClick={() => setViewWeekend(false)}>📅 Weekday</button>
-            <button className={`chip ${viewWeekend?'active':''}`} onClick={() => setViewWeekend(true)}>🎉 Weekend</button>
-            <button className={`chip ${tab==='edit'?'active':''}`} onClick={() => setTab(t => t==='edit'?'today':'edit')}>⚙️ Edit</button>
-          </div>
           <div style={{ display:'flex', gap:8 }}>
             <button className={`chip ${tab==='today'?'active':''}`} onClick={() => setTab('today')}>Today</button>
             <button className={`chip ${tab==='stats'?'active':''}`} onClick={() => setTab('stats')}>Stats</button>
+            <button className={`chip ${tab==='edit'?'active':''}`} onClick={() => setTab(t => t==='edit'?'today':'edit')}>⚙️ Edit</button>
           </div>
         </div>
 
@@ -332,7 +403,7 @@ export default function PlannerPage() {
                       <div style={{ flex:1 }}>
                         <div style={{ fontSize:16, fontWeight:700, color:TYPE_COLORS[currentBlock.type].text }}>{currentBlock.label}</div>
                         <div style={{ fontSize:12, color:'var(--text-3)', marginTop:2 }}>
-                          Until {fmt12(m2t(t2m(currentBlock.time)+currentBlock.duration))} · {Math.max(0, currentBlock.duration - Math.floor(nowMins-t2m(currentBlock.time)))} min left
+                          {currentBlock.duration<60 ? `${currentBlock.duration} min block` : `${Math.floor(currentBlock.duration/60)}h${currentBlock.duration%60>0?' '+currentBlock.duration%60+'m':''} block`}
                         </div>
                       </div>
                     </div>
@@ -344,14 +415,14 @@ export default function PlannerPage() {
                 </div>
               )}
 
-              {nextBlock && (
+              {nextBlock && nextBlock.id !== currentBlock?.id && (
                 <div style={{ marginBottom:16 }}>
                   <div className="section-title">UP NEXT</div>
                   <div className="card" style={{ padding:'12px 14px', display:'flex', alignItems:'center', gap:12 }}>
                     <span style={{ fontSize:22 }}>{nextBlock.emoji}</span>
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:14, fontWeight:600 }}>{nextBlock.label}</div>
-                      <div style={{ fontSize:12, color:'var(--text-3)' }}>Starts {fmt12(nextBlock.time)} · in {Math.max(0,t2m(nextBlock.time)-nowMins)} min</div>
+                      <div style={{ fontSize:12, color:'var(--text-3)' }}>Starts {fmt12(nextBlock.time)}</div>
                     </div>
                     <div style={{ width:10, height:10, borderRadius:'50%', background:TYPE_COLORS[nextBlock.type].dot, flexShrink:0 }} />
                   </div>
@@ -368,11 +439,11 @@ export default function PlannerPage() {
                 </div>
               </div>
 
-              <div className="section-title">FULL SCHEDULE {viewWeekend ? '(WEEKEND)' : '(WEEKDAY)'}</div>
+              <div className="section-title">FULL SCHEDULE {isWeekend ? '(WEEKEND)' : '(WEEKDAY)'}</div>
               <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:24 }}>
                 {blocks.map(block => {
                   const isNow = nowMins>=t2m(block.time) && nowMins<t2m(block.time)+block.duration;
-                  const isPast = nowMins >= t2m(block.time)+block.duration;
+                  const isPast = nowMins >= t2m(block.time)+block.duration && !(block.type==='sleep');
                   const isDone = completedIds.includes(block.id);
                   const c = TYPE_COLORS[block.type];
                   return (
@@ -405,7 +476,7 @@ export default function PlannerPage() {
                 })}
               </div>
               <div style={{ padding:'10px 14px', background:'var(--card-2)', borderRadius:10, fontSize:12, color:'var(--text-3)', marginBottom:24 }}>
-                💡 Tap any block to mark done. Resets automatically each day.
+                💡 Tap any block to mark done. Work and workout blocks are pulled from Tech Hub, My Jobs and today's workout plan automatically.
               </div>
             </>
           )}
@@ -414,12 +485,14 @@ export default function PlannerPage() {
           {tab === 'stats' && (
             <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:24 }}>
               {[
-                { label:'Study Time', v: blocks.filter(b=>b.type==='study').reduce((s,b)=>s+b.duration,0), color:'#3B82F6', emoji:'📚' },
-                { label:'Coding Time', v: blocks.filter(b=>b.type==='coding').reduce((s,b)=>s+b.duration,0), color:'#10B981', emoji:'💻' },
+                { label:'Work Time', v: blocks.filter(b=>b.type==='coding').reduce((s,b)=>s+b.duration,0), color:'#10B981', emoji:'💻' },
+                { label:'Workout Time', v: blocks.filter(b=>b.type==='workout').reduce((s,b)=>s+b.duration,0), color:'#EF4444', emoji:'🏋️' },
                 { label:'Bae Time', v: blocks.filter(b=>b.type==='personal'&&b.label.toLowerCase().includes('bae')).reduce((s,b)=>s+b.duration,0), color:'#EC4899', emoji:'💕' },
                 { label:'Chores', v: blocks.filter(b=>b.type==='chores').reduce((s,b)=>s+b.duration,0), color:'#EAB308', emoji:'🏠', showIfZero:false },
                 { label:'Meals', v: blocks.filter(b=>b.type==='meal'&&b.label.includes('Eat')).length, color:'#F59E0B', emoji:'🍽️', isCount:true },
+                { label:'Gaming', v: blocks.filter(b=>b.type==='gaming').reduce((s,b)=>s+b.duration,0), color:'#A78BFA', emoji:'🎮' },
                 { label:'Free Time', v: blocks.filter(b=>b.type==='personal'&&b.label.includes('Free')).reduce((s,b)=>s+b.duration,0), color:'#94A3B8', emoji:'🎧' },
+                { label:'Sleep', v: blocks.filter(b=>b.type==='sleep').reduce((s,b)=>s+b.duration,0), color:'#475569', emoji:'😴' },
               ].filter(s => s.showIfZero!==false || s.v>0).map(s => (
                 <div key={s.label} className="card" style={{ padding:'14px 16px', display:'flex', alignItems:'center', gap:14 }}>
                   <div style={{ width:44, height:44, borderRadius:12, background:`${s.color}20`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, flexShrink:0 }}>{s.emoji}</div>
@@ -429,23 +502,21 @@ export default function PlannerPage() {
                   </div>
                 </div>
               ))}
-              <div style={{ background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.2)', borderRadius:12, padding:'14px 16px' }}>
-                <div style={{ fontSize:14, fontWeight:700, color:'var(--red)', marginBottom:8 }}>⚠️ The 6am Scroll Problem</div>
-                <div style={{ fontSize:13, color:'var(--text-2)', lineHeight:1.6 }}>
-                  Your free time is in the evening after everything is done. Every minute on TikTok at 6am is stolen from your sharpest brain hours. Put the phone in another room when you wake up.
+              {blocks.some(b=>b.type==='sleep' && b.duration < 360) && (
+                <div style={{ background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.2)', borderRadius:12, padding:'14px 16px' }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:'var(--red)', marginBottom:8 }}>⚠️ Short Sleep Tonight</div>
+                  <div style={{ fontSize:13, color:'var(--text-2)', lineHeight:1.6 }}>
+                    Today's schedule only leaves under 6 hours before wake-up. Cutting gaming or free time short tonight will protect tomorrow's focus.
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
           {/* EDIT */}
           {tab === 'edit' && (
             <div style={{ marginBottom:24 }}>
-              <div style={{ display:'flex', gap:8, marginBottom:12 }}>
-                <button className={`chip ${!viewWeekend?'active':''}`} onClick={() => setViewWeekend(false)}>Edit Weekday</button>
-                <button className={`chip ${viewWeekend?'active':''}`} onClick={() => setViewWeekend(true)}>Edit Weekend</button>
-              </div>
-              <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:16 }}>Tap any block to adjust time, duration or note.</div>
+              <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:16 }}>Tap any block to adjust time, duration or note. Edits apply to today only — tomorrow rebuilds automatically from Tech Hub, My Jobs and the workout plan.</div>
               {blocks.map(block => {
                 const c = TYPE_COLORS[block.type];
                 return (
@@ -458,8 +529,8 @@ export default function PlannerPage() {
                   </div>
                 );
               })}
-              <button className="btn-ghost" style={{ marginTop:12 }} onClick={() => saveBlocks(viewWeekend ? WEEKEND_BLOCKS : WEEKDAY_BLOCKS, viewWeekend)}>
-                Reset {viewWeekend ? 'Weekend' : 'Weekday'} to Default
+              <button className="btn-ghost" style={{ marginTop:12 }} onClick={resetToday}>
+                Reset Today to Auto-Generated
               </button>
             </div>
           )}
