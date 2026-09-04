@@ -193,14 +193,44 @@ export default function PlannerPage() {
       const ne = await getSetting('planner_notifs', false);
       setNotifEnabled(ne);
       if ('Notification' in window) setNotifPerm(Notification.permission);
+
+      // Backfill: older saved schedules never wrote 'planner_blocks' (a bug
+      // fixed alongside push notifications), so bring it up to date here
+      // even if the user doesn't edit anything this session.
+      await syncTodaysBlocksSetting(wd || WEEKDAY_BLOCKS, we || WEEKEND_BLOCKS);
     }
     load();
   }, []);
 
+  // _app.js's NotificationScheduler and lib/push.js's syncReminderSettings
+  // both read a single 'planner_blocks' setting representing *today's*
+  // schedule — they don't know about the separate weekday/weekend lists.
+  // Keep that key in sync with whichever list actually applies today
+  // (isWeekend = real today, not viewWeekend = whichever tab is open).
+  async function syncTodaysBlocksSetting(weekdayList, weekendList) {
+    const todaysBlocks = isWeekend ? weekendList : weekdayList;
+    await setSetting('planner_blocks', todaysBlocks);
+
+    // Push the update to Supabase too, so the server-side reminder sender
+    // sees new/edited blocks without waiting for the next full app reload.
+    try {
+      const notifsOn = await getSetting('planner_notifs', false);
+      if (notifsOn) {
+        const { syncReminderSettings } = await import('../lib/push');
+        const mealWeekPlan = await getSetting('meal_week_plan', null);
+        await syncReminderSettings({ mealWeekPlan, plannerBlocks: todaysBlocks, plannerNotifs: true });
+      }
+    } catch (e) {
+      console.warn('[fedha] resync after block save failed:', e?.message);
+    }
+  }
+
   async function saveBlocks(nb, weekend) {
     const sorted = [...nb].sort((a,b) => t2m(a.time) - t2m(b.time));
-    if (weekend) { setWeekendBlocks(sorted); await setSetting('planner_weekend', sorted); }
-    else { setWeekdayBlocks(sorted); await setSetting('planner_weekday', sorted); }
+    let newWeekday = weekdayBlocks, newWeekend = weekendBlocks;
+    if (weekend) { setWeekendBlocks(sorted); await setSetting('planner_weekend', sorted); newWeekend = sorted; }
+    else { setWeekdayBlocks(sorted); await setSetting('planner_weekday', sorted); newWeekday = sorted; }
+    await syncTodaysBlocksSetting(newWeekday, newWeekend);
   }
 
   async function toggleDone(id) {
