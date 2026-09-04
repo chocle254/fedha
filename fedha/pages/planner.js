@@ -281,6 +281,26 @@ export default function PlannerPage() {
   const [tab, setTab] = useState('today');
   const [editBlock, setEditBlock] = useState(null);
 
+  // _app.js's NotificationScheduler and lib/push.js's syncReminderSettings
+  // both read a single 'planner_blocks' setting for the server-side push
+  // sender to work from — the planner itself no longer persists a fixed
+  // block list (it's generated fresh each load from Tech Hub/Jobs/workout
+  // plus today's overrides), so that setting has to be kept in sync
+  // explicitly whenever the effective schedule changes.
+  async function syncPlannerBlocksSetting(effectiveBlocks) {
+    await setSetting('planner_blocks', effectiveBlocks);
+    try {
+      const notifsOn = await getSetting('planner_notifs', false);
+      if (notifsOn) {
+        const { syncReminderSettings } = await import('../lib/push');
+        const mealWeekPlan = await getSetting('meal_week_plan', null);
+        await syncReminderSettings({ mealWeekPlan, plannerBlocks: effectiveBlocks, plannerNotifs: true });
+      }
+    } catch (e) {
+      console.warn('[fedha] planner_blocks resync failed:', e?.message);
+    }
+  }
+
   // Rebuild today's schedule whenever the underlying Tech Hub / Jobs data
   // changes, then layer any per-day manual edits on top.
   useEffect(() => {
@@ -289,6 +309,7 @@ export default function PlannerPage() {
       const overrides = await getSetting(`planner_overrides_${todayISO()}`, {});
       const merged = generated.map((b) => (overrides[b.id] ? { ...b, ...overrides[b.id] } : b));
       setBlocks(merged);
+      await syncPlannerBlocksSetting(merged);
 
       const done = await getSetting(`planner_done_${todayISO()}`, []);
       if (done) setCompletedIds(done);
@@ -319,6 +340,17 @@ export default function PlannerPage() {
       await setSetting('planner_notifs', true);
       scheduleAll(blocks);
       fireNotif('🟢 Fedha Planner Active', `All reminders are on for today's ${isWeekend ? 'weekend' : 'weekday'} schedule.`, false);
+
+      // Subscribe to real push right away so reminders still fire once you
+      // close the app — no need to wait for the next reload.
+      try {
+        const { ensurePushSubscription, syncReminderSettings } = await import('../lib/push');
+        await ensurePushSubscription();
+        const mealWeekPlan = await getSetting('meal_week_plan', null);
+        await syncReminderSettings({ mealWeekPlan, plannerBlocks: blocks, plannerNotifs: true });
+      } catch (e) {
+        console.warn('[fedha] push subscription on enable failed:', e?.message);
+      }
     }
   }
 
@@ -326,14 +358,18 @@ export default function PlannerPage() {
     const overrides = await getSetting(`planner_overrides_${todayISO()}`, {});
     const next = { ...overrides, [updated.id]: updated };
     await setSetting(`planner_overrides_${todayISO()}`, next);
-    setBlocks((prev) => prev.map((b) => (b.id === updated.id ? { ...b, ...updated } : b)));
+    const nextBlocks = blocks.map((b) => (b.id === updated.id ? { ...b, ...updated } : b));
+    setBlocks(nextBlocks);
     setEditBlock(null);
-    if (notifEnabled) scheduleAll(blocks.map((b) => (b.id === updated.id ? updated : b)));
+    await syncPlannerBlocksSetting(nextBlocks);
+    if (notifEnabled) scheduleAll(nextBlocks);
   }
 
   async function resetToday() {
     await setSetting(`planner_overrides_${todayISO()}`, {});
-    setBlocks(buildTodayBlocks({ hackathons, startups, projects, onlineJobs }, isWeekend));
+    const fresh = buildTodayBlocks({ hackathons, startups, projects, onlineJobs }, isWeekend);
+    setBlocks(fresh);
+    await syncPlannerBlocksSetting(fresh);
   }
 
   const nowMins = now.getHours()*60+now.getMinutes();
