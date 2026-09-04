@@ -1,6 +1,26 @@
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
 import { AppProvider } from '../context/AppContext';
+import { isSupabaseEnabled, getSession, onAuthChange } from '../lib/supabase';
 import '../styles/globals.css';
+
+function Splash() {
+  return <div aria-hidden="true" style={{ background: 'var(--bg)', minHeight: '100vh' }} />;
+}
+
+function ConfigErrorScreen() {
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: 24, textAlign: 'center' }}>
+      <div>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Supabase isn't configured</div>
+        <div style={{ fontSize: 13, color: 'var(--text-3)', maxWidth: 320 }}>
+          Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your deployment's environment variables, then redeploy.
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function NotificationScheduler() {
   useEffect(() => {
@@ -88,24 +108,45 @@ function NotificationScheduler() {
 }
 
 export default function App({ Component, pageProps }) {
-  // This app stores all data in IndexedDB, which only exists in the browser.
   // Defer rendering the page until the client has mounted so the server HTML
   // and the first client paint match exactly (prevents hydration mismatches
   // caused by date/time and client-only data rendered during initial render).
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
+  const [session, setSession] = useState(undefined); // undefined = still checking
+  const isLoginPage = router.pathname === '/login';
+
   useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!isSupabaseEnabled()) { setSession(null); return; }
+    let unsub = () => {};
+    getSession().then(setSession);
+    unsub = onAuthChange(setSession);
+    return () => unsub();
+  }, []);
+
+  // Redirect based on auth state once we actually know it.
+  useEffect(() => {
+    if (!mounted || session === undefined) return;
+    if (!session && !isLoginPage) router.replace('/login');
+    else if (session && isLoginPage) router.replace('/');
+  }, [mounted, session, isLoginPage, router]);
+
+  if (!isSupabaseEnabled()) return <ConfigErrorScreen />;
+  if (!mounted || session === undefined) return <Splash />;
+
+  // Unauthenticated: only the login page itself is allowed to render.
+  if (!session) return isLoginPage ? <Component {...pageProps} /> : <Splash />;
+
+  // Authenticated but sitting on /login (about to redirect) — show splash
+  // instead of flashing the login form.
+  if (isLoginPage) return <Splash />;
 
   return (
     <AppProvider>
       <NotificationScheduler />
-      {mounted ? (
-        <Component {...pageProps} />
-      ) : (
-        <div
-          aria-hidden="true"
-          style={{ background: 'var(--bg)', minHeight: '100vh' }}
-        />
-      )}
+      <Component {...pageProps} />
     </AppProvider>
   );
 }
