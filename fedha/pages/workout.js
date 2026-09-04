@@ -9,7 +9,7 @@ import { format } from 'date-fns';
 const PoseCamera = dynamic(() => import('../components/PoseCamera'), { ssr: false });
 
 // ─── EXERCISE LIBRARY ────────────────────────────────────────────────────────
-const EXERCISES = {
+export const EXERCISES = {
   pushups:          { id:'pushups',          name:'Pushups',          emoji:'💪', muscle:'Chest · Triceps · Shoulders',   color:'#3B82F6', cameraHint:'Prop phone at floor level on your side. Full body visible.' },
   diamond_pushups:  { id:'diamond_pushups',  name:'Diamond Pushups',  emoji:'💎', muscle:'Inner Chest · Triceps',          color:'#8B5CF6', cameraHint:'Hands together under chest. Phone at floor level on side.' },
   wide_pushups:     { id:'wide_pushups',     name:'Wide Pushups',     emoji:'🤸', muscle:'Outer Chest · Shoulders',        color:'#06B6D4', cameraHint:'Hands wider than shoulders. Phone on your side at floor level.' },
@@ -26,7 +26,7 @@ const EXERCISES = {
 // Each day: morning (strength) + evening (pump/tone)
 // Reps are science-based for beginners building muscle: 3 sets, moderate reps
 
-const WEEKLY_PLAN = [
+export const WEEKLY_PLAN = [
   // Monday — CHEST DAY
   {
     day: 'Monday', focus: 'Chest Day 💪', theme: '#3B82F6',
@@ -172,6 +172,25 @@ const WEEKLY_PLAN = [
     },
   },
 ];
+
+// Monday-first index into WEEKLY_PLAN for a given date (Sunday wraps to the end).
+export function weekdayPlanIndex(date = new Date()) {
+  return date.getDay() === 0 ? 6 : date.getDay() - 1;
+}
+
+// Rough minutes needed to complete a list of {sets, reps} exercises — used by
+// the Planner to size a workout block. ~75 sec per set (work + rest) + a
+// 10 min warm-up/cool-down buffer.
+export function estimateWorkoutMinutes(exercises = []) {
+  if (!exercises.length) return 0;
+  const totalSets = exercises.reduce((s, e) => s + (e.sets || 0), 0);
+  return Math.max(15, Math.round(totalSets * 1.25) + 10);
+}
+
+// Human-readable "Squats 4×20, Lunges 3×12" summary for a Planner note.
+export function exerciseSummary(exercises = []) {
+  return exercises.map((e) => `${e.name} ${e.sets}×${e.reps}`).join(', ');
+}
 
 // ─── EXERCISE CARD ────────────────────────────────────────────────────────────
 function ExerciseCard({ ex, sessionKey, completedSets, onStartSet }) {
