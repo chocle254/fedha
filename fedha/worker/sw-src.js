@@ -10,13 +10,15 @@ import { NetworkFirst } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 
 self.skipWaiting();
-clientsClaim();
 
-function clientsClaim() {
-  // workbox-core exports clientsClaim, but importing the whole package just
-  // for this one call isn't necessary — the native API does the same thing.
-  self.clients.claim();
-}
+// clients.claim() is only valid once this worker has finished activating —
+// calling it eagerly at script-evaluation time (before 'activate' fires)
+// throws "InvalidStateError: Only the active worker can claim clients."
+// which crashed the whole service worker on load, breaking push
+// subscription persistence along with everything else.
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
 
 // ─── PRECACHING (unchanged behavior from the old generated sw.js) ──────────
 precacheAndRoute(self.__WB_MANIFEST);
