@@ -11,11 +11,11 @@ import { getSetting, setSetting } from '../lib/db';
 // ─── HACKATHON STATUS ─────────────────────────────────────────────────────────
 // Backward-compatible with older records that only have the `submitted` boolean:
 // if `status` was never set, derive it from `submitted` instead of migrating data.
-function hackStatus(h) {
+export function hackStatus(h) {
   return h.status || (h.submitted ? 'submitted' : 'active');
 }
 // "Almost hitting deadline but haven't submitted" — the higher-priority bucket.
-function isUrgent(h) {
+export function isUrgent(h) {
   if (hackStatus(h) !== 'active' || !h.deadline) return false;
   const c = countdownTo(h.deadline);
   return !!c && !c.past && c.total < URGENT_MS;
@@ -534,13 +534,35 @@ function CertificatesRoom({ hackathons }) {
 }
 
 // ─── PROJECT SHOWROOM ──────────────────────────────────────────────────────────
-const EMPTY_PROJECT = { name: '', description: '', site_url: '', repo_url: '', image: '' };
+const EMPTY_PROJECT = { name: '', description: '', site_url: '', repo_url: '', image: '', status: 'in_progress', progress: 0, notes: [] };
+const PROJECT_STATUSES = [
+  { id: 'planning',    label: '🧭 Planning' },
+  { id: 'in_progress', label: '🛠 In Progress' },
+  { id: 'paused',      label: '⏸ Paused' },
+  { id: 'done',        label: '✅ Done' },
+];
+// Existing showroom items saved before progress-tracking existed have no
+// status — treat them as finished/showcased pieces instead of surfacing them
+// as "active work" in the Planner.
+export function projectStatus(p) { return p.status || (p.id ? 'done' : 'in_progress'); }
+export function projectProgress(p) { return p.progress != null ? p.progress : (projectStatus(p) === 'done' ? 100 : 0); }
 
 function ProjectModal({ initial, onClose, onSave }) {
-  const [form, setForm] = useState({ ...EMPTY_PROJECT, ...initial });
+  const [form, setForm] = useState({ ...EMPTY_PROJECT, ...initial, notes: initial?.notes ? [...initial.notes] : [] });
   const [imgBusy, setImgBusy] = useState(false);
+  const [newNote, setNewNote] = useState('');
   const fileRef = useRef(null);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  function addNote() {
+    const text = newNote.trim();
+    if (!text) return;
+    setForm((f) => ({ ...f, notes: [{ id: genId(), date: new Date().toISOString(), text }, ...(f.notes || [])] }));
+    setNewNote('');
+  }
+  function deleteNote(id) {
+    setForm((f) => ({ ...f, notes: (f.notes || []).filter((n) => n.id !== id) }));
+  }
 
   async function handleImage(e) {
     const file = e.target.files?.[0];
@@ -597,6 +619,54 @@ function ProjectModal({ initial, onClose, onSave }) {
             )}
           </div>
 
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Status</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {PROJECT_STATUSES.map((s) => (
+                <button key={s.id} type="button" onClick={() => setForm((f) => ({ ...f, status: s.id, progress: s.id === 'done' ? 100 : f.progress }))}
+                  style={{
+                    flex: '1 1 45%', padding: '9px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit',
+                    background: form.status === s.id ? 'var(--green-dim)' : 'var(--card-2)',
+                    border: `1px solid ${form.status === s.id ? 'var(--green)' : 'var(--border)'}`,
+                    color: form.status === s.id ? 'var(--green)' : 'var(--text-2)',
+                  }}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            <div style={{ marginTop: 12, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase' }}>Progress</span>
+              <span className="font-num" style={{ fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>{form.progress || 0}%</span>
+            </div>
+            <input type="range" min="0" max="100" step="5" value={form.progress || 0}
+              onChange={(e) => setForm((f) => ({ ...f, progress: Number(e.target.value) }))}
+              style={{ width: '100%' }} />
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Log Progress / Notes</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <input className="input" placeholder="What did you do today?" value={newNote} onChange={(e) => setNewNote(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addNote()} style={{ flex: 1 }} />
+              <button className="btn-icon" onClick={addNote} disabled={!newNote.trim()} style={{ background: 'var(--green)', color: '#000', borderRadius: 10, width: 42 }}>+</button>
+            </div>
+            {(form.notes || []).length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No notes yet — log what you build as you go.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 180, overflowY: 'auto' }}>
+                {form.notes.map((n) => (
+                  <div key={n.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 2 }}>{formatDate(n.date)}</div>
+                      <div style={{ fontSize: 13, color: 'var(--text)' }}>{n.text}</div>
+                    </div>
+                    <button onClick={() => deleteNote(n.id)} style={{ background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 12 }}>🗑️</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <button className="btn-primary" disabled={!form.name.trim()} onClick={() => onSave(form)}>
             {initial?.id ? 'Save Changes' : 'Add to Showroom'}
           </button>
@@ -607,6 +677,10 @@ function ProjectModal({ initial, onClose, onSave }) {
 }
 
 function ShowroomCard({ project, onEdit, onDelete }) {
+  const status = projectStatus(project);
+  const progress = projectProgress(project);
+  const statusMeta = PROJECT_STATUSES.find((s) => s.id === status);
+  const lastNote = (project.notes || [])[0];
   return (
     <div className="showroom-card">
       <div className="showroom-thumb" onClick={onEdit}>
@@ -621,6 +695,18 @@ function ShowroomCard({ project, onEdit, onDelete }) {
           <button onClick={onDelete} style={{ background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 13, flexShrink: 0 }} aria-label="Delete">🗑️</button>
         </div>
         {project.description && <div className="showroom-desc">{project.description}</div>}
+        {status !== 'done' && (
+          <div style={{ margin: '6px 0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>{statusMeta?.label}</span>
+              <span className="font-num" style={{ fontSize: 11, color: 'var(--green)', fontWeight: 700 }}>{progress}%</span>
+            </div>
+            <div className="progress-bar" style={{ height: 5 }}>
+              <div className="progress-fill" style={{ width: `${progress}%`, background: 'var(--green)' }} />
+            </div>
+          </div>
+        )}
+        {lastNote && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4, fontStyle: 'italic' }}>📝 {lastNote.text}</div>}
         {(project.site_url || project.repo_url) && (
           <div className="showroom-links">
             {project.site_url && (
