@@ -14,7 +14,7 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'fedha-offline-cache';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const PENDING_STORE = '_pending_ops';
 const META_STORE = '_meta';
 
@@ -22,7 +22,7 @@ const META_STORE = '_meta';
 export const TABLES = [
   'settings', 'wallets', 'transactions', 'budgets', 'loans', 'goals',
   'income_plans', 'food_logs', 'challenges', 'hackathons', 'startups',
-  'projects', 'online_jobs', 'certificates',
+  'projects', 'online_jobs', 'certificates', 'tech_events',
 ];
 
 let dbPromise = null;
