@@ -26,7 +26,7 @@ function NotificationScheduler() {
   useEffect(() => {
     async function setup() {
       if (typeof window === 'undefined') return;
-      const { notifGranted, scheduleMealReminders, schedulePlannerReminders, checkMissedBlocks, cancelAll } = await import('../lib/notifications');
+      const { notifGranted, scheduleMealReminders, schedulePlannerReminders, cancelAll } = await import('../lib/notifications');
       if (!notifGranted()) return;
 
       const { getSetting } = await import('../lib/db');
@@ -48,10 +48,6 @@ function NotificationScheduler() {
       const notifEnabled = await getSetting('planner_notifs', false);
       if (blocks && notifEnabled) {
         schedulePlannerReminders(blocks);
-
-        // Check for missed blocks
-        const completed = await getSetting(`planner_done_${todayISO()}`, []);
-        await checkMissedBlocks(blocks, completed);
       }
 
       // ── Real push: works even when the app is fully closed ──────────────
@@ -93,6 +89,50 @@ function NotificationScheduler() {
         }
       }
       if (newlyAlerted.length !== alerted.length) await getSetting && setSettingSafe(alertedKey, newlyAlerted);
+
+      // Income plans and loans: alert when their due date is close, same
+      // urgency window and same "once per item per day" dedup as hackathons.
+      const { getIncomePlans, getLoans } = await import('../lib/db');
+      const { formatShort } = await import('../lib/utils');
+      const plans = await getIncomePlans();
+      const planAlertedKey = `income_alerted_${todayISO()}`;
+      const planAlerted = await getSetting(planAlertedKey, []);
+      const newlyPlanAlerted = [...planAlerted];
+      for (const p of plans || []) {
+        if (!p.expected_date || p.is_received) continue;
+        const c = countdownTo(p.expected_date);
+        if (c && !c.past && c.total < URGENT_MS && !planAlerted.includes(p.id)) {
+          await showNotif({
+            title: `💰 ${p.name} expected soon`,
+            body: `${c.days > 0 ? `${c.days}d ${c.hours}h` : `${c.hours}h ${c.minutes}m`} left — mark it received once it lands.`,
+            tag: `income_${p.id}`,
+            vibrate: VIBRATE.urgent,
+            requireInteraction: true,
+          });
+          newlyPlanAlerted.push(p.id);
+        }
+      }
+      if (newlyPlanAlerted.length !== planAlerted.length) await setSettingSafe(planAlertedKey, newlyPlanAlerted);
+
+      const loans = await getLoans();
+      const loanAlertedKey = `loan_alerted_${todayISO()}`;
+      const loanAlerted = await getSetting(loanAlertedKey, []);
+      const newlyLoanAlerted = [...loanAlerted];
+      for (const l of loans || []) {
+        if (!l.due_date || l.status !== 'active') continue;
+        const c = countdownTo(l.due_date);
+        if (c && !c.past && c.total < URGENT_MS && !loanAlerted.includes(l.id)) {
+          await showNotif({
+            title: l.type === 'borrowed' ? `⏰ Loan due soon — ${l.contact_name}` : `⏰ Ask ${l.contact_name} to pay you back`,
+            body: `${c.days > 0 ? `${c.days}d ${c.hours}h` : `${c.hours}h ${c.minutes}m`} left on ${formatShort(Number(l.remaining ?? l.amount))}.`,
+            tag: `loan_${l.id}`,
+            vibrate: VIBRATE.urgent,
+            requireInteraction: true,
+          });
+          newlyLoanAlerted.push(l.id);
+        }
+      }
+      if (newlyLoanAlerted.length !== loanAlerted.length) await setSettingSafe(loanAlertedKey, newlyLoanAlerted);
     }
 
     async function setSettingSafe(key, value) {
