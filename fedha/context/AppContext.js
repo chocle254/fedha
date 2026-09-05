@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { genId, todayISO, setRates } from '../lib/utils';
 import { fetchRates } from '../lib/exchange';
+import { startSyncEngine, onSyncStatusChange, getPendingCount } from '../lib/sync-engine';
 import {
   getWallets, saveWallet, deleteWallet,
   getTransactions, saveTransaction, deleteTransaction,
@@ -36,6 +37,7 @@ export function AppProvider({ children }) {
   const [currency, setCurrencyState] = useState('KES');
   const [isOnline, setIsOnline] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [fxVersion, setFxVersion] = useState(0); // bump to re-render converted amounts
   const [savingsPlanDays, setSavingsPlanDaysState] = useState(null); // chosen timeframe for the goals savings plan
 
@@ -63,12 +65,38 @@ export function AppProvider({ children }) {
 
   useEffect(() => {
     loadAll();
+    startSyncEngine();
+
     const onOnline = () => setIsOnline(true);
     const onOffline = () => setIsOnline(false);
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
     setIsOnline(navigator.onLine);
-    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
+
+    // The background refresh inside lib/db.js's getX() functions updates
+    // the local cache silently; this event tells us when that happened so
+    // we can re-run loadAll() to pick up server-side changes (e.g. another
+    // device's edits) without the user having to reload the page.
+    let refreshTimer = null;
+    const onDbChanged = () => {
+      // Debounce: a single write can touch several tables (transactions +
+      // wallets + budgets) in quick succession, each firing its own event —
+      // collapse those into one loadAll() instead of three.
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(loadAll, 300);
+    };
+    window.addEventListener('fedha:db-changed', onDbChanged);
+
+    const unsubSync = onSyncStatusChange(async () => setPendingSyncCount(await getPendingCount()));
+    getPendingCount().then(setPendingSyncCount);
+
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('fedha:db-changed', onDbChanged);
+      clearTimeout(refreshTimer);
+      unsubSync();
+    };
   }, [loadAll]);
 
   // ─── WALLETS ───────────────────────────────────────────────────────────────
@@ -155,7 +183,7 @@ export function AppProvider({ children }) {
 
   return (
     <AppContext.Provider value={{
-      loading, isOnline, currency, setCurrency, fxVersion,
+      loading, isOnline, pendingSyncCount, currency, setCurrency, fxVersion,
       savingsPlanDays, setSavingsPlanDays,
       wallets, addWallet, updateWallet, removeWallet,
       transactions, addTransaction, removeTransaction,
