@@ -548,3 +548,38 @@ select.input option { background: var(--card-2); }
   font-size: 11px; font-weight: 700;
   text-decoration: none;
 }
+.cert-rank-badge {
+  position: absolute;
+  top: 6px; left: 6px;
+  z-index: 3;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+.generated-cert {
+  position: relative;
+  z-index: 1;
+  border-radius: 8px;
+  background: linear-gradient(160deg, #0E1525 0%, #080C18 100%);
+  border: 1px solid rgba(245, 197, 107, 0.25);
+  text-align: center;
+}
+.generated-cert-header {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  color: var(--gold, #F5C56B);
+}
+.generated-cert-name {
+  font-family: 'Outfit', cursive;
+  font-weight: 700;
+  color: var(--text);
+  margin-top: 6px;
+}
+.generated-cert-seal {
+  margin: 10px auto 0;
+  border-radius: 50%;
+  background: rgba(245, 197, 107, 0.15);
+  border: 1px solid rgba(245, 197, 107, 0.4);
+  display: flex; align-items: center; justify-content: center;
+}
