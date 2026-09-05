@@ -488,7 +488,13 @@ export function getBalanceChart(transactions, currentBalance, days = 7) {
     }, 0);
     
     const balance = currentBalance - totalNetAfterDay;
-    result.push({ label: format(d, 'EEE'), date: key, balance });
+    // The chart is meant to show "money you have," not debt — a negative
+    // balance (more spent/borrowed than currently in wallets) is clamped to
+    // 0 for display rather than dipping below the axis. Paying down a
+    // negative balance keeps the line flat at 0 until the real balance
+    // actually crosses back above zero, at which point it starts climbing
+    // from 0 — never from a misleading negative starting point.
+    result.push({ label: format(d, 'EEE'), date: key, balance: Math.max(0, balance), rawBalance: balance });
   }
   return result;
 }
