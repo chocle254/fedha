@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
-import { genId, countdownTo, formatCountdown, formatDate, resizeImage, toNairobi, TZ_ABBREVIATIONS, URGENT_MS } from '../lib/utils';
+import { genId, countdownTo, formatCountdown, formatDate, resizeImage, toNairobi, TZ_ABBREVIATIONS, URGENT_MS, todayISO } from '../lib/utils';
 import { fetchRepos, sortRepos, REPO_SORTS } from '../lib/github';
 import { getSetting, setSetting } from '../lib/db';
 
@@ -243,9 +242,9 @@ function HackathonModal({ initial, onClose, onSave }) {
   );
 }
 
-function Field({ label, children }) {
+function Field({ label, children, style }) {
   return (
-    <div>
+    <div style={style}>
       <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>{label}</label>
       {children}
     </div>
@@ -462,72 +461,385 @@ function AwaitingRow({ hack, onOpen }) {
 }
 
 // ─── CERTIFICATES ROOM ─────────────────────────────────────────────────────────
-// A small museum: each certificate framed and spot-lit, with a pointer-tracked
-// tilt on hover (desktop) and a scroll-triggered reveal that works everywhere.
-function CertificateFrame({ hack, index }) {
-  const ref = useRef(null);
-  const [rot, setRot] = useState({ x: 0, y: 0 });
-  const [hovered, setHovered] = useState(false);
+const ACHIEVEMENTS = ['1st Place', '2nd Place', '3rd Place', 'Finalist', 'Winner', 'Participant', 'Completion', 'Award'];
+const CERT_CATEGORIES = ['Hackathon', 'Gaming Tournament', 'Course', 'Competition', 'Award', 'Other'];
+const RANK_STYLE = {
+  '1st Place': { ribbon: '🥇', color: '#F5C56B', label: '1st Place' },
+  '2nd Place': { ribbon: '🥈', color: '#C7CDD8', label: '2nd Place' },
+  '3rd Place': { ribbon: '🥉', color: '#CD8B5C', label: '3rd Place' },
+  'Winner':    { ribbon: '🏆', color: '#F5C56B', label: 'Winner' },
+};
+function rankMeta(achievement) { return RANK_STYLE[achievement] || { ribbon: '🎖️', color: 'var(--text-3)', label: achievement || 'Achievement' }; }
 
-  function handleMove(e) {
-    const el = ref.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width - 0.5;
-    const py = (e.clientY - r.top) / r.height - 0.5;
-    setRot({ x: py * -8, y: px * 8 });
-  }
-  function handleLeave() { setRot({ x: 0, y: 0 }); setHovered(false); }
+// Normalizes the two sources of certificates into one shape: hackathons with
+// an uploaded certificate_image, plus standalone Certificate records added
+// directly from this tab.
+function unifyCertificates(hackathons, certificates) {
+  const fromHacks = hackathons.filter((h) => h.certificate_image).map((h) => ({
+    id: `hack_${h.id}`,
+    hack_id: h.id,
+    title: h.name,
+    organization: h.organizer || 'Hackathon',
+    achievement: h.results_place || 'Winner',
+    category: 'Hackathon',
+    date_earned: h.results_date || h.deadline || h.created_at,
+    description: h.project_name ? `Awarded for ${h.name}, presenting "${h.project_name}".` : `Awarded for participation in ${h.name}.`,
+    image: h.certificate_image,
+    recipient_name: 'Chocle254',
+  }));
+  const standalone = (certificates || []).map((c) => ({ ...c, hack_id: null }));
+  return [...standalone, ...fromHacks].sort((a, b) => new Date(b.date_earned || 0) - new Date(a.date_earned || 0));
+}
 
-  const when = hack.results_date ? formatDate(hack.results_date) : (hack.deadline ? formatDate(hack.deadline) : '');
-
+function CertStatChip({ icon, value, label }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 36 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, amount: 0.35 }}
-      transition={{ duration: 0.55, delay: Math.min(index, 8) * 0.08, ease: [0.22, 1, 0.36, 1] }}
-      className="cert-slot"
-    >
-      <motion.div
-        ref={ref}
-        className="cert-frame"
-        onMouseMove={handleMove}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={handleLeave}
-        whileTap={{ scale: 0.97 }}
-        animate={{ rotateX: rot.x, rotateY: rot.y, scale: hovered ? 1.03 : 1 }}
-        transition={{ type: 'spring', stiffness: 220, damping: 18 }}
-        style={{ transformStyle: 'preserve-3d' }}
-      >
-        <div className="cert-glow" />
-        <div className="cert-shine" />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={hack.certificate_image} alt={`${hack.name} certificate`} />
-      </motion.div>
-      <div className="cert-plaque">
-        <div className="cert-plaque-name">{hack.name}</div>
-        {(hack.organizer || when) && <div className="cert-plaque-meta">{[hack.organizer, when].filter(Boolean).join(' · ')}</div>}
-      </div>
-    </motion.div>
+    <div className="card-2" style={{ flex: 1, minWidth: 0, padding: '10px 8px', textAlign: 'center' }}>
+      <div style={{ fontSize: 18, marginBottom: 2 }}>{icon}</div>
+      <div className="font-num" style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{value}</div>
+      <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 1 }}>{label}</div>
+    </div>
   );
 }
 
-function CertificatesRoom({ hackathons }) {
-  const withCerts = hackathons.filter((h) => h.certificate_image);
-  if (withCerts.length === 0) {
-    return (
-      <div className="empty-state">
-        <div className="icon">🖼️</div>
-        <h3>The gallery is empty</h3>
-        <p>Mark a hackathon as completed and add its certificate — it&apos;ll be framed here.</p>
-      </div>
-    );
-  }
+function CertCard({ cert, onOpen }) {
+  const meta = rankMeta(cert.achievement);
+  const year = cert.date_earned ? new Date(cert.date_earned).getFullYear() : '';
   return (
-    <div className="cert-gallery">
-      <div className="cert-gallery-grid">
-        {withCerts.map((h, i) => <CertificateFrame key={h.id} hack={h} index={i} />)}
+    <div className="cert-slot" onClick={() => onOpen(cert)} style={{ cursor: 'pointer' }}>
+      <div className="cert-frame" style={{ padding: 8 }}>
+        <div className="cert-glow" />
+        <div className="cert-rank-badge" style={{ background: meta.color }}>{meta.ribbon}</div>
+        {cert.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={cert.image} alt={cert.title} />
+        ) : (
+          <GeneratedCertArt cert={cert} compact />
+        )}
+      </div>
+      <div className="cert-plaque">
+        <div className="cert-plaque-name">{cert.title}</div>
+        <div className="cert-plaque-meta">{[meta.label, year].filter(Boolean).join(' · ')}</div>
+      </div>
+    </div>
+  );
+}
+
+// Rendered when a certificate has no uploaded image — a Fedha-branded
+// certificate visual generated from the fields you entered.
+function GeneratedCertArt({ cert, compact }) {
+  const meta = rankMeta(cert.achievement);
+  return (
+    <div className="generated-cert" style={{ padding: compact ? 14 : 22 }}>
+      <div className="generated-cert-header">
+        <span style={{ fontSize: compact ? 16 : 22 }}>⚡</span>
+        <span style={{ fontSize: compact ? 11 : 14, fontWeight: 800, letterSpacing: 1.5 }}>FEDHA {compact ? '' : 'TECH HUB'}</span>
+      </div>
+      <div style={{ fontSize: compact ? 8 : 11, color: 'var(--text-3)', letterSpacing: 2, marginTop: compact ? 6 : 10, textTransform: 'uppercase' }}>Certificate of Achievement</div>
+      <div style={{ fontSize: compact ? 7 : 10, color: 'var(--text-3)', marginTop: compact ? 4 : 8 }}>Proudly presented to</div>
+      <div className="generated-cert-name" style={{ fontSize: compact ? 15 : 26 }}>{cert.recipient_name || 'Chocle254'}</div>
+      <div style={{ fontSize: compact ? 7 : 11, color: 'var(--text-2)', marginTop: compact ? 4 : 10, padding: compact ? '0 4px' : '0 20px', lineHeight: 1.5 }}>
+        {compact ? cert.title : (cert.description || `For outstanding performance in ${cert.title}.`)}
+      </div>
+      <div className="generated-cert-seal" style={{ width: compact ? 22 : 40, height: compact ? 22 : 40, fontSize: compact ? 11 : 18 }}>{meta.ribbon}</div>
+    </div>
+  );
+}
+
+function CertFilterSheet({ filters, onChange, onClose, onClear }) {
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-sheet">
+        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+        <div className="modal-header">
+          <span style={{ fontSize: 16, fontWeight: 700 }}>Filter Certificates</span>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <Field label="Achievement">
+            <select className="input" value={filters.achievement} onChange={(e) => onChange({ ...filters, achievement: e.target.value })}>
+              <option value="">All Achievements</option>
+              {ACHIEVEMENTS.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </Field>
+          <Field label="Category">
+            <select className="input" value={filters.category} onChange={(e) => onChange({ ...filters, category: e.target.value })}>
+              <option value="">All Categories</option>
+              {CERT_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </Field>
+          <Field label="Date Earned">
+            <select className="input" value={filters.sort} onChange={(e) => onChange({ ...filters, sort: e.target.value })}>
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+            </select>
+          </Field>
+          <button className="btn-primary" onClick={onClose}>Apply Filters</button>
+          <button className="btn-ghost" style={{ marginTop: 8 }} onClick={onClear}>Clear All</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CertificatesRoom({ hackathons, certificates, onAdd, onOpen }) {
+  const [search, setSearch] = useState('');
+  const [showFilter, setShowFilter] = useState(false);
+  const [filters, setFilters] = useState({ achievement: '', category: '', sort: 'newest' });
+
+  const all = unifyCertificates(hackathons, certificates);
+  const total = all.length;
+  const firstPlace = all.filter((c) => c.achievement === '1st Place').length;
+  const top3 = all.filter((c) => ['1st Place', '2nd Place', '3rd Place'].includes(c.achievement)).length;
+  const mostRecentYear = all.length ? new Date(all[0].date_earned || Date.now()).getFullYear() : '—';
+
+  let shown = all.filter((c) => {
+    if (search && !`${c.title} ${c.organization}`.toLowerCase().includes(search.toLowerCase())) return false;
+    if (filters.achievement && c.achievement !== filters.achievement) return false;
+    if (filters.category && c.category !== filters.category) return false;
+    return true;
+  });
+  shown = shown.sort((a, b) => (filters.sort === 'oldest' ? 1 : -1) * (new Date(b.date_earned || 0) - new Date(a.date_earned || 0)));
+
+  const activeFilterCount = (filters.achievement ? 1 : 0) + (filters.category ? 1 : 0);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div className="section-title" style={{ marginBottom: 0 }}>My Certificates</div>
+        <button onClick={onAdd} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>+ Add</button>
+      </div>
+
+      {total > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <CertStatChip icon="🎖️" value={total} label="Total Certs" />
+          <CertStatChip icon="🥇" value={firstPlace} label="1st Place" />
+          <CertStatChip icon="🏅" value={top3} label="Top 3 Finishes" />
+          <CertStatChip icon="📅" value={mostRecentYear} label="Most Recent" />
+        </div>
+      )}
+
+      {total > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <input className="input" placeholder="Search certificates…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: 1 }} />
+          <button onClick={() => setShowFilter(true)} style={{ position: 'relative', padding: '0 16px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 12, color: 'var(--text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit' }}>
+            ⚙ Filter
+            {activeFilterCount > 0 && <span style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: '50%', background: 'var(--green)', color: '#000', fontSize: 9, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{activeFilterCount}</span>}
+          </button>
+        </div>
+      )}
+
+      {total === 0 ? (
+        <div className="empty-state">
+          <div className="icon">🖼️</div>
+          <h3>The gallery is empty</h3>
+          <p>Add a certificate from a hackathon, tournament, course or competition — it&apos;ll be framed here.</p>
+        </div>
+      ) : shown.length === 0 ? (
+        <div className="empty-state"><div className="icon">🔍</div><h3>No matches</h3><p>Try a different search or clear your filters.</p></div>
+      ) : (
+        <div className="cert-gallery">
+          <div className="cert-gallery-grid">
+            {shown.map((c) => <CertCard key={c.id} cert={c} onOpen={onOpen} />)}
+          </div>
+        </div>
+      )}
+
+      {showFilter && (
+        <CertFilterSheet filters={filters} onChange={setFilters} onClose={() => setShowFilter(false)} onClear={() => { setFilters({ achievement: '', category: '', sort: 'newest' }); setShowFilter(false); }} />
+      )}
+    </div>
+  );
+}
+
+function CertificateModal({ initial, onClose, onSave }) {
+  const EMPTY = { title: '', organization: 'Fedha Tech Hub', achievement: '1st Place', category: 'Hackathon', date_earned: todayISO(), description: '', image: '', recipient_name: 'Chocle254' };
+  const [form, setForm] = useState({ ...EMPTY, ...initial });
+  const [imgBusy, setImgBusy] = useState(false);
+  const fileRef = useRef(null);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  async function handleImage(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImgBusy(true);
+    try { const resized = await resizeImage(file, 900); setForm((f) => ({ ...f, image: resized })); }
+    finally { setImgBusy(false); }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-sheet">
+        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+        <div className="modal-header">
+          <span style={{ fontSize: 16, fontWeight: 700 }}>{initial?.id ? 'Edit Certificate' : 'Add Certificate'}</span>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <Field label="Event / Title"><input className="input" placeholder="e.g. Call of Duty Mobile Tournament — Season 3" value={form.title} onChange={set('title')} autoFocus /></Field>
+          <Field label="Issuing Organization"><input className="input" placeholder="e.g. Fedha Tech Hub, Devpost, KITI" value={form.organization} onChange={set('organization')} /></Field>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Field label="Achievement" style={{ flex: 1 }}>
+              <select className="input" value={form.achievement} onChange={set('achievement')}>
+                {ACHIEVEMENTS.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </Field>
+            <Field label="Category" style={{ flex: 1 }}>
+              <select className="input" value={form.category} onChange={set('category')}>
+                {CERT_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </Field>
+          </div>
+          <Field label="Date Earned"><input className="input" type="date" value={form.date_earned} onChange={set('date_earned')} /></Field>
+          <Field label="Recipient Name"><input className="input" value={form.recipient_name} onChange={set('recipient_name')} /></Field>
+          <Field label="Description"><textarea className="input" rows={3} placeholder="What was this awarded for?" value={form.description} onChange={set('description')} /></Field>
+
+          <div>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Certificate Image (optional)</label>
+            {form.image ? (
+              <div style={{ position: 'relative', marginBottom: 8 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={form.image} alt="Certificate" style={{ width: '100%', borderRadius: 10, display: 'block' }} />
+                <button onClick={() => setForm((f) => ({ ...f, image: '' }))} className="btn-icon" style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.6)' }}>✕</button>
+              </div>
+            ) : (
+              <div style={{ marginBottom: 8 }}><GeneratedCertArt cert={form} /></div>
+            )}
+            <input ref={fileRef} type="file" accept="image/*" onChange={handleImage} style={{ display: 'none' }} />
+            <button className="btn-ghost" onClick={() => fileRef.current?.click()} disabled={imgBusy}>
+              {imgBusy ? 'Processing…' : form.image ? 'Replace Photo' : '📷 Upload a photo of the real certificate'}
+            </button>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>No photo? A Fedha-branded certificate is generated automatically from the fields above.</div>
+          </div>
+
+          <button className="btn-primary" disabled={!form.title.trim()} onClick={() => onSave(form)}>
+            {initial?.id ? 'Save Changes' : 'Add Certificate'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CertificateDetail({ cert, onClose, onEdit, onDelete }) {
+  const meta = rankMeta(cert.achievement);
+  const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}/certificate/${cert.id}` : '';
+  const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  function share(network) {
+    const text = encodeURIComponent(`I earned ${cert.achievement} in ${cert.title}! 🏆`);
+    const url = encodeURIComponent(shareUrl);
+    const links = {
+      twitter: `https://twitter.com/intent/tweet?text=${text}&url=${url}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${url}`,
+      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${url}`,
+    };
+    window.open(links[network], '_blank', 'noopener,noreferrer');
+  }
+  function copyLink() {
+    navigator.clipboard?.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+  async function download() {
+    setDownloading(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a5' });
+      const w = doc.internal.pageSize.getWidth();
+      const h = doc.internal.pageSize.getHeight();
+      doc.setFillColor(17, 24, 39);
+      doc.rect(0, 0, w, h, 'F');
+      doc.setDrawColor(245, 197, 107);
+      doc.setLineWidth(2);
+      doc.rect(16, 16, w - 32, h - 32);
+      doc.setTextColor(245, 197, 107);
+      doc.setFontSize(12);
+      doc.text('FEDHA TECH HUB', w / 2, 60, { align: 'center' });
+      doc.setTextColor(150, 165, 190);
+      doc.setFontSize(10);
+      doc.text('CERTIFICATE OF ACHIEVEMENT', w / 2, 82, { align: 'center' });
+      doc.setTextColor(237, 242, 255);
+      doc.setFontSize(24);
+      doc.text(cert.recipient_name || 'Chocle254', w / 2, 130, { align: 'center' });
+      doc.setTextColor(150, 165, 190);
+      doc.setFontSize(11);
+      doc.text(cert.description || `For achieving ${cert.achievement} in ${cert.title}.`, w / 2, 160, { align: 'center', maxWidth: w - 120 });
+      doc.setTextColor(245, 197, 107);
+      doc.setFontSize(13);
+      doc.text(`${meta.ribbon} ${cert.achievement}`, w / 2, h - 60, { align: 'center' });
+      doc.setTextColor(150, 165, 190);
+      doc.setFontSize(9);
+      doc.text(cert.date_earned ? formatDate(cert.date_earned) : '', w / 2, h - 40, { align: 'center' });
+      doc.save(`${cert.title.replace(/[^a-z0-9]+/gi, '_')}_certificate.pdf`);
+    } finally { setDownloading(false); }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-sheet">
+        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+        <div className="modal-header">
+          <span style={{ fontSize: 16, fontWeight: 700 }}>Certificate Details</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {cert.hack_id === null && <button className="btn-icon" onClick={() => onEdit(cert)}>✏️</button>}
+            {cert.hack_id === null && <button className="btn-icon" onClick={() => onDelete(cert.id)}>🗑️</button>}
+            <button className="btn-icon" onClick={onClose}>✕</button>
+          </div>
+        </div>
+        <div className="modal-body">
+          <div className="cert-frame" style={{ padding: 12, marginBottom: 4 }}>
+            <div className="cert-glow" />
+            <div className="cert-rank-badge" style={{ background: meta.color }}>{meta.ribbon}</div>
+            {cert.image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={cert.image} alt={cert.title} />
+            ) : (
+              <GeneratedCertArt cert={cert} />
+            )}
+          </div>
+
+          <div className="card-2" style={{ padding: 14 }}>
+            <div className="section-title" style={{ marginBottom: 10 }}>Certificate Information</div>
+            {[
+              ['Certificate ID', cert.id],
+              ['Event', cert.title],
+              ['Achievement', cert.achievement],
+              ['Date Earned', cert.date_earned ? formatDate(cert.date_earned) : '—'],
+              ['Issued By', cert.organization],
+              ['Status', '✓ Verified'],
+            ].map(([label, value]) => (
+              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+                <span style={{ color: 'var(--text-3)' }}>{label}</span>
+                <span style={{ color: label === 'Status' ? 'var(--green)' : 'var(--text)', fontWeight: 600, textAlign: 'right' }}>{value}</span>
+              </div>
+            ))}
+          </div>
+
+          {cert.description && (
+            <div>
+              <div className="section-title">Description</div>
+              <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>{cert.description}</div>
+            </div>
+          )}
+
+          <div>
+            <div className="section-title">Share Certificate</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => share('twitter')} className="btn-icon" style={{ flex: 1, background: 'var(--card-2)' }}>🐦</button>
+              <button onClick={() => share('facebook')} className="btn-icon" style={{ flex: 1, background: 'var(--card-2)' }}>📘</button>
+              <button onClick={() => share('linkedin')} className="btn-icon" style={{ flex: 1, background: 'var(--card-2)' }}>💼</button>
+              <button onClick={copyLink} className="btn-icon" style={{ flex: 1, background: 'var(--card-2)' }}>{copied ? '✓' : '🔗'}</button>
+            </div>
+          </div>
+
+          <a href={`/certificate/${cert.id}`} target="_blank" rel="noreferrer" className="btn-ghost" style={{ textAlign: 'center', textDecoration: 'none', display: 'block' }}>
+            🛡️ Verify Now (public link)
+          </a>
+          <button className="btn-primary" onClick={download} disabled={downloading}>
+            {downloading ? 'Preparing PDF…' : '⬇ Download Certificate'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -744,10 +1056,13 @@ export default function TechHubPage() {
     hackathons, addHackathon, updateHackathon, removeHackathon,
     startups, addStartup, removeStartup,
     projects, addProject, updateProject, removeProject,
+    certificates, addCertificate, updateCertificate, removeCertificate,
   } = useApp();
   const [tab, setTab] = useState('hackathons');
   const [showTxn, setShowTxn] = useState(false);
   const [detailHackId, setDetailHackId] = useState(null);
+  const [certModal, setCertModal] = useState(null); // {} = new, {...cert} = edit, null = closed
+  const [certDetail, setCertDetail] = useState(null); // cert being viewed full-screen
   const [projModal, setProjModal] = useState(null); // {} for new, object for edit, null for closed
 
   // location (shared by AI fetches)
@@ -863,6 +1178,12 @@ export default function TechHubPage() {
     setProjModal(null);
   }
 
+  async function saveCertForm(form) {
+    if (certModal?.id) await updateCertificate({ ...certModal, ...form });
+    else await addCertificate(form);
+    setCertModal(null);
+  }
+
   const byDeadline = (a, b) => { if (!a.deadline) return 1; if (!b.deadline) return -1; return new Date(a.deadline) - new Date(b.deadline); };
   const urgentHacks = hackathons.filter(isUrgent).sort(byDeadline);
   const activeHacks = hackathons.filter((h) => hackStatus(h) === 'active' && !isUrgent(h)).sort(byDeadline);
@@ -976,10 +1297,12 @@ export default function TechHubPage() {
 
           {/* ── CERTIFICATES ROOM ──────────────────────────── */}
           {tab === 'certificates' && (
-            <div>
-              <div className="section-title">Certificates Room</div>
-              <CertificatesRoom hackathons={hackathons} />
-            </div>
+            <CertificatesRoom
+              hackathons={hackathons}
+              certificates={certificates}
+              onAdd={() => setCertModal({})}
+              onOpen={(c) => setCertDetail(c)}
+            />
           )}
 
           {/* ── PROJECT SHOWROOM ───────────────────────────── */}
@@ -1058,6 +1381,17 @@ export default function TechHubPage() {
       )}
       {projModal !== null && (
         <ProjectModal initial={projModal} onClose={() => setProjModal(null)} onSave={saveProjectForm} />
+      )}
+      {certModal !== null && (
+        <CertificateModal initial={certModal} onClose={() => setCertModal(null)} onSave={saveCertForm} />
+      )}
+      {certDetail !== null && (
+        <CertificateDetail
+          cert={certDetail}
+          onClose={() => setCertDetail(null)}
+          onEdit={(c) => { setCertDetail(null); setCertModal(c); }}
+          onDelete={(id) => { removeCertificate(id); setCertDetail(null); }}
+        />
       )}
       {showTxn && <TransactionModal onClose={() => setShowTxn(false)} />}
     </Layout>
