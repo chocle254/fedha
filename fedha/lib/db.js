@@ -392,3 +392,12 @@ export async function getCertificates() {
 }
 export const saveCertificate = (c) => certificatesStore.save(c);
 export const deleteCertificate = (id) => certificatesStore.remove(id);
+
+// ─── TECH EVENTS (My Events — upcoming & past-joined, added manually) ───────
+const techEventsStore = jsonStore('tech_events', 'date');
+export async function getTechEvents() {
+  const all = await techEventsStore.getAll();
+  return all.sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+}
+export const saveTechEvent = (e) => techEventsStore.save(e);
+export const deleteTechEvent = (id) => techEventsStore.remove(id);
