@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Layout from '../components/Layout';
-import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
 import { genId, countdownTo, formatCountdown, formatDate, resizeImage, toNairobi, TZ_ABBREVIATIONS, URGENT_MS, todayISO } from '../lib/utils';
 import { fetchRepos, sortRepos, REPO_SORTS } from '../lib/github';
@@ -390,6 +389,12 @@ function DiscoverCard({ item, kind, onAdd }) {
             ➕ I'm registering
           </button>
         )}
+        {kind === 'event' && onAdd && (
+          <button onClick={() => onAdd(item)}
+            style={{ flex: 1, padding: '10px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10, color: 'var(--green)', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>
+            ➕ Add to My Events
+          </button>
+        )}
         {item.url_hint && (
           <a href={`https://${item.url_hint.replace(/^https?:\/\//, '')}`} target="_blank" rel="noreferrer"
             style={{ flex: kind === 'hack' ? 0 : 1, padding: '10px 16px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontSize: 13, fontWeight: 600, textDecoration: 'none', textAlign: 'center', whiteSpace: 'nowrap' }}>
@@ -401,7 +406,97 @@ function DiscoverCard({ item, kind, onAdd }) {
   );
 }
 
-// ─── 3-COLUMN THUMBNAIL GRID (active + completed hackathons) ──────────────────
+// ─── MY EVENTS (upcoming you're tracking + past ones you joined) ──────────────
+function MyEventCard({ event, onOpen, onJoinToggle, onDelete }) {
+  const isPast = event.date && new Date(event.date) < new Date();
+  return (
+    <div className="card" style={{ padding: 14, marginBottom: 10, cursor: 'pointer' }} onClick={() => onOpen(event)}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--card-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+          {event.mode === 'online' ? '🌐' : '📍'}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{event.title}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+            {event.date ? formatDate(event.date) : 'No date set'} · {event.mode === 'online' ? 'Online' : (event.location || 'Physical')}
+          </div>
+          {event.topic && <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.4 }}>{event.topic}</div>}
+        </div>
+        <button onClick={(e) => { e.stopPropagation(); onDelete(event.id); }} style={{ background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 13, flexShrink: 0 }}>🗑️</button>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        {event.mode === 'online' && event.meet_link && (
+          <a href={event.meet_link} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+            style={{ flex: 1, padding: '8px', textAlign: 'center', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
+            🔗 Join Link
+          </a>
+        )}
+        <button onClick={(e) => { e.stopPropagation(); onJoinToggle(event); }}
+          style={{ flex: 1, padding: '8px', background: event.joined ? 'var(--green-dim)' : 'var(--card-2)', border: `1px solid ${event.joined ? 'rgba(16,185,129,0.3)' : 'var(--border)'}`, borderRadius: 8, color: event.joined ? 'var(--green)' : 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit' }}>
+          {event.joined ? '✓ Joined' : isPast ? 'Mark as Joined' : "I'm Attending"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MyEventModal({ initial, onClose, onSave }) {
+  const EMPTY = { title: '', mode: 'physical', topic: '', meet_link: '', location: '', date: todayISO(), joined: false };
+  const [form, setForm] = useState({ ...EMPTY, ...initial });
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-sheet">
+        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+        <div className="modal-header">
+          <span style={{ fontSize: 16, fontWeight: 700 }}>{initial?.id ? 'Edit Event' : 'Add Event'}</span>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <Field label="Event Name"><input className="input" placeholder="e.g. Nairobi DevFest 2026" value={form.title} onChange={set('title')} autoFocus /></Field>
+
+          <div>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Location Type</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[['physical', '📍 Physical'], ['online', '🌐 Online']].map(([id, label]) => (
+                <button key={id} type="button" onClick={() => setForm((f) => ({ ...f, mode: id }))}
+                  style={{
+                    flex: 1, padding: '10px 4px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit',
+                    background: form.mode === id ? 'var(--green-dim)' : 'var(--card-2)',
+                    border: `1px solid ${form.mode === id ? 'var(--green)' : 'var(--border)'}`,
+                    color: form.mode === id ? 'var(--green)' : 'var(--text-2)',
+                  }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {form.mode === 'online' ? (
+            <Field label="Meet Link"><input className="input" type="url" placeholder="https://meet.google.com/…" value={form.meet_link} onChange={set('meet_link')} /></Field>
+          ) : (
+            <Field label="Location"><input className="input" placeholder="e.g. iHub, Senteu Plaza, Nairobi" value={form.location} onChange={set('location')} /></Field>
+          )}
+
+          <Field label="Date"><input className="input" type="date" value={form.date} onChange={set('date')} /></Field>
+          <Field label="Topic Discussed"><textarea className="input" rows={3} placeholder="What's this event about?" value={form.topic} onChange={set('topic')} /></Field>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!form.joined} onChange={(e) => setForm((f) => ({ ...f, joined: e.target.checked }))} style={{ width: 18, height: 18 }} />
+            <span style={{ fontSize: 13, color: 'var(--text-2)' }}>I attended / joined this event</span>
+          </label>
+
+          <button className="btn-primary" disabled={!form.title.trim()} onClick={() => onSave(form)}>
+            {initial?.id ? 'Save Changes' : 'Add Event'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function HackThumbGrid({ hacks, onOpen, completed }) {
   if (hacks.length === 0) return null;
   return (
@@ -493,10 +588,10 @@ function unifyCertificates(hackathons, certificates) {
 
 function CertStatChip({ icon, value, label }) {
   return (
-    <div className="card-2" style={{ flex: 1, minWidth: 0, padding: '10px 8px', textAlign: 'center' }}>
+    <div className="card-2" style={{ minWidth: 0, padding: '10px 6px', textAlign: 'center' }}>
       <div style={{ fontSize: 18, marginBottom: 2 }}>{icon}</div>
-      <div className="font-num" style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{value}</div>
-      <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 1 }}>{label}</div>
+      <div className="font-num" style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
+      <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
     </div>
   );
 }
@@ -610,7 +705,7 @@ function CertificatesRoom({ hackathons, certificates, onAdd, onOpen }) {
       </div>
 
       {total > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <div className="cert-stats-grid">
           <CertStatChip icon="🎖️" value={total} label="Total Certs" />
           <CertStatChip icon="🥇" value={firstPlace} label="1st Place" />
           <CertStatChip icon="🏅" value={top3} label="Top 3 Finishes" />
@@ -1057,13 +1152,15 @@ export default function TechHubPage() {
     startups, addStartup, removeStartup,
     projects, addProject, updateProject, removeProject,
     certificates, addCertificate, updateCertificate, removeCertificate,
+    techEvents, addTechEvent, updateTechEvent, removeTechEvent,
   } = useApp();
   const [tab, setTab] = useState('hackathons');
-  const [showTxn, setShowTxn] = useState(false);
-  const [detailHackId, setDetailHackId] = useState(null);
   const [certModal, setCertModal] = useState(null); // {} = new, {...cert} = edit, null = closed
+  const [detailHackId, setDetailHackId] = useState(null);
   const [certDetail, setCertDetail] = useState(null); // cert being viewed full-screen
   const [projModal, setProjModal] = useState(null); // {} for new, object for edit, null for closed
+  const [eventModal, setEventModal] = useState(null); // {} = new, {...event} = edit, null = closed
+  const [eventSubTab, setEventSubTab] = useState('upcoming'); // 'upcoming' | 'past'
 
   // location (shared by AI fetches)
   const [location, setLocation] = useState(null);
@@ -1184,6 +1281,12 @@ export default function TechHubPage() {
     setCertModal(null);
   }
 
+  async function saveEventForm(form) {
+    if (eventModal?.id) await updateTechEvent({ ...eventModal, ...form });
+    else await addTechEvent(form);
+    setEventModal(null);
+  }
+
   const byDeadline = (a, b) => { if (!a.deadline) return 1; if (!b.deadline) return -1; return new Date(a.deadline) - new Date(b.deadline); };
   const urgentHacks = hackathons.filter(isUrgent).sort(byDeadline);
   const activeHacks = hackathons.filter((h) => hackStatus(h) === 'active' && !isUrgent(h)).sort(byDeadline);
@@ -1192,7 +1295,7 @@ export default function TechHubPage() {
   const detailHack = hackathons.find((h) => h.id === detailHackId) || null;
 
   return (
-    <Layout onFab={() => setShowTxn(true)}>
+    <Layout fab={false}>
       <div className="page">
         <div style={{ padding: '52px 20px 0' }}>
           <div style={{ marginBottom: 16 }}>
@@ -1317,7 +1420,41 @@ export default function TechHubPage() {
           {tab === 'events' && (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div className="section-title" style={{ marginBottom: 0 }}>Tech Events Near You</div>
+                <div className="section-title" style={{ marginBottom: 0 }}>My Events</div>
+                <button onClick={() => setEventModal({})} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>+ Add Event</button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                <button className={`chip ${eventSubTab === 'upcoming' ? 'active' : ''}`} onClick={() => setEventSubTab('upcoming')}>Upcoming</button>
+                <button className={`chip ${eventSubTab === 'past' ? 'active' : ''}`} onClick={() => setEventSubTab('past')}>Past · Joined</button>
+              </div>
+
+              {eventSubTab === 'upcoming' ? (
+                (() => {
+                  const upcoming = techEvents
+                    .filter((e) => !e.date || new Date(e.date) >= new Date(todayISO()))
+                    .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+                  return upcoming.length === 0 ? (
+                    <div className="empty-state"><div className="icon">📅</div><h3>No upcoming events</h3><p>Add a meetup, conference or demo day you're planning to attend.</p></div>
+                  ) : upcoming.map((e) => (
+                    <MyEventCard key={e.id} event={e} onOpen={setEventModal} onJoinToggle={(ev) => updateTechEvent({ ...ev, joined: !ev.joined })} onDelete={removeTechEvent} />
+                  ));
+                })()
+              ) : (
+                (() => {
+                  const past = techEvents
+                    .filter((e) => e.joined && e.date && new Date(e.date) < new Date(todayISO()))
+                    .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+                  return past.length === 0 ? (
+                    <div className="empty-state"><div className="icon">🎟️</div><h3>No past events yet</h3><p>Events you mark as joined after they happen will show up here.</p></div>
+                  ) : past.map((e) => (
+                    <MyEventCard key={e.id} event={e} onOpen={setEventModal} onJoinToggle={(ev) => updateTechEvent({ ...ev, joined: !ev.joined })} onDelete={removeTechEvent} />
+                  ));
+                })()
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 12px' }}>
+                <div className="section-title" style={{ marginBottom: 0 }}>Discover Nearby Events</div>
                 <button onClick={() => fetchAI('tech_events')} disabled={loadingEvents}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 100, color: 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit' }}>
                   🔄 {loadingEvents ? 'Scanning…' : events.length ? 'Refresh' : 'Find events'}
@@ -1325,7 +1462,17 @@ export default function TechHubPage() {
               </div>
               {events.length === 0 && !loadingEvents ? (
                 <div className="empty-state"><div className="icon">📅</div><h3>Find tech events near you</h3><p>{location ? `Scanning around ${location.city}.` : 'Share your location above, then'} tap "Find events" for nearby meetups, conferences & demo days</p></div>
-              ) : events.map((e) => <DiscoverCard key={e.id} item={e} kind="event" />)}
+              ) : events.map((e) => (
+                <DiscoverCard key={e.id} item={e} kind="event" onAdd={(item) => setEventModal({
+                  title: item.name || '',
+                  mode: item.mode === 'Online' || item.mode === 'online' ? 'online' : 'physical',
+                  location: item.location || item.venue || '',
+                  meet_link: item.url_hint ? `https://${item.url_hint.replace(/^https?:\/\//, '')}` : '',
+                  topic: item.description || '',
+                  date: item.date || item.deadline || todayISO(),
+                  joined: false,
+                })} />
+              ))}
             </div>
           )}
 
@@ -1393,7 +1540,9 @@ export default function TechHubPage() {
           onDelete={(id) => { removeCertificate(id); setCertDetail(null); }}
         />
       )}
-      {showTxn && <TransactionModal onClose={() => setShowTxn(false)} />}
+      {eventModal !== null && (
+        <MyEventModal initial={eventModal} onClose={() => setEventModal(null)} onSave={saveEventForm} />
+      )}
     </Layout>
   );
 }
