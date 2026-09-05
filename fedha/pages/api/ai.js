@@ -1,5 +1,5 @@
 // pages/api/ai.js — uses Groq (free, generous, OpenAI-compatible). Set GROQ_API_KEY.
-const GROQ_MODEL = 'llama-3.3-70b-versatile'; // free & strong; or 'llama-3.1-8b-instant' for speed
+const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b'; // free & strong; or 'llama-3.1-8b-instant' for speed
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
