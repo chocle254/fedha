@@ -115,6 +115,11 @@ export default function App({ Component, pageProps }) {
   const [mounted, setMounted] = useState(false);
   const [session, setSession] = useState(undefined); // undefined = still checking
   const isLoginPage = router.pathname === '/login';
+  // Certificate verification links are meant to be opened by anyone, logged
+  // in or not — they're read-only and fetch their own data via the public
+  // /api/certificate/[id] endpoint, so they never need AppProvider/Supabase
+  // auth at all.
+  const isPublicPage = isLoginPage || router.pathname === '/certificate/[id]';
 
   useEffect(() => setMounted(true), []);
 
@@ -129,12 +134,15 @@ export default function App({ Component, pageProps }) {
   // Redirect based on auth state once we actually know it.
   useEffect(() => {
     if (!mounted || session === undefined) return;
-    if (!session && !isLoginPage) router.replace('/login');
+    if (!session && !isPublicPage) router.replace('/login');
     else if (session && isLoginPage) router.replace('/');
-  }, [mounted, session, isLoginPage, router]);
+  }, [mounted, session, isPublicPage, isLoginPage, router]);
 
-  if (!isSupabaseEnabled()) return <ConfigErrorScreen />;
-  if (!mounted || session === undefined) return <Splash />;
+  if (!isSupabaseEnabled() && !isPublicPage) return <ConfigErrorScreen />;
+  if (!mounted || (session === undefined && !isPublicPage)) return <Splash />;
+
+  // The certificate page never needs auth or AppProvider — render it as-is.
+  if (router.pathname === '/certificate/[id]') return <Component {...pageProps} />;
 
   // Unauthenticated: only the login page itself is allowed to render.
   if (!session) return isLoginPage ? <Component {...pageProps} /> : <Splash />;
