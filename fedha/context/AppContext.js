@@ -1,4 +1,3 @@
-
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { genId, todayISO, setRates } from '../lib/utils';
 import { fetchRates } from '../lib/exchange';
@@ -14,6 +13,7 @@ import {
   getStartups, saveStartup, deleteStartup,
   getOnlineJobs, saveOnlineJob, deleteOnlineJob,
   getProjects, saveProject, deleteProject,
+  getCertificates, saveCertificate, deleteCertificate,
   getSetting, setSetting, seedDefaultData,
 } from '../lib/db';
 
@@ -32,6 +32,7 @@ export function AppProvider({ children }) {
   const [startups, setStartups] = useState([]);
   const [onlineJobs, setOnlineJobs] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [certificates, setCertificates] = useState([]);
   const [currency, setCurrencyState] = useState('KES');
   const [isOnline, setIsOnline] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -40,16 +41,16 @@ export function AppProvider({ children }) {
 
   const loadAll = useCallback(async () => {
     await seedDefaultData();
-    const [ws, ts, bs, ls, gs, ips, chs, hks, sts, ojs, prs, cur, cachedRates, spd] = await Promise.all([
+    const [ws, ts, bs, ls, gs, ips, chs, hks, sts, ojs, prs, crts, cur, cachedRates, spd] = await Promise.all([
       getWallets(), getTransactions(), getBudgets(), getLoans(),
       getGoals(), getIncomePlans(), getChallenges(),
-      getHackathons(), getStartups(), getOnlineJobs(), getProjects(),
+      getHackathons(), getStartups(), getOnlineJobs(), getProjects(), getCertificates(),
       getSetting('currency', 'KES'), getSetting('fx_rates', null),
       getSetting('savings_plan_days', null),
     ]);
     setWallets(ws); setTransactions(ts); setBudgets(bs); setLoans(ls);
     setGoals(gs); setIncomePlans(ips); setChallenges(chs);
-    setHackathons(hks); setStartups(sts); setOnlineJobs(ojs); setProjects(prs); setCurrencyState(cur);
+    setHackathons(hks); setStartups(sts); setOnlineJobs(ojs); setProjects(prs); setCertificates(crts); setCurrencyState(cur);
     setSavingsPlanDaysState(spd);
 
     // Use cached rates immediately (offline-first), then refresh from network.
@@ -131,6 +132,11 @@ export function AppProvider({ children }) {
   const updateProject = useCallback(async (project) => { const p = await saveProject(project); setProjects((prev) => prev.map((x) => (x.id === p.id ? p : x))); return p; }, []);
   const removeProject = useCallback(async (id) => { await deleteProject(id); setProjects((prev) => prev.filter((x) => x.id !== id)); }, []);
 
+  // ─── CERTIFICATES ──────────────────────────────────────────────────────────
+  const addCertificate = useCallback(async (data) => { const c = await saveCertificate({ id: genId(), created_at: new Date().toISOString(), ...data }); setCertificates((prev) => [c, ...prev]); return c; }, []);
+  const updateCertificate = useCallback(async (cert) => { const c = await saveCertificate(cert); setCertificates((prev) => prev.map((x) => (x.id === c.id ? c : x))); return c; }, []);
+  const removeCertificate = useCallback(async (id) => { await deleteCertificate(id); setCertificates((prev) => prev.filter((x) => x.id !== id)); }, []);
+
   // ─── ONLINE JOBS ───────────────────────────────────────────────────────────
   const addOnlineJob = useCallback(async (data) => { const j = await saveOnlineJob({ id: genId(), entries: [], created_at: new Date().toISOString(), ...data }); setOnlineJobs((p) => [...p, j]); return j; }, []);
   const updateOnlineJob = useCallback(async (job) => { const j = await saveOnlineJob(job); setOnlineJobs((p) => p.map((x) => (x.id === j.id ? j : x))); return j; }, []);
@@ -162,6 +168,7 @@ export function AppProvider({ children }) {
       startups, addStartup, updateStartup, removeStartup,
       onlineJobs, addOnlineJob, updateOnlineJob, removeOnlineJob,
       projects, addProject, updateProject, removeProject,
+      certificates, addCertificate, updateCertificate, removeCertificate,
       totalBalance, totalLoaned, totalBorrowed, totalGoalSaved, netWorth,
       reload: loadAll,
     }}>
