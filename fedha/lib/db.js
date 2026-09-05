@@ -236,3 +236,12 @@ export async function seedDefaultData() {
   const { error: insErr } = await supabase.from('wallets').insert(defaults);
   logErr('seed insert', insErr);
 }
+
+// ─── CERTIFICATES ────────────────────────────────────────────────────────────
+const certificatesStore = jsonStore('certificates', 'date_earned');
+export async function getCertificates() {
+  const all = await certificatesStore.getAll();
+  return all.sort((a, b) => new Date(b.date_earned || b.created_at) - new Date(a.date_earned || a.created_at));
+}
+export const saveCertificate = (c) => certificatesStore.save(c);
+export const deleteCertificate = (id) => certificatesStore.remove(id);
