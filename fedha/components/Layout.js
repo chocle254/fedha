@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useApp } from '../context/AppContext';
 import { signOut } from '../lib/supabase';
+import JarvisWidget from './JarvisWidget';
 
 const NAV = [
   { href:'/', label:'Home', icon:(a) => (
@@ -72,6 +73,8 @@ export default function Layout({ children, fab, onFab }) {
       {fab !== false && (
         <button className="fab" onClick={onFab} aria-label="Add transaction">+</button>
       )}
+
+      <JarvisWidget />
 
       {/* More menu sheet */}
       {moreOpen && (
