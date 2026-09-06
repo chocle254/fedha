@@ -63,11 +63,15 @@ async function refreshTable(table, buildQuery) {
 
 // ─── SETTINGS (key/value) ────────────────────────────────────────────────────
 export async function getSetting(key, fallback = null) {
-  if (!isSupabaseEnabled()) return fallback;
   const cached = await cacheGetSetting(key);
 
   // Fire-and-forget background refresh so next read reflects the server.
-  if (isOnline()) {
+  // Only the network half is conditional on Supabase being configured —
+  // the cache read above always runs, same as every other getX() in this
+  // file. (This used to early-return the fallback whenever Supabase wasn't
+  // configured, skipping the cache entirely — that broke offline-first for
+  // settings specifically, since local writes would never be read back.)
+  if (isOnline() && isSupabaseEnabled()) {
     (async () => {
       try {
         const { data, error } = await supabase.from('settings').select('value').eq('key', key).maybeSingle();
@@ -80,16 +84,17 @@ export async function getSetting(key, fallback = null) {
   return cached !== undefined ? cached : fallback;
 }
 export async function setSetting(key, value) {
-  if (!isSupabaseEnabled()) return;
   await cachePutSetting(key, value);
-  await enqueueOp({
-    kind: 'upsert',
-    table: 'settings',
-    id: `setting:${key}`,
-    payload: { key, value, updated_at: new Date().toISOString() },
-    onConflict: 'user_id,key',
-  });
-  flushPendingOps();
+  if (isSupabaseEnabled()) {
+    await enqueueOp({
+      kind: 'upsert',
+      table: 'settings',
+      id: `setting:${key}`,
+      payload: { key, value, updated_at: new Date().toISOString() },
+      onConflict: 'user_id,key',
+    });
+    flushPendingOps();
+  }
 }
 
 // ─── WALLETS ─────────────────────────────────────────────────────────────────
@@ -393,11 +398,67 @@ export async function getCertificates() {
 export const saveCertificate = (c) => certificatesStore.save(c);
 export const deleteCertificate = (id) => certificatesStore.remove(id);
 
-// ─── TECH EVENTS (My Events — upcoming & past-joined, added manually) ───────
-const techEventsStore = jsonStore('tech_events', 'date');
-export async function getTechEvents() {
-  const all = await techEventsStore.getAll();
-  return all.sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+// ─── JARVIS MEMORY & CONVERSATION HISTORY ──────────────────────────────────
+// Memory is a single evolving row (not a list) — cache it under a fixed
+// synthetic id, same trick used for settings.
+const JARVIS_MEMORY_ID = 'jarvis_memory:singleton';
+
+export async function getJarvisMemory() {
+  const cached = await cacheGet('jarvis_memory', JARVIS_MEMORY_ID);
+  refreshTable('jarvis_memory', () => supabase.from('jarvis_memory').select('*').limit(1));
+  return cached?.summary || '';
 }
-export const saveTechEvent = (e) => techEventsStore.save(e);
-export const deleteTechEvent = (id) => techEventsStore.remove(id);
+
+export async function setJarvisMemory(summary) {
+  const record = { id: JARVIS_MEMORY_ID, summary, updated_at: new Date().toISOString() };
+  await cachePut('jarvis_memory', record);
+  if (isSupabaseEnabled()) {
+    // No local id maps to the real Supabase row (it has its own uuid keyed
+    // by user_id), so this upserts by user_id via onConflict rather than a
+    // plain id match — mirrors the settings table's approach.
+    await enqueueOp({ kind: 'upsert', table: 'jarvis_memory', id: JARVIS_MEMORY_ID, payload: { summary, updated_at: record.updated_at }, onConflict: 'user_id' });
+    flushPendingOps();
+  }
+}
+
+// Conversation history: kept short (last N turns) so re-sending it as
+// context on every call stays cheap. Old turns beyond this are still safe
+// in Supabase (not deleted), just not re-fetched into the active context —
+// the running memory summary is what carries long-term continuity forward.
+const CONVO_HISTORY_LIMIT = 20;
+
+// created_at alone isn't a reliable sort key here: millisecond-precision
+// timestamps can collide when messages are appended in a tight loop (e.g.
+// a fast back-and-forth, or seeding/testing), which would let a reply sort
+// before the message it's replying to. `seq` is a monotonic counter that
+// breaks ties in the order calls actually happened, which matters a lot
+// more for a conversation than it would for, say, a transaction list.
+//
+// The counter is seeded from the highest seq already in the cache the
+// first time it's needed, so it keeps counting up correctly across page
+// reloads instead of restarting at 0 (which would make new messages sort
+// before old ones with a higher seq from a previous session).
+let jarvisSeqCounter = null;
+async function nextJarvisSeq() {
+  if (jarvisSeqCounter === null) {
+    const existing = await cacheGetAll('jarvis_conversations');
+    jarvisSeqCounter = existing.reduce((max, m) => Math.max(max, m.seq ?? 0), 0) + 1;
+  }
+  return jarvisSeqCounter++;
+}
+
+export async function getJarvisHistory() {
+  const cached = await cacheGetAll('jarvis_conversations');
+  refreshTable('jarvis_conversations', () => supabase.from('jarvis_conversations').select('*').order('created_at', { ascending: false }).limit(CONVO_HISTORY_LIMIT));
+  return cached
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at) || (a.seq ?? 0) - (b.seq ?? 0))
+    .slice(-CONVO_HISTORY_LIMIT);
+}
+
+export async function appendJarvisMessage(role, content) {
+  const record = { id: localId(), role, content, seq: await nextJarvisSeq(), created_at: new Date().toISOString() };
+  await cachePut('jarvis_conversations', record);
+  await enqueueOp({ kind: 'upsert', table: 'jarvis_conversations', id: record.id, payload: record });
+  flushPendingOps();
+  return record;
+}
