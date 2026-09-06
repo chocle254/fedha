@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
+import { toggleIncomeReceived as toggleIncomeReceivedShared, settleLoan as settleLoanShared } from '../lib/finance-actions';
 import { formatCurrency, formatShort, formatDate, getDaysUntil, isOverdue, EXPENSE_CATEGORIES, getCategoryById, genId, todayISO } from '../lib/utils';
 
 function BudgetForm({ initial, onSave, onClose }) {
@@ -197,46 +198,24 @@ export default function BudgetsPage() {
   const totalBorrowed = activeLoans.filter((l) => l.type === 'borrowed').reduce((s, l) => s + Number(l.remaining || l.amount), 0);
   const totalLent = activeLoans.filter((l) => l.type === 'lent').reduce((s, l) => s + Number(l.remaining || l.amount), 0);
 
-  // Marking income "received" or a loan "settled" should actually move money,
-  // not just flip a status flag. Each record keeps the id of the transaction
-  // it created (settled_txn_id) so un-marking it can cleanly reverse the
-  // exact same transaction via removeTransaction, which already knows how
-  // to undo the wallet-balance change — rather than guessing an inverse amount.
+  // Marking income "received" or a loan "settled" should actually move
+  // money, not just flip a status flag — the real logic lives in
+  // lib/finance-actions.js (shared with the Jarvis assistant), these are
+  // just thin wrappers passing this page's context values in.
   async function toggleIncomeReceived(plan) {
-    if (!plan.is_received) {
-      if (!wallets[0]) { alert('Add a wallet first so received income has somewhere to go.'); return; }
-      const tx = await addTransaction({
-        type: 'income',
-        amount: Number(plan.expected_amount),
-        wallet_id: wallets[0].id,
-        category: 'other',
-        description: `Income plan: ${plan.name}`,
-        date: todayISO(),
-        currency,
-      });
-      await updateIncomePlan({ ...plan, is_received: true, settled_txn_id: tx.id });
-    } else {
-      if (plan.settled_txn_id) await removeTransaction(plan.settled_txn_id);
-      await updateIncomePlan({ ...plan, is_received: false, settled_txn_id: null });
+    try {
+      await toggleIncomeReceivedShared(plan, { wallets, currency, addTransaction, removeTransaction, updateIncomePlan });
+    } catch (e) {
+      alert(e.message);
     }
   }
 
   async function settleLoan(loan) {
-    if (loan.status === 'settled') return; // one-directional: use the edit form to reopen a loan if needed
-    if (!wallets[0]) { alert('Add a wallet first so this settlement has somewhere to go.'); return; }
-    const amount = Number(loan.remaining || loan.amount);
-    // borrowed = you're paying it back (money leaves your wallet, an expense).
-    // lent = the other person is paying you back (money enters, income).
-    const tx = await addTransaction({
-      type: loan.type === 'borrowed' ? 'expense' : 'income',
-      amount,
-      wallet_id: wallets[0].id,
-      category: 'other',
-      description: `Loan settled: ${loan.contact_name}`,
-      date: todayISO(),
-      currency,
-    });
-    await updateLoan({ ...loan, status: 'settled', settled_txn_id: tx.id });
+    try {
+      await settleLoanShared(loan, { wallets, currency, addTransaction, updateLoan });
+    } catch (e) {
+      alert(e.message);
+    }
   }
 
   return (
