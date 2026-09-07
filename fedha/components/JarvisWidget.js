@@ -27,8 +27,30 @@ export default function JarvisWidget() {
   const [voiceReplyEnabled, setVoiceReplyEnabled] = useState(false);
   const [pendingActions, setPendingActions] = useState([]); // proposed actions awaiting confirmation
   const [actionError, setActionError] = useState(null);
+  const [location, setLocation] = useState(null);
   const recognitionRef = useRef(null);
   const scrollRef = useRef(null);
+
+  // Location is optional — only needed for activity research — so this
+  // fails silently if denied/unavailable rather than blocking anything
+  // else the widget does. Fetched once per session, not on every message.
+  useEffect(() => {
+    if (!open || location || typeof navigator === 'undefined' || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        try {
+          const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+          const d = await r.json();
+          const city = d.address?.city || d.address?.town || d.address?.county || d.address?.state || 'your area';
+          setLocation({ lat, lng, city });
+        } catch {
+          setLocation({ lat, lng, city: 'your area' });
+        }
+      },
+      () => {} // denied or unavailable — activity research just won't have location context
+    );
+  }, [open, location]);
 
   // Load recent history once when first opened, so re-opening the widget
   // mid-session (or after a reload) picks up where the conversation left
@@ -81,6 +103,7 @@ export default function JarvisWidget() {
           context,
           memory,
           history: history.map((h) => ({ role: h.role, content: h.content })),
+          location,
         }),
       });
       const data = await res.json();
@@ -202,7 +225,8 @@ export default function JarvisWidget() {
                       'How am I doing financially this week?',
                       'Draft my CV from my projects and certificates',
                       "What's on my plan today?",
-                      'Suggest a feature for one of my projects',
+                      'Find me a real online gig I could start today',
+                      'Suggest something fun to do right now',
                     ].map((suggestion) => (
                       <button
                         key={suggestion}
