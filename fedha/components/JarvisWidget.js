@@ -5,6 +5,37 @@ import { executeProposedAction, describeProposedAction } from '../lib/jarvis-act
 import { getJarvisMemory, setJarvisMemory, getJarvisHistory, appendJarvisMessage, saveFoodLog } from '../lib/db';
 import { genId } from '../lib/utils';
 
+// Minimal inline-markdown renderer — just enough for how a chat model
+// actually formats short replies (**bold**, *italic*, `code`), without
+// pulling in a full markdown library for what's meant to be short,
+// conversational text. Bullet lists and headers aren't handled on purpose:
+// the system prompt asks Jarvis to avoid them since replies may be read
+// aloud via TTS, where that structure doesn't translate to speech well.
+function renderInlineMarkdown(text) {
+  const parts = [];
+  // Order matters: bold (**) must be checked before italic (*) so
+  // "**bold**" doesn't get half-consumed by the italic pattern first.
+  const pattern = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
+  let lastIndex = 0;
+  let match;
+  let key = 0;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+    const token = match[0];
+    if (token.startsWith('**')) {
+      parts.push(<strong key={key++}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('`')) {
+      parts.push(<code key={key++} style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 4, fontSize: '0.9em' }}>{token.slice(1, -1)}</code>);
+    } else {
+      parts.push(<em key={key++}>{token.slice(1, -1)}</em>);
+    }
+    lastIndex = match.index + token.length;
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts;
+}
+
 // Web Speech API is browser-native and free — no extra API cost for voice.
 // Support is real but inconsistent (best on Chrome/Edge; Safari and
 // Firefox support varies), so every voice control is additive: text chat
@@ -258,7 +289,7 @@ export default function JarvisWidget() {
                     whiteSpace: 'pre-wrap',
                   }}
                 >
-                  {m.content}
+                  {renderInlineMarkdown(m.content)}
                 </div>
               ))}
 
