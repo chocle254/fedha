@@ -6,7 +6,7 @@
 // and throws a clear error if a name doesn't match anything (rather than
 // silently doing nothing or guessing).
 
-import { getWallets, getLoans, getIncomePlans, getSetting, setSetting } from './db';
+import { getWallets, getLoans, getIncomePlans, getSetting, setSetting, getProjects, getHackathons, saveProject, saveHackathon } from './db';
 import { toggleIncomeReceived, settleLoan } from './finance-actions';
 import { todayISO } from './utils';
 
@@ -78,6 +78,23 @@ export async function executeProposedAction(action, ctx) {
       return next;
     }
 
+    case 'propose_update_project_status': {
+      const projects = await getProjects();
+      const project = findByNameLoose(projects, 'name', args.project_name);
+      if (!project) throw new Error(`Couldn't find a project named "${args.project_name}".`);
+      const patch = {};
+      if (args.status) patch.status = args.status;
+      if (args.progress != null) patch.progress = Number(args.progress);
+      return saveProject({ ...project, ...patch });
+    }
+
+    case 'propose_update_hackathon_status': {
+      const hackathons = await getHackathons();
+      const hack = findByNameLoose(hackathons, 'name', args.hackathon_name);
+      if (!hack) throw new Error(`Couldn't find a hackathon named "${args.hackathon_name}".`);
+      return saveHackathon({ ...hack, status: args.status });
+    }
+
     default:
       throw new Error(`Unknown action: ${tool}`);
   }
@@ -98,6 +115,10 @@ export function describeProposedAction(action) {
       return `Log ${args.slot}: ${args.name} (${args.cal} cal${args.protein ? `, ${args.protein}g protein` : ''})`;
     case 'propose_planner_block_edit':
       return `Edit today's plan: ${args.new_time ? `move to ${args.new_time}` : ''}${args.new_note ? ` note: "${args.new_note}"` : ''}`;
+    case 'propose_update_project_status':
+      return `Update project "${args.project_name}"${args.status ? ` to ${args.status}` : ''}${args.progress != null ? ` (${args.progress}% done)` : ''}`;
+    case 'propose_update_hackathon_status':
+      return `Mark hackathon "${args.hackathon_name}" as ${args.status}`;
     default:
       return tool;
   }
