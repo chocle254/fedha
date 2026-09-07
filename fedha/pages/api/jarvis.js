@@ -16,6 +16,8 @@
 // exist for the small set of things not already in that snapshot (deep
 // history beyond the recent-transactions summary) and for taking ACTIONS.
 
+import { runResearch } from '../../lib/jarvis-research-core';
+
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
 const SYSTEM_PROMPT = `You are Jarvis — the personal AI running inside Fedha, a personal finance, planning, meals, workout, and career app. You belong to one person and you know them well: you remember what they've told you, you notice how they're doing, and you speak to them like a sharp, loyal friend who happens to be extremely competent — not like customer support.
@@ -32,7 +34,9 @@ What's happening in their Fedha account right now:
 
 Capabilities:
 - You can see everything in Fedha: wallets, transactions, budgets, loans, income plans, goals, the daily planner, meals, workouts, tech-hub projects/hackathons/startups, certificates, online jobs.
-- You can propose actions (adding a transaction, marking a loan settled, adjusting today's plan, logging a meal, etc.) via tools — these are NOT applied immediately. The person will see exactly what you're proposing and confirm or reject it before anything changes. Be precise about amounts, dates, and names so the proposal is accurate the first time.
+- You can propose actions (adding a transaction, marking a loan settled, adjusting today's plan, logging a meal, updating a project or hackathon, adding an activity to the plan, etc.) via tools — these are NOT applied immediately. The person will see exactly what you're proposing and confirm or reject it before anything changes. Be precise about amounts, dates, and names so the proposal is accurate the first time.
+- When asked about online earning opportunities or side hustles, ALWAYS use research_online_opportunities rather than describing platforms from memory — the person specifically wants real, currently-live things you actually found, not generic suggestions.
+- When asked to suggest something fun to do, check today's planner in your context FIRST. If there's an urgent or essential block coming up soon (a work deadline, an important task, anything time-sensitive), say so plainly and decline to suggest an activity right now — don't research one anyway. Only call research_activities_nearby if the person genuinely has free time, or their important task finished ahead of schedule and there's a real gap before the next thing. If you do find something good, offer to add it to today's plan via propose_add_planner_activity, scheduled into an actual free slot.
 - You can help draft a CV/resume from their real projects, hackathons, and certificates — pull from the context you're given, don't invent achievements they don't have.
 - You can give startup/business strategy advice, product feature ideas for what they're building, and negotiation help for project pricing. Draw on general, well-known startup thinking and public philosophies of founders like Musk, Zuckerberg, Jensen Huang, etc. when it's genuinely useful — but say things in your own words, don't fabricate quotes or claim insider knowledge of what they privately think, and don't pretend to literally be them.
 - You can read the room emotionally from what they say and how they say it, and respond with care — but never diagnose, and never assert a mental state they haven't told you about themselves. If something sounds heavy, be present with it before jumping to solutions.
@@ -164,6 +168,40 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'research_online_opportunities',
+      description: "Search the web right now for REAL, currently active online micro-task/gig platforms and links — not invented ones. Use this whenever the user asks about earning opportunities, side hustles, or online jobs; don't just describe generic platforms from memory. Returns real search results for you to summarize.",
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'research_activities_nearby',
+      description: "Search the web right now for REAL local activities/venues/events, factoring in the user's actual location and current weather — not invented ones. IMPORTANT: before calling this, check the planner context you were given — if there's an urgent/essential block coming up soon (a work deadline, an important meeting, an imminent task), decline to research activities and explain why instead. Only call this if the user genuinely has free time now or their important task finished early.",
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_add_planner_activity',
+      description: "Propose adding a specific activity (from research you just did, or one the user named) as a new block in today's planner, scheduled into their actual free time. Requires user confirmation.",
+      parameters: {
+        type: 'object',
+        properties: {
+          label: { type: 'string' },
+          time: { type: 'string', description: 'HH:MM 24-hour, must be a time that is actually free today per the planner context.' },
+          duration: { type: 'number', description: 'minutes' },
+          note: { type: 'string' },
+          estimated_cost: { type: 'number', description: 'if known' },
+        },
+        required: ['label', 'time', 'duration'],
+      },
+    },
+  },
 ];
 
 export default async function handler(req, res) {
@@ -172,7 +210,7 @@ export default async function handler(req, res) {
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY not set in environment variables' });
 
-  const { message, context, memory, history } = req.body;
+  const { message, context, memory, history, location } = req.body;
   if (!message || typeof message !== 'string') return res.status(400).json({ error: 'message is required' });
 
   const systemPrompt = SYSTEM_PROMPT
@@ -186,7 +224,7 @@ export default async function handler(req, res) {
   ];
 
   try {
-    const response = await callGroqWithTools(GROQ_API_KEY, messages);
+    const response = await callGroqWithTools(GROQ_API_KEY, messages, location);
     if (response.error) return res.status(500).json(response);
     return res.status(200).json(response);
   } catch (err) {
@@ -202,7 +240,7 @@ export default async function handler(req, res) {
 // reasoning as write actions — this route has no direct DB access — but
 // memory doesn't need human confirmation since it's Jarvis's own notes,
 // not a change to the user's actual data).
-async function callGroqWithTools(apiKey, messages) {
+async function callGroqWithTools(apiKey, messages, location) {
   const first = await groqChat(apiKey, messages, TOOLS);
   if (first.error) return first;
 
@@ -224,6 +262,25 @@ async function callGroqWithTools(apiKey, messages) {
     if (call.function.name === 'update_memory') {
       memoryUpdate = args.updated_summary || null;
       toolResultMessages.push({ role: 'tool', tool_call_id: call.id, content: 'Memory updated.' });
+      continue;
+    }
+
+    if (call.function.name === 'research_online_opportunities' || call.function.name === 'research_activities_nearby') {
+      // Unlike the propose_* tools, research doesn't change any of the
+      // user's data — it's read-only web search — so it runs immediately
+      // and the real results get fed back to the model, rather than being
+      // packaged as something requiring confirmation.
+      const researchType = call.function.name === 'research_online_opportunities' ? 'online_opportunities' : 'activities';
+      try {
+        const result = await runResearch(researchType, location);
+        toolResultMessages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: result.content + (result.citations?.length ? `\n\nSources: ${result.citations.join(', ')}` : ''),
+        });
+      } catch (e) {
+        toolResultMessages.push({ role: 'tool', tool_call_id: call.id, content: `Research failed: ${e.message}` });
+      }
       continue;
     }
 
