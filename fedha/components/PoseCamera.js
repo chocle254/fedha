@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { announceRep, announceSetComplete, getPreWorkoutHype, getPostWorkoutSummary } from '../lib/workout-coach';
 
 // Load a script tag only once
 function loadScript(src) {
@@ -116,6 +117,8 @@ export default function PoseCamera({ exercise, targetReps, set, totalSets, onCom
   const [liveAngle, setLiveAngle] = useState(null);
   const [status, setStatus] = useState('loading'); // loading | ready | done | error
   const [loadMsg, setLoadMsg] = useState('Starting camera…');
+  const [hypeMessage, setHypeMessage] = useState(null);
+  const [summaryMessage, setSummaryMessage] = useState(null);
 
   useEffect(() => {
     let stream = null;
@@ -142,6 +145,9 @@ export default function PoseCamera({ exercise, targetReps, set, totalSets, onCom
 
         if (!runningRef.current) return;
         setStatus('ready');
+        getPreWorkoutHype(exercise.name, targetReps, set, totalSets).then((line) => {
+          if (runningRef.current) setHypeMessage(line);
+        });
 
         async function loop() {
           if (!runningRef.current || !videoRef.current || !canvasRef.current) return;
@@ -192,9 +198,12 @@ export default function PoseCamera({ exercise, targetReps, set, totalSets, onCom
                   stateRef.current.reps += 1;
                   const newReps = stateRef.current.reps;
                   setReps(newReps);
+                  announceRep(newReps, targetReps);
                   if (newReps >= targetReps) {
                     setStatus('done');
                     runningRef.current = false;
+                    announceSetComplete();
+                    getPostWorkoutSummary(exercise.name, newReps, totalSets).then(setSummaryMessage);
                     return;
                   }
                 }
@@ -262,7 +271,12 @@ export default function PoseCamera({ exercise, targetReps, set, totalSets, onCom
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(16,185,129,0.93)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ fontSize: 64, marginBottom: 12 }}>💪</div>
             <div style={{ fontSize: 28, fontWeight: 700, color: '#000', marginBottom: 4 }}>{targetReps} reps done!</div>
-            <div style={{ fontSize: 15, color: 'rgba(0,0,0,0.6)', marginBottom: 28 }}>Set {set} of {totalSets} complete</div>
+            <div style={{ fontSize: 15, color: 'rgba(0,0,0,0.6)', marginBottom: 12 }}>Set {set} of {totalSets} complete</div>
+            {summaryMessage && (
+              <div style={{ fontSize: 14, color: '#000', fontWeight: 600, textAlign: 'center', maxWidth: 260, marginBottom: 20, fontStyle: 'italic' }}>
+                🤖 "{summaryMessage}"
+              </div>
+            )}
             <button onClick={onComplete} style={{ padding: '16px 40px', background: '#000', color: '#10B981', border: 'none', borderRadius: 14, fontSize: 17, fontWeight: 700, cursor: 'pointer' }}>
               {set < totalSets ? `Next Set →` : 'Finish Exercise ✓'}
             </button>
@@ -282,6 +296,13 @@ export default function PoseCamera({ exercise, targetReps, set, totalSets, onCom
           <div style={{ position: 'absolute', top: 16, right: 60, background: 'rgba(0,0,0,0.7)', borderRadius: 10, padding: '6px 12px' }}>
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>SET</div>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{set}/{totalSets}</div>
+          </div>
+        )}
+
+        {/* Jarvis hype-up, shown until the first rep */}
+        {status === 'ready' && reps === 0 && hypeMessage && (
+          <div style={{ position: 'absolute', top: 64, left: 16, right: 16, background: 'rgba(99,102,241,0.85)', borderRadius: 12, padding: '10px 14px', fontSize: 14, fontWeight: 600, color: '#fff', lineHeight: 1.4, textAlign: 'center' }}>
+            🤖 {hypeMessage}
           </div>
         )}
 
