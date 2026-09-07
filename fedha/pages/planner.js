@@ -8,13 +8,16 @@ import { WEEKLY_PLAN, weekdayPlanIndex, estimateWorkoutMinutes, exerciseSummary 
 import { format } from 'date-fns';
 
 // ─── DAY ANCHORS ───────────────────────────────────────────────────────────
-// No more school — wake later, and build the day around a late, ~00:00-4am
-// bedtime instead of an early one. Sleep is targeted for ~00:30 so an 8am
-// wake still gives a healthy ~7.5 hours; the schedule self-adjusts if the
-// day runs long rather than ever double-booking a slot.
+// Bedtime is a protected window, not a "whatever's left after everything
+// else" afterthought — the schedule is built backward from this, and lower-
+// priority blocks (gaming, free time, then chores, then work) get shrunk or
+// dropped entirely if the day doesn't fit before it, rather than ever
+// pushing sleep later. See buildTodayBlocks() for the allocation logic.
 const WEEKDAY_WAKE = 8 * 60;         // 08:00
 const WEEKEND_WAKE = 9 * 60;         // 09:00
-const TARGET_BEDTIME = 24 * 60 + 30; // 00:30 (next day, expressed past midnight for the calc below)
+const BEDTIME_EARLIEST = 22 * 60;    // 22:00 (10pm) — sleep can start here if the day's light
+const BEDTIME_LATEST = 23 * 60;      // 23:00 (11pm) — absolute latest bedtime, even on a packed day
+const MIN_SLEEP_MINUTES = 7 * 60;    // never schedule less than 7h sleep before the next wake time
 
 const TYPE_COLORS = {
   routine:  { bg:'rgba(99,102,241,0.12)',  border:'rgba(99,102,241,0.35)',  text:'#818CF8', dot:'#6366F1' },
@@ -99,10 +102,21 @@ function pickWork(items, i) {
 }
 
 // ─── SCHEDULE BUILDER ────────────────────────────────────────────────────────
-// Lays blocks out one after another from wake time, so nothing ever overlaps.
-// Work blocks come from Tech Hub + My Jobs; workout blocks come from today's
-// entry in the workout plan; evening leisure absorbs whatever time is left
-// before the target bedtime.
+// Two passes, not one:
+//  1. Build a "wish list" of every block the day would ideally include, each
+//     tagged with a priority tier and a [min, ideal] duration range. This is
+//     just a description of what SHOULD happen — nothing is placed on the
+//     clock yet, so nothing here can overflow into the night.
+//  2. Fit that wish list into the actual minutes available between wake and
+//     the latest acceptable bedtime. Essential items (sleep, meals, workouts)
+//     always get their minimum. Everything else is shrunk toward its minimum,
+//     then dropped entirely, lowest priority first, until the day fits.
+// This replaces the old approach of pushing fixed-duration blocks one after
+// another with no total budget check at all, which is exactly how a busy
+// day (hackathon + job + startup + project all active) could push sleep to
+// 3am — nothing was ever checking whether the day fit before bedtime.
+const PRIORITY = { essential: 0, work: 1, chores: 2, social: 3, leisure: 4 };
+
 function buildTodayBlocks(ctx, isWeekend) {
   const workItems = getWorkPriorityItems(ctx);
   const dayIdx = weekdayPlanIndex(new Date());
@@ -110,79 +124,123 @@ function buildTodayBlocks(ctx, isWeekend) {
   const morningWorkoutMin = estimateWorkoutMinutes(dayPlan.morning.exercises);
   const eveningWorkoutMin = dayPlan.evening.isRest ? 0 : estimateWorkoutMinutes(dayPlan.evening.exercises);
 
-  const blocks = [];
-  let cursor = isWeekend ? WEEKEND_WAKE : WEEKDAY_WAKE;
-  const push = (id, label, type, duration, emoji, note) => {
-    if (duration <= 0) return;
-    blocks.push({ id, time: m2t(cursor), label, type, duration, emoji, note });
-    cursor += duration;
-  };
+  const wake = isWeekend ? WEEKEND_WAKE : WEEKDAY_WAKE;
 
-  push('wake', 'Wake Up — No Phone', 'routine', 20, '⏰', 'First 20 mins phone-free. Drink water, stretch, wash face.');
-  push('bfast_prep', 'Prepare Breakfast', 'meal', isWeekend ? 25 : 20, '🍳', "Start cooking now. Check Meals tab for today's breakfast.");
-  push('breakfast', 'Eat Breakfast', 'meal', isWeekend ? 30 : 20, '🍽️', 'Sit down and eat. No phone while eating.');
-  push('dishes1', 'Clean Dishes', 'routine', isWeekend ? 15 : 10, '🧹', '10 mins now saves stress later.');
+  // ── PASS 1: wish list ──────────────────────────────────────────────────
+  // Each item: { id, label, type, emoji, note, priority, min, ideal, fixedAfter? }
+  // `fixedAfter` marks conditional items whose note depends on runtime data
+  // (workout titles, work item picks) computed above.
+  const wish = [];
+  const want = (id, label, type, emoji, note, priority, min, ideal = min) =>
+    wish.push({ id, label, type, emoji, note, priority, min, ideal: Math.max(ideal, min) });
 
-  if (isWeekend) {
-    push('laundry_sort', 'Sort & Start Laundry', 'chores', 30, '👕', 'Sort clothes, start soaking or machine wash — do this first so clothes dry by afternoon.');
-  }
+  want('wake', 'Wake Up — No Phone', 'routine', '⏰', 'First 20 mins phone-free. Drink water, stretch, wash face.', PRIORITY.essential, 15, 20);
+  want('bfast_prep', 'Prepare Breakfast', 'meal', '🍳', "Start cooking now. Check Meals tab for today's breakfast.", PRIORITY.essential, 15, isWeekend ? 25 : 20);
+  want('breakfast', 'Eat Breakfast', 'meal', '🍽️', 'Sit down and eat. No phone while eating.', PRIORITY.essential, 15, isWeekend ? 30 : 20);
+  want('dishes1', 'Clean Dishes', 'routine', '🧹', '10 mins now saves stress later.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
+
+  if (isWeekend) want('laundry_sort', 'Sort & Start Laundry', 'chores', '👕', 'Sort clothes, start soaking or machine wash — do this first so clothes dry by afternoon.', PRIORITY.chores, 15, 30);
 
   const w1 = pickWork(workItems, 0);
-  push('work1', w1.label, 'coding', 90, w1.emoji, w1.note);
+  want('work1', w1.label, 'coding', w1.emoji, w1.note, PRIORITY.work, 45, 90);
 
-  if (!isWeekend) push('snack', '10am Snack', 'meal', 15, '🍌', 'Banana + groundnuts. Drink water, then back to focus.');
+  if (!isWeekend) want('snack', '10am Snack', 'meal', '🍌', 'Banana + groundnuts. Drink water, then back to focus.', PRIORITY.essential, 10, 15);
 
   const w2 = pickWork(workItems, 1);
-  push('work2', w2.label, 'coding', 90, w2.emoji, w2.note);
+  want('work2', w2.label, 'coding', w2.emoji, w2.note, PRIORITY.work, 45, 90);
 
-  if (isWeekend) push('laundry_hang', 'Hang / Check Laundry', 'chores', 15, '👕', 'Hang clothes out to dry or move to the dryer.');
+  if (isWeekend) want('laundry_hang', 'Hang / Check Laundry', 'chores', '👕', 'Hang clothes out to dry or move to the dryer.', PRIORITY.chores, 10, 15);
 
-  push('lunch_prep', 'Prepare Lunch', 'meal', isWeekend ? 30 : 25, '🍲', 'Start cooking now — check Meals tab.');
-  push('lunch', 'Eat Lunch', 'meal', isWeekend ? 30 : 25, '🍽️', 'Biggest meal of the day — fuel for the afternoon.');
-  push('dishes2', 'Clean Up', 'routine', isWeekend ? 15 : 10, '🧹', 'Quick clean. Clear space = clear mind.');
-
-  push('bath', 'Bathing / Afternoon Reset', 'health', 25, '🛁', 'Freshen up in the afternoon — you have earned it after a solid morning.');
+  want('lunch_prep', 'Prepare Lunch', 'meal', '🍲', 'Start cooking now — check Meals tab.', PRIORITY.essential, 15, isWeekend ? 30 : 25);
+  want('lunch', 'Eat Lunch', 'meal', '🍽️', 'Biggest meal of the day — fuel for the afternoon.', PRIORITY.essential, 20, isWeekend ? 30 : 25);
+  want('dishes2', 'Clean Up', 'routine', '🧹', 'Quick clean. Clear space = clear mind.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
+  want('bath', 'Bathing / Afternoon Reset', 'health', '🛁', 'Freshen up in the afternoon — you have earned it after a solid morning.', PRIORITY.essential, 15, 25);
 
   if (morningWorkoutMin > 0) {
-    push('workout1', `Workout — ${dayPlan.focus}`, 'workout', morningWorkoutMin, '🏋️', `${dayPlan.morning.title}: ${exerciseSummary(dayPlan.morning.exercises)}`);
+    want('workout1', `Workout — ${dayPlan.focus}`, 'workout', '🏋️', `${dayPlan.morning.title}: ${exerciseSummary(dayPlan.morning.exercises)}`, PRIORITY.essential, morningWorkoutMin, morningWorkoutMin);
   }
 
-  if (isWeekend) {
-    push('house_clean', 'Clean House / Room', 'chores', 60, '🏠', 'Full room clean — sweep, mop, arrange, take out trash.');
-  }
+  if (isWeekend) want('house_clean', 'Clean House / Room', 'chores', '🏠', 'Full room clean — sweep, mop, arrange, take out trash.', PRIORITY.chores, 20, 60);
 
   const w3 = pickWork(workItems, 2);
-  push('work3', w3.label, 'coding', 90, w3.emoji, w3.note);
+  want('work3', w3.label, 'coding', w3.emoji, w3.note, PRIORITY.work, 45, 90);
 
-  if (isWeekend) push('laundry_fold', 'Fold & Put Away Clothes', 'chores', 20, '👕', 'Fold and put away dry clothes.');
+  if (isWeekend) want('laundry_fold', 'Fold & Put Away Clothes', 'chores', '👕', 'Fold and put away dry clothes.', PRIORITY.chores, 10, 20);
 
-  push('bae', 'Bae Time 💕', 'personal', isWeekend ? 120 : 90, '💕', 'Protected time. Phone down. Be fully present.');
+  want('bae', 'Bae Time 💕', 'personal', '💕', 'Protected time. Phone down. Be fully present.', PRIORITY.social, 30, isWeekend ? 120 : 90);
 
-  push('dinner_prep', 'Prepare Dinner', 'meal', isWeekend ? 30 : 20, '🍲', 'Start cooking. Check Meals tab for tonight.');
-  push('dinner', 'Eat Dinner', 'meal', isWeekend ? 30 : 25, '🍽️', 'Eat well — this fuels overnight recovery.');
-  push('dishes3', 'Clean Kitchen', 'routine', isWeekend ? 15 : 10, '🧹', 'Full clean. Good kitchen tonight = easy morning tomorrow.');
+  want('dinner_prep', 'Prepare Dinner', 'meal', '🍲', 'Start cooking. Check Meals tab for tonight.', PRIORITY.essential, 15, isWeekend ? 30 : 20);
+  want('dinner', 'Eat Dinner', 'meal', '🍽️', 'Eat well — this fuels overnight recovery.', PRIORITY.essential, 20, isWeekend ? 30 : 25);
+  want('dishes3', 'Clean Kitchen', 'routine', '🧹', 'Full clean. Good kitchen tonight = easy morning tomorrow.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
 
   if (eveningWorkoutMin > 0) {
-    push('workout2', `Workout — ${dayPlan.focus} (Evening)`, 'workout', eveningWorkoutMin, '💪', `${dayPlan.evening.title}: ${exerciseSummary(dayPlan.evening.exercises)}`);
+    want('workout2', `Workout — ${dayPlan.focus} (Evening)`, 'workout', '💪', `${dayPlan.evening.title}: ${exerciseSummary(dayPlan.evening.exercises)}`, PRIORITY.essential, eveningWorkoutMin, eveningWorkoutMin);
   } else if (dayPlan.evening.isRest) {
-    push('recovery', 'Active Recovery — Stretch', 'workout', 15, '🧘', 'Rest day evening — light stretching, no heavy sets.');
+    want('recovery', 'Active Recovery — Stretch', 'workout', '🧘', 'Rest day evening — light stretching, no heavy sets.', PRIORITY.essential, 10, 15);
   }
 
-  if (isWeekend) push('week_plan', 'Plan Next Week', 'routine', 20, '📋', 'What do you want to achieve? Any big purchases? Check Tech Hub deadlines.');
+  if (isWeekend) want('week_plan', 'Plan Next Week', 'routine', '📋', 'What do you want to achieve? Any big purchases? Check Tech Hub deadlines.', PRIORITY.chores, 10, 20);
 
-  // Gaming is fixed; Free Time stretches to soak up whatever is left before
-  // the target bedtime, so the day always lands at ~00:30 instead of drifting.
-  push('gaming', 'Gaming 🎮', 'gaming', 90, '🎮', 'Earned screen time — enjoy it guilt-free.');
-  const fixedTail = 15 + 15; // review + night prep
-  const freeMinutes = clamp(TARGET_BEDTIME - cursor - fixedTail, 30, 240);
-  push('freetime', 'Free Time 🎧', 'personal', freeMinutes, '🎧', 'Wind down however you like.');
-  push('review', 'Daily Review', 'routine', 15, '📝', 'What did you learn today? What to do differently? Write 3 lines.');
-  push('night_prep', 'Night Prep', 'routine', 15, '🌙', 'Set clothes, pack bag, set alarm. Drink milk before bed.');
+  want('gaming', 'Gaming 🎮', 'gaming', '🎮', 'Earned screen time — enjoy it guilt-free.', PRIORITY.leisure, 0, 90);
+  want('freetime', 'Free Time 🎧', 'personal', '🎧', 'Wind down however you like.', PRIORITY.leisure, 15, 60);
+  want('review', 'Daily Review', 'routine', '📝', 'What did you learn today? What to do differently? Write 3 lines.', PRIORITY.chores, 5, 15);
+  want('night_prep', 'Night Prep', 'routine', '🌙', 'Set clothes, pack bag, set alarm. Drink milk before bed.', PRIORITY.essential, 10, 15);
 
-  const wake = isWeekend ? WEEKEND_WAKE : WEEKDAY_WAKE;
+  // ── PASS 2: fit the wish list into the actual time available ────────────
+  // Try the latest acceptable bedtime first (more room), falling back to
+  // the earliest if the ideal-duration day already fits comfortably.
+  const idealTotal = wish.reduce((s, w) => s + w.ideal, 0);
+  const roomAtEarliest = BEDTIME_EARLIEST - wake;
+  const targetBedtime = idealTotal <= roomAtEarliest ? BEDTIME_EARLIEST : BEDTIME_LATEST;
+  const budget = targetBedtime - wake;
+
+  const dropped = [];
+  let allocated = wish.map((w) => ({ ...w, duration: w.ideal }));
+  let total = () => allocated.reduce((s, w) => s + w.duration, 0);
+
+  // Step A: shrink toward minimum, lowest priority first, until it fits or
+  // everything's already at its floor.
+  for (let tier = PRIORITY.leisure; tier >= PRIORITY.essential && total() > budget; tier--) {
+    for (const w of allocated.filter((x) => x.priority === tier)) {
+      if (total() <= budget) break;
+      const over = total() - budget;
+      const shrinkable = w.duration - w.min;
+      if (shrinkable <= 0) continue;
+      const cut = Math.min(shrinkable, over);
+      w.duration -= cut;
+    }
+  }
+
+  // Step B: if shrinking alone isn't enough, drop entire blocks — lowest
+  // priority first, and within a tier, drop the ones already at minimum
+  // (i.e. shrinking bought nothing) before touching anything still above min.
+  for (let tier = PRIORITY.leisure; tier >= PRIORITY.essential && total() > budget; tier--) {
+    const tierItems = allocated.filter((x) => x.priority === tier).sort((a, b) => a.duration - b.duration);
+    for (const w of tierItems) {
+      if (total() <= budget) break;
+      if (w.priority === PRIORITY.essential) continue; // essential items are never dropped, only shrunk (Step A already did what it could)
+      dropped.push({ id: w.id, label: w.label });
+      allocated = allocated.filter((x) => x.id !== w.id);
+    }
+  }
+
+  // ── PASS 3: place what's left on the clock, in original order ───────────
+  const order = wish.map((w) => w.id);
+  const byId = Object.fromEntries(allocated.map((w) => [w.id, w]));
+  const blocks = [];
+  let cursor = wake;
+  for (const id of order) {
+    const w = byId[id];
+    if (!w || w.duration <= 0) continue;
+    blocks.push({ id: w.id, time: m2t(cursor), label: w.label, type: w.type, duration: w.duration, emoji: w.emoji, note: w.note });
+    cursor += w.duration;
+  }
+
   const bedMod = cursor % 1440;
-  const sleepMinutes = bedMod < wake ? wake - bedMod : (1440 - bedMod) + wake;
-  push('sleep', 'Sleep', 'sleep', sleepMinutes, '😴', `Phone in another room. ~${(sleepMinutes/60).toFixed(1)}h of sleep — protect it even on a late night.`);
+  const sleepMinutes = Math.max(MIN_SLEEP_MINUTES, bedMod < wake ? wake - bedMod : (1440 - bedMod) + wake);
+  blocks.push({ id: 'sleep', time: m2t(cursor), label: 'Sleep', type: 'sleep', duration: sleepMinutes, emoji: '😴', note: `Phone in another room. ~${(sleepMinutes / 60).toFixed(1)}h of sleep — protect it even on a full day.` });
+
+  if (dropped.length) blocks._droppedToday = dropped; // surfaced to the UI below, not persisted as a real block
 
   return blocks;
 }
@@ -274,6 +332,7 @@ export default function PlannerPage() {
   const { hackathons, startups, projects, onlineJobs } = useApp();
   const isWeekend = [0,6].includes(new Date().getDay());
   const [blocks, setBlocks] = useState([]);
+  const [droppedToday, setDroppedToday] = useState([]);
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [notifPerm, setNotifPerm] = useState('default');
   const [completedIds, setCompletedIds] = useState([]);
@@ -306,6 +365,7 @@ export default function PlannerPage() {
   useEffect(() => {
     async function load() {
       const generated = buildTodayBlocks({ hackathons, startups, projects, onlineJobs }, isWeekend);
+      setDroppedToday(generated._droppedToday || []);
       const overrides = await getSetting(`planner_overrides_${todayISO()}`, {});
       const merged = generated.map((b) => (overrides[b.id] ? { ...b, ...overrides[b.id] } : b));
       setBlocks(merged);
@@ -355,10 +415,42 @@ export default function PlannerPage() {
   }
 
   async function handleEditSave(updated) {
+    const original = blocks.find((b) => b.id === updated.id);
+    const timeChanged = original && updated.time && updated.time !== original.time;
+
+    let nextBlocks;
+    if (timeChanged) {
+      // Shift every block from this one onward by the same delta, so moving
+      // a block earlier/later doesn't leave a gap or overlap with what
+      // follows — each block keeps its own duration, only its start time
+      // moves. Blocks before this one are untouched.
+      const deltaMin = t2m(updated.time) - t2m(original.time);
+      const idx = blocks.findIndex((b) => b.id === updated.id);
+      nextBlocks = blocks.map((b, i) => {
+        if (i < idx) return b;
+        if (i === idx) return { ...b, ...updated };
+        return { ...b, time: m2t(t2m(b.time) + deltaMin) };
+      });
+    } else {
+      nextBlocks = blocks.map((b) => (b.id === updated.id ? { ...b, ...updated } : b));
+    }
+
+    // Persist every block whose time actually moved as an override (not
+    // just the one the user directly edited), so the cascade survives a
+    // reload — otherwise buildTodayBlocks() would regenerate the original
+    // times for everything after the edited block on next load.
     const overrides = await getSetting(`planner_overrides_${todayISO()}`, {});
-    const next = { ...overrides, [updated.id]: updated };
-    await setSetting(`planner_overrides_${todayISO()}`, next);
-    const nextBlocks = blocks.map((b) => (b.id === updated.id ? { ...b, ...updated } : b));
+    const nextOverrides = { ...overrides };
+    for (const b of nextBlocks) {
+      const before = blocks.find((x) => x.id === b.id);
+      if (before && before.time !== b.time) {
+        nextOverrides[b.id] = { ...(overrides[b.id] || {}), time: b.time, ...(b.id === updated.id ? updated : {}) };
+      } else if (b.id === updated.id) {
+        nextOverrides[b.id] = { ...(overrides[b.id] || {}), ...updated };
+      }
+    }
+    await setSetting(`planner_overrides_${todayISO()}`, nextOverrides);
+
     setBlocks(nextBlocks);
     setEditBlock(null);
     await syncPlannerBlocksSetting(nextBlocks);
@@ -368,6 +460,7 @@ export default function PlannerPage() {
   async function resetToday() {
     await setSetting(`planner_overrides_${todayISO()}`, {});
     const fresh = buildTodayBlocks({ hackathons, startups, projects, onlineJobs }, isWeekend);
+    setDroppedToday(fresh._droppedToday || []);
     setBlocks(fresh);
     await syncPlannerBlocksSetting(fresh);
   }
@@ -378,9 +471,21 @@ export default function PlannerPage() {
   const currentBlock = (sleepBlock && nowMins < wakeMins)
     ? sleepBlock
     : blocks.find(b => nowMins>=t2m(b.time) && nowMins<t2m(b.time)+b.duration);
-  const currentProgress = currentBlock && !(sleepBlock && nowMins < wakeMins && currentBlock.id === sleepBlock.id)
-    ? ((nowMins-t2m(currentBlock.time))/currentBlock.duration)*100
-    : 0;
+  const currentProgress = (() => {
+    if (!currentBlock) return 0;
+    const isOvernightSleep = sleepBlock && currentBlock.id === sleepBlock.id && nowMins < wakeMins;
+    if (isOvernightSleep) {
+      // Sleep started before midnight and we're now past it (nowMins wrapped
+      // to a small number). Minutes elapsed = time from sleep start to
+      // midnight, plus minutes since midnight — not a plain subtraction,
+      // since t2m(currentBlock.time) is a pre-midnight clock time (e.g.
+      // 23:00) while nowMins is a post-midnight one (e.g. 02:22).
+      const startMins = t2m(currentBlock.time);
+      const elapsed = (1440 - startMins) + nowMins;
+      return Math.min(100, (elapsed / currentBlock.duration) * 100);
+    }
+    return ((nowMins - t2m(currentBlock.time)) / currentBlock.duration) * 100;
+  })();
   const nextBlock = (sleepBlock && nowMins < wakeMins)
     ? blocks[0]
     : (blocks.find(b => t2m(b.time) > nowMins) || sleepBlock);
@@ -415,6 +520,11 @@ export default function PlannerPage() {
           {notifEnabled && (
             <div style={{ padding:'10px 14px', background:'var(--green-dim)', border:'1px solid rgba(16,185,129,0.2)', borderRadius:10, fontSize:13, color:'var(--green)', marginBottom:14, display:'flex', alignItems:'center', gap:8 }}>
               🔔 All reminders active for today's {isWeekend ? 'weekend' : 'weekday'} schedule
+            </div>
+          )}
+          {droppedToday.length > 0 && (
+            <div style={{ padding:'10px 14px', background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.25)', borderRadius:10, fontSize:13, color:'#FCD34D', marginBottom:14 }}>
+              ⚠️ Today's plan was too full to fit everything before bedtime, so this got dropped: {droppedToday.map((d) => d.label).join(', ')}.
             </div>
           )}
 
