@@ -95,6 +95,30 @@ export async function executeProposedAction(action, ctx) {
       return saveHackathon({ ...hack, status: args.status });
     }
 
+    case 'propose_add_planner_activity': {
+      const overrides = await getSetting(`planner_overrides_${todayISO()}`, {});
+      const newBlockId = `jarvis_${Date.now()}`;
+      // pages/planner.js's merge logic recognizes override entries whose id
+      // doesn't match any generated block as brand-new standalone blocks
+      // (not just patches to existing ones), so storing this here is
+      // enough for it to actually appear in the schedule.
+      const next = {
+        ...overrides,
+        [newBlockId]: {
+          id: newBlockId,
+          time: args.time,
+          label: args.label,
+          type: 'personal',
+          duration: Number(args.duration),
+          emoji: '✨',
+          note: args.note || (args.estimated_cost ? `Estimated cost: ${args.estimated_cost}` : ''),
+          _jarvisAdded: true,
+        },
+      };
+      await setSetting(`planner_overrides_${todayISO()}`, next);
+      return next[newBlockId];
+    }
+
     default:
       throw new Error(`Unknown action: ${tool}`);
   }
@@ -119,6 +143,8 @@ export function describeProposedAction(action) {
       return `Update project "${args.project_name}"${args.status ? ` to ${args.status}` : ''}${args.progress != null ? ` (${args.progress}% done)` : ''}`;
     case 'propose_update_hackathon_status':
       return `Mark hackathon "${args.hackathon_name}" as ${args.status}`;
+    case 'propose_add_planner_activity':
+      return `Add "${args.label}" to today's plan at ${args.time} (${args.duration} min)${args.estimated_cost ? `, ~${args.estimated_cost}` : ''}`;
     default:
       return tool;
   }
