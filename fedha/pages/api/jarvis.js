@@ -133,6 +133,37 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_update_project_status',
+      description: "Propose updating one of the user's Tech Hub projects — its status and/or progress percentage. Requires user confirmation.",
+      parameters: {
+        type: 'object',
+        properties: {
+          project_name: { type: 'string', description: 'Name of the project, matching an existing one.' },
+          status: { type: 'string', enum: ['planning', 'in_progress', 'done'] },
+          progress: { type: 'number', description: '0-100' },
+        },
+        required: ['project_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_update_hackathon_status',
+      description: "Propose updating a hackathon's status (e.g. marking it submitted). Requires user confirmation.",
+      parameters: {
+        type: 'object',
+        properties: {
+          hackathon_name: { type: 'string' },
+          status: { type: 'string', enum: ['active', 'submitted', 'completed'] },
+        },
+        required: ['hackathon_name', 'status'],
+      },
+    },
+  },
 ];
 
 export default async function handler(req, res) {
