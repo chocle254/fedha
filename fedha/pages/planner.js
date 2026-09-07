@@ -367,7 +367,16 @@ export default function PlannerPage() {
       const generated = buildTodayBlocks({ hackathons, startups, projects, onlineJobs }, isWeekend);
       setDroppedToday(generated._droppedToday || []);
       const overrides = await getSetting(`planner_overrides_${todayISO()}`, {});
-      const merged = generated.map((b) => (overrides[b.id] ? { ...b, ...overrides[b.id] } : b));
+      const patched = generated.map((b) => (overrides[b.id] ? { ...b, ...overrides[b.id] } : b));
+      // Some override entries aren't patches to a generated block at all —
+      // they're genuinely new blocks (e.g. an activity Jarvis added via
+      // propose_add_planner_activity), identifiable because their id
+      // doesn't match anything buildTodayBlocks produced. Without this,
+      // those entries sit in settings forever but never render, since the
+      // .map() above only ever visits ids that already exist in `generated`.
+      const generatedIds = new Set(generated.map((b) => b.id));
+      const extraBlocks = Object.values(overrides).filter((o) => o?.id && !generatedIds.has(o.id));
+      const merged = [...patched, ...extraBlocks].sort((a, b) => t2m(a.time) - t2m(b.time));
       setBlocks(merged);
       await syncPlannerBlocksSetting(merged);
 
