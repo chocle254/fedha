@@ -125,16 +125,43 @@ export async function cacheDelete(table, id) {
   }, undefined);
 }
 
-// Replace the entire local mirror of a table with a fresh set of rows from
-// the server. Used after a successful background refetch, so deletions made
-// on another device also get reflected locally.
+// Replace the local mirror of a table with a fresh set of rows from the
+// server, EXCEPT for any row that has a pending sync operation still
+// queued — that local version is more recent than whatever the server
+// just returned (the server hasn't seen it yet), so blindly overwriting
+// it would erase a real write. This was the actual cause of a
+// just-added record (e.g. a new Showroom project) appearing briefly and
+// then disappearing: a background refresh that started before the save
+// but resolved after it would wipe the whole table and replace it with
+// server data that didn't have the new record yet.
 export async function cacheReplaceAll(table, rows) {
   await withStoreFallback(async () => {
     const db = await getDb();
+    const pendingIdsForTable = new Set(
+      (await getAllPendingOpsUnsafe()).filter((op) => op.table === table).map((op) => op.id)
+    );
+    const protectedRows = pendingIdsForTable.size
+      ? await Promise.all([...pendingIdsForTable].map((id) => db.get(table, id)))
+      : [];
+
     const tx = db.transaction(table, 'readwrite');
     await tx.store.clear();
-    await Promise.all([...rows.map((r) => tx.store.put(r)), tx.done]);
+    const serverRows = rows.filter((r) => !pendingIdsForTable.has(r.id));
+    const allRows = [...serverRows, ...protectedRows.filter(Boolean)];
+    await Promise.all([...allRows.map((r) => tx.store.put(r)), tx.done]);
   }, undefined);
+}
+
+// Internal helper: reads the pending-ops queue directly (not through the
+// public getPendingOps, to avoid a circular import — this file IS
+// offline-cache.js, so PENDING_STORE is already in scope here).
+async function getAllPendingOpsUnsafe() {
+  try {
+    const db = await getDb();
+    return await db.getAll(PENDING_STORE);
+  } catch {
+    return [];
+  }
 }
 
 // ─── SETTINGS (key/value, not a normal row-per-id table) ────────────────────
