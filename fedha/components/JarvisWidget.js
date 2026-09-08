@@ -117,14 +117,24 @@ export default function JarvisWidget() {
 
     const userMsg = { role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
-    appendJarvisMessage('user', text); // fire-and-forget persistence
 
     try {
+      // Fetch history BEFORE appending the current message, not after —
+      // appendJarvisMessage below is fire-and-forget (not awaited), so
+      // fetching history afterward created a real race: if that write
+      // happened to finish first, the current message would show up
+      // twice in a row in the messages array sent to Groq (once from
+      // history, once as the explicit final user message), which
+      // degraded the model's ability to track conversation turns and is
+      // the actual cause of Jarvis seeming to have no memory of what was
+      // just said. Fetching first guarantees the current turn is never
+      // included in `history`, so there's never ambiguity or duplication.
       const [context, memory, history] = await Promise.all([
         buildJarvisContext(),
         getJarvisMemory(),
         getJarvisHistory(),
       ]);
+      appendJarvisMessage('user', text); // now safe to fire-and-forget
 
       const res = await fetch('/api/jarvis', {
         method: 'POST',
@@ -141,7 +151,7 @@ export default function JarvisWidget() {
       if (data.error) throw new Error(data.error);
 
       setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }]);
-      appendJarvisMessage('assistant', data.reply);
+      await appendJarvisMessage('assistant', data.reply);
       speak(data.reply);
 
       if (data.memoryUpdate) {
