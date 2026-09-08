@@ -19,9 +19,26 @@
 import { supabase, isSupabaseEnabled } from './supabase';
 import {
   cacheGetAll, cacheGet, cachePut, cachePutMany, cacheDelete, cacheReplaceAll,
-  cacheGetSetting, cachePutSetting, enqueueOp,
+  cacheGetSetting, cachePutSetting, enqueueOp, getLastSynced, setLastSynced,
 } from './offline-cache';
 import { flushPendingOps } from './sync-engine';
+
+// Every background refresh below ends in notifyChanged(), which AppContext
+// debounces into a full loadAll() — and loadAll() itself calls every getX()
+// again, each of which wants to kick off its own background refresh. Without
+// a floor on how often that's allowed to actually hit the network, that's a
+// loop with no exit: refresh -> notify -> reload -> refresh -> notify -> ...,
+// running forever and queuing up IndexedDB transactions faster than real
+// writes (a transaction save, a goal update, anything) can get a turn. This
+// is the throttle the getLastSynced/setLastSynced helpers were already built
+// for but never wired up to.
+const REFRESH_THROTTLE_MS = 20000;
+async function shouldRefresh(key) {
+  const last = await getLastSynced(key);
+  if (last && Date.now() - last < REFRESH_THROTTLE_MS) return false;
+  await setLastSynced(key);
+  return true;
+}
 
 function logErr(action, err) {
   if (err) console.error(`[fedha] ${action} failed:`, err.message);
@@ -51,6 +68,7 @@ function localId() {
 // cache, which is the whole point of being offline-first.
 async function refreshTable(table, buildQuery) {
   if (!isOnline() || !isSupabaseEnabled()) return;
+  if (!(await shouldRefresh(table))) return;
   try {
     const { data, error } = await buildQuery();
     if (error) throw error;
@@ -73,6 +91,7 @@ export async function getSetting(key, fallback = null) {
   // settings specifically, since local writes would never be read back.)
   if (isOnline() && isSupabaseEnabled()) {
     (async () => {
+      if (!(await shouldRefresh('settings:' + key))) return;
       try {
         const { data, error } = await supabase.from('settings').select('value').eq('key', key).maybeSingle();
         if (error) throw error;
@@ -283,6 +302,7 @@ function jsonStore(table, liftField) {
 
       if (isOnline() && isSupabaseEnabled()) {
         (async () => {
+          if (!(await shouldRefresh(table))) return;
           try {
             let q = supabase.from(table).select('*');
             const { data, error } = await q;
