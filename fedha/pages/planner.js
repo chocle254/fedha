@@ -340,6 +340,24 @@ export default function PlannerPage() {
   const [tab, setTab] = useState('today');
   const [editBlock, setEditBlock] = useState(null);
 
+  // hackathons/startups/projects/onlineJobs are new array references every
+  // time AppContext's loadAll() runs — which happens after ANY data change
+  // anywhere in the app (adding an event in Discover, editing a Tech Hub
+  // item, anything), not just changes relevant to the planner. Depending on
+  // the raw arrays directly meant navigating to Discover and back would
+  // regenerate the ENTIRE schedule from scratch every time, discarding
+  // completed blocks, moved blocks, and anything Jarvis had added — this is
+  // exactly what was happening. A content signature (built from just the
+  // fields that actually affect scheduling: which items are active/urgent)
+  // means the effect only re-runs when something that would actually
+  // change the generated schedule really changed.
+  const workSignature = JSON.stringify([
+    hackathons?.map((h) => [h.id, hackStatus(h), h.deadline]) || [],
+    startups?.map((s) => s.id) || [],
+    projects?.map((p) => [p.id, projectStatus(p)]) || [],
+    onlineJobs?.map((j) => [j.id, j.status]) || [],
+  ]);
+
   // _app.js's NotificationScheduler and lib/push.js's syncReminderSettings
   // both read a single 'planner_blocks' setting for the server-side push
   // sender to work from — the planner itself no longer persists a fixed
@@ -388,7 +406,7 @@ export default function PlannerPage() {
     }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hackathons, startups, projects, onlineJobs]);
+  }, [workSignature]);
 
   useEffect(() => {
     const iv = setInterval(() => setNow(new Date()), 30000);
