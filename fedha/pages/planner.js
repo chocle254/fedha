@@ -274,7 +274,22 @@ function fireNotif(title, body, requireInteraction = false) {
   try { new Notification(title, { body, icon:'/icon-192.png', badge:'/icon-192.png', requireInteraction, vibrate:[200,100,200,100,200] }); } catch(e) {}
 }
 
+// enableNotifs(), handleEditSave(), and generateAIDay() (the "I'm Awake" /
+// "Regenerate My Day" button) all call this. It used to just queue a fresh
+// batch of setTimeouts on top of whatever an earlier call had already
+// queued, with nothing anywhere to cancel the old batch — so tapping
+// "Regenerate My Day" left the PREVIOUS schedule's notifications still
+// sitting in the browser's timer queue, and they'd fire later with the old
+// labels/times/notes even though the planner on screen now showed the new
+// plan. Tracking every timer id this function hands out and clearing all of
+// them before queuing the next batch means only the current schedule is
+// ever actually live.
+let scheduledTimerIds = [];
+
 function scheduleAll(blocks) {
+  scheduledTimerIds.forEach(clearTimeout);
+  scheduledTimerIds = [];
+
   const now = new Date();
   const nowMs = now.getTime();
   blocks.forEach(b => {
@@ -285,32 +300,32 @@ function scheduleAll(blocks) {
     const important = ['meal','coding','sleep','workout'].includes(b.type);
 
     if (diff > 0 && diff < 86400000) {
-      setTimeout(() => fireNotif(msgs.title, msgs.body, important), diff);
+      scheduledTimerIds.push(setTimeout(() => fireNotif(msgs.title, msgs.body, important), diff));
     }
     // Cook warning 25 min before eating
     if (b.type === 'meal' && b.label.includes('Eat')) {
       const d = startMs - 25*60*1000 - nowMs;
-      if (d > 0) setTimeout(() => fireNotif('🍳 START COOKING NOW', `Start preparing now so ${b.label.replace('Eat ','')} is ready by ${fmt12(b.time)}`, true), d);
+      if (d > 0) scheduledTimerIds.push(setTimeout(() => fireNotif('🍳 START COOKING NOW', `Start preparing now so ${b.label.replace('Eat ','')} is ready by ${fmt12(b.time)}`, true), d));
     }
     // 5 min warning for work blocks
     if (b.type === 'coding') {
       const d = startMs - 5*60*1000 - nowMs;
-      if (d > 0) setTimeout(() => fireNotif(`⚠️ ${b.label} in 5 minutes`, `Put your phone down now. ${b.note}`), d);
+      if (d > 0) scheduledTimerIds.push(setTimeout(() => fireNotif(`⚠️ ${b.label} in 5 minutes`, `Put your phone down now. ${b.note}`), d));
     }
     // 5 min warning for workouts
     if (b.type === 'workout') {
       const d = startMs - 5*60*1000 - nowMs;
-      if (d > 0) setTimeout(() => fireNotif(`🏋️ ${b.label} in 5 minutes`, `Get changed and get water ready. ${b.note}`), d);
+      if (d > 0) scheduledTimerIds.push(setTimeout(() => fireNotif(`🏋️ ${b.label} in 5 minutes`, `Get changed and get water ready. ${b.note}`), d));
     }
     // 30 min wind-down before sleep
     if (b.type === 'sleep') {
       const d = startMs - 30*60*1000 - nowMs;
-      if (d > 0) setTimeout(() => fireNotif('🌙 Wind Down in 30 Minutes', 'Start wrapping up everything. Put the phone down.'), d);
+      if (d > 0) scheduledTimerIds.push(setTimeout(() => fireNotif('🌙 Wind Down in 30 Minutes', 'Start wrapping up everything. Put the phone down.'), d));
     }
     // Gaming notification
     if (b.type === 'gaming') {
       if (diff > 0 && diff < 86400000) {
-        setTimeout(() => fireNotif('🎮 GAMING TIME UNLOCKED', `You have ${b.duration} minutes. Enjoy!`), diff);
+        scheduledTimerIds.push(setTimeout(() => fireNotif('🎮 GAMING TIME UNLOCKED', `You have ${b.duration} minutes. Enjoy!`), diff));
       }
     }
   });
