@@ -469,14 +469,30 @@ select.input option { background: var(--card-2); }
   padding: 10px;
   overflow: hidden;
   box-shadow: 0 20px 45px -20px rgba(0,0,0,0.6), 0 0 0 1px rgba(245, 197, 107, 0.08) inset;
+  /* Fixed aspect ratio + centered content so a real (often portrait or oddly-
+     cropped) photographed certificate is contained and fully visible instead
+     of being cropped by overflow:hidden at an unpredictable size. Previously
+     this had no height constraint at all, so `.cert-frame img { width:100% }`
+     just rendered the photo at its native ratio — fine for the generated
+     fallback art, but for real uploaded photos this frequently clipped the
+     signature/seal/bottom text off an already-busy image. */
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .cert-frame img {
   position: relative;
   z-index: 1;
   width: 100%;
+  height: 100%;
   display: block;
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  /* contain, not cover: never crop the actual certificate content — letterbox
+     instead if the photo's aspect ratio doesn't match the frame. */
+  object-fit: contain;
+  background: #fff;
 }
 .cert-glow {
   position: absolute;
@@ -486,6 +502,13 @@ select.input option { background: var(--card-2); }
   background: radial-gradient(ellipse at center, rgba(245, 197, 107, 0.22) 0%, transparent 65%);
   pointer-events: none;
   z-index: 0;
+  /* The glow was designed against the flat, dark GeneratedCertArt fallback.
+     On top of a real photographed certificate (usually a light/white
+     document) it just reads as murky vignetting rather than a nice effect,
+     which is part of what made real certificates look muddy/badly framed. */
+}
+.cert-frame:has(img) .cert-glow {
+  opacity: 0.35;
 }
 .cert-shine {
   position: absolute; inset: 0;
