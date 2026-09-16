@@ -1,5 +1,17 @@
 // pages/api/ai.js — uses Groq (free, generous, OpenAI-compatible). Set GROQ_API_KEY.
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b'; // free & strong; or 'llama-3.1-8b-instant' for speed
+// groq/compound is Groq's agentic model — it can actually call a real web
+// search tool mid-generation, the same one lib/jarvis-research-core.js uses
+// for Jarvis's research feature. `activities` and `opportunities` previously
+// used plain GROQ_MODEL with no tools at all, so the model was just
+// generating plausible-sounding place names and gig platforms from its own
+// training data with no grounding in anything real or current — which is
+// why "Suggest Activities" / "Find Online Opportunities" felt hardcoded/
+// repetitive even with the nonce freshness trick. Switching these two to
+// groq/compound + web_search makes them actually search for real, current
+// results instead of imagining them.
+const COMPOUND_MODEL = 'groq/compound';
+const SEARCH_GROUNDED_TYPES = new Set(['activities', 'opportunities']);
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -27,9 +39,9 @@ ${modeStr}${varietyStr}
 The user has ${currency_symbol}${balance} in floating cash available (after all budgets).
 Budgets already set: ${budgets?.length ? budgets.map(b => b.name + ' (' + b.period + ')').join(', ') : 'none'}.
 
-Suggest 6 real, current, FUN activities, venues, restaurants or experiences that genuinely exist near the user's exact location and fit their budget. Mix free and paid. If in Kenya, use real Kenyan place names.
+Use web search to find 6 real, CURRENTLY OPERATING activities, venues, restaurants or experiences that genuinely exist near the user's exact location right now and fit their budget — do not invent or guess venue names from memory. Mix free and paid. If in Kenya, use real Kenyan place names you've verified via search.
 
-Return a JSON object: { "results": [ ...6 items ] }. Each item has exactly:
+Return ONLY a JSON object (no markdown, no commentary): { "results": [ ...6 items ] }. Each item has exactly:
 - id (string like "act_1"), title, emoji, description (1-2 lively sentences, mention the real place name AND the city ${location?.city || ''}),
 - estimated_cost (number in ${currency}), category (one of "food","outdoor","entertainment","social","relaxation","adventure"),
 - why_now (short fun reason), is_free (boolean).`;
@@ -40,11 +52,11 @@ Return a JSON object: { "results": [ ...6 items ] }. Each item has exactly:
 
 The user currently has ${currency_symbol}${balance} available in ${currency}.${varietyStr}
 
-Focus on lesser-known but legitimate platforms and gigs active in 2026, such as: smart-contract / security audit contests and bug bounties (e.g. Code4rena, Sherlock, Cantina, Immunefi, HackenProof), data-labelling and AI-training micro-tasks (e.g. Atlas/Capture-style annotation platforms, Outlier, DataAnnotation, Remotasks-style tools), crypto/web3 testnet incentives and quests, paid open-source bounties (e.g. Algora, Gitcoin), UX research panels, and niche freelance marketplaces. AVOID the generic obvious ones (basic surveys, Fiverr gig spam) unless framed in a clever, higher-earning way.
+Use web search to find opportunities that are actually live/open right now — real, currently-active platforms and gigs, such as: smart-contract / security audit contests and bug bounties (e.g. Code4rena, Sherlock, Cantina, Immunefi, HackenProof), data-labelling and AI-training micro-tasks (e.g. Outlier, DataAnnotation, Remotasks-style tools), crypto/web3 testnet incentives and quests, paid open-source bounties (e.g. Algora, Gitcoin), UX research panels, and niche freelance marketplaces. Verify via search that platforms/programs you mention are currently real and active — don't invent ones from memory. AVOID the generic obvious ones (basic surveys, Fiverr gig spam) unless framed in a clever, higher-earning way.
 
 Do NOT state a single fixed exact price. Instead express realistic POTENTIAL earnings as a range, because actual pay depends on effort and skill.
 
-Return a JSON object: { "results": [ ...6 items ] }. Each item has exactly:
+Return ONLY a JSON object (no markdown, no commentary): { "results": [ ...6 items ] }. Each item has exactly:
 - id (string like "opp_1"), title, emoji, platform, description (2-3 sentences explaining why it's a hidden opportunity and how to start),
 - estimated_earnings (string POTENTIAL range like "KSh 5,000 - 80,000 per audit" or "Up to $500/mo"), estimated_amount (number, realistic middle potential estimate in ${currency}),
 - time_required (string), difficulty (one of "Easy","Medium","Hard"), link_hint (the platform website/app name).`;
@@ -119,19 +131,29 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
   }
 
   try {
+    const useSearch = SEARCH_GROUNDED_TYPES.has(type);
+    const body = {
+      model: useSearch ? COMPOUND_MODEL : GROQ_MODEL,
+      temperature: 0.8,
+      max_tokens: 2000,
+      messages: [
+        { role: 'system', content: 'You output only valid JSON. No markdown, no commentary.' },
+        { role: 'user', content: prompt },
+      ],
+    };
+    // response_format: json_object is a strict-mode param the plain chat
+    // model supports; groq/compound is an agentic/tool-use model and
+    // jarvis-research-core.js (which already uses it successfully) never
+    // passes this param, so we don't force it here either — the existing
+    // JSON.parse-with-regex-fallback below already handles free-text output
+    // that isn't perfectly strict JSON.
+    if (!useSearch) body.response_format = { type: 'json_object' };
+    if (useSearch) body.compound_custom = { tools: { enabled_tools: ['web_search'] } };
+
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify({
-        model: GROQ_MODEL,
-        temperature: 0.8,
-        max_tokens: 2000,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: 'You output only valid JSON. No markdown, no commentary.' },
-          { role: 'user', content: prompt },
-        ],
-      }),
+      body: JSON.stringify(body),
     });
 
     const data = await response.json();
@@ -145,9 +167,28 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
       const obj = JSON.parse(rawText);
       parsed = Array.isArray(obj) ? obj : obj.results || obj.items || obj.data || [];
     } catch {
-      const m = rawText.match(/\[[\s\S]*\]/);
-      if (!m) return res.status(500).json({ error: 'Could not parse AI response', raw: rawText });
-      parsed = JSON.parse(m[0]);
+      // groq/compound (used for search-grounded types) is an agentic model
+      // and, unlike the plain model with response_format:json_object, isn't
+      // guaranteed to return bare strict JSON — it may wrap the JSON in
+      // ```json fences or add a sentence of narration around it. Strip
+      // fences first, then try an object match (the prompts ask for
+      // {"results":[...]}) before falling back to a bare array match.
+      const stripped = rawText.replace(/```json|```/gi, '').trim();
+      try {
+        const obj = JSON.parse(stripped);
+        parsed = Array.isArray(obj) ? obj : obj.results || obj.items || obj.data || [];
+      } catch {
+        const objMatch = stripped.match(/\{[\s\S]*\}/);
+        const arrMatch = stripped.match(/\[[\s\S]*\]/);
+        if (objMatch) {
+          try {
+            const obj = JSON.parse(objMatch[0]);
+            parsed = Array.isArray(obj) ? obj : obj.results || obj.items || obj.data || [];
+          } catch { /* fall through to array match below */ }
+        }
+        if (!parsed && arrMatch) parsed = JSON.parse(arrMatch[0]);
+        if (!parsed) return res.status(500).json({ error: 'Could not parse AI response', raw: rawText });
+      }
     }
 
     // For analysis types, return the full object (not just results)
