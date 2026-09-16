@@ -5,6 +5,7 @@ import { getSetting, setSetting } from '../lib/db';
 import { todayISO, computeJobProgress } from '../lib/utils';
 import { hackStatus, isUrgent, projectStatus } from './tech-hub';
 import { WEEKLY_PLAN, weekdayPlanIndex, estimateWorkoutMinutes, exerciseSummary } from './workout';
+import { buildJarvisContext } from '../lib/jarvis-context';
 import { format } from 'date-fns';
 
 // ─── DAY ANCHORS ───────────────────────────────────────────────────────────
@@ -356,6 +357,9 @@ export default function PlannerPage() {
   const [now, setNow] = useState(new Date());
   const [tab, setTab] = useState('today');
   const [editBlock, setEditBlock] = useState(null);
+  const [usingAI, setUsingAI] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState(null);
 
   // hackathons/startups/projects/onlineJobs are new array references every
   // time AppContext's loadAll() runs — which happens after ANY data change
@@ -400,7 +404,9 @@ export default function PlannerPage() {
   // changes, then layer any per-day manual edits on top.
   useEffect(() => {
     async function load() {
-      const generated = buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research }, isWeekend);
+      const aiBlocks = await getSetting(`planner_ai_blocks_${todayISO()}`, null);
+      const generated = aiBlocks?.length ? aiBlocks : buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research }, isWeekend);
+      setUsingAI(!!aiBlocks?.length);
       setDroppedToday(generated._droppedToday || []);
       const overrides = await getSetting(`planner_overrides_${todayISO()}`, {});
       const patched = generated.map((b) => (overrides[b.id] ? { ...b, ...overrides[b.id] } : b));
@@ -504,10 +510,66 @@ export default function PlannerPage() {
 
   async function resetToday() {
     await setSetting(`planner_overrides_${todayISO()}`, {});
+    await setSetting(`planner_ai_blocks_${todayISO()}`, null);
+    setUsingAI(false);
+    setAiError(null);
     const fresh = buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research }, isWeekend);
     setDroppedToday(fresh._droppedToday || []);
     setBlocks(fresh);
     await syncPlannerBlocksSetting(fresh);
+  }
+
+  // "I'm Awake" — replaces the fixed wake-time assumption with whatever
+  // moment the person actually presses this. Builds the same rich context
+  // Jarvis already sees (money, meals, hackathons, jobs, projects, research)
+  // plus today's workout plan, sends it to /api/planner-generate, and lays
+  // out the returned relative durations starting from right now. Falls
+  // back to leaving the current (deterministic) schedule untouched if
+  // anything about the call fails — this is additive, never destructive
+  // on failure.
+  async function generateAIDay() {
+    setAiGenerating(true); setAiError(null);
+    try {
+      const nowDate = new Date();
+      const nowMins = nowDate.getHours() * 60 + nowDate.getMinutes();
+
+      const dayIdx = weekdayPlanIndex(nowDate);
+      const dayPlan = WEEKLY_PLAN[dayIdx];
+      const workoutDone = blocks.some((b) => b.type === 'workout' && completedIds.includes(b.id));
+      const workoutSummary = workoutDone
+        ? "Today's workout already completed."
+        : `Today's workout plan (${dayPlan.focus}): morning — ${dayPlan.morning.title}: ${exerciseSummary(dayPlan.morning.exercises)}${dayPlan.evening.isRest ? '; evening is a rest day' : `; evening — ${dayPlan.evening.title}: ${exerciseSummary(dayPlan.evening.exercises)}`}. Not yet done today.`;
+
+      const baseContext = await buildJarvisContext();
+      const context = `${baseContext}\n\n— TODAY'S WORKOUT PLAN —\n${workoutSummary}`;
+
+      const res = await fetch('/api/planner-generate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ context, nowLabel: nowDate.toLocaleString(), isWeekend }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      let cursor = nowMins;
+      const computed = (data.blocks || []).map((b, i) => {
+        const block = { id: `ai_${i}`, time: m2t(cursor), label: b.label, type: b.type, duration: b.duration_minutes, emoji: b.emoji, note: b.note };
+        cursor += b.duration_minutes;
+        return block;
+      });
+      if (!computed.length) throw new Error('No blocks generated');
+
+      await setSetting(`planner_overrides_${todayISO()}`, {});
+      await setSetting(`planner_ai_blocks_${todayISO()}`, computed);
+      setUsingAI(true);
+      setDroppedToday([]);
+      setBlocks(computed);
+      await syncPlannerBlocksSetting(computed);
+      if (notifEnabled) scheduleAll(computed);
+    } catch (e) {
+      setAiError(e.message || 'Could not generate your day — try again in a moment.');
+    } finally {
+      setAiGenerating(false);
+    }
   }
 
   const nowMins = now.getHours()*60+now.getMinutes();
@@ -545,7 +607,25 @@ export default function PlannerPage() {
             <h1 style={{ fontSize:22, fontWeight:700 }}>Daily Planner</h1>
             <span className="font-num" style={{ fontSize:13, color:'var(--text-3)' }}>{format(now,'h:mm a')}</span>
           </div>
-          <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:16 }}>{format(now,'EEEE, d MMMM yyyy')} · auto-built from Tech Hub, My Jobs &amp; today's workout</div>
+          <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:16 }}>{format(now,'EEEE, d MMMM yyyy')} · {usingAI ? 'AI-planned from your day' : "auto-built from Tech Hub, My Jobs & today's workout"}</div>
+
+          <button onClick={generateAIDay} disabled={aiGenerating}
+            style={{ width:'100%', padding:'14px 16px', background: usingAI ? 'var(--card-2)' : 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.15))', border: `1px solid ${usingAI ? 'var(--border)' : 'rgba(16,185,129,0.35)'}`, borderRadius:12, display:'flex', alignItems:'center', gap:12, cursor: aiGenerating ? 'default' : 'pointer', marginBottom:14, textAlign:'left', fontFamily:'Outfit' }}>
+            <span style={{ fontSize:22 }}>{aiGenerating ? '⏳' : '☀️'}</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:14, fontWeight:700, color:'var(--text)' }}>
+                {aiGenerating ? 'Planning your day…' : usingAI ? 'Regenerate My Day' : "I'm Awake — Plan My Day"}
+              </div>
+              <div style={{ fontSize:12, color:'var(--text-3)' }}>
+                {aiGenerating ? 'Reading your money, deadlines, research & workouts' : 'AI builds the rest of today from right now, based on everything active in Fedha'}
+              </div>
+            </div>
+          </button>
+          {aiError && (
+            <div style={{ padding:'10px 14px', background:'var(--red-dim)', border:'1px solid rgba(239,68,68,0.2)', borderRadius:10, fontSize:13, color:'var(--red)', marginBottom:14 }}>
+              ⚠ {aiError}{aiError.includes('GROQ') && <div style={{ marginTop:6, color:'var(--text-3)' }}>Add GROQ_API_KEY to your environment variables.</div>}
+            </div>
+          )}
 
           {/* Notif banners */}
           {!notifEnabled && notifPerm !== 'denied' && (
