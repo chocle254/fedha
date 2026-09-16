@@ -496,7 +496,11 @@ function CertStatChip({ icon, value, label }) {
     <div className="card-2" style={{ flex: 1, minWidth: 0, padding: '10px 8px', textAlign: 'center' }}>
       <div style={{ fontSize: 18, marginBottom: 2 }}>{icon}</div>
       <div className="font-num" style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{value}</div>
-      <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 1 }}>{label}</div>
+      {/* was var(--text-3) at 10px — too low-contrast against --card-2 to read
+          comfortably at this size (this is what made the stat row look
+          washed-out/greyed-out). var(--text-2) keeps it clearly secondary
+          without being illegible. */}
+      <div style={{ fontSize: 10, color: 'var(--text-2)', marginTop: 1 }}>{label}</div>
     </div>
   );
 }
@@ -1066,7 +1070,7 @@ const RESEARCH_CATEGORIES = [
 ];
 const EMPTY_RESEARCH = { title: '', category: 'general', notes: '', link: '', tags: '', linked_type: '', linked_id: '', status: 'open', entries: [], summary: '' };
 
-function ResearchModal({ initial, onClose, onSave, hackathons, projects, startups, onlineJobs }) {
+function ResearchModal({ initial, onClose, onSave, saveError, hackathons, projects, startups, onlineJobs }) {
   const [form, setForm] = useState({ ...EMPTY_RESEARCH, ...initial, entries: initial?.entries ? [...initial.entries] : [] });
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -1081,6 +1085,14 @@ function ResearchModal({ initial, onClose, onSave, hackathons, projects, startup
   async function runSearch() {
     const topic = query.trim();
     if (!topic) return;
+    // Each search's findings get appended to this entry and saved as one
+    // JSON blob — enough accumulated searches can grow that blob large
+    // enough to fail on save ("entity too large"). Nudge toward wrapping up
+    // before that happens rather than letting it silently accumulate.
+    if ((form.entries || []).length >= 8) {
+      setErr('You have a lot of searches in this entry already — try "Wrap Up" to summarize and clear them before searching further, so this entry stays saveable.');
+      return;
+    }
     setSearching(true); setErr(null);
     try {
       const res = await fetch('/api/jarvis-research', {
@@ -1192,6 +1204,14 @@ function ResearchModal({ initial, onClose, onSave, hackathons, projects, startup
             )}
           </div>
 
+          {saveError && (
+            <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8, padding: '8px 10px', background: 'rgba(239,68,68,0.08)', borderRadius: 8 }}>
+              ⚠ {saveError}
+              {/research too large|payload too large|too large|413/i.test(saveError) && (
+                <div style={{ marginTop: 4 }}>Your accumulated AI findings may be too large to save in one entry. Try wrapping up (summarizing) to condense them, or removing an older search below.</div>
+              )}
+            </div>
+          )}
           <button className="btn-primary" disabled={!form.title.trim()} onClick={() => onSave(form)}>
             {initial?.id ? 'Save Changes' : 'Add Research'}
           </button>
@@ -1289,6 +1309,7 @@ export default function TechHubPage() {
   const [certDetail, setCertDetail] = useState(null); // cert being viewed full-screen
   const [projModal, setProjModal] = useState(null); // {} for new, object for edit, null for closed
   const [researchModal, setResearchModal] = useState(null); // {} for new, object for edit, null for closed
+  const [researchSaveError, setResearchSaveError] = useState(null);
 
   // location (shared by AI fetches)
   const [location, setLocation] = useState(null);
@@ -1306,6 +1327,20 @@ export default function TechHubPage() {
   const [startupName, setStartupName] = useState('');
   const [startupAcc, setStartupAcc] = useState('');
   const [showStartupForm, setShowStartupForm] = useState(false);
+
+  // Manual event entry — the Events tab previously only let you pull in
+  // AI-discovered events (fetchAI('tech_events')) with no way to add one
+  // yourself, unlike every other tab here. `events` itself is plain local
+  // state (not DB-backed, see useState above), so a manually-added event
+  // is shaped the same as an AI one and just pushed into the same array.
+  const [showEventForm, setShowEventForm] = useState(false);
+  const [eventForm, setEventForm] = useState({ name: '', organizer: '', description: '', location: '', date: '', url_hint: '', is_free: false });
+  function addManualEvent() {
+    if (!eventForm.name.trim()) return;
+    setEvents((prev) => [{ id: genId(), ...eventForm, name: eventForm.name.trim() }, ...prev]);
+    setEventForm({ name: '', organizer: '', description: '', location: '', date: '', url_hint: '', is_free: false });
+    setShowEventForm(false);
+  }
 
   useEffect(() => { getSetting('last_location', null).then((v) => { if (v) { setLocation(v); setLocStatus('got'); } }); }, []);
 
@@ -1410,9 +1445,21 @@ export default function TechHubPage() {
   }
 
   async function saveResearchForm(form) {
-    if (researchModal?.id) await updateResearch({ ...researchModal, ...form });
-    else await addResearch(form);
-    setResearchModal(null);
+    // Unlike saveProjectForm/saveCertForm, this used to close the modal
+    // unconditionally — so if the save failed (e.g. local cache write
+    // failed, or the sync-to-server upsert later failed with a payload-
+    // too-large error), the modal would vanish as if nothing was wrong and
+    // the entry could silently disappear on the next re-render. Surface the
+    // error and keep the modal open instead, same as the AI-search errors
+    // inside ResearchModal already do.
+    try {
+      if (researchModal?.id) await updateResearch({ ...researchModal, ...form });
+      else await addResearch(form);
+      setResearchModal(null);
+    } catch (e) {
+      console.error('[fedha] failed to save research entry:', e);
+      setResearchSaveError(e?.message || 'Failed to save — please try again.');
+    }
   }
 
   const byDeadline = (a, b) => { if (!a.deadline) return 1; if (!b.deadline) return -1; return new Date(a.deadline) - new Date(b.deadline); };
@@ -1548,16 +1595,44 @@ export default function TechHubPage() {
           {/* ── EVENTS ─────────────────────────────────────── */}
           {tab === 'events' && (
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 8 }}>
                 <div className="section-title" style={{ marginBottom: 0 }}>Tech Events Near You</div>
-                <button onClick={() => fetchAI('tech_events')} disabled={loadingEvents}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 100, color: 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit' }}>
-                  🔄 {loadingEvents ? 'Scanning…' : events.length ? 'Refresh' : 'Find events'}
-                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setShowEventForm((s) => !s)}
+                    style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>+ Add</button>
+                  <button onClick={() => fetchAI('tech_events')} disabled={loadingEvents}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 100, color: 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit' }}>
+                    🔄 {loadingEvents ? 'Scanning…' : events.length ? 'Refresh' : 'Find events'}
+                  </button>
+                </div>
               </div>
+
+              {showEventForm && (
+                <div className="card" style={{ padding: 16, marginBottom: 12 }}>
+                  <Field label="Event Name"><input className="input" placeholder="e.g. Nairobi Dev Meetup" value={eventForm.name} onChange={(e) => setEventForm((f) => ({ ...f, name: e.target.value }))} autoFocus /></Field>
+                  <div style={{ height: 12 }} />
+                  <Field label="Organizer (optional)"><input className="input" placeholder="e.g. GDG Nairobi" value={eventForm.organizer} onChange={(e) => setEventForm((f) => ({ ...f, organizer: e.target.value }))} /></Field>
+                  <div style={{ height: 12 }} />
+                  <Field label="Description (optional)"><textarea className="input" rows={2} placeholder="What's it about?" value={eventForm.description} onChange={(e) => setEventForm((f) => ({ ...f, description: e.target.value }))} style={{ resize: 'vertical', fontFamily: 'Outfit' }} /></Field>
+                  <div style={{ height: 12 }} />
+                  <Field label="Location / Venue (optional)"><input className="input" placeholder="e.g. iHub, Nairobi" value={eventForm.location} onChange={(e) => setEventForm((f) => ({ ...f, location: e.target.value }))} /></Field>
+                  <div style={{ height: 12 }} />
+                  <Field label="Date (optional)"><input className="input" type="date" value={eventForm.date} onChange={(e) => setEventForm((f) => ({ ...f, date: e.target.value }))} /></Field>
+                  <div style={{ height: 12 }} />
+                  <Field label="Link (optional)"><input className="input" placeholder="e.g. lu.ma/event-slug" value={eventForm.url_hint} onChange={(e) => setEventForm((f) => ({ ...f, url_hint: e.target.value }))} /></Field>
+                  <button className="btn-primary" style={{ marginTop: 14 }} disabled={!eventForm.name.trim()} onClick={addManualEvent}>Add Event</button>
+                </div>
+              )}
+
               {events.length === 0 && !loadingEvents ? (
-                <div className="empty-state"><div className="icon">📅</div><h3>Find tech events near you</h3><p>{location ? `Scanning around ${location.city}.` : 'Share your location above, then'} tap "Find events" for nearby meetups, conferences & demo days</p></div>
-              ) : events.map((e) => <DiscoverCard key={e.id} item={e} kind="event" />)}
+                <div className="empty-state"><div className="icon">📅</div><h3>Find tech events near you</h3><p>{location ? `Scanning around ${location.city}.` : 'Share your location above, then'} tap "Find events" for nearby meetups, conferences & demo days, or add one yourself</p></div>
+              ) : events.map((e) => (
+                <div key={e.id} style={{ position: 'relative' }}>
+                  <DiscoverCard item={e} kind="event" />
+                  <button onClick={() => setEvents((prev) => prev.filter((x) => x.id !== e.id))}
+                    style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 13 }} aria-label="Remove">🗑️</button>
+                </div>
+              ))}
             </div>
           )}
 
@@ -1607,7 +1682,10 @@ export default function TechHubPage() {
       </div>
 
       {researchModal !== null && (
-        <ResearchModal initial={researchModal} onClose={() => setResearchModal(null)} onSave={saveResearchForm}
+        <ResearchModal initial={researchModal}
+          onClose={() => { setResearchModal(null); setResearchSaveError(null); }}
+          onSave={saveResearchForm}
+          saveError={researchSaveError}
           hackathons={hackathons} projects={projects} startups={startups} onlineJobs={onlineJobs} />
       )}
       {hackModal !== null && (
