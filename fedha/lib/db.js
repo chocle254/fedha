@@ -79,6 +79,33 @@ async function refreshTable(table, buildQuery) {
   }
 }
 
+// Same as refreshTable, but merges server rows into the local cache instead
+// of clearing the store first. refreshTable's clear-then-replace approach is
+// safe for tables where cacheReplaceAll's pending-ops check can name every
+// row that must survive — but that check only protects a row while its op
+// is still sitting in the local write queue. It does NOT protect a row whose
+// write already succeeded and was removed from that queue, if the SELECT
+// behind this refresh was in flight since before that write landed (slow
+// connections make this common) and so comes back without it: the clear
+// then wipes a message that's genuinely already synced. jarvis_conversations
+// is append-only from the client's perspective — nothing here is ever
+// deleted server-side — so there's no need to ever clear it locally; a plain
+// merge gets the same eventual result without the TOCTOU race.
+async function refreshTableMerge(table, buildQuery) {
+  if (!isOnline() || !isSupabaseEnabled()) return;
+  if (!(await shouldRefresh(table))) return;
+  try {
+    const { data, error } = await buildQuery();
+    if (error) throw error;
+    if (data?.length) {
+      await cachePutMany(table, data);
+      notifyChanged(table);
+    }
+  } catch (e) {
+    console.warn(`[fedha] background refresh of ${table} failed (offline?):`, e?.message);
+  }
+}
+
 // ─── SETTINGS (key/value) ────────────────────────────────────────────────────
 export async function getSetting(key, fallback = null) {
   const cached = await cacheGetSetting(key);
@@ -483,7 +510,7 @@ async function nextJarvisSeq() {
 
 export async function getJarvisHistory() {
   const cached = await cacheGetAll('jarvis_conversations');
-  refreshTable('jarvis_conversations', () => supabase.from('jarvis_conversations').select('*').order('created_at', { ascending: false }).limit(CONVO_HISTORY_LIMIT));
+  refreshTableMerge('jarvis_conversations', () => supabase.from('jarvis_conversations').select('*').order('created_at', { ascending: false }).limit(CONVO_HISTORY_LIMIT));
   return cached
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at) || (a.seq ?? 0) - (b.seq ?? 0))
     .slice(-CONVO_HISTORY_LIMIT);

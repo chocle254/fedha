@@ -30,6 +30,48 @@ function describeWeatherCode(code) {
   return 'unknown conditions';
 }
 
+// groq/compound is allowed up to 10 internal web_search calls per request
+// (see console.groq.com/docs/compound/systems) before it produces a final
+// answer, and everything each of those searches turns up gets folded back
+// into the model's own context to write that answer. Prompts like the
+// "online_opportunities" one below, which name several specific platforms
+// and ask the model to verify each one, reliably push it into doing enough
+// of those searches that the accumulated context trips Groq's request-size
+// ceiling — which comes back as a plain 413 "Request Entity Too Large",
+// not a helpful "you did too many searches" message. That's what was
+// silently failing the research_online_opportunities tool call in
+// pages/api/jarvis.js (leaving the model nothing to work with on its
+// second pass, hence the empty/fallback reply) and what pages/discover.js
+// was surfacing verbatim as a red error banner.
+// groq/compound-mini caps itself at exactly 1 tool call, which keeps the
+// accumulated context small enough to stay under that ceiling — at some
+// cost to how many sources get cross-checked. So: try the full model
+// first for the richer result, and only fall back to mini on the specific
+// failure this causes, rather than giving up entirely.
+async function callCompound(apiKey, prompt, model) {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+      'Groq-Model-Version': 'latest',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      compound_custom: { tools: { enabled_tools: ['web_search'] } },
+      max_tokens: 900,
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    const err = new Error(data.error?.message || 'Groq Compound API error');
+    err.status = response.status;
+    throw err;
+  }
+  return data;
+}
+
 export async function runResearch(researchType, location, freeMinutes, topic) {
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY not set in environment variables');
@@ -47,29 +89,23 @@ export async function runResearch(researchType, location, freeMinutes, topic) {
     prompt = `Search the web right now for REAL activities, venues, or events happening in or very near ${location?.city || "the user's area"} that would be good to do RIGHT NOW, given: current time is ${timeStr}, current weather is ${weatherDesc}${freeMinutes ? `, and the person has about ${freeMinutes} minutes free` : ''}. Factor the weather in seriously — do not suggest an outdoor activity if it's raining or a bad time of day for it. Only include real, specific places or events you actually found via search — real names, not invented ones. If you find an event with a specific time/date, mention it. List at most 6. Format your final answer as a numbered list: name — one-sentence description — why it fits right now (weather/time reasoning) — rough cost if known.`;
   }
 
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-      'Groq-Model-Version': 'latest',
-    },
-    body: JSON.stringify({
-      model: COMPOUND_MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      compound_custom: { tools: { enabled_tools: ['web_search'] } },
-      // Each of these gets appended to a Research entry's `entries` array and
-      // saved as one JSON blob (see saveResearchForm in pages/tech-hub.js).
-      // Without a cap here, a handful of searches on a rich topic could grow
-      // that blob large enough to trip a payload-size limit on save (the
-      // user-visible "entity too large" error) — this keeps each individual
-      // finding bounded so accumulating several of them stays well under that.
-      max_tokens: 900,
-    }),
-  });
-
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error?.message || 'Groq Compound API error');
+  // Each of these gets appended to a Research entry's `entries` array and
+  // saved as one JSON blob (see saveResearchForm in pages/tech-hub.js).
+  // Without a cap on the completion itself, a handful of searches on a rich
+  // topic could grow that blob large enough to trip a payload-size limit on
+  // save (a second, separate place "entity too large" could show up) — the
+  // max_tokens: 900 above keeps each individual finding bounded so
+  // accumulating several of them stays well under that.
+  let data;
+  try {
+    data = await callCompound(GROQ_API_KEY, prompt, COMPOUND_MODEL);
+  } catch (e) {
+    if (e.status === 413) {
+      data = await callCompound(GROQ_API_KEY, prompt, 'groq/compound-mini');
+    } else {
+      throw e;
+    }
+  }
 
   const content = data.choices?.[0]?.message?.content || '';
 
