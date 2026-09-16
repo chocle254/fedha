@@ -30,12 +30,15 @@ function describeWeatherCode(code) {
   return 'unknown conditions';
 }
 
-export async function runResearch(researchType, location, freeMinutes) {
+export async function runResearch(researchType, location, freeMinutes, topic) {
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY not set in environment variables');
 
   let prompt;
-  if (researchType === 'online_opportunities') {
+  if (researchType === 'topic') {
+    if (!topic || !topic.trim()) throw new Error('topic is required for researchType "topic"');
+    prompt = `Search the web right now for real, current, specific information on the following topic: "${topic.trim()}". Only include things you actually found via search just now — real names, real URLs, real numbers — never invent anything. Be thorough but concise: cover the most important and most recent findings first. Format your answer as a short set of plain-language findings (a few sentences each), citing where each came from inline (site name). End with a one-paragraph overall summary of what this means for someone evaluating "${topic.trim()}".`;
+  } else if (researchType === 'online_opportunities') {
     prompt = `Search the web right now for REAL, CURRENTLY ACTIVE online micro-task platforms, gig sites, bounty programs, or remote micro-jobs that a tech-savvy person could realistically start today. I specifically want lesser-known, hidden-gem opportunities — not just Fiverr/Upwork basics — things like data-labeling/AI-training task platforms, bug bounty or security-audit contest platforms, paid open-source bounty boards, UX research panels, or niche freelance boards. For each one you find, give me the ACTUAL website URL you found it at (not a guess), a one-sentence description of what it is, and a realistic sense of what it pays. Only include things you actually found via search just now — do not invent any platform or URL. List at most 6. Format your final answer as a numbered list: name — URL — one-sentence description — realistic pay range.`;
   } else {
     const weather = location?.lat != null ? await getWeather(location.lat, location.lng) : null;
@@ -77,4 +80,31 @@ export async function runResearch(researchType, location, freeMinutes) {
   }
 
   return { content, citations: [...new Set(citations)] };
+}
+
+// Called when the user is done digging into a research entry — takes
+// everything gathered across one or more runResearch('topic', ...) calls
+// (each appended as the user researched further) and condenses it into one
+// closing summary for the entry, rather than leaving them with a pile of
+// raw search dumps to re-read later.
+export async function summarizeResearchWindow(entryTitle, accumulatedFindings) {
+  const GROQ_API_KEY = process.env.GROQ_API_KEY;
+  if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY not set in environment variables');
+  if (!accumulatedFindings || !accumulatedFindings.trim()) throw new Error('accumulatedFindings is required');
+
+  const prompt = `You're wrapping up a research session titled "${entryTitle}". Below is everything gathered across the session (possibly several separate search passes). Write ONE tight closing summary: the key facts/findings that actually matter, any conclusion or recommendation that follows from them, and anything still unresolved worth following up on later. Do not re-run searches or invent anything not already present below — just distill it.\n\n--- RAW FINDINGS ---\n${accumulatedFindings}`;
+
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
+    body: JSON.stringify({
+      model: 'openai/gpt-oss-120b',
+      temperature: 0.4,
+      max_tokens: 700,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error?.message || 'Groq API error');
+  return data.choices?.[0]?.message?.content || '';
 }

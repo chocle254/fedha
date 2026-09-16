@@ -418,6 +418,20 @@ export async function getCertificates() {
 export const saveCertificate = (c) => certificatesStore.save(c);
 export const deleteCertificate = (id) => certificatesStore.remove(id);
 
+// ─── RESEARCH LOG ────────────────────────────────────────────────────────────
+// Findings/notes entries — jobs, hackathon ideas, tech discoveries, anything.
+// `category` is lifted (like date_earned above) purely so future filtering/
+// sorting can query it directly; everything else (title, notes, AI findings,
+// link, tags, optional link to an existing hackathon/project/startup/job)
+// lives in the jsonb data blob, same as every other jsonStore table.
+const researchStore = jsonStore('research', 'category');
+export async function getResearch() {
+  const all = await researchStore.getAll();
+  return all.sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
+}
+export const saveResearch = (r) => researchStore.save(r);
+export const deleteResearch = (id) => researchStore.remove(id);
+
 // ─── JARVIS MEMORY & CONVERSATION HISTORY ──────────────────────────────────
 // Memory is a single evolving row (not a list) — cache it under a fixed
 // synthetic id, same trick used for settings.

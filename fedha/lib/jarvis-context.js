@@ -11,7 +11,7 @@
 
 import {
   getWallets, getTransactions, getBudgets, getLoans, getIncomePlans,
-  getGoals, getSetting, getFoodLogs, getHackathons, getProjects, getCertificates, getStartups,
+  getGoals, getSetting, getFoodLogs, getHackathons, getProjects, getCertificates, getStartups, getResearch,
 } from './db';
 import { todayISO, countdownTo, formatShort } from './utils';
 
@@ -105,6 +105,17 @@ async function summarizeDeadlines() {
   return upcoming.length ? `Upcoming hackathon/project deadlines:\n- ${upcoming.join('\n- ')}` : null;
 }
 
+// Open (not-yet-wrapped-up) research entries — surfaced so Jarvis and the
+// planner's AI day-generator both know when there's something worth a
+// dedicated research block, without either duplicating this query.
+async function summarizeResearch() {
+  const research = await getResearch();
+  const open = research.filter((r) => r.status !== 'closed');
+  if (!open.length) return null;
+  const lines = open.map((r) => `${r.title} (${r.category})${r.entries?.length ? ` — ${r.entries.length} search${r.entries.length === 1 ? '' : 'es'} logged so far` : ' — not started yet'}${r.notes ? `: ${r.notes}` : ''}`);
+  return `Open research items (not yet wrapped up):\n- ${lines.join('\n- ')}`;
+}
+
 // Full career/portfolio picture — used for CV drafting and feature-idea
 // suggestions, so those requests are grounded in what the user has
 // actually built rather than invented. Kept separate from the always-on
@@ -141,12 +152,13 @@ async function summarizeCareer() {
 
 // The full context string injected as a system message on every Jarvis turn.
 export async function buildJarvisContext() {
-  const [money, planner, meals, deadlines, career] = await Promise.all([
+  const [money, planner, meals, deadlines, career, research] = await Promise.all([
     summarizeMoney().catch((e) => `(money data unavailable: ${e.message})`),
     summarizePlanner().catch((e) => `(planner data unavailable: ${e.message})`),
     summarizeMeals().catch((e) => `(meal data unavailable: ${e.message})`),
     summarizeDeadlines().catch(() => null),
     summarizeCareer().catch(() => null),
+    summarizeResearch().catch(() => null),
   ]);
 
   const now = new Date();
@@ -156,6 +168,7 @@ export async function buildJarvisContext() {
     `— TODAY'S PLANNER —\n${planner}`,
     `— MEALS TODAY —\n${meals}`,
     deadlines ? `— DEADLINES —\n${deadlines}` : null,
+    research ? `— RESEARCH —\n${research}` : null,
     career ? `— PROJECTS, HACKATHONS & CERTIFICATES (for CV drafting, feature ideas) —\n${career}` : null,
   ].filter(Boolean).join('\n\n');
 }
