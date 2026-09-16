@@ -23,6 +23,7 @@ const TYPE_COLORS = {
   routine:  { bg:'rgba(99,102,241,0.12)',  border:'rgba(99,102,241,0.35)',  text:'#818CF8', dot:'#6366F1' },
   meal:     { bg:'rgba(245,158,11,0.12)',  border:'rgba(245,158,11,0.35)',  text:'#FCD34D', dot:'#F59E0B' },
   coding:   { bg:'rgba(16,185,129,0.12)', border:'rgba(16,185,129,0.35)', text:'#6EE7B7', dot:'#10B981' },
+  research: { bg:'rgba(59,130,246,0.12)', border:'rgba(59,130,246,0.35)', text:'#93C5FD', dot:'#3B82F6' },
   personal: { bg:'rgba(236,72,153,0.12)', border:'rgba(236,72,153,0.35)', text:'#F9A8D4', dot:'#EC4899' },
   chores:   { bg:'rgba(234,179,8,0.12)',  border:'rgba(234,179,8,0.35)',   text:'#FDE047', dot:'#EAB308' },
   workout:  { bg:'rgba(239,68,68,0.12)',  border:'rgba(239,68,68,0.35)',   text:'#FCA5A5', dot:'#EF4444' },
@@ -30,12 +31,13 @@ const TYPE_COLORS = {
   gaming:   { bg:'rgba(167,139,250,0.12)',border:'rgba(167,139,250,0.35)', text:'#C4B5FD', dot:'#A78BFA' },
   sleep:    { bg:'rgba(30,41,59,0.5)',    border:'rgba(51,65,85,0.5)',     text:'#475569', dot:'#334155' },
 };
-const TYPE_LABELS = { routine:'Routine', meal:'Meal', coding:'Work', personal:'Personal', chores:'Chores', workout:'Workout', health:'Health', gaming:'Gaming', sleep:'Sleep' };
+const TYPE_LABELS = { routine:'Routine', meal:'Meal', coding:'Work', personal:'Personal', chores:'Chores', workout:'Workout', health:'Health', gaming:'Gaming', sleep:'Sleep', research:'Research' };
 
 const NOTIF_MSGS = {
   routine: (b) => ({ title:'⏰ ' + b.label.toUpperCase(), body: b.note }),
   meal: (b) => ({ title: b.label.includes('Eat') ? '🍽️ TIME TO EAT' : '🍳 START COOKING NOW', body: b.label.includes('Eat') ? `${b.emoji} ${b.label} — eat properly, no phone` : `Cook now so food is ready on time. Check Meals tab.` }),
   coding: (b) => ({ title:`💻 ${b.label}`, body:`Phone away. ${b.note}` }),
+  research: (b) => ({ title:`🔍 ${b.label}`, body: b.note }),
   personal: (b) => ({ title: b.label.includes('Bae') ? '💕 BAE TIME' : '🎧 FREE TIME', body: b.note }),
   chores: (b) => ({ title:'🏠 CHORES TIME', body: b.note }),
   workout: (b) => ({ title:`🏋️ ${b.label}`, body: b.note }),
@@ -54,6 +56,18 @@ function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
 // figure out what actually deserves the day's deep-work blocks, in priority
 // order: an urgent hackathon deadline beats a job, beats a startup, beats a
 // side project, beats a generic "nothing active" fallback.
+function getOpenResearchItem(research) {
+  const open = (research || []).filter((r) => r.status !== 'closed');
+  if (!open.length) return null;
+  // Oldest open item first — the one that's been sitting longest gets
+  // picked up before a newer one, same "don't let things rot" logic as
+  // everything else pulled from Tech Hub.
+  const sorted = [...open].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+  const r = sorted[0];
+  const already = (r.entries || []).length;
+  return { emoji: '🔍', label: `Research — ${r.title}`, note: already ? `Continue digging into this — ${already} search${already === 1 ? '' : 'es'} logged so far. Open Tech Hub → Research.` : `Start researching this in Tech Hub → Research. Use the AI search helper, then Wrap Up when you have enough.` };
+}
+
 function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs }) {
   const items = [];
   const urgentHacks = (hackathons || []).filter(isUrgent);
@@ -119,6 +133,7 @@ const PRIORITY = { essential: 0, work: 1, chores: 2, social: 3, leisure: 4 };
 
 function buildTodayBlocks(ctx, isWeekend) {
   const workItems = getWorkPriorityItems(ctx);
+  const researchItem = getOpenResearchItem(ctx.research);
   const dayIdx = weekdayPlanIndex(new Date());
   const dayPlan = WEEKLY_PLAN[dayIdx];
   const morningWorkoutMin = estimateWorkoutMinutes(dayPlan.morning.exercises);
@@ -148,6 +163,8 @@ function buildTodayBlocks(ctx, isWeekend) {
 
   const w2 = pickWork(workItems, 1);
   want('work2', w2.label, 'coding', w2.emoji, w2.note, PRIORITY.work, 45, 90);
+
+  if (researchItem) want('research', researchItem.label, 'research', researchItem.emoji, researchItem.note, PRIORITY.work, 30, 60);
 
   if (isWeekend) want('laundry_hang', 'Hang / Check Laundry', 'chores', '👕', 'Hang clothes out to dry or move to the dryer.', PRIORITY.chores, 10, 15);
 
@@ -329,7 +346,7 @@ function EditModal({ block, onSave, onClose }) {
 }
 
 export default function PlannerPage() {
-  const { hackathons, startups, projects, onlineJobs } = useApp();
+  const { hackathons, startups, projects, onlineJobs, research } = useApp();
   const isWeekend = [0,6].includes(new Date().getDay());
   const [blocks, setBlocks] = useState([]);
   const [droppedToday, setDroppedToday] = useState([]);
@@ -356,6 +373,7 @@ export default function PlannerPage() {
     startups?.map((s) => s.id) || [],
     projects?.map((p) => [p.id, projectStatus(p)]) || [],
     onlineJobs?.map((j) => [j.id, j.status]) || [],
+    research?.map((r) => [r.id, r.status, (r.entries || []).length]) || [],
   ]);
 
   // _app.js's NotificationScheduler and lib/push.js's syncReminderSettings
@@ -382,7 +400,7 @@ export default function PlannerPage() {
   // changes, then layer any per-day manual edits on top.
   useEffect(() => {
     async function load() {
-      const generated = buildTodayBlocks({ hackathons, startups, projects, onlineJobs }, isWeekend);
+      const generated = buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research }, isWeekend);
       setDroppedToday(generated._droppedToday || []);
       const overrides = await getSetting(`planner_overrides_${todayISO()}`, {});
       const patched = generated.map((b) => (overrides[b.id] ? { ...b, ...overrides[b.id] } : b));
@@ -486,7 +504,7 @@ export default function PlannerPage() {
 
   async function resetToday() {
     await setSetting(`planner_overrides_${todayISO()}`, {});
-    const fresh = buildTodayBlocks({ hackathons, startups, projects, onlineJobs }, isWeekend);
+    const fresh = buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research }, isWeekend);
     setDroppedToday(fresh._droppedToday || []);
     setBlocks(fresh);
     await syncPlannerBlocksSetting(fresh);

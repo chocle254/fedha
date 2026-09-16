@@ -1050,6 +1050,208 @@ function ShowroomSection({ projects, onAdd, onEdit, onDelete }) {
   );
 }
 
+// ─── RESEARCH LOG ───────────────────────────────────────────────────────────
+// Findings/notes on anything — a job lead, a hackathon idea, a tech discovery.
+// The "AI helper" is a thin UI over /api/jarvis-research: each search pass
+// (a real, live web search via Groq's compound model) gets appended to
+// `entries` with its own citations, so a research session can span several
+// searches before you're done; "Wrap Up" then condenses everything gathered
+// into one closing `summary` via summarizeResearchWindow, rather than
+// leaving a pile of raw search dumps to re-read later.
+const RESEARCH_CATEGORIES = [
+  { id: 'job', label: '💼 Job', emoji: '💼' },
+  { id: 'hackathon', label: '🏆 Hackathon', emoji: '🏆' },
+  { id: 'tech', label: '⚙️ Tech', emoji: '⚙️' },
+  { id: 'general', label: '📌 General', emoji: '📌' },
+];
+const EMPTY_RESEARCH = { title: '', category: 'general', notes: '', link: '', tags: '', linked_type: '', linked_id: '', status: 'open', entries: [], summary: '' };
+
+function ResearchModal({ initial, onClose, onSave, hackathons, projects, startups, onlineJobs }) {
+  const [form, setForm] = useState({ ...EMPTY_RESEARCH, ...initial, entries: initial?.entries ? [...initial.entries] : [] });
+  const [query, setQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [wrapping, setWrapping] = useState(false);
+  const [err, setErr] = useState(null);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const linkables = {
+    hackathon: hackathons || [], project: projects || [], startup: startups || [], job: onlineJobs || [],
+  };
+
+  async function runSearch() {
+    const topic = query.trim();
+    if (!topic) return;
+    setSearching(true); setErr(null);
+    try {
+      const res = await fetch('/api/jarvis-research', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ researchType: 'topic', topic }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setForm((f) => ({ ...f, entries: [{ id: genId(), date: new Date().toISOString(), query: topic, content: data.content, citations: data.citations || [] }, ...(f.entries || [])] }));
+      setQuery('');
+    } catch (e) { setErr(e.message); }
+    finally { setSearching(false); }
+  }
+
+  async function wrapUp() {
+    if (!(form.entries || []).length) return;
+    setWrapping(true); setErr(null);
+    try {
+      const accumulated = form.entries.map((e) => `[${e.query}]\n${e.content}`).join('\n\n---\n\n');
+      const res = await fetch('/api/jarvis-research', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'summarize', entryTitle: form.title || 'Untitled research', accumulatedFindings: accumulated }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setForm((f) => ({ ...f, summary: data.summary, status: 'closed' }));
+    } catch (e) { setErr(e.message); }
+    finally { setWrapping(false); }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-sheet" style={{ maxHeight: '92vh' }}>
+        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+        <div className="modal-header">
+          <span style={{ fontSize: 16, fontWeight: 700 }}>{initial?.id ? 'Edit Research' : 'New Research'}</span>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{ overflowY: 'auto' }}>
+          <Field label="Title"><input className="input" placeholder="e.g. Should I take the Acme contract?" value={form.title} onChange={set('title')} autoFocus /></Field>
+
+          <Field label="Category">
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {RESEARCH_CATEGORIES.map((c) => (
+                <button key={c.id} type="button" onClick={() => setForm((f) => ({ ...f, category: c.id }))}
+                  style={{ flex: '1 1 45%', padding: '9px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit',
+                    background: form.category === c.id ? 'var(--green-dim)' : 'var(--card-2)',
+                    border: `1px solid ${form.category === c.id ? 'var(--green)' : 'var(--border)'}`,
+                    color: form.category === c.id ? 'var(--green)' : 'var(--text-2)' }}>
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          {form.category !== 'general' && (
+            <Field label="Link to existing item (optional)">
+              <select className="input" value={form.linked_id ? `${form.linked_type}:${form.linked_id}` : ''}
+                onChange={(e) => { const [t, id] = e.target.value.split(':'); setForm((f) => ({ ...f, linked_type: t || '', linked_id: id || '' })); }}>
+                <option value="">— none, or a new item later —</option>
+                {(linkables[form.category] || []).map((item) => (
+                  <option key={item.id} value={`${form.category}:${item.id}`}>{item.name}</option>
+                ))}
+              </select>
+            </Field>
+          )}
+
+          <Field label="Notes"><textarea className="input" placeholder="Your own notes, context, questions to answer…" value={form.notes} onChange={set('notes')} rows={2} style={{ resize: 'vertical', fontFamily: 'Outfit' }} /></Field>
+          <Field label="Link (optional)"><input className="input" placeholder="https://…" value={form.link} onChange={set('link')} /></Field>
+          <Field label="Tags (comma separated)"><input className="input" placeholder="e.g. remote, fintech" value={form.tags} onChange={set('tags')} /></Field>
+
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>🔍 Research with AI</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input className="input" placeholder="What do you want to search for right now?" value={query} onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && runSearch()} style={{ flex: 1 }} disabled={searching} />
+              <button onClick={runSearch} disabled={searching || !query.trim()}
+                style={{ padding: '0 16px', background: 'var(--blue)', border: 'none', borderRadius: 'var(--radius-sm)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>
+                {searching ? '…' : 'Search'}
+              </button>
+            </div>
+            {err && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>⚠ {err}</div>}
+
+            {form.summary && (
+              <div style={{ background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--green)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 }}>Wrapped-Up Summary</div>
+                <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{form.summary}</div>
+              </div>
+            )}
+
+            {(form.entries || []).length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 220, overflowY: 'auto', marginBottom: 10 }}>
+                {form.entries.map((e) => (
+                  <div key={e.id} style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 2 }}>{formatDate(e.date)} · &quot;{e.query}&quot;</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{e.content}</div>
+                    {e.citations?.length > 0 && (
+                      <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 4 }}>Sources: {e.citations.slice(0, 3).join(', ')}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {(form.entries || []).length > 0 && !form.summary && (
+              <button className="btn-ghost" onClick={wrapUp} disabled={wrapping} style={{ width: '100%' }}>
+                {wrapping ? 'Wrapping up…' : '✅ Wrap Up — Summarize Findings'}
+              </button>
+            )}
+          </div>
+
+          <button className="btn-primary" disabled={!form.title.trim()} onClick={() => onSave(form)}>
+            {initial?.id ? 'Save Changes' : 'Add Research'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResearchCard({ entry, onEdit, onDelete }) {
+  const cat = RESEARCH_CATEGORIES.find((c) => c.id === entry.category) || RESEARCH_CATEGORIES[3];
+  const tags = (entry.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
+  return (
+    <div className="card" style={{ padding: '12px 14px', marginBottom: 10, cursor: 'pointer' }} onClick={onEdit}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <span style={{ fontSize: 18, flexShrink: 0 }}>{cat.emoji}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{entry.title}</div>
+          {(entry.summary || entry.notes) && (
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+              {entry.summary || entry.notes}
+            </div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 100, background: entry.status === 'closed' ? 'var(--green-dim)' : 'var(--card-2)', color: entry.status === 'closed' ? 'var(--green)' : 'var(--text-3)' }}>
+              {entry.status === 'closed' ? 'Wrapped up' : 'Open'}
+            </span>
+            {(entry.entries || []).length > 0 && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>🔍 {entry.entries.length} search{entry.entries.length === 1 ? '' : 'es'}</span>}
+            {tags.map((t) => <span key={t} style={{ fontSize: 10, color: 'var(--text-3)' }}>#{t}</span>)}
+          </div>
+        </div>
+        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} style={{ background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 13, flexShrink: 0 }} aria-label="Delete">🗑️</button>
+      </div>
+    </div>
+  );
+}
+
+function ResearchSection({ research, onAdd, onEdit, onDelete }) {
+  const open = research.filter((r) => r.status !== 'closed');
+  const closed = research.filter((r) => r.status === 'closed');
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div className="section-title" style={{ marginBottom: 0 }}>Research Log</div>
+        <button onClick={onAdd} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>+ New</button>
+      </div>
+      {research.length === 0 ? (
+        <div className="empty-state"><div className="icon">🔍</div><h3>No research yet</h3><p>Log a job lead, hackathon idea, or anything you&apos;re digging into — the AI helper can search the web for you right here</p></div>
+      ) : (
+        <>
+          {open.length > 0 && <div style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>Open</div>}
+          {open.map((r) => <ResearchCard key={r.id} entry={r} onEdit={() => onEdit(r)} onDelete={() => onDelete(r.id)} />)}
+          {closed.length > 0 && <div style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, margin: '12px 0 8px', textTransform: 'uppercase', letterSpacing: 1 }}>Wrapped Up</div>}
+          {closed.map((r) => <ResearchCard key={r.id} entry={r} onEdit={() => onEdit(r)} onDelete={() => onDelete(r.id)} />)}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function TechHubPage() {
   const {
@@ -1057,6 +1259,8 @@ export default function TechHubPage() {
     startups: startupsRaw, addStartup, removeStartup,
     projects: projectsRaw, addProject, updateProject, removeProject,
     certificates: certificatesRaw, addCertificate, updateCertificate, removeCertificate,
+    research: researchRaw, addResearch, updateResearch, removeResearch,
+    onlineJobs: onlineJobsRaw,
   } = useApp();
   // useApp() should always return these as arrays (AppContext.js defaults
   // each to []), but guarding here too means a transient/unexpected
@@ -1069,11 +1273,14 @@ export default function TechHubPage() {
   const startups = startupsRaw || [];
   const projects = projectsRaw || [];
   const certificates = certificatesRaw || [];
+  const research = researchRaw || [];
+  const onlineJobs = onlineJobsRaw || [];
   if (process.env.NODE_ENV !== 'production') {
     if (!Array.isArray(hackathonsRaw)) console.warn('[fedha] hackathons from useApp() was not an array:', hackathonsRaw);
     if (!Array.isArray(startupsRaw)) console.warn('[fedha] startups from useApp() was not an array:', startupsRaw);
     if (!Array.isArray(projectsRaw)) console.warn('[fedha] projects from useApp() was not an array:', projectsRaw);
     if (!Array.isArray(certificatesRaw)) console.warn('[fedha] certificates from useApp() was not an array:', certificatesRaw);
+    if (!Array.isArray(researchRaw)) console.warn('[fedha] research from useApp() was not an array:', researchRaw);
   }
   const [tab, setTab] = useState('hackathons');
   const [showTxn, setShowTxn] = useState(false);
@@ -1081,6 +1288,7 @@ export default function TechHubPage() {
   const [certModal, setCertModal] = useState(null); // {} = new, {...cert} = edit, null = closed
   const [certDetail, setCertDetail] = useState(null); // cert being viewed full-screen
   const [projModal, setProjModal] = useState(null); // {} for new, object for edit, null for closed
+  const [researchModal, setResearchModal] = useState(null); // {} for new, object for edit, null for closed
 
   // location (shared by AI fetches)
   const [location, setLocation] = useState(null);
@@ -1201,6 +1409,12 @@ export default function TechHubPage() {
     setCertModal(null);
   }
 
+  async function saveResearchForm(form) {
+    if (researchModal?.id) await updateResearch({ ...researchModal, ...form });
+    else await addResearch(form);
+    setResearchModal(null);
+  }
+
   const byDeadline = (a, b) => { if (!a.deadline) return 1; if (!b.deadline) return -1; return new Date(a.deadline) - new Date(b.deadline); };
   const urgentHacks = hackathons.filter(isUrgent).sort(byDeadline);
   const activeHacks = hackathons.filter((h) => hackStatus(h) === 'active' && !isUrgent(h)).sort(byDeadline);
@@ -1237,6 +1451,7 @@ export default function TechHubPage() {
             <button className={`chip ${tab === 'startups' ? 'active' : ''}`} onClick={() => setTab('startups')}>💡 Startups</button>
             <button className={`chip ${tab === 'certificates' ? 'active' : ''}`} onClick={() => setTab('certificates')}>🖼 Certificates</button>
             <button className={`chip ${tab === 'showroom' ? 'active' : ''}`} onClick={() => setTab('showroom')}>🗂 Showroom</button>
+            <button className={`chip ${tab === 'research' ? 'active' : ''}`} onClick={() => setTab('research')}>🔍 Research</button>
           </div>
         </div>
 
@@ -1380,9 +1595,21 @@ export default function TechHubPage() {
               ))}
             </div>
           )}
+
+          {/* ── RESEARCH LOG ────────────────────────────────── */}
+          {tab === 'research' && (
+            <ResearchSection research={research}
+              onAdd={() => setResearchModal({})}
+              onEdit={(r) => setResearchModal(r)}
+              onDelete={(id) => removeResearch(id)} />
+          )}
         </div>
       </div>
 
+      {researchModal !== null && (
+        <ResearchModal initial={researchModal} onClose={() => setResearchModal(null)} onSave={saveResearchForm}
+          hackathons={hackathons} projects={projects} startups={startups} onlineJobs={onlineJobs} />
+      )}
       {hackModal !== null && (
         <HackathonModal initial={hackModal} onClose={() => setHackModal(null)} onSave={saveHack} />
       )}
