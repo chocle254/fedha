@@ -58,6 +58,13 @@ export async function runResearch(researchType, location, freeMinutes, topic) {
       model: COMPOUND_MODEL,
       messages: [{ role: 'user', content: prompt }],
       compound_custom: { tools: { enabled_tools: ['web_search'] } },
+      // Each of these gets appended to a Research entry's `entries` array and
+      // saved as one JSON blob (see saveResearchForm in pages/tech-hub.js).
+      // Without a cap here, a handful of searches on a rich topic could grow
+      // that blob large enough to trip a payload-size limit on save (the
+      // user-visible "entity too large" error) — this keeps each individual
+      // finding bounded so accumulating several of them stays well under that.
+      max_tokens: 900,
     }),
   });
 

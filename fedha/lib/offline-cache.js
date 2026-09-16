@@ -14,15 +14,23 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'fedha-offline-cache';
-const DB_VERSION = 2; // v2: added jarvis_memory, jarvis_conversations
+const DB_VERSION = 3; // v3: added research (was missing — see TABLES comment)
 const PENDING_STORE = '_pending_ops';
 const META_STORE = '_meta';
 
 // Every Supabase table this app reads/writes through lib/db.js.
+// IMPORTANT: this must include every table jsonStore()/rawStore() in lib/db.js
+// is used for, or that table's cachePut/cacheGetAll calls will silently fail
+// against a nonexistent IndexedDB object store (caught by withStoreFallback
+// below, which logs a warning but returns an empty fallback) — this was the
+// actual cause of newly-added Research entries appearing to save and then
+// disappearing: 'research' was missing from this list, so nothing about it
+// ever actually reached IndexedDB even though the in-memory React state
+// updated optimistically first.
 export const TABLES = [
   'settings', 'wallets', 'transactions', 'budgets', 'loans', 'goals',
   'income_plans', 'food_logs', 'challenges', 'hackathons', 'startups',
-  'projects', 'online_jobs', 'certificates', 'jarvis_memory', 'jarvis_conversations',
+  'projects', 'online_jobs', 'certificates', 'research', 'jarvis_memory', 'jarvis_conversations',
 ];
 
 let dbPromise = null;
