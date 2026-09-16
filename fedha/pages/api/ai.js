@@ -150,14 +150,43 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
     if (!useSearch) body.response_format = { type: 'json_object' };
     if (useSearch) body.compound_custom = { tools: { enabled_tools: ['web_search'] } };
 
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify(body),
-    });
+    async function callGroq(reqBody) {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
+        body: JSON.stringify(reqBody),
+      });
+      const json = await response.json();
+      if (!response.ok) {
+        const err = new Error(json.error?.message || 'Groq API error');
+        err.status = response.status;
+        throw err;
+      }
+      return json;
+    }
 
-    const data = await response.json();
-    if (!response.ok) return res.status(500).json({ error: data.error?.message || 'Groq API error' });
+    let data;
+    try {
+      data = await callGroq(body);
+    } catch (e) {
+      // groq/compound can run up to 10 internal web_search calls before
+      // answering, and the "opportunities"/"activities" prompts (which ask
+      // it to verify several named platforms/venues) reliably push it into
+      // enough searches that the accumulated context trips Groq's
+      // request-size ceiling — a 413 "Request Entity Too Large" that has
+      // nothing to do with how small our own prompt is. groq/compound-mini
+      // caps itself at 1 tool call, which stays under that ceiling, so
+      // retry once with mini rather than showing that raw error to the user.
+      if (useSearch && e.status === 413) {
+        try {
+          data = await callGroq({ ...body, model: 'groq/compound-mini' });
+        } catch (e2) {
+          return res.status(500).json({ error: "Couldn't reach the search results right now — try again in a moment." });
+        }
+      } else {
+        return res.status(500).json({ error: e.message });
+      }
+    }
 
     const rawText = data.choices?.[0]?.message?.content || '';
     if (!rawText) return res.status(500).json({ error: 'Empty response from Groq' });

@@ -253,6 +253,7 @@ async function callGroqWithTools(apiKey, messages, location) {
 
   const proposedActions = [];
   let memoryUpdate = null;
+  let researchFailed = false;
   const toolResultMessages = [];
 
   for (const call of toolCalls) {
@@ -279,6 +280,7 @@ async function callGroqWithTools(apiKey, messages, location) {
           content: result.content + (result.citations?.length ? `\n\nSources: ${result.citations.join(', ')}` : ''),
         });
       } catch (e) {
+        researchFailed = true;
         toolResultMessages.push({ role: 'tool', tool_call_id: call.id, content: `Research failed: ${e.message}` });
       }
       continue;
@@ -304,7 +306,12 @@ async function callGroqWithTools(apiKey, messages, location) {
   ], TOOLS);
   if (second.error) return second;
 
-  const finalReply = second.choices?.[0]?.message?.content || "Done — check the confirmation card.";
+  const fallback = proposedActions.length
+    ? "Done — check the confirmation card."
+    : researchFailed
+      ? "I tried searching for that just now but hit an error partway through — mind asking again?"
+      : "Got the results back, but I'm not able to summarize them right now — mind asking again?";
+  const finalReply = second.choices?.[0]?.message?.content?.trim() || fallback;
   return { reply: finalReply, proposedActions, memoryUpdate };
 }
 
