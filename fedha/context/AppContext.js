@@ -15,6 +15,7 @@ import {
   getOnlineJobs, saveOnlineJob, deleteOnlineJob,
   getProjects, saveProject, deleteProject,
   getCertificates, saveCertificate, deleteCertificate,
+  getResearch, saveResearch, deleteResearch,
   getSetting, setSetting, seedDefaultData,
 } from '../lib/db';
 
@@ -34,6 +35,7 @@ export function AppProvider({ children }) {
   const [onlineJobs, setOnlineJobs] = useState([]);
   const [projects, setProjects] = useState([]);
   const [certificates, setCertificates] = useState([]);
+  const [research, setResearch] = useState([]);
   const [currency, setCurrencyState] = useState('KES');
   const [isOnline, setIsOnline] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -43,16 +45,16 @@ export function AppProvider({ children }) {
 
   const loadAll = useCallback(async () => {
     await seedDefaultData();
-    const [ws, ts, bs, ls, gs, ips, chs, hks, sts, ojs, prs, crts, cur, cachedRates, spd] = await Promise.all([
+    const [ws, ts, bs, ls, gs, ips, chs, hks, sts, ojs, prs, crts, rsc, cur, cachedRates, spd] = await Promise.all([
       getWallets(), getTransactions(), getBudgets(), getLoans(),
       getGoals(), getIncomePlans(), getChallenges(),
-      getHackathons(), getStartups(), getOnlineJobs(), getProjects(), getCertificates(),
+      getHackathons(), getStartups(), getOnlineJobs(), getProjects(), getCertificates(), getResearch(),
       getSetting('currency', 'KES'), getSetting('fx_rates', null),
       getSetting('savings_plan_days', null),
     ]);
     setWallets(ws); setTransactions(ts); setBudgets(bs); setLoans(ls);
     setGoals(gs); setIncomePlans(ips); setChallenges(chs);
-    setHackathons(hks); setStartups(sts); setOnlineJobs(ojs); setProjects(prs); setCertificates(crts); setCurrencyState(cur);
+    setHackathons(hks); setStartups(sts); setOnlineJobs(ojs); setProjects(prs); setCertificates(crts); setResearch(rsc); setCurrencyState(cur);
     setSavingsPlanDaysState(spd);
 
     // Use cached rates immediately (offline-first), then refresh from network.
@@ -165,6 +167,10 @@ export function AppProvider({ children }) {
   const updateCertificate = useCallback(async (cert) => { const c = await saveCertificate(cert); setCertificates((prev) => prev.map((x) => (x.id === c.id ? c : x))); return c; }, []);
   const removeCertificate = useCallback(async (id) => { await deleteCertificate(id); setCertificates((prev) => prev.filter((x) => x.id !== id)); }, []);
 
+  const addResearch = useCallback(async (data) => { const r = await saveResearch({ id: genId(), created_at: new Date().toISOString(), ...data }); setResearch((prev) => [r, ...prev]); return r; }, []);
+  const updateResearch = useCallback(async (entry) => { const r = await saveResearch(entry); setResearch((prev) => prev.map((x) => (x.id === r.id ? r : x))); return r; }, []);
+  const removeResearch = useCallback(async (id) => { await deleteResearch(id); setResearch((prev) => prev.filter((x) => x.id !== id)); }, []);
+
   // ─── ONLINE JOBS ───────────────────────────────────────────────────────────
   const addOnlineJob = useCallback(async (data) => { const j = await saveOnlineJob({ id: genId(), entries: [], created_at: new Date().toISOString(), ...data }); setOnlineJobs((p) => [...p, j]); return j; }, []);
   const updateOnlineJob = useCallback(async (job) => { const j = await saveOnlineJob(job); setOnlineJobs((p) => p.map((x) => (x.id === j.id ? j : x))); return j; }, []);
@@ -197,6 +203,7 @@ export function AppProvider({ children }) {
       onlineJobs, addOnlineJob, updateOnlineJob, removeOnlineJob,
       projects, addProject, updateProject, removeProject,
       certificates, addCertificate, updateCertificate, removeCertificate,
+      research, addResearch, updateResearch, removeResearch,
       totalBalance, totalLoaned, totalBorrowed, totalGoalSaved, netWorth,
       reload: loadAll,
     }}>
