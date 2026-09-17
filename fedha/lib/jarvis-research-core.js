@@ -65,6 +65,15 @@ async function callCompound(apiKey, prompt, model) {
   });
   const data = await response.json();
   if (!response.ok) {
+    // Logged server-side (check your hosting provider's function logs —
+    // e.g. Vercel's Logs tab for this route) so the REAL Groq error text is
+    // visible somewhere, since every caller of runResearch() intentionally
+    // shows the user a soft, generic message rather than a raw API error.
+    // If both the full model and the compound-mini retry are failing, the
+    // status/message logged here will say why: model access (401/403),
+    // rate limiting (429), a malformed request (400 — e.g. an unsupported
+    // header or param), or a genuine size ceiling (413).
+    console.error(`[fedha] groq/${model} request failed:`, response.status, JSON.stringify(data.error || data));
     const err = new Error(data.error?.message || 'Groq Compound API error');
     err.status = response.status;
     throw err;
@@ -101,7 +110,29 @@ export async function runResearch(researchType, location, freeMinutes, topic) {
     data = await callCompound(GROQ_API_KEY, prompt, COMPOUND_MODEL);
   } catch (e) {
     if (e.status === 413) {
-      data = await callCompound(GROQ_API_KEY, prompt, 'groq/compound-mini');
+      // A 413 here isn't only "our own request got too big from multiple
+      // searches" — Groq's free tier can also return 413 for rate-limit
+      // reasons on the underlying model regardless of request size (see
+      // community.groq.com/t/1322 — a Groq team member confirms this
+      // directly: "Free tier plans have rate limits of underlying models
+      // and that can cause 413 errors"). An instant retry with
+      // compound-mini right after hitting that ceiling can just as easily
+      // fail again immediately, so wait briefly before retrying rather
+      // than assuming the fallback model alone fixes it.
+      await new Promise((r) => setTimeout(r, 1500));
+      try {
+        data = await callCompound(GROQ_API_KEY, prompt, 'groq/compound-mini');
+      } catch (e2) {
+        console.error('[fedha] compound-mini retry also failed:', e2.status, e2.message);
+        const rateLimited = e2.status === 413 || e2.status === 429;
+        const err = new Error(
+          rateLimited
+            ? 'Groq search is rate-limited right now — if this keeps happening, check your Groq account tier/limits at console.groq.com/settings/limits.'
+            : e2.message
+        );
+        err.status = e2.status;
+        throw err;
+      }
     } else {
       throw e;
     }

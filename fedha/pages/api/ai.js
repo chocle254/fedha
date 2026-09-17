@@ -158,6 +158,11 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
       });
       const json = await response.json();
       if (!response.ok) {
+        // Logged server-side so the real Groq error (model access, rate
+        // limit, malformed request, or genuine size ceiling) is visible in
+        // your hosting provider's function logs even though the user only
+        // ever sees a soft generic message below.
+        console.error(`[fedha] groq/${reqBody.model} request failed:`, response.status, JSON.stringify(json.error || json));
         const err = new Error(json.error?.message || 'Groq API error');
         err.status = response.status;
         throw err;
@@ -178,13 +183,24 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
       // caps itself at 1 tool call, which stays under that ceiling, so
       // retry once with mini rather than showing that raw error to the user.
       if (useSearch && e.status === 413) {
+        // See lib/jarvis-research-core.js for why an instant retry isn't
+        // reliable: Groq's free tier can return 413 for rate-limit reasons
+        // on the underlying model, not just genuine request-size overflow,
+        // and an immediate second call can hit that same ceiling again.
+        await new Promise((r) => setTimeout(r, 1500));
         try {
           data = await callGroq({ ...body, model: 'groq/compound-mini' });
         } catch (e2) {
-          return res.status(500).json({ error: "Couldn't reach the search results right now — try again in a moment." });
+          const rateLimited = e2.status === 413 || e2.status === 429;
+          return res.status(500).json({
+            error: rateLimited
+              ? "Groq search is rate-limited right now — try again shortly, or check your Groq account tier/limits if this keeps happening."
+              : "Couldn't reach the search results right now — try again in a moment.",
+            ...(process.env.NODE_ENV !== 'production' ? { debug: e2.message, debugStatus: e2.status } : {}),
+          });
         }
       } else {
-        return res.status(500).json({ error: e.message });
+        return res.status(500).json({ error: e.message, ...(process.env.NODE_ENV !== 'production' ? { debugStatus: e.status } : {}) });
       }
     }
 
