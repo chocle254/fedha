@@ -2,8 +2,23 @@
 // jarvis.js (when Jarvis calls research_online_opportunities/
 // research_activities_nearby as a tool) — kept in one place so the two
 // call sites can't drift into different prompts or weather logic.
-
-const COMPOUND_MODEL = 'groq/compound';
+//
+// runResearch() used to call groq/compound, which does its own web search
+// internally — but that model's free-tier limits kept returning 413s (see
+// git history / community.groq.com/t/1322: Groq confirms free-tier 413s on
+// compound models aren't only about request size, they can be a rate
+// ceiling on the model itself). Since the rest of the app's chat traffic
+// (Jarvis's main conversation loop, planner generation) is on Groq's plain
+// openai/gpt-oss-120b and was never the thing failing, only this one
+// search-grounded piece has moved: real retrieval now comes from
+// lib/brave-search.js (Brave Search API, separate free tier, separate rate
+// limits from Groq entirely), and lib/nvidia-client.js (NVIDIA NIM's free
+// Nemotron model) synthesizes an answer from those real results. NIM never
+// searches on its own — it only ever writes from snippets Brave actually
+// found, same "don't invent it" discipline the old prompts asked of
+// groq/compound.
+import { braveSearchMulti } from './brave-search';
+import { nvidiaChat } from './nvidia-client';
 
 async function getWeather(lat, lng) {
   try {
@@ -30,131 +45,48 @@ function describeWeatherCode(code) {
   return 'unknown conditions';
 }
 
-// groq/compound is allowed up to 10 internal web_search calls per request
-// (see console.groq.com/docs/compound/systems) before it produces a final
-// answer, and everything each of those searches turns up gets folded back
-// into the model's own context to write that answer. Prompts like the
-// "online_opportunities" one below, which name several specific platforms
-// and ask the model to verify each one, reliably push it into doing enough
-// of those searches that the accumulated context trips Groq's request-size
-// ceiling — which comes back as a plain 413 "Request Entity Too Large",
-// not a helpful "you did too many searches" message. That's what was
-// silently failing the research_online_opportunities tool call in
-// pages/api/jarvis.js (leaving the model nothing to work with on its
-// second pass, hence the empty/fallback reply) and what pages/discover.js
-// was surfacing verbatim as a red error banner.
-// groq/compound-mini caps itself at exactly 1 tool call, which keeps the
-// accumulated context small enough to stay under that ceiling — at some
-// cost to how many sources get cross-checked. So: try the full model
-// first for the richer result, and only fall back to mini on the specific
-// failure this causes, rather than giving up entirely.
-async function callCompound(apiKey, prompt, model) {
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-      'Groq-Model-Version': 'latest',
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      compound_custom: { tools: { enabled_tools: ['web_search'] } },
-      max_tokens: 900,
-    }),
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    // Logged server-side (check your hosting provider's function logs —
-    // e.g. Vercel's Logs tab for this route) so the REAL Groq error text is
-    // visible somewhere, since every caller of runResearch() intentionally
-    // shows the user a soft, generic message rather than a raw API error.
-    // If both the full model and the compound-mini retry are failing, the
-    // status/message logged here will say why: model access (401/403),
-    // rate limiting (429), a malformed request (400 — e.g. an unsupported
-    // header or param), or a genuine size ceiling (413).
-    console.error(`[fedha] groq/${model} request failed:`, response.status, JSON.stringify(data.error || data));
-    const err = new Error(data.error?.message || 'Groq Compound API error');
-    err.status = response.status;
-    throw err;
-  }
-  return data;
-}
-
 export async function runResearch(researchType, location, freeMinutes, topic) {
-  const GROQ_API_KEY = process.env.GROQ_API_KEY;
-  if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY not set in environment variables');
+  // Each researchType maps to 1-3 real Brave searches (the actual
+  // retrieval step groq/compound used to do internally) plus the prompt
+  // that asks NIM to write up ONLY what those searches actually found.
+  let searchQueries;
+  let writeupPrompt;
 
-  let prompt;
   if (researchType === 'topic') {
     if (!topic || !topic.trim()) throw new Error('topic is required for researchType "topic"');
-    prompt = `Search the web right now for real, current, specific information on the following topic: "${topic.trim()}". Only include things you actually found via search just now — real names, real URLs, real numbers — never invent anything. Be thorough but concise: cover the most important and most recent findings first. Format your answer as a short set of plain-language findings (a few sentences each), citing where each came from inline (site name). End with a one-paragraph overall summary of what this means for someone evaluating "${topic.trim()}".`;
+    searchQueries = [topic.trim()];
+    writeupPrompt = (foundText) => `Below are real, current web search results for the topic "${topic.trim()}". Using ONLY what's actually in these results — never invent a name, number, or URL not present below — write a short set of plain-language findings (a few sentences each), citing where each came from inline (site name). End with a one-paragraph overall summary of what this means for someone evaluating "${topic.trim()}". If the results below don't actually cover the topic well, say so plainly instead of filling gaps from your own general knowledge.\n\n--- SEARCH RESULTS ---\n${foundText}`;
   } else if (researchType === 'online_opportunities') {
-    prompt = `Search the web right now for REAL, CURRENTLY ACTIVE online micro-task platforms, gig sites, bounty programs, or remote micro-jobs that a tech-savvy person could realistically start today. I specifically want lesser-known, hidden-gem opportunities — not just Fiverr/Upwork basics — things like data-labeling/AI-training task platforms, bug bounty or security-audit contest platforms, paid open-source bounty boards, UX research panels, or niche freelance boards. For each one you find, give me the ACTUAL website URL you found it at (not a guess), a one-sentence description of what it is, and a realistic sense of what it pays. Only include things you actually found via search just now — do not invent any platform or URL. List at most 6. Format your final answer as a numbered list: name — URL — one-sentence description — realistic pay range.`;
+    searchQueries = [
+      'lesser known online micro task gig platforms 2026',
+      'bug bounty security audit contest platforms currently active',
+      'paid open source bounty boards UX research panels remote',
+    ];
+    writeupPrompt = (foundText) => `Below are real, current web search results about online micro-task platforms, gig sites, bounty programs, and remote micro-jobs. Using ONLY platforms that actually appear in these results — never invent a name or URL not present below — pick the most interesting lesser-known, hidden-gem opportunities (not just generic Fiverr/Upwork basics). For each one, give its real URL as it appears below, a one-sentence description, and a realistic sense of what it pays based on the snippet. List at most 6. Format your final answer as a numbered list: name — URL — one-sentence description — realistic pay range. If fewer than 6 genuinely fit, list fewer rather than padding with invented ones.\n\n--- SEARCH RESULTS ---\n${foundText}`;
   } else {
     const weather = location?.lat != null ? await getWeather(location.lat, location.lng) : null;
     const weatherDesc = weather ? `${describeWeatherCode(weather.weather_code)}, ${Math.round(weather.temperature_2m)}°C, wind ${Math.round(weather.wind_speed_10m)} km/h` : 'unknown (no location provided)';
     const timeStr = new Date().toLocaleString();
-    prompt = `Search the web right now for REAL activities, venues, or events happening in or very near ${location?.city || "the user's area"} that would be good to do RIGHT NOW, given: current time is ${timeStr}, current weather is ${weatherDesc}${freeMinutes ? `, and the person has about ${freeMinutes} minutes free` : ''}. Factor the weather in seriously — do not suggest an outdoor activity if it's raining or a bad time of day for it. Only include real, specific places or events you actually found via search — real names, not invented ones. If you find an event with a specific time/date, mention it. List at most 6. Format your final answer as a numbered list: name — one-sentence description — why it fits right now (weather/time reasoning) — rough cost if known.`;
+    const cityStr = location?.city || "the user's area";
+    searchQueries = [
+      `things to do in ${cityStr} today`,
+      `events near ${cityStr} this week`,
+    ];
+    writeupPrompt = (foundText) => `Below are real, current web search results about activities, venues, or events in or near ${cityStr}. Current time is ${timeStr}, current weather is ${weatherDesc}${freeMinutes ? `, and the person has about ${freeMinutes} minutes free` : ''}. Using ONLY places/events that actually appear in the results below — never invent a name not present there — pick ones that make sense right now: factor the weather in seriously, don't suggest an outdoor activity if it's raining or a bad time of day for it. If you find a specific time/date in the results, mention it. List at most 6. Format your final answer as a numbered list: name — one-sentence description — why it fits right now (weather/time reasoning) — rough cost if known. If fewer than 6 genuinely fit, list fewer rather than padding with invented ones.\n\n--- SEARCH RESULTS ---\n${foundText}`;
   }
+
+  const { text: foundText, citations } = await braveSearchMulti(searchQueries);
 
   // Each of these gets appended to a Research entry's `entries` array and
   // saved as one JSON blob (see saveResearchForm in pages/tech-hub.js).
-  // Without a cap on the completion itself, a handful of searches on a rich
-  // topic could grow that blob large enough to trip a payload-size limit on
-  // save (a second, separate place "entity too large" could show up) — the
-  // max_tokens: 900 above keeps each individual finding bounded so
-  // accumulating several of them stays well under that.
-  let data;
-  try {
-    data = await callCompound(GROQ_API_KEY, prompt, COMPOUND_MODEL);
-  } catch (e) {
-    if (e.status === 413) {
-      // A 413 here isn't only "our own request got too big from multiple
-      // searches" — Groq's free tier can also return 413 for rate-limit
-      // reasons on the underlying model regardless of request size (see
-      // community.groq.com/t/1322 — a Groq team member confirms this
-      // directly: "Free tier plans have rate limits of underlying models
-      // and that can cause 413 errors"). An instant retry with
-      // compound-mini right after hitting that ceiling can just as easily
-      // fail again immediately, so wait briefly before retrying rather
-      // than assuming the fallback model alone fixes it.
-      await new Promise((r) => setTimeout(r, 1500));
-      try {
-        data = await callCompound(GROQ_API_KEY, prompt, 'groq/compound-mini');
-      } catch (e2) {
-        console.error('[fedha] compound-mini retry also failed:', e2.status, e2.message);
-        const rateLimited = e2.status === 413 || e2.status === 429;
-        const err = new Error(
-          rateLimited
-            ? 'Groq search is rate-limited right now — if this keeps happening, check your Groq account tier/limits at console.groq.com/settings/limits.'
-            : e2.message
-        );
-        err.status = e2.status;
-        throw err;
-      }
-    } else {
-      throw e;
-    }
-  }
+  // Capping the writeup keeps each individual finding bounded so
+  // accumulating several of them across a session stays well under any
+  // payload-size limit on save.
+  const content = await nvidiaChat({ prompt: writeupPrompt(foundText), temperature: 0.5, maxTokens: 900 });
 
-  const content = data.choices?.[0]?.message?.content || '';
-
-  let citations = [];
-  try {
-    const tools = data.choices?.[0]?.message?.executed_tools || [];
-    for (const t of tools) {
-      const results = t.search_results?.results || t.search_results || [];
-      for (const r of Array.isArray(results) ? results : []) {
-        if (r?.url) citations.push(r.url);
-      }
-    }
-  } catch (e) {
-    console.warn('[fedha] citation extraction failed (non-fatal):', e.message);
-  }
-
-  return { content, citations: [...new Set(citations)] };
+  return { content, citations };
 }
+
 
 // Called when the user is done digging into a research entry — takes
 // everything gathered across one or more runResearch('topic', ...) calls

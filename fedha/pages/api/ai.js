@@ -1,37 +1,49 @@
-// pages/api/ai.js — uses Groq (free, generous, OpenAI-compatible). Set GROQ_API_KEY.
+// pages/api/ai.js — uses Groq (free, generous, OpenAI-compatible) for most
+// types. Set GROQ_API_KEY.
+//
+// `activities` and `opportunities` are the exception: they used to run on
+// groq/compound (Groq's agentic model with a built-in web_search tool) so
+// results were grounded in something real instead of the model imagining
+// plausible-sounding place/platform names from memory. That model's
+// free-tier limits kept returning 413s independent of how big our own
+// prompt was (see git history / community.groq.com/t/1322), and neither
+// the app's rest of Groq traffic (plain GROQ_MODEL, used below for
+// hackathons/tech_events/startup_analysis) nor Jarvis's main chat loop was
+// ever the thing failing — so only these two types have moved off Groq
+// entirely. Real retrieval now comes from lib/brave-search.js (a separate
+// service, separate free tier, separate rate limits from Groq), and
+// lib/nvidia-client.js (NVIDIA NIM's free Nemotron model) writes up the
+// JSON from those real results — it never invents an item that isn't
+// grounded in something Brave actually found.
+import { braveSearchMulti } from '../../lib/brave-search';
+import { nvidiaChat } from '../../lib/nvidia-client';
+
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b'; // free & strong; or 'llama-3.1-8b-instant' for speed
-// groq/compound is Groq's agentic model — it can actually call a real web
-// search tool mid-generation, the same one lib/jarvis-research-core.js uses
-// for Jarvis's research feature. `activities` and `opportunities` previously
-// used plain GROQ_MODEL with no tools at all, so the model was just
-// generating plausible-sounding place names and gig platforms from its own
-// training data with no grounding in anything real or current — which is
-// why "Suggest Activities" / "Find Online Opportunities" felt hardcoded/
-// repetitive even with the nonce freshness trick. Switching these two to
-// groq/compound + web_search makes them actually search for real, current
-// results instead of imagining them.
-const COMPOUND_MODEL = 'groq/compound';
 const SEARCH_GROUNDED_TYPES = new Set(['activities', 'opportunities']);
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const GROQ_API_KEY = process.env.GROQ_API_KEY;
-  if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY not set in environment variables' });
-
   const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup } = req.body;
+  const useSearch = SEARCH_GROUNDED_TYPES.has(type);
+
+  if (!useSearch) {
+    const GROQ_API_KEY = process.env.GROQ_API_KEY;
+    if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY not set in environment variables' });
+  }
+
   let prompt = '';
 
   const varietyStr = nonce ? `\nFreshness token: ${nonce}. Give a DIFFERENT, fresh set of ideas than you might usually pick — avoid repeating the obvious defaults.` : '';
 
   if (type === 'activities') {
     const locationStr = location?.city
-      ? `The user is physically located in/near ${location.city} (GPS coordinates: ${location.lat}, ${location.lng}). EVERY single suggestion MUST be a real place, venue, event or experience that actually exists IN or very close to ${location.city} — within roughly 15km. Do NOT suggest places in other cities or other countries. If you are unsure of a specific venue name in ${location.city}, suggest a realistic type of spot that genuinely exists there (e.g. a popular local park, mall, eatery, or viewpoint in ${location.city}).`
-      : `No location provided — suggest general affordable activities.`;
+      ? `The user is physically located in/near ${location.city} (GPS coordinates: ${location.lat}, ${location.lng}). EVERY single suggestion MUST be a real place, venue, event or experience that actually appears in the search results below and is IN or very close to ${location.city} — within roughly 15km. Do NOT suggest places in other cities or other countries, and do not invent a venue that isn't in the results.`
+      : `No location provided — suggest general affordable activities from the search results below.`;
     const modeStr = dateMode
-      ? `This is for a romantic date — suggest couple-friendly, fun, memorable, exciting date activities. Make them feel special and worth doing.`
-      : `This is for personal enjoyment — suggest genuinely FUN, exciting solo or social activities the user will actually be excited to do. Avoid boring or generic suggestions like "go for a walk" unless paired with something specific and fun.`;
-    prompt = `You are a fun, energetic local guide helping someone enjoy their money wisely.
+      ? `This is for a romantic date — pick couple-friendly, fun, memorable, exciting date activities from the results. Make them feel special and worth doing.`
+      : `This is for personal enjoyment — pick genuinely FUN, exciting solo or social activities from the results the user will actually be excited to do. Avoid boring or generic picks like "go for a walk" unless paired with something specific and fun.`;
+    prompt = (foundText) => `You are a fun, energetic local guide helping someone enjoy their money wisely.
 
 ${locationStr}
 ${modeStr}${varietyStr}
@@ -39,27 +51,35 @@ ${modeStr}${varietyStr}
 The user has ${currency_symbol}${balance} in floating cash available (after all budgets).
 Budgets already set: ${budgets?.length ? budgets.map(b => b.name + ' (' + b.period + ')').join(', ') : 'none'}.
 
-Use web search to find 6 real, CURRENTLY OPERATING activities, venues, restaurants or experiences that genuinely exist near the user's exact location right now and fit their budget — do not invent or guess venue names from memory. Mix free and paid. If in Kenya, use real Kenyan place names you've verified via search.
+Below are real, current web search results. Using ONLY places/venues/experiences that actually appear in these results — never invent a name not present below — pick 6 that genuinely exist near the user's location right now and fit their budget. Mix free and paid.
+
+--- SEARCH RESULTS ---
+${foundText}
 
 Return ONLY a JSON object (no markdown, no commentary): { "results": [ ...6 items ] }. Each item has exactly:
 - id (string like "act_1"), title, emoji, description (1-2 lively sentences, mention the real place name AND the city ${location?.city || ''}),
 - estimated_cost (number in ${currency}), category (one of "food","outdoor","entertainment","social","relaxation","adventure"),
-- why_now (short fun reason), is_free (boolean).`;
+- why_now (short fun reason), is_free (boolean).
+If fewer than 6 results genuinely fit, return fewer items rather than padding with invented ones.`;
   }
 
   if (type === 'opportunities') {
-    prompt = `You are a sharp income scout helping a tech-savvy person in Kenya find LESS OBVIOUS, higher-value online earning opportunities — the "hidden gems" most people don't know about.
+    prompt = (foundText) => `You are a sharp income scout helping a tech-savvy person in Kenya find LESS OBVIOUS, higher-value online earning opportunities — the "hidden gems" most people don't know about.
 
 The user currently has ${currency_symbol}${balance} available in ${currency}.${varietyStr}
 
-Use web search to find opportunities that are actually live/open right now — real, currently-active platforms and gigs, such as: smart-contract / security audit contests and bug bounties (e.g. Code4rena, Sherlock, Cantina, Immunefi, HackenProof), data-labelling and AI-training micro-tasks (e.g. Outlier, DataAnnotation, Remotasks-style tools), crypto/web3 testnet incentives and quests, paid open-source bounties (e.g. Algora, Gitcoin), UX research panels, and niche freelance marketplaces. Verify via search that platforms/programs you mention are currently real and active — don't invent ones from memory. AVOID the generic obvious ones (basic surveys, Fiverr gig spam) unless framed in a clever, higher-earning way.
+Below are real, current web search results about online micro-task platforms, gig sites, bounty programs, and remote micro-jobs. Using ONLY platforms that actually appear in these results — never invent a name or URL not present below — pick the most interesting lesser-known, hidden-gem opportunities (not just generic Fiverr/Upwork basics): things like data-labelling/AI-training micro-tasks, bug bounty or security-audit contest platforms, crypto/web3 testnet incentives, paid open-source bounty boards, UX research panels, and niche freelance marketplaces.
 
-Do NOT state a single fixed exact price. Instead express realistic POTENTIAL earnings as a range, because actual pay depends on effort and skill.
+--- SEARCH RESULTS ---
+${foundText}
+
+Do NOT state a single fixed exact price. Instead express realistic POTENTIAL earnings as a range based on what the results suggest.
 
 Return ONLY a JSON object (no markdown, no commentary): { "results": [ ...6 items ] }. Each item has exactly:
 - id (string like "opp_1"), title, emoji, platform, description (2-3 sentences explaining why it's a hidden opportunity and how to start),
 - estimated_earnings (string POTENTIAL range like "KSh 5,000 - 80,000 per audit" or "Up to $500/mo"), estimated_amount (number, realistic middle potential estimate in ${currency}),
-- time_required (string), difficulty (one of "Easy","Medium","Hard"), link_hint (the platform website/app name).`;
+- time_required (string), difficulty (one of "Easy","Medium","Hard"), link_hint (the platform website/app name as it appears in the results).
+If fewer than 6 results genuinely fit, return fewer items rather than padding with invented ones.`;
   }
 
   if (type === 'hackathons') {
@@ -131,110 +151,75 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
   }
 
   try {
-    const useSearch = SEARCH_GROUNDED_TYPES.has(type);
+    if (useSearch) {
+      // activities/opportunities: run real Brave searches first, then have
+      // NVIDIA NIM write up JSON from only what those searches found.
+      const searchQueries = type === 'activities'
+        ? [
+            location?.city ? `fun things to do in ${location.city}` : 'fun affordable activities',
+            location?.city ? `restaurants activities near ${location.city}` : 'free activities near me',
+          ]
+        : [
+            'lesser known online micro task gig platforms 2026',
+            'bug bounty security audit contest platforms currently active',
+            'paid open source bounty boards UX research panels remote',
+          ];
+
+      let foundText;
+      try {
+        ({ text: foundText } = await braveSearchMulti(searchQueries));
+      } catch (e) {
+        console.error('[fedha] Brave Search failed for', type, ':', e.status, e.message);
+        return res.status(500).json({
+          error: "Couldn't reach real search results right now — try again in a moment.",
+          ...(process.env.NODE_ENV !== 'production' ? { debug: e.message, debugStatus: e.status } : {}),
+        });
+      }
+
+      let rawText;
+      try {
+        rawText = await nvidiaChat({ prompt: prompt(foundText), temperature: 0.8, maxTokens: 2000 });
+      } catch (e) {
+        console.error('[fedha] NVIDIA NIM failed for', type, ':', e.status, e.message);
+        return res.status(500).json({
+          error: "Couldn't generate suggestions right now — try again in a moment.",
+          ...(process.env.NODE_ENV !== 'production' ? { debug: e.message, debugStatus: e.status } : {}),
+        });
+      }
+
+      if (!rawText) return res.status(500).json({ error: 'Empty response from NVIDIA NIM' });
+
+      const parsed = parseResultsJson(rawText);
+      if (parsed === null) return res.status(500).json({ error: 'Could not parse AI response', raw: rawText });
+      return res.status(200).json({ results: parsed });
+    }
+
+    // Every other type: unchanged, plain Groq chat model.
+    const GROQ_API_KEY = process.env.GROQ_API_KEY;
     const body = {
-      model: useSearch ? COMPOUND_MODEL : GROQ_MODEL,
+      model: GROQ_MODEL,
       temperature: 0.8,
       max_tokens: 2000,
+      response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You output only valid JSON. No markdown, no commentary.' },
         { role: 'user', content: prompt },
       ],
     };
-    // response_format: json_object is a strict-mode param the plain chat
-    // model supports; groq/compound is an agentic/tool-use model and
-    // jarvis-research-core.js (which already uses it successfully) never
-    // passes this param, so we don't force it here either — the existing
-    // JSON.parse-with-regex-fallback below already handles free-text output
-    // that isn't perfectly strict JSON.
-    if (!useSearch) body.response_format = { type: 'json_object' };
-    if (useSearch) body.compound_custom = { tools: { enabled_tools: ['web_search'] } };
 
-    async function callGroq(reqBody) {
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify(reqBody),
-      });
-      const json = await response.json();
-      if (!response.ok) {
-        // Logged server-side so the real Groq error (model access, rate
-        // limit, malformed request, or genuine size ceiling) is visible in
-        // your hosting provider's function logs even though the user only
-        // ever sees a soft generic message below.
-        console.error(`[fedha] groq/${reqBody.model} request failed:`, response.status, JSON.stringify(json.error || json));
-        const err = new Error(json.error?.message || 'Groq API error');
-        err.status = response.status;
-        throw err;
-      }
-      return json;
-    }
-
-    let data;
-    try {
-      data = await callGroq(body);
-    } catch (e) {
-      // groq/compound can run up to 10 internal web_search calls before
-      // answering, and the "opportunities"/"activities" prompts (which ask
-      // it to verify several named platforms/venues) reliably push it into
-      // enough searches that the accumulated context trips Groq's
-      // request-size ceiling — a 413 "Request Entity Too Large" that has
-      // nothing to do with how small our own prompt is. groq/compound-mini
-      // caps itself at 1 tool call, which stays under that ceiling, so
-      // retry once with mini rather than showing that raw error to the user.
-      if (useSearch && e.status === 413) {
-        // See lib/jarvis-research-core.js for why an instant retry isn't
-        // reliable: Groq's free tier can return 413 for rate-limit reasons
-        // on the underlying model, not just genuine request-size overflow,
-        // and an immediate second call can hit that same ceiling again.
-        await new Promise((r) => setTimeout(r, 1500));
-        try {
-          data = await callGroq({ ...body, model: 'groq/compound-mini' });
-        } catch (e2) {
-          const rateLimited = e2.status === 413 || e2.status === 429;
-          return res.status(500).json({
-            error: rateLimited
-              ? "Groq search is rate-limited right now — try again shortly, or check your Groq account tier/limits if this keeps happening."
-              : "Couldn't reach the search results right now — try again in a moment.",
-            ...(process.env.NODE_ENV !== 'production' ? { debug: e2.message, debugStatus: e2.status } : {}),
-          });
-        }
-      } else {
-        return res.status(500).json({ error: e.message, ...(process.env.NODE_ENV !== 'production' ? { debugStatus: e.status } : {}) });
-      }
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      console.error(`[fedha] groq/${GROQ_MODEL} request failed:`, response.status, JSON.stringify(data.error || data));
+      return res.status(500).json({ error: data.error?.message || 'Groq API error' });
     }
 
     const rawText = data.choices?.[0]?.message?.content || '';
     if (!rawText) return res.status(500).json({ error: 'Empty response from Groq' });
-
-    let parsed;
-    try {
-      const obj = JSON.parse(rawText);
-      parsed = Array.isArray(obj) ? obj : obj.results || obj.items || obj.data || [];
-    } catch {
-      // groq/compound (used for search-grounded types) is an agentic model
-      // and, unlike the plain model with response_format:json_object, isn't
-      // guaranteed to return bare strict JSON — it may wrap the JSON in
-      // ```json fences or add a sentence of narration around it. Strip
-      // fences first, then try an object match (the prompts ask for
-      // {"results":[...]}) before falling back to a bare array match.
-      const stripped = rawText.replace(/```json|```/gi, '').trim();
-      try {
-        const obj = JSON.parse(stripped);
-        parsed = Array.isArray(obj) ? obj : obj.results || obj.items || obj.data || [];
-      } catch {
-        const objMatch = stripped.match(/\{[\s\S]*\}/);
-        const arrMatch = stripped.match(/\[[\s\S]*\]/);
-        if (objMatch) {
-          try {
-            const obj = JSON.parse(objMatch[0]);
-            parsed = Array.isArray(obj) ? obj : obj.results || obj.items || obj.data || [];
-          } catch { /* fall through to array match below */ }
-        }
-        if (!parsed && arrMatch) parsed = JSON.parse(arrMatch[0]);
-        if (!parsed) return res.status(500).json({ error: 'Could not parse AI response', raw: rawText });
-      }
-    }
 
     // For analysis types, return the full object (not just results)
     if (type === 'startup_analysis') {
@@ -247,9 +232,44 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
       }
     }
 
+    const parsed = parseResultsJson(rawText);
+    if (parsed === null) return res.status(500).json({ error: 'Could not parse AI response', raw: rawText });
     return res.status(200).json({ results: parsed });
   } catch (err) {
     console.error('AI route error:', err);
     return res.status(500).json({ error: err.message });
+  }
+}
+
+// Shared JSON-parsing fallback: the plain Groq model reliably returns
+// strict JSON (response_format: json_object), but NVIDIA NIM has no
+// equivalent strict mode, so its output may wrap the JSON in ```json
+// fences or add a sentence of narration around it. Strip fences first,
+// then try an object match (the prompts ask for {"results":[...]}) before
+// falling back to a bare array match. Returns null if nothing parseable
+// was found.
+function parseResultsJson(rawText) {
+  try {
+    const obj = JSON.parse(rawText);
+    return Array.isArray(obj) ? obj : obj.results || obj.items || obj.data || [];
+  } catch {
+    const stripped = rawText.replace(/```json|```/gi, '').trim();
+    try {
+      const obj = JSON.parse(stripped);
+      return Array.isArray(obj) ? obj : obj.results || obj.items || obj.data || [];
+    } catch {
+      const objMatch = stripped.match(/\{[\s\S]*\}/);
+      const arrMatch = stripped.match(/\[[\s\S]*\]/);
+      if (objMatch) {
+        try {
+          const obj = JSON.parse(objMatch[0]);
+          return Array.isArray(obj) ? obj : obj.results || obj.items || obj.data || [];
+        } catch { /* fall through to array match below */ }
+      }
+      if (arrMatch) {
+        try { return JSON.parse(arrMatch[0]); } catch { /* fall through */ }
+      }
+      return null;
+    }
   }
 }

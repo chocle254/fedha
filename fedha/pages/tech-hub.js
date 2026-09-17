@@ -1505,7 +1505,10 @@ export default function TechHubPage() {
         <div style={{ padding: '16px 20px' }}>
           {aiError && (
             <div style={{ background: 'var(--red-dim)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: 'var(--red)', marginBottom: 16 }}>
-              ⚠ {aiError}{aiError.includes('GROQ') && <div style={{ marginTop: 6, color: 'var(--text-3)' }}>Add GROQ_API_KEY to your environment variables.</div>}
+              ⚠ {aiError}
+              {aiError.includes('GROQ') && <div style={{ marginTop: 6, color: 'var(--text-3)' }}>Add GROQ_API_KEY to your environment variables.</div>}
+              {aiError.includes('NVIDIA') && <div style={{ marginTop: 6, color: 'var(--text-3)' }}>Add NVIDIA_API_KEY to your environment variables (get one free at build.nvidia.com).</div>}
+              {aiError.includes('BRAVE') && <div style={{ marginTop: 6, color: 'var(--text-3)' }}>Add BRAVE_SEARCH_API_KEY to your environment variables (get one free at api.search.brave.com).</div>}
             </div>
           )}
 
