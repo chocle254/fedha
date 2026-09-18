@@ -11,13 +11,14 @@
 // (Jarvis's main conversation loop, planner generation) is on Groq's plain
 // openai/gpt-oss-120b and was never the thing failing, only this one
 // search-grounded piece has moved: real retrieval now comes from
-// lib/brave-search.js (Brave Search API, separate free tier, separate rate
-// limits from Groq entirely), and lib/nvidia-client.js (NVIDIA NIM's free
-// Nemotron model) synthesizes an answer from those real results. NIM never
-// searches on its own — it only ever writes from snippets Brave actually
-// found, same "don't invent it" discipline the old prompts asked of
-// groq/compound.
-import { braveSearchMulti } from './brave-search';
+// lib/web-search.js (Firecrawl's keyless search API — no signup, no API
+// key required to get started, see docs.firecrawl.dev/features/search —
+// completely separate service and limits from Groq), and
+// lib/nvidia-client.js (NVIDIA NIM's free Nemotron model) synthesizes an
+// answer from those real results. NIM never searches on its own — it only
+// ever writes from snippets Firecrawl actually found, same "don't invent
+// it" discipline the old prompts asked of groq/compound.
+import { webSearchMulti } from './web-search';
 import { nvidiaChat } from './nvidia-client';
 
 async function getWeather(lat, lng) {
@@ -46,7 +47,7 @@ function describeWeatherCode(code) {
 }
 
 export async function runResearch(researchType, location, freeMinutes, topic) {
-  // Each researchType maps to 1-3 real Brave searches (the actual
+  // Each researchType maps to 1-3 real Firecrawl searches (the actual
   // retrieval step groq/compound used to do internally) plus the prompt
   // that asks NIM to write up ONLY what those searches actually found.
   let searchQueries;
@@ -75,7 +76,7 @@ export async function runResearch(researchType, location, freeMinutes, topic) {
     writeupPrompt = (foundText) => `Below are real, current web search results about activities, venues, or events in or near ${cityStr}. Current time is ${timeStr}, current weather is ${weatherDesc}${freeMinutes ? `, and the person has about ${freeMinutes} minutes free` : ''}. Using ONLY places/events that actually appear in the results below — never invent a name not present there — pick ones that make sense right now: factor the weather in seriously, don't suggest an outdoor activity if it's raining or a bad time of day for it. If you find a specific time/date in the results, mention it. List at most 6. Format your final answer as a numbered list: name — one-sentence description — why it fits right now (weather/time reasoning) — rough cost if known. If fewer than 6 genuinely fit, list fewer rather than padding with invented ones.\n\n--- SEARCH RESULTS ---\n${foundText}`;
   }
 
-  const { text: foundText, citations } = await braveSearchMulti(searchQueries);
+  const { text: foundText, citations } = await webSearchMulti(searchQueries);
 
   // Each of these gets appended to a Research entry's `entries` array and
   // saved as one JSON blob (see saveResearchForm in pages/tech-hub.js).

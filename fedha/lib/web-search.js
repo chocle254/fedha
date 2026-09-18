@@ -1,35 +1,39 @@
-// lib/brave-search.js — real web search via the Brave Search API, used to
-// replace groq/compound's built-in web_search tool for the two features
+// lib/web-search.js — real web search via Firecrawl's search endpoint, used
+// to replace groq/compound's built-in web_search tool for the two features
 // that need actually-current, actually-real results (Jarvis's research
 // tools, and Discover's Suggest Activities / Find Online Opportunities).
 // NVIDIA NIM (lib/nvidia-client.js) has no built-in search of its own, so
 // this runs first and its results get folded into the prompt NIM sees —
 // NIM only ever synthesizes/summarizes real snippets, never invents them.
 //
-// Get a free API key at api.search.brave.com (free tier: 2,000 queries／
-// month, 1 req/sec). Set BRAVE_SEARCH_API_KEY in your environment.
+// Uses Firecrawl's "Keyless" tier: docs.firecrawl.dev/features/search
+// confirms every code sample works with NO Authorization header and NO
+// signup — 1,000 free credits/month automatically, no account needed to
+// get started. If FIRECRAWL_API_KEY is set (optional — sign up at
+// firecrawl.dev for a key), it's sent for higher rate limits/credits, but
+// it is never required.
 
-export async function braveSearch(query, { count = 8 } = {}) {
-  const BRAVE_SEARCH_API_KEY = process.env.BRAVE_SEARCH_API_KEY;
-  if (!BRAVE_SEARCH_API_KEY) throw new Error('BRAVE_SEARCH_API_KEY not set in environment variables');
+export async function webSearch(query, { limit = 8 } = {}) {
+  const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY; // optional
 
-  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}`;
-  const response = await fetch(url, {
+  const response = await fetch('https://api.firecrawl.dev/v2/search', {
+    method: 'POST',
     headers: {
-      Accept: 'application/json',
-      'X-Subscription-Token': BRAVE_SEARCH_API_KEY,
+      'Content-Type': 'application/json',
+      ...(FIRECRAWL_API_KEY ? { Authorization: `Bearer ${FIRECRAWL_API_KEY}` } : {}),
     },
+    body: JSON.stringify({ query, limit }),
   });
 
   const data = await response.json();
-  if (!response.ok) {
-    console.error('[fedha] Brave Search request failed:', response.status, JSON.stringify(data));
-    const err = new Error(data.error?.message || data.message || 'Brave Search API error');
+  if (!response.ok || data.success === false) {
+    console.error('[fedha] Firecrawl search request failed:', response.status, JSON.stringify(data));
+    const err = new Error(data.error || data.message || 'Firecrawl search API error');
     err.status = response.status;
     throw err;
   }
 
-  const results = (data.web?.results || []).map((r) => ({
+  const results = (data.data?.web || []).map((r) => ({
     title: r.title || '',
     url: r.url || '',
     snippet: r.description || '',
@@ -43,8 +47,8 @@ export async function braveSearch(query, { count = 8 } = {}) {
 // what groq/compound used to hand back internally. Queries are run in
 // parallel and a failure on any one of them is dropped rather than failing
 // the whole batch, since partial real results are still better than none.
-export async function braveSearchMulti(queries, { countEach = 6 } = {}) {
-  const settled = await Promise.allSettled(queries.map((q) => braveSearch(q, { count: countEach })));
+export async function webSearchMulti(queries, { limitEach = 6 } = {}) {
+  const settled = await Promise.allSettled(queries.map((q) => webSearch(q, { limit: limitEach })));
 
   const blocks = [];
   const citations = [];

@@ -10,12 +10,13 @@
 // the app's rest of Groq traffic (plain GROQ_MODEL, used below for
 // hackathons/tech_events/startup_analysis) nor Jarvis's main chat loop was
 // ever the thing failing — so only these two types have moved off Groq
-// entirely. Real retrieval now comes from lib/brave-search.js (a separate
-// service, separate free tier, separate rate limits from Groq), and
-// lib/nvidia-client.js (NVIDIA NIM's free Nemotron model) writes up the
-// JSON from those real results — it never invents an item that isn't
-// grounded in something Brave actually found.
-import { braveSearchMulti } from '../../lib/brave-search';
+// entirely. Real retrieval now comes from lib/web-search.js (Firecrawl's
+// keyless search API — no signup, no API key required to get started, see
+// docs.firecrawl.dev/features/search — separate service and separate
+// limits from Groq entirely), and lib/nvidia-client.js (NVIDIA NIM's free
+// Nemotron model) writes up the JSON from those real results — it never
+// invents an item that isn't grounded in something Firecrawl actually found.
+import { webSearchMulti } from '../../lib/web-search';
 import { nvidiaChat } from '../../lib/nvidia-client';
 
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b'; // free & strong; or 'llama-3.1-8b-instant' for speed
@@ -152,7 +153,7 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
 
   try {
     if (useSearch) {
-      // activities/opportunities: run real Brave searches first, then have
+      // activities/opportunities: run real web searches first, then have
       // NVIDIA NIM write up JSON from only what those searches found.
       const searchQueries = type === 'activities'
         ? [
@@ -167,9 +168,9 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
 
       let foundText;
       try {
-        ({ text: foundText } = await braveSearchMulti(searchQueries));
+        ({ text: foundText } = await webSearchMulti(searchQueries));
       } catch (e) {
-        console.error('[fedha] Brave Search failed for', type, ':', e.status, e.message);
+        console.error('[fedha] Firecrawl search failed for', type, ':', e.status, e.message);
         return res.status(500).json({
           error: "Couldn't reach real search results right now — try again in a moment.",
           ...(process.env.NODE_ENV !== 'production' ? { debug: e.message, debugStatus: e.status } : {}),

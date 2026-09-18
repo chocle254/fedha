@@ -1508,7 +1508,7 @@ export default function TechHubPage() {
               ⚠ {aiError}
               {aiError.includes('GROQ') && <div style={{ marginTop: 6, color: 'var(--text-3)' }}>Add GROQ_API_KEY to your environment variables.</div>}
               {aiError.includes('NVIDIA') && <div style={{ marginTop: 6, color: 'var(--text-3)' }}>Add NVIDIA_API_KEY to your environment variables (get one free at build.nvidia.com).</div>}
-              {aiError.includes('BRAVE') && <div style={{ marginTop: 6, color: 'var(--text-3)' }}>Add BRAVE_SEARCH_API_KEY to your environment variables (get one free at api.search.brave.com).</div>}
+              {aiError.includes('Firecrawl') && <div style={{ marginTop: 6, color: 'var(--text-3)' }}>Real search is temporarily unreachable — this doesn't need an API key (Firecrawl's free keyless tier), so it should recover on its own; try again shortly.</div>}
             </div>
           )}
 
