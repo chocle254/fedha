@@ -182,8 +182,15 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
         rawText = await nvidiaChat({ prompt: prompt(foundText), temperature: 0.8, maxTokens: 2000 });
       } catch (e) {
         console.error('[fedha] NVIDIA NIM failed for', type, ':', e.status, e.message);
+        // NVIDIA's own staff confirm the free tier can genuinely run out of
+        // capacity under load (distinct from a bug in this app) — say so
+        // plainly after nvidiaChat's built-in retries are exhausted, rather
+        // than a generic "something went wrong".
+        const overloaded = e.status === 429 || e.status === 503 || /overloaded/i.test(e.message || '');
         return res.status(500).json({
-          error: "Couldn't generate suggestions right now — try again in a moment.",
+          error: overloaded
+            ? "NVIDIA's free AI tier is overloaded right now — this is on their end, not the app. Try again in a minute."
+            : "Couldn't generate suggestions right now — try again in a moment.",
           ...(process.env.NODE_ENV !== 'production' ? { debug: e.message, debugStatus: e.status } : {}),
         });
       }

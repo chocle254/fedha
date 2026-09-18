@@ -83,7 +83,25 @@ export async function runResearch(researchType, location, freeMinutes, topic) {
   // Capping the writeup keeps each individual finding bounded so
   // accumulating several of them across a session stays well under any
   // payload-size limit on save.
-  const content = await nvidiaChat({ prompt: writeupPrompt(foundText), temperature: 0.5, maxTokens: 900 });
+  let content;
+  try {
+    content = await nvidiaChat({ prompt: writeupPrompt(foundText), temperature: 0.5, maxTokens: 900 });
+  } catch (e) {
+    // nvidiaChat already retries transient errors internally — if it still
+    // failed, NVIDIA's own staff confirm their free tier can genuinely run
+    // out of capacity under load (forums.developer.nvidia.com/t/324036),
+    // separate from anything wrong in this app. Say so plainly rather than
+    // a generic message, since pages/api/jarvis-research.js and
+    // pages/api/jarvis.js both pass err.message straight through to the UI.
+    const overloaded = e.status === 429 || e.status === 503 || /overloaded/i.test(e.message || '');
+    const err = new Error(
+      overloaded
+        ? "NVIDIA's free AI tier is overloaded right now — this is on their end, not the app. Try again in a minute."
+        : e.message
+    );
+    err.status = e.status;
+    throw err;
+  }
 
   return { content, citations };
 }
