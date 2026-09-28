@@ -14,6 +14,7 @@ import {
   getGoals, getSetting, getFoodLogs, getHackathons, getProjects, getCertificates, getStartups, getResearch,
 } from './db';
 import { todayISO, countdownTo, formatShort } from './utils';
+import { detectJarvisRole, detectJarvisSituation, getJarvisRoleGuidance } from './jarvis-intelligence';
 
 const RECENT_TRANSACTION_COUNT = 15;
 
@@ -176,6 +177,9 @@ export async function buildJarvisContext(message = '') {
   const wantsMeals = /\b(food|eat|eating|meal|breakfast|lunch|dinner|snack|calorie|protein|nutrition|hungry)\b/.test(m);
   const wantsCareer = /\b(cv|resume|project|projects|hackathon|startup|certificate|portfolio|career|job)\b/.test(m);
   const wantsResearch = /\b(research|gig|side hustle|online job|food near|restaurant|cafe|activity|activities)\b/.test(m);
+  const wantsGoals = /\b(goal|goals|achieve|achievement|milestone|progress|target|life goal)\b/.test(m);
+  const role = detectJarvisRole(message);
+  const situation = detectJarvisSituation(message);
   const [money, planner, meals, deadlines, career, research] = await Promise.all([
     wantsMoney ? summarizeMoney().catch((e) => `(money data unavailable: ${e.message})`) : Promise.resolve(null),
     wantsPlanner ? summarizePlanner().catch((e) => `(planner data unavailable: ${e.message})`) : Promise.resolve(null),
@@ -188,11 +192,12 @@ export async function buildJarvisContext(message = '') {
   const now = new Date();
   return [
     `Current date/time: ${now.toLocaleString()}`,
+    `— JARVIS MODE —\nRole: ${role}. ${getJarvisRoleGuidance(role, situation)}\nSituation: ${situation}.`,
     money ? `— MONEY —\n${money}` : null,
     planner ? `— TODAY'S PLANNER —\n${planner}` : null,
     meals ? `— MEALS TODAY —\n${meals}` : null,
     deadlines ? `— DEADLINES —\n${deadlines}` : null,
     research ? `— RESEARCH —\n${research}` : null,
-    career ? `— PROJECTS, HACKATHONS & CERTIFICATES (for CV drafting, feature ideas) —\n${career}` : null,
+    career ? `— PROJECTS, HACKATHONS & STARTUPS —\n${career}` : null,
   ].filter(Boolean).join('\n\n');
 }
