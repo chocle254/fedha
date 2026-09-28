@@ -17,8 +17,8 @@ export default async function handler(req, res) {
       return res.status(200).json({ summary });
     }
 
-    if (!['online_opportunities', 'activities', 'topic'].includes(researchType)) {
-      return res.status(400).json({ error: 'researchType must be online_opportunities, activities, or topic' });
+    if (!['online_opportunities', 'activities', 'topic', 'food_nearby'].includes(researchType)) {
+      return res.status(400).json({ error: 'researchType must be online_opportunities, activities, topic, or food_nearby' });
     }
     const result = await runResearch(researchType, location, freeMinutes, topic);
     return res.status(200).json(result);
