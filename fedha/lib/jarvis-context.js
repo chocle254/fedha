@@ -231,7 +231,29 @@ export async function buildJarvisContext(message = '') {
   const wantsMoney = /\b(money|cash|balance|wallet|budget|expense|spent|spend|transaction|income|salary|loan|owe|owed|saving|savings|financial|afford|price|cost)\b/.test(m);
   const wantsPlanner = /\b(planner|schedule|plan|today|tomorrow|task|tasks|block|time|busy|free|deadline)\b/.test(m);
   const wantsMeals = /\b(food|eat|eating|meal|breakfast|lunch|dinner|snack|calorie|protein|nutrition|hungry)\b/.test(m);
-  const wantsCareer = /\b(cv|resume|project|projects|hackathon|startup|certificate|portfolio|career|job|venture|event)\b/.test(m);
+  // Career context must activate not only for generic words like "project" or
+  // "startup", but also when the user names an actual record stored in Fedha
+  // (for example, "CivCare"). This keeps named-record questions grounded in
+  // live data instead of relying on hard-coded keywords.
+  let mentionedRecord = false;
+  try {
+    const [projectRecords, startupRecords, hackathonRecords, certificateRecords] = await Promise.all([
+      getProjects(), getStartups(), getHackathons(), getCertificates(),
+    ]);
+    const records = [...projectRecords, ...startupRecords, ...hackathonRecords, ...certificateRecords];
+    const normalize = (value) => String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    const normalizedMessage = normalize(message);
+    mentionedRecord = records.some((record) => {
+      const name = normalize(record.name || record.title);
+      return name && normalizedMessage.includes(name);
+    });
+  } catch {
+    // Keep the rest of context working if the lightweight lookup fails.
+  }
+  const wantsCareer = /\\b(cv|resume|project|projects|hackathon|startup|certificate|portfolio|career|job|venture|event)\\b/.test(m) || mentionedRecord;
   const wantsResearch = /\b(research|gig|side hustle|online job|food near|restaurant|cafe|activity|activities)\b/.test(m);
   const wantsGoals = /\b(goal|goals|achieve|achievement|milestone|progress|target|life goal)\b/.test(m);
   const role = detectJarvisRole(message);
