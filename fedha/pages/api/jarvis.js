@@ -340,10 +340,29 @@ async function callGroqWithTools(apiKey, messages, location, userMessage) {
     });
   }
 
-  // Actions do not need a second LLM pass. The client already knows exactly
-  // what action was proposed, so paying for another completion here wastes
-  // half the rate-limit budget and was the main reason simple writes failed.
-  // Research is different: its web results need a summarization pass.
+  // Never spend a second LLM request just to acknowledge memory updates or
+  // proposed actions. This keeps ordinary Jarvis turns at one model request.
+  const hasResearch = toolResultMessages.some((m) => m.content?.includes('Sources:') || m.content?.startsWith('Research failed:'));
+  const hasOnlyMemoryUpdate = memoryUpdate && !proposedActions.length && !hasResearch;
+  if (hasOnlyMemoryUpdate) {
+    return {
+      reply: choice.message?.content?.trim() || "Got it — I'll remember that.",
+      proposedActions: [],
+      memoryUpdate,
+    };
+  }
+
+  if (proposedActions.length && !hasResearch) {
+    return {
+      reply: proposedActions.length === 1 ? "Got you — I've prepared that action." : "Got you — I've prepared those actions.",
+      proposedActions,
+      memoryUpdate,
+    };
+  }
+
+  // Research is the exceptional case where a second pass is useful because
+  // raw web results need to be turned into a concise answer. All normal
+  // conversation, memory updates and actions remain one-call operations.
   if (proposedActions.length && !toolResultMessages.some((m) => m.content?.startsWith('Research failed:'))) {
     return {
       reply: proposedActions.length === 1 ? "Got you — I've prepared that action." : "Got you — I've prepared those actions.",
