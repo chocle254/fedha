@@ -66,19 +66,18 @@ export async function runResearch(researchType, location, freeMinutes, topic) {
     writeupPrompt = (foundText) => `Below are real, current web search results about online micro-task platforms, gig sites, bounty programs, and remote micro-jobs. Using ONLY platforms that actually appear in these results — never invent a name or URL not present below — pick the most interesting lesser-known, hidden-gem opportunities (not just generic Fiverr/Upwork basics). For each one, give its real URL as it appears below, a one-sentence description, and a realistic sense of what it pays based on the snippet. List at most 6. Format your final answer as a numbered list: name — URL — one-sentence description — realistic pay range. If fewer than 6 genuinely fit, list fewer rather than padding with invented ones.\n\n--- SEARCH RESULTS ---\n${foundText}`;
   } else if (researchType === 'food_nearby') {
     const weather = location?.lat != null ? await getWeather(location.lat, location.lng) : null;
-    const weatherDesc = weather ? `${describeWeatherCode(weather.weather_code)}, ${Math.round(weather.temperature_2m)}°C, wind ${Math.round(weather.wind_speed_10m)} km/h` : 'unknown';
+    const weatherDesc = weather ? describeWeatherCode(weather.weather_code) + ', ' + Math.round(weather.temperature_2m) + '°C, wind ' + Math.round(weather.wind_speed_10m) + ' km/h' : 'unknown';
     const now = new Date();
     const hour = now.getHours();
     const mealPeriod = hour < 11 ? 'breakfast' : hour < 16 ? 'lunch' : hour < 21 ? 'dinner' : 'late-night food';
     const area = location?.area || location?.city || "the user's area";
     const cityStr = location?.city || area;
-    const coordHint = location?.lat != null && location?.lng != null ? `near coordinates ${Number(location.lat).toFixed(4)}, ${Number(location.lng).toFixed(4)}` : '';
     searchQueries = [
-      `${mealPeriod} restaurants cafes near ${area} ${coordHint}`,
-      `restaurants hotels with restaurants near ${area} ${coordHint}`,
-      `cafes leisure places things to do near ${area} ${coordHint}`,
+      'cafes restaurants ' + area + ' ' + cityStr + ' Kenya',
+      'hotels restaurants cafes ' + area + ' ' + cityStr + ' Kenya',
+      mealPeriod + ' food ' + area + ' ' + cityStr + ' Kenya',
     ];
-    writeupPrompt = (foundText) => `Below are real, current web search results for food, restaurants, hotels with dining, cafes and leisure places around ${area} in ${cityStr}. Current local time is ${now.toLocaleString()}, so the relevant food period is ${mealPeriod}. Current weather is ${weatherDesc}. Using ONLY places that actually appear in these search results — never invent a business, price, opening hour, address, rating or URL — recommend up to 6 useful options. Prioritize places that make sense for the current time. Include a mix of food options and, when appropriate, a cafe/hotel/leisure option. Mention distance only if the results actually provide it, price only if the results provide it, and opening hours only if the results provide them. If a result is a hotel, clearly say it is a hotel and whether dining is mentioned. Do not claim a place is open right now unless the result supports it. Keep the recommendations practical and concise.\n\n--- SEARCH RESULTS ---\n${foundText}`;
+    writeupPrompt = (foundText) => 'Below are real web search results for food and leisure around ' + area + ' in ' + cityStr + '. Current local time is ' + now.toLocaleString() + ', relevant food period is ' + mealPeriod + ', weather is ' + weatherDesc + '. Extract ONLY specific venues that are actually named in the results. Return VALID JSON ONLY with this exact shape: {"summary":"short useful summary","places":[{"id":"short-id","name":"exact venue name","type":"restaurant|cafe|hotel|leisure","food":"specific food/dining info if actually stated, otherwise empty string","price":"price only if actually stated, otherwise empty string","hours":"hours only if actually stated, otherwise empty string","distance":"distance only if actually stated, otherwise empty string","area":"location only if actually stated, otherwise empty string"}]}. Include at most 6 places. Prefer options relevant to ' + mealPeriod + '. A hotel is valid only if the results mention dining/food. Never invent a venue, price, hour, distance, food item or address. If the search results contain no specific named venues, return {"summary":"No specific nearby venues were found in the current search results.","places":[]}.\n\n--- SEARCH RESULTS ---\n' + foundText;
   } else {
     const weather = location?.lat != null ? await getWeather(location.lat, location.lng) : null;
     const weatherDesc = weather ? `${describeWeatherCode(weather.weather_code)}, ${Math.round(weather.temperature_2m)}°C, wind ${Math.round(weather.wind_speed_10m)} km/h` : 'unknown (no location provided)';
@@ -99,8 +98,19 @@ export async function runResearch(researchType, location, freeMinutes, topic) {
   // accumulating several of them across a session stays well under any
   // payload-size limit on save.
   let content;
+  let places = [];
   try {
-    content = await nvidiaChat({ prompt: writeupPrompt(foundText), temperature: 0.5, maxTokens: 900 });
+    content = await nvidiaChat({ prompt: writeupPrompt(foundText), temperature: 0.2, maxTokens: 1100 });
+    if (researchType === 'food_nearby') {
+      try {
+        const cleaned = content.replace(/^```json\\s*/i, '').replace(/\\s*```$/i, '').trim();
+        const parsed = JSON.parse(cleaned);
+        places = Array.isArray(parsed.places) ? parsed.places : [];
+        content = parsed.summary || 'Nearby options found.';
+      } catch {
+        places = [];
+      }
+    }
   } catch (e) {
     // nvidiaChat already retries transient errors internally — if it still
     // failed, NVIDIA's own staff confirm their free tier can genuinely run
@@ -118,7 +128,7 @@ export async function runResearch(researchType, location, freeMinutes, topic) {
     throw err;
   }
 
-  return { content, citations };
+  return { content, citations, ...(researchType === 'food_nearby' ? { places } : {}) };
 }
 
 
