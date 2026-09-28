@@ -4,16 +4,7 @@ import TransactionModal from '../components/TransactionModal';
 import OnlineJobs from '../components/OnlineJobs';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatShort, genId, todayISO } from '../lib/utils';
-
-// ─── FLOATING CASH CALCULATOR ────────────────────────────────────────────────
-function useFloatingCash() {
-  const { wallets, budgets, loans, currency } = useApp();
-  const totalBalance = wallets.reduce((s, w) => s + Number(w.balance || 0), 0);
-  const totalBudgeted = budgets.reduce((s, b) => s + Math.max(0, Number(b.allocated || 0) - Number(b.spent || 0)), 0);
-  const totalOwed = loans.filter((l) => l.type === 'borrowed' && l.status === 'active').reduce((s, l) => s + Number(l.remaining || l.amount || 0), 0);
-  const floating = totalBalance - totalBudgeted - totalOwed;
-  return { floating, totalBalance, totalBudgeted, totalOwed, currency };
-}
+import { useFloatingCash } from '../lib/floating';
 
 // ─── PENDING OPPORTUNITY CARD ─────────────────────────────────────────────────
 function PendingCard({ opp, onMarkDone, onCancel }) {
