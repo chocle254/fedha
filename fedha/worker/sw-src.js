@@ -1,33 +1,76 @@
 // Custom service worker source for Fedha.
 // next-pwa (via workbox-webpack-plugin's InjectManifest mode) injects the
 // precache manifest at the self.__WB_MANIFEST placeholder below and builds
-// this file into public/sw.js. Do NOT edit public/sw.js directly — it's
-// regenerated on every `next build` and any manual edits will be lost.
+// this file into public/sw.js.
 
 import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
-import { registerRoute } from 'workbox-routing';
-import { NetworkFirst } from 'workbox-strategies';
+import { registerRoute, NavigationRoute } from 'workbox-routing';
+import { NetworkFirst, CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 
 self.skipWaiting();
 
-// clients.claim() is only valid once this worker has finished activating —
-// calling it eagerly at script-evaluation time (before 'activate' fires)
-// throws "InvalidStateError: Only the active worker can claim clients."
-// which crashed the whole service worker on load, breaking push
-// subscription persistence along with everything else.
+// Claim clients only after activation. Keeping this here is important because
+// a broken service worker means the entire offline layer disappears.
 self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// ─── PRECACHING (unchanged behavior from the old generated sw.js) ──────────
+// ─── PRECACHE ────────────────────────────────────────────────────────────────
+// Next-pwa injects the current build's JS/CSS/static assets here.
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
+// ─── OFFLINE PAGE / APP NAVIGATION ───────────────────────────────────────────
+// Navigation requests are the important part of the PWA offline experience.
+// Cache every Fedha page the user successfully visits. When offline, return
+// that cached page immediately instead of waiting on a dead network request.
+//
+// This is deliberately separate from API requests: Supabase/Jarvis/nearby
+// searches must never be allowed to block or break the local app.
+registerRoute(
+  new NavigationRoute(
+    new NetworkFirst({
+      cacheName: 'fedha-pages',
+      networkTimeoutSeconds: 3,
+      plugins: [
+        new ExpirationPlugin({
+          maxEntries: 50,
+          maxAgeSeconds: 7 * 24 * 60 * 60,
+        }),
+      ],
+    })
+  )
+);
+
+// ─── STATIC ASSETS ────────────────────────────────────────────────────────────
+// JS/CSS/fonts/images needed by already-visited pages should never disappear
+// just because the user went offline.
+registerRoute(
+  ({ request }) =>
+    ['script', 'style', 'font'].includes(request.destination),
+  new CacheFirst({
+    cacheName: 'fedha-static',
+    plugins: [new ExpirationPlugin({ maxEntries: 250, maxAgeSeconds: 30 * 24 * 60 * 60 })],
+  })
+);
+
+registerRoute(
+  ({ request }) => request.destination === 'image',
+  new StaleWhileRevalidate({
+    cacheName: 'fedha-images',
+    plugins: [new ExpirationPlugin({ maxEntries: 150, maxAgeSeconds: 30 * 24 * 60 * 60 })],
+  })
+);
+
+// ─── ROOT START URL ──────────────────────────────────────────────────────────
+// Keep the app entry point available even when the network disappears before
+// the user has visited another page.
 registerRoute(
   '/',
   new NetworkFirst({
     cacheName: 'start-url',
+    networkTimeoutSeconds: 3,
     plugins: [
       {
         cacheWillUpdate: async ({ response }) =>
@@ -40,20 +83,24 @@ registerRoute(
   'GET'
 );
 
+// ─── OTHER SAME-ORIGIN GET REQUESTS ───────────────────────────────────────────
+// Cache non-navigation GET resources as a fallback, but do NOT use the old
+// catch-all /^https?.*/ route. That route also intercepted Supabase, Jarvis
+// and third-party API calls, making live features look like app failures when
+// offline and potentially serving stale API responses.
 registerRoute(
-  /^https?.*/,
+  ({ request, url }) =>
+    url.origin === self.location.origin &&
+    request.method === 'GET' &&
+    request.destination === '',
   new NetworkFirst({
-    cacheName: 'fedha-cache',
-    networkTimeoutSeconds: 10,
-    plugins: [new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 86400 })],
-  }),
-  'GET'
+    cacheName: 'fedha-data-pages',
+    networkTimeoutSeconds: 3,
+    plugins: [new ExpirationPlugin({ maxEntries: 100, maxAgeSeconds: 24 * 60 * 60 })],
+  })
 );
 
 // ─── PUSH NOTIFICATIONS ─────────────────────────────────────────────────────
-// Fired when a push message arrives from the server, even if Fedha isn't
-// open in any tab. This is what makes notifications work when the app is
-// closed — the old generated sw.js had no listener for this event at all.
 self.addEventListener('push', (event) => {
   let payload = {};
   try {
@@ -89,8 +136,6 @@ self.addEventListener('push', (event) => {
 });
 
 // ─── NOTIFICATION CLICK ──────────────────────────────────────────────────────
-// Focuses an existing Fedha tab if one is open, otherwise opens a new one,
-// navigating to the URL the push payload specified.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const targetUrl = event.notification.data?.url || '/';
@@ -107,9 +152,6 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 // ─── SUBSCRIPTION EXPIRY / ROTATION ──────────────────────────────────────────
-// Browsers occasionally invalidate a push subscription and fire this event
-// with a replacement. Re-register it with Supabase so reminders keep working
-// without the user having to reopen the app and re-grant permission.
 self.addEventListener('pushsubscriptionchange', (event) => {
   event.waitUntil(
     (async () => {
@@ -120,7 +162,7 @@ self.addEventListener('pushsubscriptionchange', (event) => {
         const clientList = await self.clients.matchAll({ type: 'window' });
         clientList.forEach((client) => client.postMessage({ type: 'PUSH_SUBSCRIPTION_CHANGED', subscription: newSub }));
       } catch (e) {
-        // Nothing we can do without a window to re-request permission from.
+        // Nothing to do without a window to re-request permission from.
       }
     })()
   );
