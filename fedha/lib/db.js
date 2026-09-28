@@ -532,6 +532,7 @@ export async function appendJarvisMessage(role, content) {
 const DEFAULT_FOOD_PROFILE = {
   customFoods: [],
   preferences: {},
+  mealPreferences: {},
   prices: {},
   savedMeals: [],
 };
