@@ -15,7 +15,7 @@ const MEAL_IDEAS = [
   { id:'eggs_chapati_milk', name:'Eggs + Chapati + Milk', ids:['egg_boiled','chapati','milk'], slot:'breakfast', tags:['high-calorie','protein'] },
 ];
 
-const DEFAULT_PROFILE = { customFoods:[], preferences:{}, prices:{}, savedMeals:[] };
+const DEFAULT_PROFILE = { customFoods:[], preferences:{}, mealPreferences:{}, prices:{}, savedMeals:[] };
 
 function pref(profile, id) {
   return profile.preferences?.[id] || { score:0, state:'neutral' };
@@ -108,6 +108,18 @@ export default function FoodHub({ onLogMeal }) {
     await saveFoodProfile(next);
   }
 
+  async function rateMeal(id, state) {
+    const old=profile.mealPreferences?.[id] || {score:0,state:'neutral'};
+    const next={...profile,mealPreferences:{...(profile.mealPreferences||{}),[id]:{
+      ...old,
+      state,
+      score:Math.max(-5,Math.min(5,old.score+(state==='liked'?1:-1))),
+      updatedAt:new Date().toISOString()
+    }}};
+    setProfile(next);
+    await saveFoodProfile(next);
+  }
+
   async function addCustom() {
     if(!custom.name.trim() || !Number(custom.cal)) return;
     const food={
@@ -192,7 +204,10 @@ export default function FoodHub({ onLogMeal }) {
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:10}}>
         {rankedIdeas.map(idea=><div key={idea.id} className="card" style={{padding:15}}>
-          <div style={{display:'flex',justifyContent:'space-between',gap:10}}><div><div style={{fontSize:15,fontWeight:700}}>{idea.name}</div><div style={{fontSize:12,color:'var(--text-3)',marginTop:3}}>{idea.cal} cal · {idea.protein}g protein · {idea.slot}</div></div><button className="btn-ghost" style={{padding:'5px 8px'}} onClick={()=>idea.items.forEach(f=>rate(f.id,'liked'))}>❤️</button></div>
+          <div style={{display:'flex',justifyContent:'space-between',gap:10}}><div><div style={{fontSize:15,fontWeight:700}}>{idea.name}</div><div style={{fontSize:12,color:'var(--text-3)',marginTop:3}}>{idea.cal} cal · {idea.protein}g protein · {idea.slot}</div></div><div style={{display:'flex',gap:5}}>
+            <button className="btn-ghost" style={{padding:'5px 8px'}} onClick={()=>rateMeal(idea.id,'liked')}>❤️</button>
+            <button className="btn-ghost" style={{padding:'5px 8px'}} onClick={()=>rateMeal(idea.id,'disliked')}>👎</button>
+          </div></div>
           <div style={{display:'flex',gap:7,flexWrap:'wrap',marginTop:10}}>{idea.tags.map(t=><span key={t} className="chip">{t}</span>)}{idea.costKnown?<span className="chip" style={{color:'var(--green)'}}>💰 {formatCurrency(idea.cost,currency)}</span>:<span className="chip">Price not set</span>}{idea.costKnown&&idea.cost<=Math.max(0,floating)&&<span className="chip" style={{color:'var(--green)'}}>✓ Fits Floating Balance</span>}</div>
           <button className="btn-primary" style={{width:'100%',marginTop:12}} onClick={()=>logItems(idea.items,idea.slot)}>Log this meal</button>
         </div>)}
@@ -230,6 +245,10 @@ export default function FoodHub({ onLogMeal }) {
       <div className="card" style={{padding:15}}>
         <div className="section-title" style={{marginBottom:10}}>YOUR PREFERENCES</div>
         {[...foods].filter(f=>pref(profile,f.id).score!==0).sort((a,b)=>pref(profile,b.id).score-pref(profile,a.id).score).map(f=><div key={f.id} style={{display:'flex',alignItems:'center',gap:9,padding:'8px 0',borderBottom:'1px solid var(--border)'}}><span>{f.icon}</span><span style={{flex:1,fontSize:13}}>{f.name}</span><span>{pref(profile,f.id).state==='liked'?'❤️':'👎'}</span></div>)}
+        {Object.entries(profile.mealPreferences||{}).filter(x=>x[1].score!==0).sort((a,b)=>b[1].score-a[1].score).map(([id,p])=>{
+          const idea=MEAL_IDEAS.find(x=>x.id===id);
+          return idea ? <div key={id} style={{display:'flex',alignItems:'center',gap:9,padding:'8px 0',borderBottom:'1px solid var(--border)'}}><span>🍽️</span><span style={{flex:1,fontSize:13}}>{idea.name}</span><span>{p.state==='liked'?'❤️':'👎'}</span></div> : null;
+        })}
         {!foods.some(f=>pref(profile,f.id).score!==0)&&<div style={{fontSize:13,color:'var(--text-3)'}}>Like or dislike foods in Explore and Fedha will learn your personal preferences.</div>}
       </div>
     </div>}
