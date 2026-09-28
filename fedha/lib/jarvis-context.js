@@ -116,6 +116,19 @@ async function summarizeMeals() {
   ].filter(Boolean).join('\n');
 }
 
+async function summarizeGoals() {
+  const goals = await getGoals();
+  if (!goals.length) return 'No goals have been recorded yet.';
+  return goals.map((g) => {
+    const target = Number(g.target);
+    const current = Number(g.current || 0);
+    const pct = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : null;
+    const status = g.completed || g.status === 'completed' || (pct !== null && pct >= 100) ? 'completed' : (g.status || 'active');
+    const deadline = g.deadline || g.target_date || g.due_date;
+    return `${g.name || 'Unnamed goal'}: ${status}${pct !== null ? `, ${pct}% (${current}/${target})` : ''}${deadline ? `, deadline ${deadline}` : ''}`;
+  }).join('\\n');
+}
+
 async function summarizeDeadlines() {
   const hackathons = await getHackathons();
   const upcoming = hackathons
@@ -180,13 +193,14 @@ export async function buildJarvisContext(message = '') {
   const wantsGoals = /\b(goal|goals|achieve|achievement|milestone|progress|target|life goal)\b/.test(m);
   const role = detectJarvisRole(message);
   const situation = detectJarvisSituation(message);
-  const [money, planner, meals, deadlines, career, research] = await Promise.all([
+  const [money, planner, meals, deadlines, career, research, goals] = await Promise.all([
     wantsMoney ? summarizeMoney().catch((e) => `(money data unavailable: ${e.message})`) : Promise.resolve(null),
     wantsPlanner ? summarizePlanner().catch((e) => `(planner data unavailable: ${e.message})`) : Promise.resolve(null),
     wantsMeals ? summarizeMeals().catch((e) => `(meal data unavailable: ${e.message})`) : Promise.resolve(null),
     (wantsPlanner || wantsCareer) ? summarizeDeadlines().catch(() => null) : Promise.resolve(null),
     wantsCareer ? summarizeCareer().catch(() => null) : Promise.resolve(null),
     wantsResearch ? summarizeResearch().catch(() => null) : Promise.resolve(null),
+    wantsGoals ? summarizeGoals().catch(() => null) : Promise.resolve(null),
   ]);
 
   const now = new Date();
@@ -198,6 +212,7 @@ export async function buildJarvisContext(message = '') {
     meals ? `— MEALS TODAY —\n${meals}` : null,
     deadlines ? `— DEADLINES —\n${deadlines}` : null,
     research ? `— RESEARCH —\n${research}` : null,
+    goals ? `— GOALS & PROGRESS —\n${goals}` : null,
     career ? `— PROJECTS, HACKATHONS & STARTUPS —\n${career}` : null,
   ].filter(Boolean).join('\n\n');
 }
