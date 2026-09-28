@@ -169,22 +169,28 @@ async function summarizeCareer() {
 }
 
 // The full context string injected as a system message on every Jarvis turn.
-export async function buildJarvisContext() {
+export async function buildJarvisContext(message = '') {
+  const m = String(message || '').toLowerCase();
+  const wantsMoney = /\b(money|cash|balance|wallet|budget|expense|spent|spend|transaction|income|salary|loan|owe|owed|saving|savings|financial|afford|price|cost)\b/.test(m);
+  const wantsPlanner = /\b(planner|schedule|plan|today|tomorrow|task|tasks|block|time|busy|free|deadline)\b/.test(m);
+  const wantsMeals = /\b(food|eat|eating|meal|breakfast|lunch|dinner|snack|calorie|protein|nutrition|hungry)\b/.test(m);
+  const wantsCareer = /\b(cv|resume|project|projects|hackathon|startup|certificate|portfolio|career|job)\b/.test(m);
+  const wantsResearch = /\b(research|gig|side hustle|online job|food near|restaurant|cafe|activity|activities)\b/.test(m);
   const [money, planner, meals, deadlines, career, research] = await Promise.all([
-    summarizeMoney().catch((e) => `(money data unavailable: ${e.message})`),
-    summarizePlanner().catch((e) => `(planner data unavailable: ${e.message})`),
-    summarizeMeals().catch((e) => `(meal data unavailable: ${e.message})`),
-    summarizeDeadlines().catch(() => null),
-    summarizeCareer().catch(() => null),
-    summarizeResearch().catch(() => null),
+    wantsMoney ? summarizeMoney().catch((e) => `(money data unavailable: ${e.message})`) : Promise.resolve(null),
+    wantsPlanner ? summarizePlanner().catch((e) => `(planner data unavailable: ${e.message})`) : Promise.resolve(null),
+    wantsMeals ? summarizeMeals().catch((e) => `(meal data unavailable: ${e.message})`) : Promise.resolve(null),
+    (wantsPlanner || wantsCareer) ? summarizeDeadlines().catch(() => null) : Promise.resolve(null),
+    wantsCareer ? summarizeCareer().catch(() => null) : Promise.resolve(null),
+    wantsResearch ? summarizeResearch().catch(() => null) : Promise.resolve(null),
   ]);
 
   const now = new Date();
   return [
     `Current date/time: ${now.toLocaleString()}`,
-    `— MONEY —\n${money}`,
-    `— TODAY'S PLANNER —\n${planner}`,
-    `— MEALS TODAY —\n${meals}`,
+    money ? `— MONEY —\n${money}` : null,
+    planner ? `— TODAY'S PLANNER —\n${planner}` : null,
+    meals ? `— MEALS TODAY —\n${meals}` : null,
     deadlines ? `— DEADLINES —\n${deadlines}` : null,
     research ? `— RESEARCH —\n${research}` : null,
     career ? `— PROJECTS, HACKATHONS & CERTIFICATES (for CV drafting, feature ideas) —\n${career}` : null,
