@@ -155,35 +155,50 @@ async function summarizeResearch() {
 // conversation needs it — buildJarvisContext() includes it always for now
 // (the summaries are compact), but this is the section to trim first if
 // context size ever becomes a real problem.
-async function summarizeCareer() {
+async function summarizeCareer(message = '') {
   const [projects, hackathons, startups, certificates] = await Promise.all([
     getProjects(), getHackathons(), getStartups(), getCertificates(),
   ]);
+  const q = String(message || '').toLowerCase();
 
   const projectLines = projects.map((p) =>
-    `${p.name} (${p.status}${p.progress ? `, ${p.progress}% done` : ''}): ${p.description || 'no description'}${p.repo_url ? ` — repo: ${p.repo_url}` : ''}${p.site_url ? ` — live: ${p.site_url}` : ''}`
+    `${p.name} (${p.status || 'unknown''}${p.progress != null ? `, ${p.progress}% done` : '''}): ${p.description || 'no description''}${p.repo_url ? ` — repo: ${p.repo_url}` : '''}${p.site_url ? ` — live: ${p.site_url}` : '''}`
   );
-
   const hackathonLines = hackathons.map((h) =>
-    `${h.name}${h.project_name ? ` — built "${h.project_name}"` : ''} (${h.organizer || 'organizer unknown'}, ${h.status}${h.submitted ? ', submitted' : ''})${h.themes ? `, theme: ${h.themes}` : ''}`
+    `${h.name}${h.project_name ? ` — project "${h.project_name}"` : '''} (${h.organizer || 'organizer unknown''}, ${h.status || 'unknown''}${h.submitted ? ', submitted' : '''}${h.deadline ? `, deadline ${h.deadline} (${fmtCountdown(h.deadline) || 'date unavailable'})` : '''}${h.themes ? `, themes: ${h.themes}` : '''})`
   );
-
-  const startupLines = startups.map((s) => `${s.name}: ${s.description || 'no description'}`);
-
   const certLines = certificates.map((c) =>
-    `${c.title} (${c.category || 'certificate'})${c.date_earned ? `, earned ${c.date_earned}` : ''}${c.achievement ? ` — ${c.achievement}` : ''}${c.description ? `: ${c.description}` : ''}`
+    `${c.title} (${c.category || 'certificate''})${c.date_earned ? `, earned ${c.date_earned}` : '''}${c.achievement ? ` — ${c.achievement}` : '''}${c.description ? `: ${c.description}` : '''}`
   );
+
+  const mentioned = startups.filter((st) => st.name && q.includes(String(st.name).toLowerCase()));
+  const startupTargets = mentioned.length ? mentioned : (startups.length === 1 || /\\b(my startup|the startup|my venture|the venture|startup of mine)\\b/.test(q) ? startups : []);
+  const startupLines = startupTargets.map((st) => {
+    const stages = st.stages || {};
+    const stageLabels = {
+      ideation: ['problem','solution','project','validation'],
+      prototyping: ['tech_stack','key_features','prototype_link','learnings'],
+      mvp: ['launch_status','target_users','metrics','next_steps'],
+      pmf: ['retention_metrics','user_feedback','product_changes','market_fit_signals'],
+      growth: ['marketing_strategy','team_size','partnerships','growth_metrics'],
+      revenue: ['revenue_model','pricing_strategy','current_arr','unit_economics'],
+      expansion: ['new_markets','new_features','localization','expansion_timeline'],
+      exit: ['exit_strategy','acquisition_targets','valuation','long_term_vision'],
+    };
+    const details = Object.entries(stageLabels).flatMap(([stage, fields]) =>
+      fields.filter((f) => stages[stage]?.[f] !== undefined && String(stages[stage][f]).trim() !== '')
+        .map((f) => `${stage} / ${f}: ${stages[stage][f]}`)
+    );
+    return `${st.name}: ${st.description || 'no description'}${details.length ? '\\n' + details.join('\\n') : '\\nNo startup stage details recorded yet.'}`;
+  });
 
   const result = [
-    projectLines.length ? `Projects:\n- ${projectLines.join('\n- ')}` : null,
-    hackathonLines.length ? `Hackathons:\n- ${hackathonLines.join('\n- ')}` : null,
-    startupLines.length ? `Startup ideas/ventures:\n- ${startupLines.join('\n- ')}` : null,
-    certLines.length ? `Certificates:\n- ${certLines.join('\n- ')}` : null,
-  ].filter(Boolean).join('\n\n');
-  // Keep project context bounded so a large portfolio cannot consume the
-  // model's token budget. The relevant memory and current request remain
-  // higher priority than an exhaustive portfolio dump.
-  return result ? (result.length > 6000 ? result.slice(0, 6000) + '\n[portfolio context truncated]' : result) : null;
+    projectLines.length ? `Projects:\\n- ${projectLines.join('\\n- ')}` : null,
+    hackathonLines.length ? `Hackathons:\\n- ${hackathonLines.join('\\n- ')}` : null,
+    startupLines.length ? `Detailed startup context from Fedha (authoritative):\\n- ${startupLines.join('\\n- ')}` : (startups.length ? `Startups: ${startups.map((st) => st.name).join(', ')}` : null),
+    certLines.length ? `Certificates:\\n- ${certLines.join('\\n- ')}` : null,
+  ].filter(Boolean).join('\\n\\n');
+  return result ? (result.length > 9000 ? result.slice(0, 9000) + '\\n[portfolio context truncated]' : result) : null;
 }
 
 // The full context string injected as a system message on every Jarvis turn.
@@ -192,7 +207,7 @@ export async function buildJarvisContext(message = '') {
   const wantsMoney = /\b(money|cash|balance|wallet|budget|expense|spent|spend|transaction|income|salary|loan|owe|owed|saving|savings|financial|afford|price|cost)\b/.test(m);
   const wantsPlanner = /\b(planner|schedule|plan|today|tomorrow|task|tasks|block|time|busy|free|deadline)\b/.test(m);
   const wantsMeals = /\b(food|eat|eating|meal|breakfast|lunch|dinner|snack|calorie|protein|nutrition|hungry)\b/.test(m);
-  const wantsCareer = /\b(cv|resume|project|projects|hackathon|startup|certificate|portfolio|career|job)\b/.test(m);
+  const wantsCareer = /\b(cv|resume|project|projects|hackathon|startup|certificate|portfolio|career|job|venture|event)\b/.test(m);
   const wantsResearch = /\b(research|gig|side hustle|online job|food near|restaurant|cafe|activity|activities)\b/.test(m);
   const wantsGoals = /\b(goal|goals|achieve|achievement|milestone|progress|target|life goal)\b/.test(m);
   const role = detectJarvisRole(message);
@@ -202,7 +217,7 @@ export async function buildJarvisContext(message = '') {
     wantsPlanner ? summarizePlanner().catch((e) => `(planner data unavailable: ${e.message})`) : Promise.resolve(null),
     wantsMeals ? summarizeMeals().catch((e) => `(meal data unavailable: ${e.message})`) : Promise.resolve(null),
     (wantsPlanner || wantsCareer) ? summarizeDeadlines().catch(() => null) : Promise.resolve(null),
-    wantsCareer ? summarizeCareer().catch(() => null) : Promise.resolve(null),
+    wantsCareer ? summarizeCareer(message).catch(() => null) : Promise.resolve(null),
     wantsResearch ? summarizeResearch().catch(() => null) : Promise.resolve(null),
     wantsGoals ? summarizeGoals().catch(() => null) : Promise.resolve(null),
   ]);
