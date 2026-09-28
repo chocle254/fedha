@@ -267,6 +267,24 @@ function selectTools(message) {
   return TOOLS.filter((t) => names.has(t.function.name));
 }
 
+function selectTools(message) {
+  const m = message.toLowerCase();
+  const names = new Set();
+  const add = (...xs) => xs.forEach((x) => names.add(x));
+  if (/\b(log|add|record|spent|spend|paid|bought|expense|income|earned|received|transaction)\b/.test(m)) add('propose_transaction');
+  if (/\b(loan|owe|owed|lent|borrowed|settle|paid back)\b/.test(m)) add('propose_settle_loan');
+  if (/\b(income|salary|payment)\b/.test(m) && /\b(received|got|arrived|mark)\b/.test(m)) add('propose_mark_income_received');
+  if (/\b(log|add|record|ate|eaten|meal|breakfast|lunch|dinner|snack)\b/.test(m)) add('propose_log_meal');
+  if (/\b(planner|schedule|plan|move|reschedule|block)\b/.test(m)) add('propose_planner_block_edit');
+  if (/\b(project|startup|hackathon|portfolio|certificate)\b/.test(m) && /\b(update|mark|change|done|complete|progress|submit)\b/.test(m)) add('propose_update_project_status','propose_update_hackathon_status');
+  if (/\b(add|schedule|put)\b/.test(m) && /\b(planner|schedule|activity)\b/.test(m)) add('propose_add_planner_activity');
+  if (/\b(online gig|side hustle|online job|earn online|microtask|freelance)\b/.test(m)) add('research_online_opportunities');
+  if (/\b(eat|food|breakfast|lunch|dinner|cafe|restaurant|hotel|nearby food)\b/.test(m)) add('research_food_nearby');
+  if (/\b(fun|activity|activities|go out|hang out|do right now)\b/.test(m)) add('research_activities_nearby');
+  if (/\b(remember|don't forget|dont forget|keep in mind|i like|i dislike|i hate|i love|my goal|my preference|i prefer)\b/.test(m)) add('update_memory');
+  return TOOLS.filter((t) => names.has(t.function.name));
+}
+
 async function callGroqWithTools(apiKey, messages, location, userMessage) {
   const selectedTools = selectTools(userMessage);
   const first = await groqChat(apiKey, messages, selectedTools);
