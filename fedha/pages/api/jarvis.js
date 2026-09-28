@@ -375,7 +375,10 @@ function selectTools(message) {
   const names = new Set();
   const add = (...xs) => xs.forEach((x) => names.add(x));
   if (/\b(log|add|record|spent|spend|paid|bought|expense|income|earned|received|transaction)\b/.test(m)) add('propose_transaction');
-  if (/\b(loan|owe|owed|lent|borrowed|settle|paid back)\b/.test(m)) add('propose_settle_loan');
+  // "What loans do I have?" is a read question, not a request to settle one.
+  // Only expose the settle action when the user is actually asking to change
+  // a loan's state.
+  if (/\b(settle|pay back|paid back|mark.*settled|mark.*paid|settle.*loan)\b/.test(m)) add('propose_settle_loan');
   if (/\b(income|salary|payment)\b/.test(m) && /\b(received|got|arrived|mark)\b/.test(m)) add('propose_mark_income_received');
   if (/\b(log|add|record|ate|eaten|meal|breakfast|lunch|dinner|snack)\b/.test(m)) add('propose_log_meal');
   if (/\b(planner|schedule|plan|move|reschedule|block)\b/.test(m)) add('propose_planner_block_edit');
