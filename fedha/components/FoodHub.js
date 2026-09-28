@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { COMMON_FOODS, FOOD_GROUPS } from '../lib/foods';
-import { getFoodProfile, saveFoodProfile, getFoodLogs, getSetting } from '../lib/db';
+import { getFoodProfile, saveFoodProfile, getFoodLogs, getSetting, saveTransaction } from '../lib/db';
 import { useFloatingCash } from '../lib/floating';
 import { formatCurrency, genId, todayISO } from '../lib/utils';
+import { useApp } from '../context/AppContext';
 
 const MEAL_IDEAS = [
   { id:'eggs_bread_milk', name:'Eggs + Bread + Milk', ids:['egg_boiled','bread','milk'], slot:'breakfast', tags:['protein','energy'] },
@@ -15,6 +16,8 @@ const MEAL_IDEAS = [
   { id:'eggs_chapati_milk', name:'Eggs + Chapati + Milk', ids:['egg_boiled','chapati','milk'], slot:'breakfast', tags:['high-calorie','protein'] },
 ];
 
+function defaultSlotForHour(hour) { return hour < 10 ? 'breakfast' : hour < 12 ? 'snack' : hour < 16 ? 'lunch' : hour < 18 ? 'snack' : 'dinner'; }
+
 const DEFAULT_PROFILE = { customFoods:[], preferences:{}, mealPreferences:{}, prices:{}, savedMeals:[] };
 
 function pref(profile, id) {
@@ -23,6 +26,7 @@ function pref(profile, id) {
 
 export default function FoodHub({ onLogMeal }) {
   const { floating, currency } = useFloatingCash();
+  const { wallets } = useApp();
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const [logs, setLogs] = useState([]);
   const [calGoal, setCalGoal] = useState(2800);
@@ -38,6 +42,8 @@ export default function FoodHub({ onLogMeal }) {
   const [nearbyLoading, setNearbyLoading] = useState(false);
   const [nearbyError, setNearbyError] = useState('');
   const [location, setLocation] = useState(null);
+  const [acceptedPlace, setAcceptedPlace] = useState(null);
+  const [purchase, setPurchase] = useState({food:'',cal:'',protein:'',price:'',walletId:''});
   
   async function load() {
     const [p,l,cg,pg] = await Promise.all([
@@ -64,6 +70,24 @@ export default function FoodHub({ onLogMeal }) {
       }
     }, () => setNearbyError('Location access was denied. Allow location access to see nearby options.'));
   }, [tab, location]);
+
+  function acceptPlace(place) {
+    setAcceptedPlace(place);
+    setPurchase({ food: place.food || '', cal: '', protein: '', price: place.price || '', walletId: wallets?.[0]?.id || '' });
+  }
+
+  async function recordNearbyPurchase(e) {
+    e.preventDefault();
+    const food = purchase.food.trim();
+    const cal = Number(purchase.cal);
+    const price = Number(purchase.price);
+    if (!acceptedPlace || !food || !Number.isFinite(cal) || cal < 0 || !Number.isFinite(price) || price < 0 || !purchase.walletId) return;
+    const item = { id: 'nearby_' + genId(), name: food, cal, protein: Number(purchase.protein) || 0, icon: '🍽️', qty: 1, slot: defaultSlotForHour(new Date().getHours()) };
+    if (onLogMeal) await onLogMeal({ items: [item], slot: item.slot, name: food + ' at ' + acceptedPlace.name });
+    await saveTransaction({ id: genId(), type: 'expense', amount: price, category: 'food', description: food + ' at ' + acceptedPlace.name, wallet_id: purchase.walletId, date: todayISO(), created_at: new Date().toISOString() });
+    setAcceptedPlace(null);
+    setPurchase({food:'',cal:'',protein:'',price:'',walletId:''});
+  }
 
   async function findNearby() {
     if (!location) { setNearbyError('Allow location access first so Fedha can search around you.'); return; }
@@ -284,12 +308,13 @@ export default function FoodHub({ onLogMeal }) {
       </div>}
       {nearbyLoading && <div className="card" style={{padding:16,fontSize:13,color:'var(--text-2'}}>Jarvis is checking real nearby options…</div>}
       {nearbyError && location && <div className="card" style={{padding:14,color:'var(--red)',fontSize:13}}>{nearbyError}</div>}
+      {acceptedPlace && <div className="card" style={{padding:16,marginTop:12,border:'1px solid var(--green)'}}><div className="section-title" style={{marginBottom:8}}>LOG AT {acceptedPlace.name.toUpperCase()}</div><div style={{fontSize:12,color:'var(--text-3)',marginBottom:12}}>Enter the actual food and price you paid. The food goes into Calories and the payment is recorded against the selected wallet.</div><form onSubmit={recordNearbyPurchase} style={{display:'grid',gap:9}}><input className="input" placeholder="What did you eat?" value={purchase.food} onChange={e=>setPurchase({...purchase,food:e.target.value})} required/><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}><input className="input" type="number" min="0" placeholder="Calories" value={purchase.cal} onChange={e=>setPurchase({...purchase,cal:e.target.value})} required/><input className="input" type="number" min="0" placeholder="Protein (g)" value={purchase.protein} onChange={e=>setPurchase({...purchase,protein:e.target.value})}/></div><input className="input" type="number" min="0" step="0.01" placeholder="Price paid (KES)" value={purchase.price} onChange={e=>setPurchase({...purchase,price:e.target.value})} required/><select className="input" value={purchase.walletId} onChange={e=>setPurchase({...purchase,walletId:e.target.value})} required>{(wallets||[]).map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select><div style={{display:'flex',gap:8}}><button type="submit" className="btn-primary" style={{flex:1}}>Record food + payment</button><button type="button" className="btn-ghost" onClick={()=>setAcceptedPlace(null)}>Cancel</button></div></form></div>}
       {nearby && <div className="card" style={{padding:15}}>
         <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center',marginBottom:10}}>
           <div className="section-title">JARVIS RECOMMENDS</div>
           <span style={{fontSize:11,color:'var(--text-3)'}}>Based on now + your area</span>
         </div>
-        <div style={{fontSize:13,lineHeight:1.6,color:'var(--text-2)',whiteSpace:'pre-wrap'}}>{nearby.content}</div>
+        {Array.isArray(nearby.places) && nearby.places.length > 0 ? <div style={{display:'grid',gap:10}}>{nearby.places.map((place,i)=><div key={place.id||i} className="card" style={{padding:13}}><div style={{display:'flex',justifyContent:'space-between',gap:10}}><div><div style={{fontSize:15,fontWeight:700}}>{place.name}</div><div style={{fontSize:11,color:'var(--text-3)',marginTop:3}}>{place.type || 'Food option'}{place.area ? ' · '+place.area : ''}</div></div><span style={{fontSize:20}}>{place.type==='hotel'?'🏨':place.type==='cafe'?'☕':'🍽️'}</span></div>{place.food && <div style={{fontSize:12,color:'var(--text-2)',marginTop:8}}>🍴 {place.food}</div>}{place.price && <div style={{fontSize:12,color:'var(--green)',marginTop:5}}>💰 {place.price}</div>}{place.hours && <div style={{fontSize:11,color:'var(--text-3)',marginTop:4}}>🕐 {place.hours}</div>}{place.distance && <div style={{fontSize:11,color:'var(--text-3)',marginTop:4}}>📍 {place.distance}</div>}<button className="btn-primary" style={{width:'100%',marginTop:10}} onClick={()=>acceptPlace(place)}>Accept & log food</button></div>)}</div> : <div style={{fontSize:13,lineHeight:1.6,color:'var(--text-2)',whiteSpace:'pre-wrap'}}>{nearby.content}</div>}
         {nearby.citations?.length > 0 && <div style={{marginTop:12,paddingTop:10,borderTop:'1px solid var(--border)',fontSize:10,color:'var(--text-3)'}}>Sources were checked live. Prices, hours and distance are shown only when the source provides them.</div>}
       </div>}
     </div>}
