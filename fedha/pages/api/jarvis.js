@@ -18,7 +18,7 @@
 
 import { runResearch } from '../../lib/jarvis-research-core';
 
-const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-20b';
 
 const SYSTEM_PROMPT = `You are Jarvis — the personal AI running inside Fedha, a personal finance, planning, meals, workout, and career app. You belong to one person and you know them well: you remember what they've told you, you notice how they're doing, and you speak to them like a sharp, loyal friend who happens to be extremely competent — not like customer support.
 
@@ -227,12 +227,12 @@ export default async function handler(req, res) {
 
   const messages = [
     { role: 'system', content: systemPrompt },
-    ...(Array.isArray(history) ? history.slice(-10).map((h) => ({ role: h.role, content: h.content })) : []),
+    ...(Array.isArray(history) ? history.slice(-6).map((h) => ({ role: h.role, content: h.content })) : []),
     { role: 'user', content: message },
   ];
 
   try {
-    const response = await callGroqWithTools(GROQ_API_KEY, messages, location);
+    const response = await callGroqWithTools(GROQ_API_KEY, messages, location, message);
     if (response.error) return res.status(500).json(response);
     return res.status(200).json(response);
   } catch (err) {
@@ -248,8 +248,28 @@ export default async function handler(req, res) {
 // reasoning as write actions — this route has no direct DB access — but
 // memory doesn't need human confirmation since it's Jarvis's own notes,
 // not a change to the user's actual data).
-async function callGroqWithTools(apiKey, messages, location) {
-  const first = await groqChat(apiKey, messages, TOOLS);
+function selectTools(message) {
+  const m = message.toLowerCase();
+  const names = new Set();
+  const add = (...xs) => xs.forEach((x) => names.add(x));
+  if (/\b(log|add|record|spent|spend|paid|bought|expense|income|earned|received|transaction)\b/.test(m)) add('propose_transaction');
+  if (/\b(loan|owe|owed|lent|borrowed|settle|paid back)\b/.test(m)) add('propose_settle_loan');
+  if (/\b(income|salary|payment)\b/.test(m) && /\b(received|got|arrived|mark)\b/.test(m)) add('propose_mark_income_received');
+  if (/\b(log|add|record|ate|eaten|meal|breakfast|lunch|dinner|snack)\b/.test(m)) add('propose_log_meal');
+  if (/\b(planner|schedule|plan|move|reschedule|change.*time|block)\b/.test(m)) add('propose_planner_block_edit');
+  if (/\b(project|startup|hackathon|portfolio|certificate)\b/.test(m) && /\b(update|mark|change|done|complete|progress|submit)\b/.test(m)) add('propose_update_project_status','propose_update_hackathon_status');
+  if (/\b(add|schedule|put)\b/.test(m) && /\bplanner|schedule|activity\b/.test(m)) add('propose_add_planner_activity');
+  if (/\b(online gig|side hustle|online job|earn online|microtask|freelance)\b/.test(m)) add('research_online_opportunities');
+  if (/\b(eat|food|breakfast|lunch|dinner|cafe|restaurant|hotel|nearby food)\b/.test(m)) add('research_food_nearby');
+  if (/\b(fun|activity|activities|go out|hang out|do right now)\b/.test(m)) add('research_activities_nearby');
+  if (/\b(remember|don't forget|dont forget|keep in mind|you should know|i like|i dislike|i hate|i love|my goal|my preference|i prefer)\b/.test(m)) add('update_memory');
+  if (!names.size) return [];
+  return TOOLS.filter((t) => names.has(t.function.name));
+}
+
+async function callGroqWithTools(apiKey, messages, location, userMessage) {
+  const selectedTools = selectTools(userMessage);
+  const first = await groqChat(apiKey, messages, selectedTools);
   if (first.error) return first;
 
   const choice = first.choices?.[0];
@@ -304,23 +324,35 @@ async function callGroqWithTools(apiKey, messages, location) {
     });
   }
 
-  // Second pass: let the model give a natural-language reply now that it
-  // knows what it proposed (e.g. "I've set that up for you to confirm —
-  // want me to also...").
-  const second = await groqChat(apiKey, [
-    ...messages,
-    choice.message,
-    ...toolResultMessages,
-  ], []);
-  if (second.error) return second;
+  // Actions do not need a second LLM pass. The client already knows exactly
+  // what action was proposed, so paying for another completion here wastes
+  // half the rate-limit budget and was the main reason simple writes failed.
+  // Research is different: its web results need a summarization pass.
+  if (proposedActions.length && !toolResultMessages.some((m) => m.content?.startsWith('Research failed:'))) {
+    return {
+      reply: proposedActions.length === 1 ? "Got you — I've prepared that action." : "Got you — I've prepared those actions.",
+      proposedActions,
+      memoryUpdate,
+    };
+  }
 
-  const fallback = proposedActions.length
-    ? "Done — check the confirmation card."
-    : researchFailed
-      ? "I tried searching for that just now but hit an error partway through — mind asking again?"
-      : "Got the results back, but I'm not able to summarize them right now — mind asking again?";
-  const finalReply = second.choices?.[0]?.message?.content?.trim() || fallback;
-  return { reply: finalReply, proposedActions, memoryUpdate };
+  if (toolResultMessages.length) {
+    const second = await groqChat(apiKey, [
+      ...messages,
+      choice.message,
+      ...toolResultMessages,
+    ], []);
+    if (!second.error) {
+      return { reply: second.choices?.[0]?.message?.content?.trim() || "I got the results back.", proposedActions, memoryUpdate };
+    }
+  }
+
+  const fallback = researchFailed
+    ? "I tried searching for that just now but hit an error partway through — mind asking again?"
+    : proposedActions.length
+      ? "Got you — I've prepared that action."
+      : choice.message?.content || "I'm here.";
+  return { reply: fallback, proposedActions, memoryUpdate };
 }
 
 async function groqChat(apiKey, messages, tools) {
@@ -330,14 +362,18 @@ async function groqChat(apiKey, messages, tools) {
     body: JSON.stringify({
       model: GROQ_MODEL,
       temperature: 0.7,
-      max_tokens: 700,
-      reasoning_format: 'hidden',
+      max_completion_tokens: tools?.length ? 450 : 350,
+      reasoning_effort: 'low',
+      include_reasoning: false,
       tools,
-      tool_choice: 'auto',
+      tool_choice: tools?.length ? 'auto' : 'none',
       messages,
     }),
   });
   const data = await response.json();
-  if (!response.ok) return { error: data.error?.message || 'Groq API error' };
+  if (!response.ok) {
+    const retryAfter = response.headers.get('retry-after');
+    return { error: data.error?.message || 'Groq API error', retryAfter };
+  }
   return data;
 }
