@@ -36,7 +36,7 @@ Capabilities:
 - You can see everything in Fedha: wallets, transactions, budgets, loans, income plans, goals, the daily planner, meals, workouts, tech-hub projects/hackathons/startups, certificates, online jobs.
 - Some of your tools change the user's real data (adding a transaction, marking a loan settled, adjusting today's plan, logging a meal, updating a project or hackathon, adding an activity). When you call one of these, the app shows the person a card to confirm or reject it — you don't need to describe that mechanism yourself, it happens automatically the moment you call the tool. CRITICAL: never say things like "I've put together a card for you to confirm" or mention confirming/proposing/a card in your reply UNLESS you are actually calling one of these tools in that same turn. If you're just answering a question or having a conversation, answer normally — don't narrate a confirmation flow that isn't happening. Only call one of these tools when the person has actually asked for something to change; asking a question is not a request to act.
 - When asked about online earning opportunities or side hustles, ALWAYS use research_online_opportunities rather than describing platforms from memory — the person specifically wants real, currently-live things you actually found, not generic suggestions.
-- When asked to suggest something fun to do, check today's planner in your context FIRST. If there's an urgent or essential block coming up soon (a work deadline, an important task, anything time-sensitive), say so plainly and decline to suggest an activity right now — don't research one anyway. Only call research_activities_nearby if the person genuinely has free time, or their important task finished ahead of schedule and there's a real gap before the next thing. If you do find something good, offer to add it to today's plan via propose_add_planner_activity, scheduled into an actual free slot.
+- When asked where to eat, what to have for breakfast/lunch/dinner, or for nearby cafes/hotels/food + leisure, use research_food_nearby so the answer is based on real current places and the user's location. Never invent businesses, prices, hours or distances.\n- When asked to suggest something fun to do, check today's planner in your context FIRST. If there's an urgent or essential block coming up soon (a work deadline, an important task, anything time-sensitive), say so plainly and decline to suggest an activity right now — don't research one anyway. Only call research_activities_nearby if the person genuinely has free time, or their important task finished ahead of schedule and there's a real gap before the next thing. If you do find something good, offer to add it to today's plan via propose_add_planner_activity, scheduled into an actual free slot.
 - You can help draft a CV/resume from their real projects, hackathons, and certificates — pull from the context you're given, don't invent achievements they don't have.
 - You can give startup/business strategy advice, product feature ideas for what they're building, and negotiation help for project pricing. Draw on general, well-known startup thinking and public philosophies of founders like Musk, Zuckerberg, Jensen Huang, etc. when it's genuinely useful — but say things in your own words, don't fabricate quotes or claim insider knowledge of what they privately think, and don't pretend to literally be them.
 - You can read the room emotionally from what they say and how they say it, and respond with care — but never diagnose, and never assert a mental state they haven't told you about themselves. If something sounds heavy, be present with it before jumping to solutions.
@@ -179,6 +179,14 @@ const TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'research_food_nearby',
+      description: "Search the web right now for REAL food and leisure options near the user's current location. Use this when the user asks where to eat, what to have for breakfast/lunch/dinner, nearby cafes, hotels with dining, or food + leisure. Consider current time and weather, and use the user's Food context such as likes/dislikes, nutrition gap and Floating Balance when explaining the results. Never invent a business, price, opening hour, distance or rating.",
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'research_activities_nearby',
       description: "Search the web right now for REAL local activities/venues/events, factoring in the user's actual location and current weather — not invented ones. IMPORTANT: before calling this, check the planner context you were given — if there's an urgent/essential block coming up soon (a work deadline, an important meeting, an imminent task), decline to research activities and explain why instead. Only call this if the user genuinely has free time now or their important task finished early.",
       parameters: { type: 'object', properties: {}, required: [] },
@@ -266,12 +274,12 @@ async function callGroqWithTools(apiKey, messages, location) {
       continue;
     }
 
-    if (call.function.name === 'research_online_opportunities' || call.function.name === 'research_activities_nearby') {
+    if (call.function.name === 'research_online_opportunities' || call.function.name === 'research_activities_nearby' || call.function.name === 'research_food_nearby') {
       // Unlike the propose_* tools, research doesn't change any of the
       // user's data — it's read-only web search — so it runs immediately
       // and the real results get fed back to the model, rather than being
       // packaged as something requiring confirmation.
-      const researchType = call.function.name === 'research_online_opportunities' ? 'online_opportunities' : 'activities';
+      const researchType = call.function.name === 'research_online_opportunities' ? 'online_opportunities' : call.function.name === 'research_food_nearby' ? 'food_nearby' : 'activities';
       try {
         const result = await runResearch(researchType, location);
         toolResultMessages.push({
