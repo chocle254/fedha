@@ -227,7 +227,7 @@ export default async function handler(req, res) {
 
   const messages = [
     { role: 'system', content: systemPrompt },
-    ...(Array.isArray(history) ? history.slice(-20).map((h) => ({ role: h.role, content: h.content })) : []),
+    ...(Array.isArray(history) ? history.slice(-10).map((h) => ({ role: h.role, content: h.content })) : []),
     { role: 'user', content: message },
   ];
 
@@ -311,7 +311,7 @@ async function callGroqWithTools(apiKey, messages, location) {
     ...messages,
     choice.message,
     ...toolResultMessages,
-  ], TOOLS);
+  ], []);
   if (second.error) return second;
 
   const fallback = proposedActions.length
@@ -330,7 +330,7 @@ async function groqChat(apiKey, messages, tools) {
     body: JSON.stringify({
       model: GROQ_MODEL,
       temperature: 0.7,
-      max_tokens: 1200,
+      max_tokens: 700,
       reasoning_format: 'hidden',
       tools,
       tool_choice: 'auto',
