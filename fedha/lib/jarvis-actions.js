@@ -85,6 +85,7 @@ export async function executeProposedAction(action, ctx) {
       const patch = {};
       if (args.status) patch.status = args.status;
       if (args.progress != null) patch.progress = Number(args.progress);
+      if (args.importance != null) patch.importance = Math.max(0, Math.min(100, Number(args.importance)));
       return saveProject({ ...project, ...patch });
     }
 
@@ -212,7 +213,7 @@ export function describeProposedAction(action) {
     case 'propose_planner_block_edit':
       return `Edit today's plan: ${args.new_time ? `move to ${args.new_time}` : ''}${args.new_note ? ` note: "${args.new_note}"` : ''}`;
     case 'propose_update_project_status':
-      return `Update project "${args.project_name}"${args.status ? ` to ${args.status}` : ''}${args.progress != null ? ` (${args.progress}% done)` : ''}`;
+      return `Update project "${args.project_name}"${args.status ? ` to ${args.status}` : ''}${args.progress != null ? ` (${args.progress}% done)` : ''}${args.importance != null ? ` — importance ${args.importance}%` : ''}`;
     case 'propose_create_hackathon':
       return `Add hackathon "${args.name}"${args.deadline ? ` — deadline ${args.deadline}` : ''}`;
     case 'propose_delete_hackathon':
