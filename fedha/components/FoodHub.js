@@ -19,6 +19,7 @@ const MEAL_IDEAS = [
 function defaultSlotForHour(hour) { return hour < 10 ? 'breakfast' : hour < 12 ? 'snack' : hour < 16 ? 'lunch' : hour < 18 ? 'snack' : 'dinner'; }
 
 const DEFAULT_PROFILE = { customFoods:[], preferences:{}, mealPreferences:{}, prices:{}, savedMeals:[] };
+const LOCATION_SESSION_KEY = 'fedha_food_location_session';
 
 function pref(profile, id) {
   return profile.preferences?.[id] || { score:0, state:'neutral' };
@@ -42,6 +43,7 @@ export default function FoodHub({ onLogMeal }) {
   const [nearbyLoading, setNearbyLoading] = useState(false);
   const [nearbyError, setNearbyError] = useState('');
   const [location, setLocation] = useState(null);
+  const [locationRequesting, setLocationRequesting] = useState(false);
   const [acceptedPlace, setAcceptedPlace] = useState(null);
   const [purchase, setPurchase] = useState({food:'',cal:'',protein:'',price:'',walletId:''});
   
@@ -56,20 +58,68 @@ export default function FoodHub({ onLogMeal }) {
   }
   useEffect(() => { load(); }, []);
 
+  // Cache the user's location only for the lifetime of this browser/app session.
+  // sessionStorage survives navigation/re-renders, but is cleared when the app/tab
+  // session is actually closed. This prevents repeated location prompts/searches.
   useEffect(() => {
-    if (tab !== 'nearby' || location || typeof navigator === 'undefined' || !navigator.geolocation) return;
+    if (typeof window === 'undefined') return;
+    try {
+      const cached = window.sessionStorage.getItem(LOCATION_SESSION_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.lat != null && parsed?.lng != null) setLocation(parsed);
+      }
+    } catch {
+      // Ignore invalid/stale session data and let the user request location again.
+    }
+  }, []);
+
+  async function requestLocation() {
+    if (location || locationRequesting || typeof navigator === 'undefined' || !navigator.geolocation) return;
+    setNearbyError('');
+    setLocationRequesting(true);
+
     navigator.geolocation.getCurrentPosition(async (pos) => {
       const { latitude: lat, longitude: lng } = pos.coords;
+      let nextLocation = { lat, lng, city: 'your area', area: 'your area' };
+
       try {
         const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
         const d = await r.json();
         const address = d.address || {};
-        setLocation({ lat, lng, city: address.city || address.town || address.county || address.state || 'your area', area: address.suburb || address.neighbourhood || address.city_district || address.city || 'your area' });
+        nextLocation = {
+          lat,
+          lng,
+          city: address.city || address.town || address.county || address.state || 'your area',
+          area: address.suburb || address.neighbourhood || address.city_district || address.city || 'your area'
+        };
       } catch {
-        setLocation({ lat, lng, city: 'your area', area: 'your area' });
+        // Coordinates are still valid even if reverse geocoding fails.
       }
-    }, () => setNearbyError('Location access was denied. Allow location access to see nearby options.'));
-  }, [tab, location]);
+
+      try {
+        window.sessionStorage.setItem(LOCATION_SESSION_KEY, JSON.stringify(nextLocation));
+      } catch {
+        // Session caching is best-effort; location still works for this render.
+      }
+
+      setLocation(nextLocation);
+      setLocationRequesting(false);
+    }, (error) => {
+      setLocationRequesting(false);
+      if (error?.code === 1) {
+        setNearbyError('Location access was denied. Allow location access in your browser/app settings, then try again.');
+      } else if (error?.code === 2) {
+        setNearbyError('Fedha could not determine your location. Turn on Location/GPS and try again.');
+      } else {
+        setNearbyError('Fedha could not get your location right now. Please try again.');
+      }
+    }, {
+      enableHighAccuracy: false,
+      timeout: 15000,
+      maximumAge: 5 * 60 * 1000
+    });
+  }
 
   function acceptPlace(place) {
     setAcceptedPlace(place);
@@ -90,7 +140,10 @@ export default function FoodHub({ onLogMeal }) {
   }
 
   async function findNearby() {
-    if (!location) { setNearbyError('Allow location access first so Fedha can search around you.'); return; }
+    if (!location) {
+      await requestLocation();
+      return;
+    }
     setNearbyLoading(true); setNearbyError('');
     try {
       const r = await fetch('/api/jarvis-research', {
@@ -299,13 +352,21 @@ export default function FoodHub({ onLogMeal }) {
         <div style={{display:'flex',gap:8,marginTop:10,alignItems:'center',flexWrap:'wrap'}}>
           <span className="chip">🕐 {new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}</span>
           {location?.area && <span className="chip">📍 {location.area}</span>}
-          <button className="btn-ghost" style={{padding:'6px 10px'}} onClick={findNearby} disabled={nearbyLoading}>{nearbyLoading?'Searching…':'Refresh'}</button>
+          {location ? (
+            <span className="chip" style={{color:'var(--green)'}}>✓ Location ready</span>
+          ) : (
+            <button className="btn-primary" style={{padding:'7px 11px'}} onClick={requestLocation} disabled={locationRequesting}>
+              {locationRequesting ? 'Getting location…' : '📍 Find my location'}
+            </button>
+          )}
+          {location && <button className="btn-ghost" style={{padding:'6px 10px'}} onClick={findNearby} disabled={nearbyLoading}>{nearbyLoading?'Searching…':'Refresh'}</button>}
         </div>
       </div>
-      {!location && !nearbyLoading && <div className="card" style={{padding:16}}>
+      {!location && !locationRequesting && <div className="card" style={{padding:16}}>
         <div style={{fontSize:14,fontWeight:700,marginBottom:6}}>Location access</div>
-        <div style={{fontSize:12,color:'var(--text-3)',lineHeight:1.5}}>{nearbyError || 'Allow location access so Fedha can find options around you.'}</div>
+        <div style={{fontSize:12,color:'var(--text-3)',lineHeight:1.5}}>{nearbyError || 'Tap Find my location once. Fedha will remember it for this app session and automatically search nearby options.'}</div>
       </div>}
+      {locationRequesting && <div className="card" style={{padding:16,fontSize:13,color:'var(--text-2'}}>Getting your location… Once found, Fedha will search automatically.</div>}
       {nearbyLoading && <div className="card" style={{padding:16,fontSize:13,color:'var(--text-2'}}>Jarvis is checking real nearby options…</div>}
       {nearbyError && location && <div className="card" style={{padding:14,color:'var(--red)',fontSize:13}}>{nearbyError}</div>}
       {acceptedPlace && <div className="card" style={{padding:16,marginTop:12,border:'1px solid var(--green)'}}><div className="section-title" style={{marginBottom:8}}>LOG AT {acceptedPlace.name.toUpperCase()}</div><div style={{fontSize:12,color:'var(--text-3)',marginBottom:12}}>Enter the actual food and price you paid. The food goes into Calories and the payment is recorded against the selected wallet.</div><form onSubmit={recordNearbyPurchase} style={{display:'grid',gap:9}}><input className="input" placeholder="What did you eat?" value={purchase.food} onChange={e=>setPurchase({...purchase,food:e.target.value})} required/><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}><input className="input" type="number" min="0" placeholder="Calories" value={purchase.cal} onChange={e=>setPurchase({...purchase,cal:e.target.value})} required/><input className="input" type="number" min="0" placeholder="Protein (g)" value={purchase.protein} onChange={e=>setPurchase({...purchase,protein:e.target.value})}/></div><input className="input" type="number" min="0" step="0.01" placeholder="Price paid (KES)" value={purchase.price} onChange={e=>setPurchase({...purchase,price:e.target.value})} required/><select className="input" value={purchase.walletId} onChange={e=>setPurchase({...purchase,walletId:e.target.value})} required>{(wallets||[]).map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select><div style={{display:'flex',gap:8}}><button type="submit" className="btn-primary" style={{flex:1}}>Record food + payment</button><button type="button" className="btn-ghost" onClick={()=>setAcceptedPlace(null)}>Cancel</button></div></form></div>}
