@@ -2,22 +2,6 @@
 // jarvis.js (when Jarvis calls research_online_opportunities/
 // research_activities_nearby as a tool) — kept in one place so the two
 // call sites can't drift into different prompts or weather logic.
-//
-// runResearch() used to call groq/compound, which does its own web search
-// internally — but that model's free-tier limits kept returning 413s (see
-// git history / community.groq.com/t/1322: Groq confirms free-tier 413s on
-// compound models aren't only about request size, they can be a rate
-// ceiling on the model itself). Since the rest of the app's chat traffic
-// (Jarvis's main conversation loop, planner generation) is on Groq's plain
-// openai/gpt-oss-120b and was never the thing failing, only this one
-// search-grounded piece has moved: real retrieval now comes from
-// lib/web-search.js (Firecrawl's keyless search API — no signup, no API
-// key required to get started, see docs.firecrawl.dev/features/search —
-// completely separate service and limits from Groq), and
-// lib/nvidia-client.js (NVIDIA NIM's free Nemotron model) synthesizes an
-// answer from those real results. NIM never searches on its own — it only
-// ever writes from snippets Firecrawl actually found, same "don't invent
-// it" discipline the old prompts asked of groq/compound.
 import { webSearchMulti } from './web-search';
 import { nvidiaChat } from './nvidia-client';
 
@@ -47,9 +31,6 @@ function describeWeatherCode(code) {
 }
 
 export async function runResearch(researchType, location, freeMinutes, topic) {
-  // Each researchType maps to 1-3 real Firecrawl searches (the actual
-  // retrieval step groq/compound used to do internally) plus the prompt
-  // that asks NIM to write up ONLY what those searches actually found.
   let searchQueries;
   let writeupPrompt;
 
@@ -72,13 +53,32 @@ export async function runResearch(researchType, location, freeMinutes, topic) {
     const mealPeriod = hour < 11 ? 'breakfast' : hour < 16 ? 'lunch' : hour < 21 ? 'dinner' : 'late-night food';
     const area = location?.area || location?.city || "the user's area";
     const cityStr = location?.city || area;
+
+    // Search broadly enough to surface ordinary local food joints, not only
+    // polished hotels/restaurants that SEO directories tend to rank first.
+    // The search engine may still return only well-indexed businesses, so
+    // the prompt explicitly asks NIM to preserve genuine local results.
     searchQueries = [
-      'cafes restaurants ' + area + ' ' + cityStr + ' Kenya',
-      'hotels restaurants cafes ' + area + ' ' + cityStr + ' Kenya',
-      mealPeriod + ' food ' + area + ' ' + cityStr + ' Kenya',
-      'restaurants cafes hotels near ' + area + ' ward Kericho Kenya',
+      `local food joints cafes restaurants ${area} ${cityStr} Kenya`,
+      `cheap affordable food places ${area} ${cityStr} Kenya`,
+      `popular local eateries nyama choma kibanda hotel food ${area} ${cityStr} Kenya`,
+      `${mealPeriod} food local restaurants cafes ${area} ${cityStr} Kenya`,
+      `food places near ${area} market shopping centre stage ${cityStr} Kenya`,
+      `"Dansed" ${cityStr} food restaurant cafe`,
+      `"Karikoo" ${cityStr} food restaurant cafe`,
     ];
-    writeupPrompt = (foundText) => 'Below are real web search results for food and leisure around ' + area + ' in ' + cityStr + '. Current local time is ' + now.toLocaleString() + ', relevant food period is ' + mealPeriod + ', weather is ' + weatherDesc + '. Extract ONLY specific venues that are actually named in the results. Return VALID JSON ONLY with this exact shape: {"summary":"short useful summary","places":[{"id":"short-id","name":"exact venue name","type":"restaurant|cafe|hotel|leisure","food":"specific food/dining info if actually stated, otherwise empty string","price":"price only if actually stated, otherwise empty string","hours":"hours only if actually stated, otherwise empty string","distance":"distance only if actually stated, otherwise empty string","area":"location only if actually stated, otherwise empty string"}]}. Include at most 6 places. Prefer options relevant to ' + mealPeriod + '. A hotel is valid only if the results mention dining/food. Never invent a venue, price, hour, distance, food item or address. If the search results contain no specific named venues, return {"summary":"No specific nearby venues were found in the current search results.","places":[]}.\n\n--- SEARCH RESULTS ---\n' + foundText;
+
+    writeupPrompt = (foundText) => `Below are real web search results for food and leisure around ${area} in ${cityStr}. Current local time is ${now.toLocaleString()}, relevant food period is ${mealPeriod}, weather is ${weatherDesc}.
+
+The user does NOT want only fancy/upmarket restaurants. Treat "food options" broadly: include ordinary local eateries, affordable hotels, cafes, nyama choma spots, kibandas, food joints, takeaways, market/shopping-centre food spots, and casual places when they are actually named in the results. A simple local food place can be just as useful as a formal restaurant.
+
+Extract ONLY specific venues that are actually named in the results. Do not rank them by prestige or price unless the source explicitly provides that information. Return VALID JSON ONLY with this exact shape:
+{"summary":"short useful summary","places":[{"id":"short-id","name":"exact venue name","type":"restaurant|cafe|hotel|local_eatery|leisure","food":"specific food/dining info if actually stated, otherwise empty string","price":"price only if actually stated, otherwise empty string","hours":"hours only if actually stated, otherwise empty string","distance":"distance only if actually stated, otherwise empty string","area":"location only if actually stated, otherwise empty string"}]}
+
+Include at most 8 places. Aim for a MIX of ordinary local places and formal restaurants when the results support both. Do not discard a local/affordable place merely because it has less online information. Prefer options relevant to ${mealPeriod}. A hotel is valid only if the results mention dining/food. Never invent a venue, price, hour, distance, food item or address. If a search result mentions a venue but does not provide food details, keep the venue and leave "food" empty. If the search results contain no specific named venues, return {"summary":"No specific nearby venues were found in the current search results.","places":[]}.
+
+--- SEARCH RESULTS ---
+${foundText}`;
   } else {
     const weather = location?.lat != null ? await getWeather(location.lat, location.lng) : null;
     const weatherDesc = weather ? `${describeWeatherCode(weather.weather_code)}, ${Math.round(weather.temperature_2m)}°C, wind ${Math.round(weather.wind_speed_10m)} km/h` : 'unknown (no location provided)';
@@ -93,18 +93,13 @@ export async function runResearch(researchType, location, freeMinutes, topic) {
 
   const { text: foundText, citations } = await webSearchMulti(searchQueries);
 
-  // Each of these gets appended to a Research entry's `entries` array and
-  // saved as one JSON blob (see saveResearchForm in pages/tech-hub.js).
-  // Capping the writeup keeps each individual finding bounded so
-  // accumulating several of them across a session stays well under any
-  // payload-size limit on save.
   let content;
   let places = [];
   try {
     content = await nvidiaChat({ prompt: writeupPrompt(foundText), temperature: 0.2, maxTokens: 1100 });
     if (researchType === 'food_nearby') {
       try {
-        const cleaned = content.replace(/^```json\\s*/i, '').replace(/\\s*```$/i, '').trim();
+        const cleaned = content.replace(/^\`\`\`json\\s*/i, '').replace(/\\s*\`\`\`$/i, '').trim();
         const parsed = JSON.parse(cleaned);
         places = Array.isArray(parsed.places) ? parsed.places : [];
         content = parsed.summary || 'Nearby options found.';
@@ -113,12 +108,6 @@ export async function runResearch(researchType, location, freeMinutes, topic) {
       }
     }
   } catch (e) {
-    // nvidiaChat already retries transient errors internally — if it still
-    // failed, NVIDIA's own staff confirm their free tier can genuinely run
-    // out of capacity under load (forums.developer.nvidia.com/t/324036),
-    // separate from anything wrong in this app. Say so plainly rather than
-    // a generic message, since pages/api/jarvis-research.js and
-    // pages/api/jarvis.js both pass err.message straight through to the UI.
     const overloaded = e.status === 429 || e.status === 503 || /overloaded/i.test(e.message || '');
     const err = new Error(
       overloaded
@@ -132,12 +121,6 @@ export async function runResearch(researchType, location, freeMinutes, topic) {
   return { content, citations, ...(researchType === 'food_nearby' ? { places } : {}) };
 }
 
-
-// Called when the user is done digging into a research entry — takes
-// everything gathered across one or more runResearch('topic', ...) calls
-// (each appended as the user researched further) and condenses it into one
-// closing summary for the entry, rather than leaving them with a pile of
-// raw search dumps to re-read later.
 export async function summarizeResearchWindow(entryTitle, accumulatedFindings) {
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY not set in environment variables');
