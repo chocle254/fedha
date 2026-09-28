@@ -127,13 +127,19 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'update_memory',
-      description: "Update what you remember about the person long-term — their goals, preferences, recurring situations, how they've been feeling, important context from this conversation worth carrying forward. Call this when you learn something worth remembering, not for routine chat. Provide the FULL updated memory summary (you are rewriting the whole thing, not appending a line) — keep it concise, well-organized, and focused on what's actually useful to know about them later.",
+      description: "Store, update, or forget one durable personal memory. Use for explicit preferences, goals, recurring patterns, communication preferences, important projects, or other useful long-term context. Do not store routine chat or sensitive details unless the person explicitly asks you to remember them.",
       parameters: {
         type: 'object',
         properties: {
-          updated_summary: { type: 'string' },
+          operation: { type: 'string', enum: ['save', 'forget'] },
+          category: { type: 'string', description: 'food, finance, planner, career, projects, communication, personal, or general' },
+          key: { type: 'string', description: 'Stable short key such as preferred_language or food_dislikes' },
+          value: { type: 'string', description: 'The durable fact to remember. Required when saving.' },
+          type: { type: 'string', description: 'preference, goal, fact, habit, project, or other' },
+          confidence: { type: 'number', description: '0 to 1; use 1 for explicitly stated facts' },
+          importance: { type: 'number', description: '1 to 5; how useful this memory is later' },
         },
-        required: ['updated_summary'],
+        required: ['operation', 'key'],
       },
     },
   },
@@ -307,7 +313,7 @@ async function callGroqWithTools(apiKey, messages, location, userMessage) {
     try { args = JSON.parse(call.function.arguments || '{}'); } catch {}
 
     if (call.function.name === 'update_memory') {
-      memoryUpdate = args.updated_summary || null;
+      memoryUpdate = { ...args };
       toolResultMessages.push({ role: 'tool', tool_call_id: call.id, content: 'Memory updated.' });
       continue;
     }
