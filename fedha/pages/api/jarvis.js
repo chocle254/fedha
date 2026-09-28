@@ -348,7 +348,7 @@ export default async function handler(req, res) {
 
   const messages = [
     { role: 'system', content: systemPrompt },
-    ...(Array.isArray(history) ? history.slice(-6).map((h) => ({ role: h.role, content: h.content })) : []),
+    ...(Array.isArray(history) ? history.slice(-16).map((h) => ({ role: h.role, content: String(h.content || '').slice(0, 5000) })) : []),
     { role: 'user', content: message },
   ];
 
