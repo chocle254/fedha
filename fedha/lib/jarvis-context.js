@@ -174,12 +174,16 @@ async function summarizeCareer() {
     `${c.title} (${c.category || 'certificate'})${c.date_earned ? `, earned ${c.date_earned}` : ''}${c.achievement ? ` — ${c.achievement}` : ''}${c.description ? `: ${c.description}` : ''}`
   );
 
-  return [
+  const result = [
     projectLines.length ? `Projects:\n- ${projectLines.join('\n- ')}` : null,
     hackathonLines.length ? `Hackathons:\n- ${hackathonLines.join('\n- ')}` : null,
     startupLines.length ? `Startup ideas/ventures:\n- ${startupLines.join('\n- ')}` : null,
     certLines.length ? `Certificates:\n- ${certLines.join('\n- ')}` : null,
-  ].filter(Boolean).join('\n\n') || null;
+  ].filter(Boolean).join('\n\n');
+  // Keep project context bounded so a large portfolio cannot consume the
+  // model's token budget. The relevant memory and current request remain
+  // higher priority than an exhaustive portfolio dump.
+  return result ? (result.length > 6000 ? result.slice(0, 6000) + '\n[portfolio context truncated]' : result) : null;
 }
 
 // The full context string injected as a system message on every Jarvis turn.
