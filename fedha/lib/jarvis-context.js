@@ -253,7 +253,7 @@ export async function buildJarvisContext(message = '') {
   } catch {
     // Keep the rest of context working if the lightweight lookup fails.
   }
-  const wantsCareer = /\\b(cv|resume|project|projects|hackathon|startup|certificate|portfolio|career|job|venture|event)\\b/.test(m) || mentionedRecord;
+  const wantsCareer = /\b(cv|resume|project|projects|hackathon|startup|certificate|portfolio|career|job|venture|event)\b/.test(m) || mentionedRecord;
   const wantsResearch = /\b(research|gig|side hustle|online job|food near|restaurant|cafe|activity|activities)\b/.test(m);
   const wantsGoals = /\b(goal|goals|achieve|achievement|milestone|progress|target|life goal)\b/.test(m);
   const role = detectJarvisRole(message);
