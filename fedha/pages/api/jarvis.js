@@ -517,8 +517,7 @@ async function groqChat(apiKey, messages, tools) {
       max_completion_tokens: tools?.length ? 450 : 350,
       reasoning_effort: 'low',
       include_reasoning: false,
-      tools,
-      tool_choice: tools?.length ? 'auto' : 'none',
+      ...(tools?.length ? { tools, tool_choice: 'auto' } : {}),
       messages,
     }),
   });
