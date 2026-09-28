@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Layout from '../components/Layout';
 import FoodLogModal from '../components/FoodLogModal';
+import FoodHub from '../components/FoodHub';
 import { genId, todayISO } from '../lib/utils';
 import { getFoodLogs, saveFoodLog, deleteFoodLog, getSetting, setSetting } from '../lib/db';
 import { MEAL_SLOTS, defaultSlotForHour } from '../lib/foods';
@@ -33,6 +34,7 @@ export default function FoodDiaryPage() {
   const [editingGoal, setEditingGoal] = useState(false);
   const [goalDraft, setGoalDraft] = useState('2800');
   const [proteinDraft, setProteinDraft] = useState('120');
+  const [foodMode, setFoodMode] = useState('diary');
 
   const reloadAll = useCallback(async () => {
     const all = await getFoodLogs();
@@ -105,6 +107,52 @@ export default function FoodDiaryPage() {
     setShowLog(true);
   }
 
+  async function handleFoodHubLog({ items, slot, name }) {
+    const list = Array.isArray(items) ? items.filter(Boolean) : [];
+    if (!list.length) return;
+    const mealSlot = slot || defaultSlotForHour(new Date().getHours());
+    for (const item of list) {
+      await saveFoodLog({
+        id: genId(),
+        date,
+        created_at: new Date().toISOString(),
+        name: item.name,
+        cal: Number(item.cal) || 0,
+        protein: Number(item.protein) || 0,
+        carbs: item.carbs == null ? null : Number(item.carbs),
+        fats: item.fats == null ? null : Number(item.fats),
+        icon: item.icon || '🍽️',
+        qty: 1,
+        slot: mealSlot,
+        sourceFoodId: item.id,
+        mealName: name || null,
+      });
+    }
+    await Promise.all([reloadDay(date), reloadAll()]);
+  }
+
+  if (foodMode !== 'diary') {
+    return (
+      <Layout onFab={() => openLog()}>
+        <div className="page">
+          <div className="page-header">
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <h1 style={{fontSize:22,fontWeight:700}}>Food 🍽️</h1>
+              <button className="btn-icon" onClick={() => setFoodMode('diary')} aria-label="Food diary">📖</button>
+            </div>
+            <div style={{display:'flex',gap:8,overflowX:'auto',marginTop:14}}>
+              <button className="chip" onClick={() => setFoodMode('diary')}>Diary</button>
+              <button className="chip active">Explore</button>
+            </div>
+          </div>
+          <div style={{padding:'0 20px 30px'}}>
+            <FoodHub onLogMeal={handleFoodHubLog} />
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
   // ─── Loading skeleton ──
   if (!logs) {
     return (
@@ -159,6 +207,11 @@ export default function FoodDiaryPage() {
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--yellow)' }}>{streak} day{streak > 1 ? 's' : ''}</span>
               </div>
             )}
+          </div>
+
+          <div style={{display:'flex',gap:8,overflowX:'auto',marginBottom:12}}>
+            <button className="chip active">Diary</button>
+            <button className="chip" onClick={() => setFoodMode('explore')}>Explore</button>
           </div>
 
           {/* Date navigation */}
