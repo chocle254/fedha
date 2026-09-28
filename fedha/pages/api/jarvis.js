@@ -163,7 +163,7 @@ const TOOLS = [
         properties: {
           project_name: { type: 'string', description: 'Name of the project, matching an existing one.' },
           status: { type: 'string', enum: ['planning', 'in_progress', 'done'] },
-          progress: { type: 'number', description: '0-100' },
+          progress: { type: 'number', description: '0-100' }, importance: { type: 'number', description: '0-100; 100 means exclusive project focus' },
         },
         required: ['project_name'],
       },
