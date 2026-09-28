@@ -6,7 +6,7 @@
 // and throws a clear error if a name doesn't match anything (rather than
 // silently doing nothing or guessing).
 
-import { getWallets, getLoans, getIncomePlans, getSetting, setSetting, getProjects, getHackathons, saveProject, saveHackathon } from './db';
+import { getWallets, getLoans, getIncomePlans, getSetting, setSetting, getProjects, getHackathons, saveProject, deleteProject, saveHackathon, deleteHackathon, getStartups, saveStartup, deleteStartup, getCertificates, saveCertificate, deleteCertificate, getResearch, saveResearch, deleteResearch, getTransactions } from './db';
 import { toggleIncomeReceived, settleLoan } from './finance-actions';
 import { todayISO } from './utils';
 
@@ -88,6 +88,78 @@ export async function executeProposedAction(action, ctx) {
       return saveProject({ ...project, ...patch });
     }
 
+    case 'propose_create_hackathon': {
+      const record = { ...args, status: args.status || 'active' };
+      return saveHackathon(record);
+    }
+    case 'propose_delete_hackathon': {
+      const hacks = await getHackathons();
+      const hack = findByNameLoose(hacks, 'name', args.hackathon_name);
+      if (!hack) throw new Error(`Couldn't find a hackathon named "${args.hackathon_name}".`);
+      await deleteHackathon(hack.id);
+      return hack;
+    }
+
+    case 'propose_create_startup': {
+      return saveStartup({ ...args, stages: args.stages || {} });
+    }
+    case 'propose_update_startup': {
+      const startups = await getStartups();
+      const startup = findByNameLoose(startups, 'name', args.startup_name);
+      if (!startup) throw new Error(`Couldn't find a startup named "${args.startup_name}".`);
+      const patch = {};
+      ['description','accelerator','stages'].forEach((k) => { if (args[k] !== undefined) patch[k] = args[k]; });
+      return saveStartup({ ...startup, ...patch });
+    }
+    case 'propose_delete_startup': {
+      const startups = await getStartups();
+      const startup = findByNameLoose(startups, 'name', args.startup_name);
+      if (!startup) throw new Error(`Couldn't find a startup named "${args.startup_name}".`);
+      await deleteStartup(startup.id);
+      return startup;
+    }
+
+    case 'propose_create_project': {
+      return saveProject(args);
+    }
+    case 'propose_delete_project': {
+      const projects = await getProjects();
+      const project = findByNameLoose(projects, 'name', args.project_name);
+      if (!project) throw new Error(`Couldn't find a project named "${args.project_name}".`);
+      await deleteProject(project.id);
+      return project;
+    }
+
+    case 'propose_create_certificate': {
+      return saveCertificate(args);
+    }
+    case 'propose_delete_certificate': {
+      const certs = await getCertificates();
+      const cert = findByNameLoose(certs, 'title', args.title);
+      if (!cert) throw new Error(`Couldn't find a certificate named "${args.title}".`);
+      await deleteCertificate(cert.id);
+      return cert;
+    }
+
+    case 'propose_create_research': {
+      return saveResearch(args);
+    }
+    case 'propose_delete_research': {
+      const items = await getResearch();
+      const item = findByNameLoose(items, 'title', args.title);
+      if (!item) throw new Error(`Couldn't find a research item named "${args.title}".`);
+      await deleteResearch(item.id);
+      return item;
+    }
+
+    case 'propose_delete_transaction': {
+      const txs = await getTransactions();
+      const matches = txs.filter((t) => args.transaction_id ? t.id === args.transaction_id : false);
+      if (!matches.length) throw new Error('Could not identify that transaction. Use the transaction id shown in context.');
+      await ctx.removeTransaction(matches[0].id);
+      return matches[0];
+    }
+
     case 'propose_update_hackathon_status': {
       const hackathons = await getHackathons();
       const hack = findByNameLoose(hackathons, 'name', args.hackathon_name);
@@ -141,6 +213,30 @@ export function describeProposedAction(action) {
       return `Edit today's plan: ${args.new_time ? `move to ${args.new_time}` : ''}${args.new_note ? ` note: "${args.new_note}"` : ''}`;
     case 'propose_update_project_status':
       return `Update project "${args.project_name}"${args.status ? ` to ${args.status}` : ''}${args.progress != null ? ` (${args.progress}% done)` : ''}`;
+    case 'propose_create_hackathon':
+      return `Add hackathon "${args.name}"${args.deadline ? ` — deadline ${args.deadline}` : ''}`;
+    case 'propose_delete_hackathon':
+      return `Delete hackathon "${args.hackathon_name}"`;
+    case 'propose_create_startup':
+      return `Add startup "${args.name}"`;
+    case 'propose_update_startup':
+      return `Update startup "${args.startup_name}"`;
+    case 'propose_delete_startup':
+      return `Delete startup "${args.startup_name}"`;
+    case 'propose_create_project':
+      return `Add project "${args.name}"`;
+    case 'propose_delete_project':
+      return `Delete project "${args.project_name}"`;
+    case 'propose_create_certificate':
+      return `Add certificate "${args.title}"`;
+    case 'propose_delete_certificate':
+      return `Delete certificate "${args.title}"`;
+    case 'propose_create_research':
+      return `Add research "${args.title}"`;
+    case 'propose_delete_research':
+      return `Delete research "${args.title}"`;
+    case 'propose_delete_transaction':
+      return `Delete the selected transaction`;
     case 'propose_update_hackathon_status':
       return `Mark hackathon "${args.hackathon_name}" as ${args.status}`;
     case 'propose_add_planner_activity':
