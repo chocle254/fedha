@@ -90,11 +90,29 @@ async function summarizePlanner() {
 }
 
 async function summarizeMeals() {
-  const logs = await getFoodLogs(todayISO());
-  if (!logs?.length) return "No meals logged today yet.";
-  const totalCal = logs.reduce((s, l) => s + (Number(l.cal) || 0) * (Number(l.qty) || 1), 0);
-  const items = logs.map((l) => `${l.slot || 'meal'}: ${l.name} (${l.cal || '?'} cal${l.qty > 1 ? ` x${l.qty}` : ''})`);
-  return `Today's meals logged (${totalCal} cal total):\n- ${items.join('\n- ')}`;
+  const [logs, profile, calorieGoal, proteinGoal] = await Promise.all([
+    getFoodLogs(todayISO()),
+    getSetting('food_profile', { preferences: {}, mealPreferences: {}, prices: {}, customFoods: [] }),
+    getSetting('calorie_goal', 2800),
+    getSetting('protein_goal', 120),
+  ]);
+
+  const totalCal = (logs || []).reduce((s, l) => s + (Number(l.cal) || 0) * (Number(l.qty) || 1), 0);
+  const totalProtein = (logs || []).reduce((s, l) => s + (Number(l.protein) || 0) * (Number(l.qty) || 1), 0);
+  const remainingCal = Math.max(0, Number(calorieGoal) - totalCal);
+  const remainingProtein = Math.max(0, Number(proteinGoal) - totalProtein);
+  const items = (logs || []).map((l) => `${l.slot || 'meal'}: ${l.name} (${l.cal || '?'} cal${l.protein != null ? `, ${l.protein}g protein` : ''}${l.qty > 1 ? ` x${l.qty}` : ''})`);
+  const likedFoods = Object.entries(profile?.preferences || {}).filter(([, p]) => p?.state === 'liked').map(([id]) => id).slice(0, 12);
+  const dislikedFoods = Object.entries(profile?.preferences || {}).filter(([, p]) => p?.state === 'disliked').map(([id]) => id).slice(0, 12);
+  const likedMeals = Object.entries(profile?.mealPreferences || {}).filter(([, p]) => p?.state === 'liked').map(([id]) => id).slice(0, 8);
+  return [
+    items.length ? `Today's meals logged (${Math.round(totalCal)} cal, ${Math.round(totalProtein)}g protein):\n- ${items.join('\n- ')}` : 'No meals logged today yet.',
+    `Nutrition remaining today: about ${Math.round(remainingCal)} cal and ${Math.round(remainingProtein)}g protein against the current Food goals.`,
+    likedFoods.length ? `Foods the user personally likes: ${likedFoods.join(', ')}` : 'No food likes recorded yet.',
+    dislikedFoods.length ? `Foods the user personally dislikes: ${dislikedFoods.join(', ')} — avoid suggesting these.` : null,
+    likedMeals.length ? `Meals the user personally likes: ${likedMeals.join(', ')}` : null,
+    'Food suggestion rule: when suggesting a meal, consider the user’s existing Floating Balance, known personal food prices, remaining nutrition targets, and personal likes/dislikes. Never invent a price; if price is unknown, say so.',
+  ].filter(Boolean).join('\n');
 }
 
 async function summarizeDeadlines() {
