@@ -34,6 +34,10 @@ export default function FoodHub({ onLogMeal }) {
   const [customOpen, setCustomOpen] = useState(false);
   const [custom, setCustom] = useState({name:'',serving:'1 serving',cal:'',protein:'',carbs:'',fats:'',price:'',group:'proteins'});
   const [selected, setSelected] = useState([]);
+  const [nearby, setNearby] = useState(null);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
+  const [nearbyError, setNearbyError] = useState('');
+  const [location, setLocation] = useState(null);
   
   async function load() {
     const [p,l,cg,pg] = await Promise.all([
@@ -45,6 +49,40 @@ export default function FoodHub({ onLogMeal }) {
     setProteinGoal(Number(pg)||120);
   }
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (tab !== 'nearby' || location || typeof navigator === 'undefined' || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+        const d = await r.json();
+        const address = d.address || {};
+        setLocation({ lat, lng, city: address.city || address.town || address.county || address.state || 'your area', area: address.suburb || address.neighbourhood || address.city_district || address.city || 'your area' });
+      } catch {
+        setLocation({ lat, lng, city: 'your area', area: 'your area' });
+      }
+    }, () => setNearbyError('Location access was denied. Allow location access to see nearby options.'));
+  }, [tab, location]);
+
+  async function findNearby() {
+    if (!location) { setNearbyError('Allow location access first so Fedha can search around you.'); return; }
+    setNearbyLoading(true); setNearbyError('');
+    try {
+      const r = await fetch('/api/jarvis-research', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ researchType: 'food_nearby', location }),
+      });
+      const data = await r.json();
+      if (!r.ok || data.error) throw new Error(data.error || 'Nearby search failed');
+      setNearby(data);
+    } catch (e) { setNearbyError(e.message); }
+    finally { setNearbyLoading(false); }
+  }
+
+  useEffect(() => {
+    if (tab === 'nearby' && location && !nearby && !nearbyLoading) findNearby();
+  }, [tab, location]);
 
   const foods = useMemo(() => [...COMMON_FOODS, ...(profile.customFoods || [])], [profile.customFoods]);
   const todayLogs = logs.filter(l => l.date === todayISO());
@@ -153,7 +191,7 @@ export default function FoodHub({ onLogMeal }) {
       <button className={'chip '+(tab==='explore'?'active':'')} onClick={()=>setTab('explore')}>Explore</button>
       <button className={'chip '+(tab==='suggestions'?'active':'')} onClick={()=>setTab('suggestions')}>Meal ideas</button>
       <button className={'chip '+(tab==='build'?'active':'')} onClick={()=>setTab('build')}>Build</button>
-      <button className={'chip '+(tab==='insights'?'active':'')} onClick={()=>setTab('insights')}>Insights</button>
+      <button className={'chip '+(tab==='insights'?'active':'')} onClick={()=>setTab('insights')}>Insights</button><button className={'chip '+(tab==='nearby'?'active':'')} onClick={()=>setTab('nearby')}>Near You</button>
     </div>
 
     {tab==='explore' && <div>
@@ -228,6 +266,32 @@ export default function FoodHub({ onLogMeal }) {
       </div>
       <div style={{display:'flex',gap:8,marginTop:14}}><button className="btn-primary" disabled={!selected.length} style={{flex:1}} onClick={()=>logItems(selected.map(id=>foods.find(f=>f.id===id)).filter(Boolean))}>Log meal</button><button className="btn-ghost" disabled={!selected.length} onClick={saveMeal}>Save meal</button></div>
       {(profile.savedMeals||[]).length>0 && <div style={{marginTop:22}}><div className="section-title" style={{marginBottom:9}}>SAVED MEALS</div>{profile.savedMeals.map(m=><div key={m.id} className="card" style={{padding:12,display:'flex',gap:10,alignItems:'center',marginBottom:8}}><div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>{m.name}</div><div style={{fontSize:11,color:'var(--text-3)'}}>{m.cal} cal · {m.protein}g protein</div></div><button className="btn-ghost" onClick={()=>logItems(m.items)}>Log</button></div>)}</div>}
+    </div>}
+
+    {tab==='nearby' && <div>
+      <div className="card" style={{padding:15,marginBottom:12}}>
+        <div className="section-title" style={{marginBottom:7}}>NEAR YOU 📍</div>
+        <div style={{fontSize:12,color:'var(--text-3)',lineHeight:1.5}}>Jarvis checks the current time, your location, weather and real web results to find food, restaurants, hotels with dining, cafes and leisure options.</div>
+        <div style={{display:'flex',gap:8,marginTop:10,alignItems:'center',flexWrap:'wrap'}}>
+          <span className="chip">🕐 {new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}</span>
+          {location?.area && <span className="chip">📍 {location.area}</span>}
+          <button className="btn-ghost" style={{padding:'6px 10px'}} onClick={findNearby} disabled={nearbyLoading}>{nearbyLoading?'Searching…':'Refresh'}</button>
+        </div>
+      </div>
+      {!location && !nearbyLoading && <div className="card" style={{padding:16}}>
+        <div style={{fontSize:14,fontWeight:700,marginBottom:6}}>Location access</div>
+        <div style={{fontSize:12,color:'var(--text-3)',lineHeight:1.5}}>{nearbyError || 'Allow location access so Fedha can find options around you.'}</div>
+      </div>}
+      {nearbyLoading && <div className="card" style={{padding:16,fontSize:13,color:'var(--text-2'}}>Jarvis is checking real nearby options…</div>}
+      {nearbyError && location && <div className="card" style={{padding:14,color:'var(--red)',fontSize:13}}>{nearbyError}</div>}
+      {nearby && <div className="card" style={{padding:15}}>
+        <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center',marginBottom:10}}>
+          <div className="section-title">JARVIS RECOMMENDS</div>
+          <span style={{fontSize:11,color:'var(--text-3)'}}>Based on now + your area</span>
+        </div>
+        <div style={{fontSize:13,lineHeight:1.6,color:'var(--text-2)',whiteSpace:'pre-wrap'}}>{nearby.content}</div>
+        {nearby.citations?.length > 0 && <div style={{marginTop:12,paddingTop:10,borderTop:'1px solid var(--border)',fontSize:10,color:'var(--text-3)'}}>Sources were checked live. Prices, hours and distance are shown only when the source provides them.</div>}
+      </div>}
     </div>}
 
     {tab==='insights' && <div>
