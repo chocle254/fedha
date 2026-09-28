@@ -446,7 +446,8 @@ async function callGroqWithTools(apiKey, messages, location, userMessage) {
 
     // Every other tool is a proposed action — package it for client
     // confirmation rather than doing anything now.
-    proposedActions.push({ tool: call.function.name, args });
+    const commitment = /\b(that'?s what i'?m going with|i'?m going with this|let'?s go with this|this is the one|finalize (it|this)|lock (it|this) in)\b/i.test(userMessage);
+    proposedActions.push({ tool: call.function.name, args, autoApply: commitment && ['propose_create_hackathon','propose_create_startup','propose_create_project'].includes(call.function.name) });
     toolResultMessages.push({
       role: 'tool',
       tool_call_id: call.id,
