@@ -130,7 +130,7 @@ export default function JarvisWidget() {
       // just said. Fetching first guarantees the current turn is never
       // included in `history`, so there's never ambiguity or duplication.
       const [context, memory, history] = await Promise.all([
-        buildJarvisContext(),
+        buildJarvisContext(text),
         getJarvisMemory(),
         getJarvisHistory(),
       ]);
