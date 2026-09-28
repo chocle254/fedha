@@ -552,3 +552,67 @@ export async function saveFoodProfile(profile) {
     updatedAt: new Date().toISOString(),
   });
 }
+
+
+// Structured Jarvis memory helpers. The existing jarvis_memory row stores a
+// JSON document in its summary field, so this works with the current schema.
+function parseJarvisMemories(raw) {
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed?.memories) ? parsed.memories : [];
+  } catch {
+    return raw ? [{ id: 'legacy-summary', category: 'general', key: 'legacy_summary', value: String(raw), type: 'summary', confidence: 1, source: 'legacy', importance: 3 }] : [];
+  }
+}
+
+export async function getJarvisMemories() {
+  const cached = await cacheGet('jarvis_memory', JARVIS_MEMORY_ID);
+  return parseJarvisMemories(cached?.summary);
+}
+
+export async function saveStructuredJarvisMemory(memory) {
+  const current = await getJarvisMemories();
+  const now = new Date().toISOString();
+  const key = memory.key || ('memory-' + Date.now());
+  const next = {
+    id: memory.id || key,
+    category: memory.category || 'general',
+    key,
+    value: String(memory.value || '').trim(),
+    type: memory.type || 'fact',
+    confidence: Number(memory.confidence ?? 1),
+    source: memory.source || 'explicit',
+    importance: Number(memory.importance ?? 3),
+    created_at: memory.created_at || now,
+    updated_at: now,
+  };
+  if (!next.value) return null;
+  const index = current.findIndex((m) => m.key === key);
+  if (index >= 0) current[index] = { ...current[index], ...next, created_at: current[index].created_at || now };
+  else current.push(next);
+  await setJarvisMemory(JSON.stringify({ memories: current }));
+  return next;
+}
+
+export async function deleteStructuredJarvisMemory(query) {
+  const q = String(query || '').toLowerCase().trim();
+  if (!q) return;
+  const current = await getJarvisMemories();
+  const remaining = current.filter((m) => ![m.key, m.value, m.category].join(' ').toLowerCase().includes(q));
+  if (remaining.length !== current.length) await setJarvisMemory(JSON.stringify({ memories: remaining }));
+}
+
+export async function searchJarvisMemories(query, limit = 8) {
+  const current = await getJarvisMemories();
+  const words = String(query || '').toLowerCase().match(/[a-z0-9]{2,}/g) || [];
+  if (!words.length) return current.slice(0, limit);
+  return current.map((m) => {
+    const hay = [m.category, m.key, m.value, m.type].join(' ').toLowerCase();
+    let score = 0;
+    words.forEach((w) => { if (hay.includes(w)) score += 1; });
+    return { m, score };
+  }).filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || Number(b.m.importance || 0) - Number(a.m.importance || 0))
+    .slice(0, limit)
+    .map((x) => x.m);
+}
