@@ -71,6 +71,20 @@ function getOpenResearchItem(research) {
 
 function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs }) {
   const items = [];
+  const criticalProject = (projects || [])
+    .filter((p) => ['planning', 'in_progress'].includes(projectStatus(p)) && Number(p.importance) >= 100)
+    .sort((a, b) => Number(new Date(b.updated_at || 0)) - Number(new Date(a.updated_at || 0)))[0];
+
+  // 100% means exclusive project-work focus. Other project/startup/hackathon
+  // work is not added to the work rotation until the priority is lowered.
+  if (criticalProject) {
+    return [{
+      emoji: '🎯',
+      label: `Critical Project — ${criticalProject.name}`,
+      note: criticalProject.description || `100% priority. All project-work time is reserved for ${criticalProject.name}.`,
+    }];
+  }
+
   const urgentHacks = (hackathons || []).filter(isUrgent);
   const activeHacks = (hackathons || []).filter((h) => hackStatus(h) === 'active' && !isUrgent(h));
   const activeProjects = (projects || []).filter((p) => ['planning', 'in_progress'].includes(projectStatus(p)));
