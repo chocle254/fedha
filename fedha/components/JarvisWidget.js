@@ -162,7 +162,29 @@ export default function JarvisWidget() {
         }
       }
       if (data.proposedActions?.length) {
-        setPendingActions((prev) => [...prev, ...data.proposedActions.map((a) => ({ ...a, id: genId() }))]);
+        const auto = data.proposedActions.filter((a) => a.autoApply);
+        const pending = data.proposedActions.filter((a) => !a.autoApply);
+        for (const action of auto) {
+          try {
+            await executeProposedAction(action, {
+              addTransaction: app.addTransaction,
+              removeTransaction: app.removeTransaction,
+              updateLoan: app.updateLoan,
+              updateIncomePlan: app.updateIncomePlan,
+              saveFoodLog,
+              genId,
+              currency: app.currency,
+            });
+          } catch (e) {
+            setActionError(`Couldn't apply Jarvis's committed decision: ${e.message}`);
+          }
+        }
+        if (auto.length) {
+          setMessages((prev) => [...prev, { role: 'assistant', content: `Locked in — I added ${auto.length === 1 ? 'it' : 'them'} to Fedha.` }]);
+        }
+        if (pending.length) {
+          setPendingActions((prev) => [...prev, ...pending.map((a) => ({ ...a, id: genId() }))]);
+        }
       }
     } catch (e) {
       setMessages((prev) => [...prev, { role: 'assistant', content: `Something went wrong reaching Jarvis: ${e.message}` }]);
