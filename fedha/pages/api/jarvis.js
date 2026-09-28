@@ -514,7 +514,10 @@ async function groqChat(apiKey, messages, tools) {
     body: JSON.stringify({
       model: GROQ_MODEL,
       temperature: 0.7,
-      max_completion_tokens: tools?.length ? 450 : 350,
+      // Give genuinely complex answers room to finish in one response while keeping
+      // ordinary turns compact. Tool calls stay smaller because their output is
+      // primarily structured arguments.
+      max_completion_tokens: tools?.length ? 700 : 1400,
       reasoning_effort: 'low',
       include_reasoning: false,
       ...(tools?.length ? { tools, tool_choice: 'auto' } : {}),
