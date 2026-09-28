@@ -523,3 +523,31 @@ export async function appendJarvisMessage(role, content) {
   flushPendingOps();
   return record;
 }
+
+
+// ─── FOOD PROFILE ───────────────────────────────────────────────────────────
+// Personal food preferences, custom foods, local prices and saved meals are
+// kept in one synced setting so Food remains offline-first without another
+// database table.
+const DEFAULT_FOOD_PROFILE = {
+  customFoods: [],
+  preferences: {},
+  prices: {},
+  savedMeals: [],
+};
+
+export async function getFoodProfile() {
+  const value = await getSetting('food_profile', DEFAULT_FOOD_PROFILE);
+  return {
+    ...DEFAULT_FOOD_PROFILE,
+    ...(value && typeof value === 'object' ? value : {}),
+  };
+}
+
+export async function saveFoodProfile(profile) {
+  return setSetting('food_profile', {
+    ...DEFAULT_FOOD_PROFILE,
+    ...(profile || {}),
+    updatedAt: new Date().toISOString(),
+  });
+}
