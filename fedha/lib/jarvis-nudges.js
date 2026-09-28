@@ -10,7 +10,7 @@
 // Every nudge is deduped per day via a settings key (getSetting/setSetting)
 // so re-running this on every app load doesn't repeat the same nudge.
 
-import { getBudgets, getSetting, setSetting, appendJarvisMessage } from './db';
+import { getBudgets, getSetting, setSetting, appendJarvisMessage, getFoodLogs } from './db';
 import { todayISO, formatShort } from './utils';
 import { showNotif, VIBRATE } from './notifications';
 
@@ -57,6 +57,27 @@ export async function fireJarvisNudge(key, situation) {
   await appendJarvisMessage('assistant', text);
   await showNotif({ title: '🤖 Jarvis', body: text, tag: `jarvis_${key}`, vibrate: VIBRATE.medium });
   await markNudged(key);
+}
+
+
+// Food: one gentle Jarvis nudge if the day is moving on and no meal has
+// been logged. This is deliberately separate from Planner meal reminders:
+// it reacts to the actual diary state instead of scheduling an eating time.
+export async function checkMealNudges() {
+  try {
+    const hour = new Date().getHours();
+    if (hour < 11) return;
+
+    const logs = await getFoodLogs(todayISO());
+    if (logs?.length) return;
+
+    await fireJarvisNudge(
+      'food_no_meal',
+      'It is already late morning and the user has not logged any meal today. Gently remind them to eat/log their first meal, and if useful suggest a simple meal using their Food preferences, nutrition needs and Floating Balance.'
+    );
+  } catch (e) {
+    console.warn('[fedha] Jarvis meal nudge check failed:', e?.message);
+  }
 }
 
 // Budget overspending: the one nudge type this module detects itself,
