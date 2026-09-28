@@ -12,28 +12,99 @@ import { genId } from '../lib/utils';
 // the system prompt asks Jarvis to avoid them since replies may be read
 // aloud via TTS, where that structure doesn't translate to speech well.
 function renderInlineMarkdown(text) {
-  const parts = [];
-  // Order matters: bold (**) must be checked before italic (*) so
-  // "**bold**" doesn't get half-consumed by the italic pattern first.
-  const pattern = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
-  let lastIndex = 0;
-  let match;
+  const source = String(text || '').replace(/\r\n/g, '\n');
+  const lines = source.split('\n');
+  const out = [];
   let key = 0;
 
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
-    const token = match[0];
-    if (token.startsWith('**')) {
-      parts.push(<strong key={key++}>{token.slice(2, -2)}</strong>);
-    } else if (token.startsWith('`')) {
-      parts.push(<code key={key++} style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 4, fontSize: '0.9em' }}>{token.slice(1, -1)}</code>);
-    } else {
-      parts.push(<em key={key++}>{token.slice(1, -1)}</em>);
+  const inline = (value) => {
+    const parts = [];
+    const pattern = /(\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|\`[^\`]+\`|\[[^\]]+\]\([^\)]+\))/g;
+    let last = 0;
+    let match;
+    while ((match = pattern.exec(value)) !== null) {
+      if (match.index > last) parts.push(value.slice(last, match.index));
+      const token = match[0];
+      if (token.startsWith('**') || token.startsWith('__')) {
+        parts.push(<strong key={key++}>{token.slice(2, -2)}</strong>);
+      } else if (token.startsWith('*') || token.startsWith('_')) {
+        parts.push(<em key={key++}>{token.slice(1, -1)}</em>);
+      } else if (token.startsWith('`')) {
+        parts.push(<code key={key++} style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 4, fontSize: '0.9em' }}>{token.slice(1, -1)}</code>);
+      } else {
+        const label = token.slice(1, token.indexOf(']'));
+        parts.push(<span key={key++}>{label}</span>);
+      }
+      last = match.index + token.length;
     }
-    lastIndex = match.index + token.length;
-  }
-  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-  return parts;
+    if (last < value.length) parts.push(value.slice(last));
+    return parts;
+  };
+
+  lines.forEach((raw) => {
+    const line = raw.trim();
+    if (!line) {
+      out.push(<div key={key++} style={{ height: 5 }} />);
+      return;
+    }
+
+    if (/^\s*[-*_]{3,}\s*$/.test(line)) return;
+
+    // Turn Markdown headings into normal bold text.
+    const heading = line.match(/^#{1,6}\s+(.+)$/);
+    if (heading) {
+      out.push(<div key={key++} style={{ fontWeight: 700, marginTop: 4 }}>{inline(heading[1])}</div>);
+      return;
+    }
+
+    // Turn Markdown bullets into real UI bullets, so the '-' or '*' is never shown.
+    const bullet = line.match(/^[-*+]\s+(.+)$/);
+    if (bullet) {
+      out.push(
+        <div key={key++} style={{ display: 'flex', gap: 7 }}>
+          <span aria-hidden="true">•</span>
+          <span>{inline(bullet[1])}</span>
+        </div>
+      );
+      return;
+    }
+
+    const numbered = line.match(/^\d+[.)]\s+(.+)$/);
+    if (numbered) {
+      const n = line.match(/^\d+/)[0];
+      out.push(
+        <div key={key++} style={{ display: 'flex', gap: 7 }}>
+          <span>{n}.</span>
+          <span>{inline(numbered[1])}</span>
+        </div>
+      );
+      return;
+    }
+
+    // Render simple Markdown table rows without exposing pipe characters or
+    // the separator row to the user.
+    if (line.includes('|')) {
+      const cells = line.split('|').map((cell) => cell.trim()).filter(Boolean);
+      if (cells.length && cells.every((cell) => /^:?-{2,}:?$/.test(cell))) return;
+      if (cells.length > 1) {
+        out.push(
+          <div key={key++} style={{ display: 'grid', gridTemplateColumns: 'repeat(' + cells.length + ', minmax(0, 1fr))', gap: 8, padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
+            {cells.map((cell, i) => <span key={i}>{inline(cell)}</span>)}
+          </div>
+        );
+        return;
+      }
+    }
+
+    // Remove remaining decorative Markdown markers from plain text.
+    const cleaned = line
+      .replace(/^\s*#{1,6}\s*/, '')
+      .replace(/\*\*|__|~~/g, '')
+      .replace(/^[-*+]\s+/, '• ');
+    out.push(<div key={key++}>{inline(cleaned)}</div>);
+  });
+
+  return out;
 }
 
 // Web Speech API is browser-native and free — no extra API cost for voice.
