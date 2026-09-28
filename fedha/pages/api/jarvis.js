@@ -187,6 +187,109 @@ const TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'propose_create_hackathon',
+      description: 'Propose creating a new hackathon record in Fedha. Use after the user has clearly decided to enter/track it.',
+      parameters: { type: 'object', properties: {
+        name: { type: 'string' }, organizer: { type: 'string' }, deadline: { type: 'string' },
+        project_name: { type: 'string' }, themes: { type: 'string' }, status: { type: 'string', enum: ['active','submitted','completed'] }
+      }, required: ['name'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_delete_hackathon',
+      description: 'Propose deleting an existing hackathon by name.',
+      parameters: { type: 'object', properties: { hackathon_name: { type: 'string' } }, required: ['hackathon_name'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_create_startup',
+      description: 'Propose creating a startup/venture record. Preserve detailed stages when provided.',
+      parameters: { type: 'object', properties: {
+        name: { type: 'string' }, description: { type: 'string' }, accelerator: { type: 'string' }, stages: { type: 'object' }
+      }, required: ['name'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_update_startup',
+      description: 'Propose updating an existing startup record, including its detailed stage fields.',
+      parameters: { type: 'object', properties: {
+        startup_name: { type: 'string' }, description: { type: 'string' }, accelerator: { type: 'string' }, stages: { type: 'object' }
+      }, required: ['startup_name'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_delete_startup',
+      description: 'Propose deleting an existing startup by name.',
+      parameters: { type: 'object', properties: { startup_name: { type: 'string' } }, required: ['startup_name'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_create_project',
+      description: 'Propose creating a Tech Hub project record.',
+      parameters: { type: 'object', properties: { name: { type: 'string' }, description: { type: 'string' }, status: { type: 'string', enum: ['planning','in_progress','done'] }, progress: { type: 'number' }, repo_url: { type: 'string' }, site_url: { type: 'string' } }, required: ['name'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_delete_project',
+      description: 'Propose deleting a project by name.',
+      parameters: { type: 'object', properties: { project_name: { type: 'string' } }, required: ['project_name'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_create_certificate',
+      description: 'Propose adding a certificate to the portfolio.',
+      parameters: { type: 'object', properties: { title: { type: 'string' }, category: { type: 'string' }, date_earned: { type: 'string' }, achievement: { type: 'string' }, description: { type: 'string' } }, required: ['title'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_delete_certificate',
+      description: 'Propose deleting a certificate by title.',
+      parameters: { type: 'object', properties: { title: { type: 'string' } }, required: ['title'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_create_research',
+      description: 'Propose adding a research item to Fedha.',
+      parameters: { type: 'object', properties: { title: { type: 'string' }, category: { type: 'string' }, notes: { type: 'string' }, link: { type: 'string' }, status: { type: 'string' } }, required: ['title'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_delete_research',
+      description: 'Propose deleting a research item by title.',
+      parameters: { type: 'object', properties: { title: { type: 'string' } }, required: ['title'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_delete_transaction',
+      description: 'Propose deleting a specific transaction. Only use when the transaction id is unambiguous from context.',
+      parameters: { type: 'object', properties: { transaction_id: { type: 'string' } }, required: ['transaction_id'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'research_online_opportunities',
       description: "Search the web right now for REAL, currently active online micro-task/gig platforms and links — not invented ones. Use this whenever the user asks about earning opportunities, side hustles, or online jobs; don't just describe generic platforms from memory. Returns real search results for you to summarize.",
       parameters: { type: 'object', properties: {}, required: [] },
@@ -274,7 +377,18 @@ function selectTools(message) {
   if (/\b(income|salary|payment)\b/.test(m) && /\b(received|got|arrived|mark)\b/.test(m)) add('propose_mark_income_received');
   if (/\b(log|add|record|ate|eaten|meal|breakfast|lunch|dinner|snack)\b/.test(m)) add('propose_log_meal');
   if (/\b(planner|schedule|plan|move|reschedule|block)\b/.test(m)) add('propose_planner_block_edit');
-  if (/\b(project|startup|hackathon|portfolio|certificate)\b/.test(m) && /\b(update|mark|change|done|complete|progress|submit)\b/.test(m)) add('propose_update_project_status','propose_update_hackathon_status');
+  if (/\b(project|startup|hackathon|portfolio|certificate)\b/.test(m) && /\b(update|mark|change|done|complete|progress|submit|priority|importance)\b/.test(m)) add('propose_update_project_status','propose_update_hackathon_status','propose_update_startup');
+  if (/\b(add|create|new|track)\b/.test(m) && /\b(hackathon)\b/.test(m)) add('propose_create_hackathon');
+  if (/\b(remove|delete|drop)\b/.test(m) && /\b(hackathon)\b/.test(m)) add('propose_delete_hackathon');
+  if (/\b(add|create|new)\b/.test(m) && /\b(startup|venture)\b/.test(m)) add('propose_create_startup');
+  if (/\b(remove|delete)\b/.test(m) && /\b(startup|venture)\b/.test(m)) add('propose_delete_startup');
+  if (/\b(add|create|new)\b/.test(m) && /\bproject\b/.test(m)) add('propose_create_project');
+  if (/\b(remove|delete)\b/.test(m) && /\bproject\b/.test(m)) add('propose_delete_project');
+  if (/\b(add|create|new)\b/.test(m) && /\bcertificate\b/.test(m)) add('propose_create_certificate');
+  if (/\b(remove|delete)\b/.test(m) && /\bcertificate\b/.test(m)) add('propose_delete_certificate');
+  if (/\b(add|create|new)\b/.test(m) && /\bresearch\b/.test(m)) add('propose_create_research');
+  if (/\b(remove|delete)\b/.test(m) && /\bresearch\b/.test(m)) add('propose_delete_research');
+  if (/\b(delete|remove)\b/.test(m) && /\btransaction\b/.test(m)) add('propose_delete_transaction');
   if (/\b(add|schedule|put)\b/.test(m) && /\b(planner|schedule|activity)\b/.test(m)) add('propose_add_planner_activity');
   if (/\b(online gig|side hustle|online job|earn online|microtask|freelance)\b/.test(m)) add('research_online_opportunities');
   if (/\b(eat|food|breakfast|lunch|dinner|cafe|restaurant|hotel|nearby food)\b/.test(m)) add('research_food_nearby');
