@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import { buildJarvisContext } from '../lib/jarvis-context';
 import { executeProposedAction, describeProposedAction } from '../lib/jarvis-actions';
-import { getJarvisMemory, setJarvisMemory, getJarvisHistory, appendJarvisMessage, saveFoodLog } from '../lib/db';
+import { getJarvisMemory, setJarvisMemory, getJarvisMemories, searchJarvisMemories, saveStructuredJarvisMemory, deleteStructuredJarvisMemory, getJarvisHistory, appendJarvisMessage, saveFoodLog } from '../lib/db';
 import { genId } from '../lib/utils';
 
 // Minimal inline-markdown renderer — just enough for how a chat model
@@ -129,9 +129,9 @@ export default function JarvisWidget() {
       // the actual cause of Jarvis seeming to have no memory of what was
       // just said. Fetching first guarantees the current turn is never
       // included in `history`, so there's never ambiguity or duplication.
-      const [context, memory, history] = await Promise.all([
+      const [context, relevantMemories, history] = await Promise.all([
         buildJarvisContext(text),
-        getJarvisMemory(),
+        searchJarvisMemories(text, 8),
         getJarvisHistory(),
       ]);
       appendJarvisMessage('user', text); // now safe to fire-and-forget
@@ -142,7 +142,7 @@ export default function JarvisWidget() {
         body: JSON.stringify({
           message: text,
           context,
-          memory,
+          memory: relevantMemories.map((m) => `[${m.category}] ${m.key}: ${m.value}`).join('\n'),
           history: history.map((h) => ({ role: h.role, content: h.content })),
           location,
         }),
@@ -155,7 +155,11 @@ export default function JarvisWidget() {
       speak(data.reply);
 
       if (data.memoryUpdate) {
-        await setJarvisMemory(data.memoryUpdate);
+        if (data.memoryUpdate.operation === 'forget') {
+          await deleteStructuredJarvisMemory(data.memoryUpdate.key);
+        } else {
+          await saveStructuredJarvisMemory(data.memoryUpdate);
+        }
       }
       if (data.proposedActions?.length) {
         setPendingActions((prev) => [...prev, ...data.proposedActions.map((a) => ({ ...a, id: genId() }))]);
