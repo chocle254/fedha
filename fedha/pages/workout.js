@@ -10,16 +10,16 @@ const PoseCamera = dynamic(() => import('../components/PoseCamera'), { ssr: fals
 
 // ─── EXERCISE LIBRARY ────────────────────────────────────────────────────────
 export const EXERCISES = {
-  pushups:          { id:'pushups',          name:'Pushups',          emoji:'💪', muscle:'Chest · Triceps · Shoulders',   color:'#3B82F6', cameraHint:'Prop phone at floor level on your side. Full body visible.' },
-  diamond_pushups:  { id:'diamond_pushups',  name:'Diamond Pushups',  emoji:'💎', muscle:'Inner Chest · Triceps',          color:'#8B5CF6', cameraHint:'Hands together under chest. Phone at floor level on side.' },
-  wide_pushups:     { id:'wide_pushups',     name:'Wide Pushups',     emoji:'🤸', muscle:'Outer Chest · Shoulders',        color:'#06B6D4', cameraHint:'Hands wider than shoulders. Phone on your side at floor level.' },
-  pike_pushups:     { id:'pike_pushups',     name:'Pike Pushups',     emoji:'🔺', muscle:'Shoulders · Upper Chest',        color:'#EC4899', cameraHint:'Hips up in V-shape. Phone on side. Full body visible.' },
-  squats:           { id:'squats',           name:'Squats',           emoji:'🦵', muscle:'Quads · Glutes · Hamstrings',   color:'#10B981', cameraHint:'Stand sideways to phone. Full body must be in frame.' },
-  lunges:           { id:'lunges',           name:'Lunges',           emoji:'🚶', muscle:'Quads · Glutes · Balance',       color:'#F59E0B', cameraHint:'Step forward alternating legs. Phone facing you from side.' },
-  glute_bridges:    { id:'glute_bridges',    name:'Glute Bridges',    emoji:'🍑', muscle:'Glutes · Hamstrings · Core',    color:'#EF4444', cameraHint:'Lie on back. Phone on side at floor level. Raise hips.' },
-  calf_raises:      { id:'calf_raises',      name:'Calf Raises',      emoji:'👟', muscle:'Calves · Ankles',               color:'#14B8A6', cameraHint:'Stand sideways to phone. Rise on tiptoes slowly.' },
-  situps:           { id:'situps',           name:'Situps',           emoji:'🔥', muscle:'Abs · Core · Hip Flexors',      color:'#F97316', cameraHint:'Lie on back sideways to phone. Full body must be visible.' },
-  mountain_climbers:{ id:'mountain_climbers',name:'Mountain Climbers',emoji:'🏔️', muscle:'Core · Shoulders · Cardio',     color:'#A78BFA', cameraHint:'Plank position sideways to phone. Drive knees to chest.' },
+  pushups:          { id:'pushups',          name:'Pushups',          emoji:'💪', muscle:'Chest · Triceps · Shoulders',   color:'#3B82F6', cameraHint:'Place phone low and sideways. Keep your shoulders, arms and hips visible — no need for your entire body.' },
+  diamond_pushups:  { id:'diamond_pushups',  name:'Diamond Pushups',  emoji:'💎', muscle:'Inner Chest · Triceps',          color:'#8B5CF6', cameraHint:'Phone low and sideways. Keep shoulders, elbows, wrists and hips visible.' },
+  wide_pushups:     { id:'wide_pushups',     name:'Wide Pushups',     emoji:'🤸', muscle:'Outer Chest · Shoulders',        color:'#06B6D4', cameraHint:'Phone low and sideways. Keep shoulders, elbows, wrists and hips visible.' },
+  pike_pushups:     { id:'pike_pushups',     name:'Pike Pushups',     emoji:'🔺', muscle:'Shoulders · Upper Chest',        color:'#EC4899', cameraHint:'Phone low and sideways. Keep shoulders, arms and hips visible.' },
+  squats:           { id:'squats',           name:'Squats',           emoji:'🦵', muscle:'Quads · Glutes · Hamstrings',   color:'#10B981', cameraHint:'Stand sideways to phone. Keep your hip, knee and ankle visible.' },
+  lunges:           { id:'lunges',           name:'Lunges',           emoji:'🚶', muscle:'Quads · Glutes · Balance',       color:'#F59E0B', cameraHint:'Stand sideways. Keep your hip, knee and ankle visible.' },
+  glute_bridges:    { id:'glute_bridges',    name:'Glute Bridges',    emoji:'🍑', muscle:'Glutes · Hamstrings · Core',    color:'#EF4444', cameraHint:'Phone low and sideways. Keep one shoulder, hip and knee visible.' },
+  calf_raises:      { id:'calf_raises',      name:'Calf Raises',      emoji:'👟', muscle:'Calves · Ankles',               color:'#14B8A6', cameraHint:'Stand sideways. Keep one hip, knee and ankle visible.' },
+  situps:           { id:'situps',           name:'Situps',           emoji:'🔥', muscle:'Abs · Core · Hip Flexors',      color:'#F97316', cameraHint:'Lie sideways to phone. Keep one shoulder, hip and knee visible.' },
+  mountain_climbers:{ id:'mountain_climbers',name:'Mountain Climbers',emoji:'🏔️', muscle:'Core · Shoulders · Cardio',     color:'#A78BFA', cameraHint:'Phone low and sideways. Keep one shoulder, hip and knee visible.' },
 };
 
 // ─── WEEKLY PLAN ─────────────────────────────────────────────────────────────
@@ -387,7 +387,7 @@ export default function WorkoutPage() {
                 '🤖 Move and the AI counts your reps automatically using joint angles',
                 '⬇⬆ Screen shows your phase (down/up) and joint angle live',
                 '🎉 Hit target reps and it auto-moves to next set',
-                '📐 Position your phone sideways at floor level for best accuracy',
+                '📐 Small room? That is fine — frame the key joints shown by the camera guide instead of your whole body',
               ].map((tip, i) => (
                 <div key={i} style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 6, lineHeight: 1.5 }}>{tip}</div>
               ))}
