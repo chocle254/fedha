@@ -52,35 +52,7 @@ export default async function handler(req, res) {
         model: GROQ_MODEL,
         temperature: 0.6,
         max_tokens: 2000,
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'fedha_daily_plan',
-            strict: true,
-            schema: {
-              type: 'object',
-              properties: {
-                blocks: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      label: { type: 'string' },
-                      type: { type: 'string', enum: VALID_TYPES },
-                      emoji: { type: 'string' },
-                      duration_minutes: { type: 'integer' },
-                      note: { type: 'string' },
-                    },
-                    required: ['label', 'type', 'emoji', 'duration_minutes', 'note'],
-                    additionalProperties: false,
-                  },
-                },
-              },
-              required: ['blocks'],
-              additionalProperties: false,
-            },
-          },
-        },
+        response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userPrompt },
@@ -92,7 +64,17 @@ export default async function handler(req, res) {
 
     const raw = data.choices?.[0]?.message?.content || '';
     let parsed;
-    try { parsed = JSON.parse(raw); } catch { throw new Error('Model did not return valid JSON'); }
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // Some models occasionally wrap JSON in markdown fences even in JSON mode.
+      const cleaned = raw.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch {
+        throw new Error('Model did not return valid JSON');
+      }
+    }
 
     const blocks = Array.isArray(parsed?.blocks) ? parsed.blocks : null;
     if (!blocks || !blocks.length) throw new Error('Model returned no blocks');
