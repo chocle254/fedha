@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import { useApp } from '../context/AppContext';
 import { buildJarvisContext } from '../lib/jarvis-context';
 import { executeProposedAction, describeProposedAction } from '../lib/jarvis-actions';
@@ -121,6 +122,7 @@ function speechSynthesisAvailable() {
 
 export default function JarvisWidget() {
   const app = useApp();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]); // { role, content }
   const [input, setInput] = useState('');
@@ -179,6 +181,24 @@ export default function JarvisWidget() {
     } catch {}
   }, [voiceReplyEnabled]);
 
+  function getNavigationIntent(text) {
+    const value = String(text || '').toLowerCase().trim();
+
+    if (/\b(workout|work out|exercise|exercises|training|train|gym)\b/.test(value)) {
+      return { path: '/workout', reply: 'Opening your workout section — choose the day and session you want to do. 💪' };
+    }
+
+    if ((/\b(log|record|add)\b/.test(value) && /\b(food|meal|breakfast|lunch|dinner|snack|calories|nutrition)\b/.test(value))) {
+      return { path: '/meals?log=1', reply: 'Opening food logging so you can choose what you ate. 🍽️' };
+    }
+
+    if ((/\b(log|record|add)\b/.test(value) && /\b(expense|income|transaction|spending|payment)\b/.test(value))) {
+      return { path: '/transactions?add=1', reply: 'Opening transactions so you can record it. 💰' };
+    }
+
+    return null;
+  }
+
   async function send(rawText) {
     const text = (rawText ?? input).trim();
     if (!text || sending) return;
@@ -188,6 +208,18 @@ export default function JarvisWidget() {
 
     const userMsg = { role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
+
+    const navigationIntent = getNavigationIntent(text);
+    if (navigationIntent) {
+      const assistantMsg = { role: 'assistant', content: navigationIntent.reply };
+      setMessages((prev) => [...prev, assistantMsg]);
+      await appendJarvisMessage('user', text);
+      await appendJarvisMessage('assistant', navigationIntent.reply);
+      setOpen(false);
+      await router.push(navigationIntent.path);
+      setSending(false);
+      return;
+    }
 
     try {
       // Fetch history BEFORE appending the current message, not after —
