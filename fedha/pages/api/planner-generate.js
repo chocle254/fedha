@@ -52,7 +52,6 @@ export default async function handler(req, res) {
         model: GROQ_MODEL,
         temperature: 0.6,
         max_tokens: 2000,
-        response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userPrompt },
