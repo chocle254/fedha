@@ -69,8 +69,37 @@ function getOpenResearchItem(research) {
   return { emoji: '🔍', label: `Research — ${r.title}`, note: already ? `Continue digging into this — ${already} search${already === 1 ? '' : 'es'} logged so far. Open Tech Hub → Research.` : `Start researching this in Tech Hub → Research. Use the AI search helper, then Wrap Up when you have enough.` };
 }
 
-function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs }) {
+function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs, clientProjects }) {
   const items = [];
+
+  // Paid client work is the highest-priority work pool. Side projects,
+  // startups and ordinary portfolio work wait until client commitments have
+  // been given a realistic amount of time.
+  const activeClientProjects = (clientProjects || [])
+    .filter((p) => p.status !== 'completed')
+    .map((p) => {
+      const basePaid = Number(p.previously_paid || 0) + (p.payments || []).reduce((s, x) => s + Number(x.amount || 0), 0);
+      const baseRemaining = Math.max(0, Number(p.agreed_amount || 0) - basePaid);
+      const extraRemaining = (p.change_requests || []).reduce((s, x) => {
+        const paid = Number(x.previously_paid || 0) + (x.payments || []).reduce((a, q) => a + Number(q.amount || 0), 0);
+        return s + Math.max(0, Number(x.amount || 0) - paid);
+      }, 0);
+      const remaining = baseRemaining + extraRemaining;
+      const deadlineMs = p.deadline ? new Date(p.deadline).getTime() : Number.MAX_SAFE_INTEGER;
+      return { ...p, remaining, deadlineMs };
+    })
+    .sort((a, b) => a.deadlineMs - b.deadlineMs || b.remaining - a.remaining || Number(a.estimated_days || 1) - Number(b.estimated_days || 1));
+
+  if (activeClientProjects.length) {
+    return activeClientProjects.map((p) => ({
+      emoji: '💼',
+      label: 'Client — ' + p.client_name + ': ' + p.name,
+      note: (p.remaining > 0 ? 'KSh ' + p.remaining.toLocaleString() + ' still outstanding. ' : '') +
+        (p.deadline ? 'Deadline ' + p.deadline + '. ' : '') +
+        'Client work has priority over ordinary side projects. Estimated duration: ' + (p.estimated_days || 1) + ' day(s).',
+    }));
+  }
+
   const criticalProject = (projects || [])
     .filter((p) => ['planning', 'in_progress'].includes(projectStatus(p)) && Number(p.importance) >= 100)
     .sort((a, b) => Number(new Date(b.updated_at || 0)) - Number(new Date(a.updated_at || 0)))[0];
@@ -376,7 +405,7 @@ function EditModal({ block, onSave, onClose }) {
 }
 
 export default function PlannerPage() {
-  const { hackathons, startups, projects, onlineJobs, research } = useApp();
+  const { hackathons, startups, projects, onlineJobs, research, clientProjects } = useApp();
   const isWeekend = [0,6].includes(new Date().getDay());
   const [blocks, setBlocks] = useState([]);
   const [droppedToday, setDroppedToday] = useState([]);
@@ -405,6 +434,7 @@ export default function PlannerPage() {
     hackathons?.map((h) => [h.id, hackStatus(h), h.deadline]) || [],
     startups?.map((s) => s.id) || [],
     projects?.map((p) => [p.id, projectStatus(p)]) || [],
+    clientProjects?.map((p) => [p.id, p.status, p.deadline, p.agreed_amount, p.previously_paid, (p.payments || []).length, (p.change_requests || []).length, p.estimated_days]) || [],
     onlineJobs?.map((j) => [j.id, j.status]) || [],
     research?.map((r) => [r.id, r.status, (r.entries || []).length]) || [],
   ]);
@@ -434,7 +464,7 @@ export default function PlannerPage() {
   useEffect(() => {
     async function load() {
       const aiBlocks = await getSetting(`planner_ai_blocks_${todayISO()}`, null);
-      const generated = aiBlocks?.length ? aiBlocks : buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research }, isWeekend);
+      const generated = aiBlocks?.length ? aiBlocks : buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research, clientProjects }, isWeekend);
       setUsingAI(!!aiBlocks?.length);
       setDroppedToday(generated._droppedToday || []);
       const overrides = await getSetting(`planner_overrides_${todayISO()}`, {});
@@ -570,7 +600,7 @@ export default function PlannerPage() {
         : `Today's workout plan (${dayPlan.focus}): morning — ${dayPlan.morning.title}: ${exerciseSummary(dayPlan.morning.exercises)}${dayPlan.evening.isRest ? '; evening is a rest day' : `; evening — ${dayPlan.evening.title}: ${exerciseSummary(dayPlan.evening.exercises)}`}. Not yet done today.`;
 
       const baseContext = await buildJarvisContext();
-      const context = `${baseContext}\n\n— TODAY'S WORKOUT PLAN —\n${workoutSummary}`;
+      const context = `${baseContext}\n\n— TODAY'S WORKOUT PLAN —\n${workoutSummary}\n\n— PLANNER PRIORITY RULE —\nActive paid client projects are the highest-priority work. If there are multiple clients, prioritize by nearest deadline first, then outstanding balance, then estimated duration. Ordinary side projects should wait until client commitments are allocated. Use registered hackathons and Tech Hub events from the context; do not invent events or projects.`;
 
       const res = await fetch('/api/planner-generate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
