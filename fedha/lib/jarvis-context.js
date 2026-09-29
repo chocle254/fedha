@@ -159,7 +159,7 @@ async function summarizeResearch() {
 
 async function summarizeClientProjects() {
   const projects = await getClientProjects();
-  const active = projects.filter((p) => p.status !== 'completed');
+  const active = projects.filter((p) => p.status === 'active');
   if (!active.length) return 'No active paid client projects are recorded.';
   const lines = active.map((p) => {
     const previousPaid = Number(p.previously_paid || 0) + (p.change_requests || []).reduce((s, x) => s + Number(x.previously_paid || 0), 0);
