@@ -45,34 +45,59 @@ export default async function handler(req, res) {
   const userPrompt = `Current moment: ${nowLabel || new Date().toLocaleString()} (${isWeekend ? 'weekend' : 'weekday'}).\n\nFull context on their life right now:\n${context}\n\nBuild the rest of today, starting now.`;
 
   try {
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify({
-        model: GROQ_MODEL,
-        temperature: 0.6,
-        max_tokens: 2000,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt },
-        ],
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || 'Groq API error');
+    async function callGroq(retry = false) {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          temperature: retry ? 0.2 : 0.6,
+          max_completion_tokens: 2000,
+          reasoning_effort: 'low',
+          include_reasoning: false,
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            {
+              role: 'user',
+              content: retry
+                ? `${userPrompt}\\n\\nIMPORTANT: Your previous response was not machine-readable. Return ONLY the JSON object beginning with { and ending with }. Do not explain anything. Do not use markdown fences.`
+                : userPrompt,
+            },
+          ],
+        }),
+      });
 
-    const message = data.choices?.[0]?.message || {};
-    const raw = typeof message.content === 'string' ? message.content.trim() : '';
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error?.message || 'Groq API error');
+      return data;
+    }
 
-    // GPT-OSS may wrap the JSON in markdown or a short explanation.
-    // Extract the first complete JSON object rather than requiring the whole
-    // response to be JSON.
+    function contentToText(value) {
+      if (typeof value === 'string') return value;
+      if (Array.isArray(value)) {
+        return value
+          .map((part) => {
+            if (typeof part === 'string') return part;
+            if (part && typeof part.text === 'string') return part.text;
+            if (part && typeof part.content === 'string') return part.content;
+            return '';
+          })
+          .filter(Boolean)
+          .join('\\n');
+      }
+      if (value && typeof value === 'object') {
+        if (typeof value.text === 'string') return value.text;
+        if (typeof value.content === 'string') return value.content;
+      }
+      return '';
+    }
+
     function extractJsonObject(text) {
       if (!text) return null;
 
       const cleaned = text
-        .replace(/^\s*```(?:json)?\s*/i, '')
-        .replace(/\s*```\s*$/i, '')
+        .replace(/^\\s*\`\`\`(?:json)?\\s*/i, '')
+        .replace(/\\s*\`\`\`\\s*$/i, '')
         .trim();
 
       try { return JSON.parse(cleaned); } catch {}
@@ -107,12 +132,51 @@ export default async function handler(req, res) {
       return null;
     }
 
-    const parsed = extractJsonObject(raw);
+    let data = await callGroq(false);
+    let message = data.choices?.[0]?.message || {};
+
+    // GPT-OSS can expose useful output through different message fields.
+    // Prefer final content, but tolerate content arrays and legacy reasoning fields.
+    const candidates = [
+      contentToText(message.content),
+      contentToText(message.output_text),
+      contentToText(message.reasoning_content),
+      contentToText(message.reasoning),
+    ].filter((value) => value.trim());
+
+    let parsed = null;
+    for (const candidate of candidates) {
+      parsed = extractJsonObject(candidate);
+      if (parsed) break;
+    }
+
+    // If the first response was plain text or otherwise malformed, give the
+    // model one cheap, stricter retry instead of failing the entire planner.
+    if (!parsed) {
+      console.warn('Planner model returned no parseable JSON; retrying once.', {
+        content: contentToText(message.content).slice(0, 1000),
+        reasoning: contentToText(message.reasoning).slice(0, 1000),
+      });
+
+      data = await callGroq(true);
+      message = data.choices?.[0]?.message || {};
+
+      const retryCandidates = [
+        contentToText(message.content),
+        contentToText(message.output_text),
+        contentToText(message.reasoning_content),
+        contentToText(message.reasoning),
+      ].filter((value) => value.trim());
+
+      for (const candidate of retryCandidates) {
+        parsed = extractJsonObject(candidate);
+        if (parsed) break;
+      }
+    }
 
     if (!parsed) {
-      console.error('Planner model raw response:', raw.slice(0, 5000));
-      console.error('Planner model message:', JSON.stringify(message).slice(0, 5000));
-      throw new Error('Model did not return valid JSON');
+      console.error('Planner model response could not be parsed:', JSON.stringify(message).slice(0, 5000));
+      throw new Error('Planner AI returned an unreadable response. Please try again.');
     }
 
     const blocks = Array.isArray(parsed?.blocks) ? parsed.blocks : null;
