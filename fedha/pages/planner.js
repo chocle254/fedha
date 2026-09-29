@@ -76,7 +76,7 @@ function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs, clie
   // startups and ordinary portfolio work wait until client commitments have
   // been given a realistic amount of time.
   const activeClientProjects = (clientProjects || [])
-    .filter((p) => p.status !== 'completed')
+    .filter((p) => p.status === 'active')
     .map((p) => {
       const previousPaid = Number(p.previously_paid || 0) + (p.change_requests || []).reduce((s, x) => s + Number(x.previously_paid || 0), 0);
       const payments = (p.payments || []).reduce((s, x) => s + Number(x.amount || 0), 0);
