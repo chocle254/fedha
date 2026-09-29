@@ -1190,19 +1190,31 @@ function ClientProjectsSection({ projects, wallets, onAdd, onEdit, onDelete, onR
       ) : active.map((p) => {
         const t = clientProjectTotals(p);
         return (
-          <button key={p.id} type="button" onClick={() => onEdit(p)} className="card"
-            style={{ width: '100%', marginBottom: 10, padding: '15px 16px', borderColor: 'rgba(16,185,129,0.28)', display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', fontFamily: 'Outfit', color: 'var(--text)' }}
-            aria-label={'View ' + p.client_name + ' project'}>
-            <div style={{ width: 40, height: 40, borderRadius: 11, background: 'var(--green-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 18 }}>💼</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.client_name}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>Outstanding amount</div>
-            </div>
-            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: t.remaining ? 'var(--gold)' : 'var(--green)' }}>KSh {t.remaining.toLocaleString()}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>Tap to view ›</div>
-            </div>
-          </button>
+          <div key={p.id} className="card"
+            style={{ width: '100%', marginBottom: 10, padding: '15px 16px', borderColor: 'rgba(16,185,129,0.28)', display: 'flex', alignItems: 'center', gap: 12, fontFamily: 'Outfit', color: 'var(--text)' }}>
+            <button type="button" onClick={() => onEdit(p)}
+              style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 12, padding: 0, background: 'none', border: 'none', color: 'var(--text)', textAlign: 'left', cursor: 'pointer', fontFamily: 'Outfit' }}
+              aria-label={'View ' + p.client_name + ' project'}>
+              <div style={{ width: 40, height: 40, borderRadius: 11, background: 'var(--green-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 18 }}>💼</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.client_name}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>Outstanding amount</div>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: t.remaining ? 'var(--gold)' : 'var(--green)' }}>KSh {t.remaining.toLocaleString()}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>Tap to view ›</div>
+              </div>
+            </button>
+            {t.remaining > 0 && (
+              <button
+                type="button"
+                onClick={() => onRecordPayment(p)}
+                style={{ padding: '8px 10px', background: 'var(--green)', border: 'none', borderRadius: 8, color: '#000', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'Outfit', whiteSpace: 'nowrap', flexShrink: 0 }}
+              >
+                💰 Pay
+              </button>
+            )}
+          </div>
         );
       })}
 
