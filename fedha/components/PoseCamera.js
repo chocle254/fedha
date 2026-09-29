@@ -29,6 +29,33 @@ const CONNECTIONS = [
   [0,5],[0,6], // head-shoulders
 ];
 
+// Exercise-specific framing: only the landmarks needed by the rep counter
+// have to be visible. This makes the camera usable in small rooms.
+const REQUIRED_LANDMARKS = {
+  pushups: ['left_shoulder', 'left_elbow', 'left_wrist', 'left_hip'],
+  diamond_pushups: ['left_shoulder', 'left_elbow', 'left_wrist', 'left_hip'],
+  wide_pushups: ['left_shoulder', 'left_elbow', 'left_wrist', 'left_hip'],
+  pike_pushups: ['left_shoulder', 'left_elbow', 'left_wrist', 'left_hip'],
+  squats: ['left_hip', 'left_knee', 'left_ankle'],
+  lunges: ['left_hip', 'left_knee', 'left_ankle'],
+  glute_bridges: ['left_shoulder', 'left_hip', 'left_knee'],
+  calf_raises: ['left_hip', 'left_knee', 'left_ankle'],
+  situps: ['left_shoulder', 'left_hip', 'left_knee'],
+  mountain_climbers: ['left_hip', 'left_knee', 'left_shoulder'],
+};
+
+function getLandmarkGuidance(exerciseId, kps) {
+  const required = REQUIRED_LANDMARKS[exerciseId] || [];
+  const visible = new Set(kps.filter(k => k?.score > 0.25).map(k => k.name));
+  const missing = required.filter(name => !visible.has(name));
+  if (!kps.length) return { state: 'no_pose', message: 'No person detected — step into the camera view.' };
+  if (missing.length) {
+    const pretty = missing[0].replace('left_', '').replace('_', ' ');
+    return { state: 'partial', message: `Move slightly so your ${pretty} is visible.` };
+  }
+  return { state: 'ready', message: 'Perfect — your key joints are visible. Start moving.' };
+}
+
 // Per-exercise rep counting logic
 function countRep(exId, kps, state) {
   const get = (i) => kps[i]?.score > 0.25 ? kps[i] : null;
@@ -119,6 +146,7 @@ export default function PoseCamera({ exercise, targetReps, set, totalSets, onCom
   const [loadMsg, setLoadMsg] = useState('Starting camera…');
   const [hypeMessage, setHypeMessage] = useState(null);
   const [summaryMessage, setSummaryMessage] = useState(null);
+  const [framing, setFraming] = useState({ state: 'no_pose', message: 'Step into the camera view.' });
 
   useEffect(() => {
     let stream = null;
@@ -163,6 +191,7 @@ export default function PoseCamera({ exercise, targetReps, set, totalSets, onCom
 
             if (poses[0]?.keypoints) {
               const kps = poses[0].keypoints;
+              setFraming(getLandmarkGuidance(exercise.id, kps));
 
               // Draw skeleton lines
               ctx.strokeStyle = '#10B981';
@@ -245,7 +274,7 @@ export default function PoseCamera({ exercise, targetReps, set, totalSets, onCom
 
       {/* Camera area */}
       <div style={{ position: 'relative', flex: 1, overflow: 'hidden' }}>
-        <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} playsInline muted />
+        <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#05070B', transform: 'scaleX(-1)' }} playsInline muted />
         <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', transform: 'scaleX(-1)' }} />
 
         {/* Loading overlay */}
@@ -306,9 +335,16 @@ export default function PoseCamera({ exercise, targetReps, set, totalSets, onCom
           </div>
         )}
 
-        {/* Camera angle tip */}
+        {/* Live framing guidance */}
+        {status === 'ready' && (
+          <div style={{ position: 'absolute', bottom: 120, left: 16, right: 16, background: framing.state === 'ready' ? 'rgba(16,185,129,0.9)' : 'rgba(0,0,0,0.82)', border: framing.state === 'ready' ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(245,158,11,0.35)', borderRadius: 12, padding: '10px 14px', fontSize: 13, color: '#fff', lineHeight: 1.5, textAlign: 'center' }}>
+            {framing.state === 'ready' ? '🟢' : framing.state === 'partial' ? '🟡' : '🔴'} {framing.message}
+          </div>
+        )}
+
+        {/* Camera placement tip */}
         {status === 'ready' && reps === 0 && (
-          <div style={{ position: 'absolute', bottom: 120, left: 16, right: 16, background: 'rgba(0,0,0,0.75)', borderRadius: 12, padding: '10px 14px', fontSize: 13, color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 }}>
+          <div style={{ position: 'absolute', bottom: 174, left: 16, right: 16, background: 'rgba(0,0,0,0.65)', borderRadius: 10, padding: '7px 12px', fontSize: 11, color: 'rgba(255,255,255,0.7)', lineHeight: 1.4, textAlign: 'center' }}>
             📐 {exercise.cameraHint}
           </div>
         )}
