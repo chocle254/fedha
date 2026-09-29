@@ -15,7 +15,7 @@ import {
   getOnlineJobs, saveOnlineJob, deleteOnlineJob,
   getProjects, saveProject, deleteProject,
   getCertificates, saveCertificate, deleteCertificate,
-  getResearch,\n  getClientProjects, saveClientProject, deleteClientProject, saveResearch, deleteResearch,
+  getResearch, saveResearch, deleteResearch,\n  getClientProjects, saveClientProject, deleteClientProject,
   getSetting, setSetting, seedDefaultData,
 } from '../lib/db';
 
@@ -35,7 +35,8 @@ export function AppProvider({ children }) {
   const [onlineJobs, setOnlineJobs] = useState([]);
   const [projects, setProjects] = useState([]);
   const [certificates, setCertificates] = useState([]);
-  const [research, setResearch] = useState([]);\n  const [clientProjects, setClientProjects] = useState([]);
+  const [research, setResearch] = useState([]);
+  const [clientProjects, setClientProjects] = useState([]);
   const [currency, setCurrencyState] = useState('KES');
   const [isOnline, setIsOnline] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -48,7 +49,7 @@ export function AppProvider({ children }) {
     const [ws, ts, bs, ls, gs, ips, chs, hks, sts, ojs, prs, crts, rsc, cps, cur, cachedRates, spd] = await Promise.all([
       getWallets(), getTransactions(), getBudgets(), getLoans(),
       getGoals(), getIncomePlans(), getChallenges(),
-      getHackathons(), getStartups(), getOnlineJobs(), getProjects(), getCertificates(), getResearch(),
+      getHackathons(), getStartups(), getOnlineJobs(), getProjects(), getCertificates(), getResearch(), getClientProjects(),
       getSetting('currency', 'KES'), getSetting('fx_rates', null),
       getSetting('savings_plan_days', null),
     ]);
@@ -160,7 +161,9 @@ export function AppProvider({ children }) {
   // ─── PROJECTS (Showroom) ───────────────────────────────────────────────────
   const addProject = useCallback(async (data) => { const p = await saveProject({ id: genId(), created_at: new Date().toISOString(), ...data }); setProjects((prev) => [...prev, p]); return p; }, []);
   const updateProject = useCallback(async (project) => { const p = await saveProject(project); setProjects((prev) => prev.map((x) => (x.id === p.id ? p : x))); return p; }, []);
-  const removeProject = useCallback(async (id) => { await deleteProject(id); setProjects((prev) => prev.filter((x) => x.id !== id)); }, []);\n\n  // ─── CLIENT PROJECTS / TECH HUB PAID WORK ───────────────────────────────\n  const addClientProject = useCallback(async (data) => { const p = await saveClientProject({ id: genId(), status: 'active', payment_plan: 'installments', agreed_amount: 0, previously_paid: 0, payments: [], change_requests: [], ...data }); const all = await getClientProjects(); setClientProjects(all); return p; }, []);\n  const updateClientProject = useCallback(async (project) => { const p = await saveClientProject(project); setClientProjects((prev) => prev.map((x) => x.id === p.id ? p : x)); return p; }, []);\n  const removeClientProject = useCallback(async (id) => { await deleteClientProject(id); setClientProjects((prev) => prev.filter((x) => x.id !== id)); }, []);
+  const removeProject = useCallback(async (id) => { await deleteProject(id); setProjects((prev) => prev.filter((x) => x.id !== id)); }, []);
+
+  // ─── CLIENT PROJECTS / TECH HUB PAID WORK ───────────────────────────────\n  const addClientProject = useCallback(async (data) => { const p = await saveClientProject({ id: genId(), status: 'active', payment_plan: 'installments', agreed_amount: 0, previously_paid: 0, payments: [], change_requests: [], ...data }); const all = await getClientProjects(); setClientProjects(all); return p; }, []);\n  const updateClientProject = useCallback(async (project) => { const p = await saveClientProject(project); setClientProjects((prev) => prev.map((x) => x.id === p.id ? p : x)); return p; }, []);\n  const removeClientProject = useCallback(async (id) => { await deleteClientProject(id); setClientProjects((prev) => prev.filter((x) => x.id !== id)); }, []);
 
   // ─── CERTIFICATES ──────────────────────────────────────────────────────────
   const addCertificate = useCallback(async (data) => { const c = await saveCertificate({ id: genId(), created_at: new Date().toISOString(), ...data }); setCertificates((prev) => [c, ...prev]); return c; }, []);
