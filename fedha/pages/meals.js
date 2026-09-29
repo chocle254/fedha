@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import FoodLogModal from '../components/FoodLogModal';
 import FoodHub from '../components/FoodHub';
@@ -23,6 +24,7 @@ function prettyDate(iso) {
 }
 
 export default function FoodDiaryPage() {
+  const router = useRouter();
   const [date, setDate] = useState(todayISO());
   const [logs, setLogs] = useState(null);          // entries for selected date
   const [allLogs, setAllLogs] = useState([]);      // every entry (streak + chart)
@@ -70,6 +72,15 @@ export default function FoodDiaryPage() {
   useEffect(() => {
     reloadDay(date);
   }, [date, reloadDay]);
+
+  // Jarvis can open the food logger directly (e.g. "log my food").
+  useEffect(() => {
+    if (!router.isReady || router.query.log !== '1') return;
+    setFoodMode('diary');
+    setLogSlot(defaultSlotForHour(new Date().getHours()));
+    setShowLog(true);
+    router.replace('/meals', undefined, { shallow: true });
+  }, [router.isReady, router.query.log]);
 
   async function handleAdd(item) {
     const entry = {
