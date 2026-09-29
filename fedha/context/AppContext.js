@@ -165,7 +165,9 @@ export function AppProvider({ children }) {
   const removeProject = useCallback(async (id) => { await deleteProject(id); setProjects((prev) => prev.filter((x) => x.id !== id)); }, []);
 
   // ─── CLIENT PROJECTS / TECH HUB PAID WORK ───────────────────────────────
-  const addClientProject = useCallback(async (data) => { const p = await saveClientProject({ id: genId(), status: 'active', payment_plan: 'installments', agreed_amount: 0, previously_paid: 0, payments: [], change_requests: [], ...data }); const all = await getClientProjects(); setClientProjects(all); return p; }, []);\n  const updateClientProject = useCallback(async (project) => { const p = await saveClientProject(project); setClientProjects((prev) => prev.map((x) => x.id === p.id ? p : x)); return p; }, []);\n  const removeClientProject = useCallback(async (id) => { await deleteClientProject(id); setClientProjects((prev) => prev.filter((x) => x.id !== id)); }, []);
+  const addClientProject = useCallback(async (data) => { const p = await saveClientProject({ id: genId(), status: 'active', payment_plan: 'installments', agreed_amount: 0, previously_paid: 0, payments: [], change_requests: [], ...data }); const all = await getClientProjects(); setClientProjects(all); return p; }, []);
+  const updateClientProject = useCallback(async (project) => { const p = await saveClientProject(project); setClientProjects((prev) => prev.map((x) => x.id === p.id ? p : x)); return p; }, []);
+  const removeClientProject = useCallback(async (id) => { await deleteClientProject(id); setClientProjects((prev) => prev.filter((x) => x.id !== id)); }, []);
 
   // ─── CERTIFICATES ──────────────────────────────────────────────────────────
   const addCertificate = useCallback(async (data) => { const c = await saveCertificate({ id: genId(), created_at: new Date().toISOString(), ...data }); setCertificates((prev) => [c, ...prev]); return c; }, []);
