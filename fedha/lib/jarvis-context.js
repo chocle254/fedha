@@ -43,10 +43,17 @@ async function summarizeMoney() {
     return `${b.name} (${b.category}): ${formatShort(Number(b.spent || 0))} / ${formatShort(Number(b.allocated))} spent (${pct}%)${pct >= 90 ? ' ⚠️ nearly/over limit' : ''}`;
   });
 
-  const activeLoans = loans.filter((l) => l.status === 'active').map((l) => {
+  const activeLoanRecords = loans.filter((l) => l.status === 'active');
+  const activeLoans = activeLoanRecords.map((l) => {
     const due = l.due_date ? ` due ${l.due_date} (${fmtCountdown(l.due_date)})` : '';
-    return `${l.type === 'borrowed' ? 'You owe' : 'Owed to you by'} ${l.contact_name}: ${formatShort(Number(l.remaining || l.amount))}${due}`;
+    const direction = l.type === 'borrowed' ? 'You owe' : 'Owed to you by';
+    return `${direction} ${l.contact_name}: ${formatShort(Number(l.remaining || l.amount))}${due}`;
   });
+  // Keep the complete live loan records in the context as well as the
+  // human-readable summary. The summary is convenient for normal answers,
+  // but the raw records are authoritative: Jarvis must not invent a loan
+  // name, balance, rate, term, or any other field that is not actually stored.
+  const loanRecordLines = activeLoanRecords.map((l) => JSON.stringify(l));
 
   const pendingIncome = incomePlans.filter((p) => !p.is_received).map((p) => {
     const due = p.expected_date ? ` expected ${p.expected_date} (${fmtCountdown(p.expected_date)})` : '';
@@ -62,7 +69,9 @@ async function summarizeMoney() {
     `Total balance across all wallets: ${formatShort(totalBalance)}`,
     walletLines.length ? `Wallets: ${walletLines.join('; ')}` : null,
     budgetLines.length ? `Budgets:\n- ${budgetLines.join('\n- ')}` : 'No budgets set.',
-    activeLoans.length ? `Active loans:\n- ${activeLoans.join('\n- ')}` : null,
+    activeLoans.length
+      ? `Active loans (human-readable):\n- ${activeLoans.join('\n- ')}\n\nAUTHORITATIVE LIVE LOAN RECORDS — use these exact stored values. Do not invent, rename, combine, or estimate any loan field:\n${loanRecordLines.join('\n')}`
+      : 'No active loans are currently stored in Fedha.',
     pendingIncome.length ? `Pending income (not yet received):\n- ${pendingIncome.join('\n- ')}` : null,
     goalLines.length ? `Savings goals in progress:\n- ${goalLines.join('\n- ')}` : null,
     recent.length ? `Last ${recent.length} transactions:\n- ${recent.join('\n- ')}` : 'No transactions yet.',
