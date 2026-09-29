@@ -61,18 +61,58 @@ export default async function handler(req, res) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || 'Groq API error');
 
-    const raw = data.choices?.[0]?.message?.content || '';
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      // Some models occasionally wrap JSON in markdown fences even in JSON mode.
-      const cleaned = raw.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-      try {
-        parsed = JSON.parse(cleaned);
-      } catch {
-        throw new Error('Model did not return valid JSON');
+    const message = data.choices?.[0]?.message || {};
+    const raw = typeof message.content === 'string' ? message.content.trim() : '';
+
+    // GPT-OSS may wrap the JSON in markdown or a short explanation.
+    // Extract the first complete JSON object rather than requiring the whole
+    // response to be JSON.
+    function extractJsonObject(text) {
+      if (!text) return null;
+
+      const cleaned = text
+        .replace(/^\s*```(?:json)?\s*/i, '')
+        .replace(/\s*```\s*$/i, '')
+        .trim();
+
+      try { return JSON.parse(cleaned); } catch {}
+
+      const start = cleaned.indexOf('{');
+      if (start < 0) return null;
+
+      let depth = 0;
+      let inString = false;
+      let escaped = false;
+
+      for (let i = start; i < cleaned.length; i++) {
+        const ch = cleaned[i];
+
+        if (inString) {
+          if (escaped) escaped = false;
+          else if (ch === '\\\\') escaped = true;
+          else if (ch === '"') inString = false;
+          continue;
+        }
+
+        if (ch === '"') inString = true;
+        else if (ch === '{') depth++;
+        else if (ch === '}') {
+          depth--;
+          if (depth === 0) {
+            try { return JSON.parse(cleaned.slice(start, i + 1)); } catch { return null; }
+          }
+        }
       }
+
+      return null;
+    }
+
+    const parsed = extractJsonObject(raw);
+
+    if (!parsed) {
+      console.error('Planner model raw response:', raw.slice(0, 5000));
+      console.error('Planner model message:', JSON.stringify(message).slice(0, 5000));
+      throw new Error('Model did not return valid JSON');
     }
 
     const blocks = Array.isArray(parsed?.blocks) ? parsed.blocks : null;
