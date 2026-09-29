@@ -78,13 +78,11 @@ function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs, clie
   const activeClientProjects = (clientProjects || [])
     .filter((p) => p.status !== 'completed')
     .map((p) => {
-      const basePaid = Number(p.previously_paid || 0) + (p.payments || []).reduce((s, x) => s + Number(x.amount || 0), 0);
-      const baseRemaining = Math.max(0, Number(p.agreed_amount || 0) - basePaid);
-      const extraRemaining = (p.change_requests || []).reduce((s, x) => {
-        const paid = Number(x.previously_paid || 0) + (x.payments || []).reduce((a, q) => a + Number(q.amount || 0), 0);
-        return s + Math.max(0, Number(x.amount || 0) - paid);
-      }, 0);
-      const remaining = baseRemaining + extraRemaining;
+      const previousPaid = Number(p.previously_paid || 0) + (p.change_requests || []).reduce((s, x) => s + Number(x.previously_paid || 0), 0);
+      const payments = (p.payments || []).reduce((s, x) => s + Number(x.amount || 0), 0);
+      const extraAgreed = (p.change_requests || []).reduce((s, x) => s + Number(x.amount || 0), 0);
+      const agreed = Number(p.agreed_amount || 0) + extraAgreed;
+      const remaining = Math.max(0, agreed - previousPaid - payments);
       const deadlineMs = p.deadline ? new Date(p.deadline).getTime() : Number.MAX_SAFE_INTEGER;
       return { ...p, remaining, deadlineMs };
     })
