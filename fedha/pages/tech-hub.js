@@ -1526,14 +1526,16 @@ export default function TechHubPage() {
   // is shaped the same as an AI one and just pushed into the same array.
   const [showEventForm, setShowEventForm] = useState(false);
   const [eventForm, setEventForm] = useState({ name: '', organizer: '', description: '', location: '', date: '', url_hint: '', is_free: false });
-  function addManualEvent() {
+  async function addManualEvent() {
     if (!eventForm.name.trim()) return;
-    setEvents((prev) => [{ id: genId(), ...eventForm, name: eventForm.name.trim() }, ...prev]);
+    const next = [{ id: genId(), ...eventForm, name: eventForm.name.trim() }, ...events];
+    setEvents(next);
+    await setSetting('tech_hub_events', next);
     setEventForm({ name: '', organizer: '', description: '', location: '', date: '', url_hint: '', is_free: false });
     setShowEventForm(false);
   }
 
-  useEffect(() => { getSetting('last_location', null).then((v) => { if (v) { setLocation(v); setLocStatus('got'); } }); }, []);
+  useEffect(() => { getSetting('last_location', null).then((v) => { if (v) { setLocation(v); setLocStatus('got'); } }); getSetting('tech_hub_events', []).then((v) => { if (Array.isArray(v)) setEvents(v); }); }, []);
 
   // Ask for notification permission once, then alert when any results time arrives.
   const firedResults = useRef(new Set());
@@ -1833,7 +1835,7 @@ export default function TechHubPage() {
               ) : events.map((e) => (
                 <div key={e.id} style={{ position: 'relative' }}>
                   <DiscoverCard item={e} kind="event" />
-                  <button onClick={() => setEvents((prev) => prev.filter((x) => x.id !== e.id))}
+                  <button onClick={async () => { const next = events.filter((x) => x.id !== e.id); setEvents(next); await setSetting('tech_hub_events', next); }}
                     style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 13 }} aria-label="Remove">🗑️</button>
                 </div>
               ))}
