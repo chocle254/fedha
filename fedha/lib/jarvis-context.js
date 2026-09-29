@@ -268,7 +268,7 @@ async function summarizeCareer(message = '') {
 // The full context string injected as a system message on every Jarvis turn.
 export async function buildJarvisContext(message = '') {
   const m = String(message || '').toLowerCase();
-  const wantsMoney = /\b(money|cash|balance|wallet|budget|expense|spent|spend|transaction|income|salary|loan|owe|owed|saving|savings|financial|afford|price|cost)\b/.test(m);
+  const wantsMoney = /\b(money|cash|balance|wallet|budget|expense|spent|spend|transaction|income|salary|loan|owe|owed|saving|savings|financial|afford|price|cost|client|clients|outstanding|freelance)\b/.test(m);
   const wantsPlanner = /\b(planner|schedule|plan|today|tomorrow|task|tasks|block|time|busy|free|deadline)\b/.test(m);
   const wantsMeals = /\b(food|eat|eating|meal|breakfast|lunch|dinner|snack|calorie|protein|nutrition|hungry)\b/.test(m);
   // Career context must activate not only for generic words like "project" or
@@ -280,7 +280,7 @@ export async function buildJarvisContext(message = '') {
     const [projectRecords, startupRecords, hackathonRecords, certificateRecords] = await Promise.all([
       getProjects(), getStartups(), getHackathons(), getCertificates(),
     ]);
-    const records = [...projectRecords, ...startupRecords, ...hackathonRecords, ...certificateRecords];
+    const records = [...projectRecords, ...startupRecords, ...hackathonRecords, ...certificateRecords, ...clientProjectRecords.map((p) => ({ name: p.name })), ...clientProjectRecords.map((p) => ({ name: p.client_name }))];
     const normalize = (value) => String(value || '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, ' ')
