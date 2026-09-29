@@ -11,7 +11,7 @@
 
 import {
   getWallets, getTransactions, getBudgets, getLoans, getIncomePlans,
-  getGoals, getSetting, getFoodLogs, getHackathons, getProjects, getCertificates, getStartups, getResearch,
+  getGoals, getSetting, getFoodLogs, getHackathons, getProjects, getCertificates, getStartups, getResearch, getClientProjects,
 } from './db';
 import { todayISO, countdownTo, formatShort } from './utils';
 import { detectJarvisRole, detectJarvisSituation, getJarvisRoleGuidance } from './jarvis-intelligence';
@@ -157,6 +157,39 @@ async function summarizeResearch() {
   return `Open research items (not yet wrapped up):\n- ${lines.join('\n- ')}`;
 }
 
+async function summarizeClientProjects() {
+  const projects = await getClientProjects();
+  const active = projects.filter((p) => p.status !== 'completed');
+  if (!active.length) return 'No active paid client projects are recorded.';
+  const money = (p) => {
+    const basePaid = Number(p.previously_paid || 0) + (p.payments || []).reduce((s, x) => s + Number(x.amount || 0), 0);
+    const baseRemaining = Math.max(0, Number(p.agreed_amount || 0) - basePaid);
+    const extras = (p.change_requests || []).reduce((a, x) => {
+      const paid = Number(x.previously_paid || 0) + (x.payments || []).reduce((s, q) => s + Number(q.amount || 0), 0);
+      a.agreed += Number(x.amount || 0); a.paid += paid; a.remaining += Math.max(0, Number(x.amount || 0) - paid);
+      return a;
+    }, { agreed: 0, paid: 0, remaining: 0 });
+    return {
+      agreed: Number(p.agreed_amount || 0) + extras.agreed,
+      paid: Number(p.previously_paid || 0) + (p.payments || []).reduce((s, x) => s + Number(x.amount || 0), 0) + extras.paid,
+      remaining: baseRemaining + extras.remaining,
+    };
+  };
+  const lines = active.map((p) => {
+    const t = money(p);
+    return p.client_name + ' — ' + p.name +
+      ': agreed KSh ' + t.agreed.toLocaleString() +
+      ', actually received KSh ' + t.paid.toLocaleString() +
+      ', outstanding KSh ' + t.remaining.toLocaleString() +
+      ', payment plan ' + (p.payment_plan || 'installments') +
+      ', estimated duration ' + (p.estimated_days || 1) + ' days' +
+      (p.deadline ? ', deadline ' + p.deadline + (fmtCountdown(p.deadline) ? ' (' + fmtCountdown(p.deadline) + ')' : '') : '') +
+      ', status ' + (p.status || 'active') +
+      (p.change_requests?.length ? ', extra work: ' + p.change_requests.map((x) => x.name + ' (KSh ' + Number(x.amount || 0).toLocaleString() + ')').join('; ') : '');
+  });
+  return 'ACTIVE PAID CLIENT WORK — these projects have priority over ordinary side projects when planning the day. Use the stored amounts and deadlines exactly; do not invent client/project details:\n- ' + lines.join('\n- ');
+}
+
 // Full career/portfolio picture — used for CV drafting and feature-idea
 // suggestions, grounded in the user's actual Fedha records.
 async function summarizeCareer(message = '') {
@@ -267,7 +300,7 @@ export async function buildJarvisContext(message = '') {
   const wantsGoals = /\b(goal|goals|achieve|achievement|milestone|progress|target|life goal)\b/.test(m);
   const role = detectJarvisRole(message);
   const situation = detectJarvisSituation(message);
-  const [money, planner, meals, deadlines, career, research, goals] = await Promise.all([
+  const [money, planner, meals, deadlines, career, research, goals, clientWork] = await Promise.all([
     wantsMoney ? summarizeMoney().catch((e) => `(money data unavailable: ${e.message})`) : Promise.resolve(null),
     wantsPlanner ? summarizePlanner().catch((e) => `(planner data unavailable: ${e.message})`) : Promise.resolve(null),
     wantsMeals ? summarizeMeals().catch((e) => `(meal data unavailable: ${e.message})`) : Promise.resolve(null),
@@ -275,6 +308,7 @@ export async function buildJarvisContext(message = '') {
     wantsCareer ? summarizeCareer(message).catch(() => null) : Promise.resolve(null),
     wantsResearch ? summarizeResearch().catch(() => null) : Promise.resolve(null),
     wantsGoals ? summarizeGoals().catch(() => null) : Promise.resolve(null),
+    (wantsPlanner || wantsCareer) ? summarizeClientProjects().catch(() => null) : Promise.resolve(null),
   ]);
 
   const now = new Date();
@@ -285,6 +319,7 @@ export async function buildJarvisContext(message = '') {
     planner ? `— TODAY'S PLANNER —\n${planner}` : null,
     meals ? `— MEALS TODAY —\n${meals}` : null,
     deadlines ? `— DEADLINES —\n${deadlines}` : null,
+    clientWork ? `— PAID CLIENT WORK —\n${clientWork}` : null,
     research ? `— RESEARCH —\n${research}` : null,
     goals ? `— GOALS & PROGRESS —\n${goals}` : null,
     career ? `— PROJECTS, HACKATHONS & STARTUPS —\n${career}` : null,
