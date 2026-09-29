@@ -1,10 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatDate, getCategoryById } from '../lib/utils';
 
 export default function TransactionsPage() {
+  const router = useRouter();
   const { transactions, wallets, removeTransaction, currency, loading } = useApp();
   const [showAdd, setShowAdd] = useState(false);
   const [filterType, setFilterType] = useState('all');
@@ -42,6 +44,13 @@ export default function TransactionsPage() {
     await removeTransaction(id);
     setConfirmDelete(null);
   }
+
+  // Jarvis can open the transaction logger directly (e.g. "log an expense").
+  useEffect(() => {
+    if (!router.isReady || router.query.add !== '1') return;
+    setShowAdd(true);
+    router.replace('/transactions', undefined, { shallow: true });
+  }, [router.isReady, router.query.add]);
 
   return (
     <Layout onFab={() => setShowAdd(true)}>
