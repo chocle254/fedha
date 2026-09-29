@@ -162,16 +162,12 @@ async function summarizeClientProjects() {
   const active = projects.filter((p) => p.status !== 'completed');
   if (!active.length) return 'No active paid client projects are recorded.';
   const lines = active.map((p) => {
-    const basePaid = Number(p.previously_paid || 0) + (p.payments || []).reduce((s, x) => s + Number(x.amount || 0), 0);
-    const baseRemaining = Math.max(0, Number(p.agreed_amount || 0) - basePaid);
-    const extras = (p.change_requests || []).reduce((a, x) => {
-      const paid = Number(x.previously_paid || 0) + (x.payments || []).reduce((s, q) => s + Number(q.amount || 0), 0);
-      a.agreed += Number(x.amount || 0); a.paid += paid; a.remaining += Math.max(0, Number(x.amount || 0) - paid);
-      return a;
-    }, { agreed: 0, paid: 0, remaining: 0 });
-    const agreed = Number(p.agreed_amount || 0) + extras.agreed;
-    const received = Number(p.previously_paid || 0) + (p.payments || []).reduce((s, x) => s + Number(x.amount || 0), 0) + extras.paid;
-    const remaining = baseRemaining + extras.remaining;
+    const previousPaid = Number(p.previously_paid || 0) + (p.change_requests || []).reduce((s, x) => s + Number(x.previously_paid || 0), 0);
+    const payments = (p.payments || []).reduce((s, x) => s + Number(x.amount || 0), 0);
+    const extraAgreed = (p.change_requests || []).reduce((s, x) => s + Number(x.amount || 0), 0);
+    const agreed = Number(p.agreed_amount || 0) + extraAgreed;
+    const received = previousPaid + payments;
+    const remaining = Math.max(0, agreed - received);
     return p.client_name + ' — ' + p.name + ': agreed KSh ' + agreed.toLocaleString() +
       ', actually received KSh ' + received.toLocaleString() +
       ', outstanding KSh ' + remaining.toLocaleString() +
