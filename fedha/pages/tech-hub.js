@@ -1174,38 +1174,59 @@ function ClientPaymentModal({ project, wallets, onClose, onPaid }) {
 function ClientProjectsSection({ projects, wallets, onAdd, onEdit, onDelete, onRecordPayment }) {
   const active = (projects || []).filter((p) => p.status !== 'completed');
   const completed = (projects || []).filter((p) => p.status === 'completed');
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div><div className="section-title" style={{ marginBottom: 2 }}>Client Work</div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>Paid work stays active until you decide the client relationship is finished.</div></div>
+        <div>
+          <div className="section-title" style={{ marginBottom: 2 }}>Client Work</div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>Tap a client to view and edit the project.</div>
+        </div>
         <button onClick={onAdd} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>+ Client</button>
       </div>
-      {active.length === 0 ? <div className="empty-state"><div className="icon">💼</div><h3>No client projects</h3><p>Add a paid client project and it will automatically become Planner priority.</p></div> : active.map((p) => {
+
+      {active.length === 0 ? (
+        <div className="empty-state"><div className="icon">💼</div><h3>No client projects</h3><p>Add a paid client project and it will automatically become Planner priority.</p></div>
+      ) : active.map((p) => {
         const t = clientProjectTotals(p);
-        const deadline = p.deadline ? countdownTo(p.deadline) : null;
         return (
-          <div key={p.id} className="card" style={{ marginBottom: 12, borderColor: 'rgba(16,185,129,0.28)' }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-              <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 800 }}>{p.client_name} <span style={{ color: 'var(--text-3)', fontWeight: 500 }}>·</span> {p.name}</div><div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 3 }}>{p.description || 'Client development work'}</div></div>
-              <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--green)', background: 'var(--green-dim)', padding: '5px 8px', borderRadius: 999 }}>PRIORITY</span>
+          <button key={p.id} type="button" onClick={() => onEdit(p)} className="card"
+            style={{ width: '100%', marginBottom: 10, padding: '15px 16px', borderColor: 'rgba(16,185,129,0.28)', display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', fontFamily: 'Outfit', color: 'var(--text)' }}
+            aria-label={'View ' + p.client_name + ' project'}>
+            <div style={{ width: 40, height: 40, borderRadius: 11, background: 'var(--green-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 18 }}>💼</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.client_name}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>Outstanding amount</div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginTop: 12 }}>
-              <div><div style={{ fontSize: 10, color: 'var(--text-3)' }}>AGREED</div><b>KSh {t.agreed.toLocaleString()}</b></div><div><div style={{ fontSize: 10, color: 'var(--text-3)' }}>RECEIVED</div><b style={{ color: 'var(--green)' }}>KSh {t.paid.toLocaleString()}</b></div><div><div style={{ fontSize: 10, color: 'var(--text-3)' }}>OUTSTANDING</div><b style={{ color: t.remaining ? 'var(--gold)' : 'var(--green)' }}>KSh {t.remaining.toLocaleString()}</b></div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: t.remaining ? 'var(--gold)' : 'var(--green)' }}>KSh {t.remaining.toLocaleString()}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>Tap to view ›</div>
             </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10, fontSize: 11, color: 'var(--text-3)' }}>
-              <span>💳 {p.payment_plan || 'installments'}</span>{p.deadline && <span>📅 {p.deadline}{deadline ? ' · ' + (deadline.past ? 'overdue' : formatCountdown(p.deadline)) : ''}</span>}<span>⏱ {p.estimated_days || 1} day{Number(p.estimated_days) === 1 ? '' : 's'}</span>{p.change_requests?.length ? <span>🧩 {p.change_requests.length} extra feature{p.change_requests.length === 1 ? '' : 's'}</span> : null}
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-              <button className="btn-primary" style={{ flex: 1 }} disabled={!t.remaining} onClick={() => onRecordPayment(p)}>💰 Record Payment</button><button className="btn-ghost" onClick={() => onEdit(p)}>✏️</button><button className="btn-ghost" onClick={() => onDelete(p.id)}>🗑</button>
-            </div>
-          </div>
+          </button>
         );
       })}
-      {completed.length > 0 && <div style={{ marginTop: 20 }}><div className="section-title">Completed Client Work</div>{completed.map((p) => { const t = clientProjectTotals(p); return <div key={p.id} className="card" style={{ marginBottom: 8, opacity: .72 }}><b>{p.client_name} · {p.name}</b><div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 3 }}>KSh {t.paid.toLocaleString()} received · KSh {t.remaining.toLocaleString()} outstanding</div></div>; })}</div>}
+
+      {completed.length > 0 && <div style={{ marginTop: 20 }}>
+        <div className="section-title">Completed Client Work</div>
+        {completed.map((p) => {
+          const t = clientProjectTotals(p);
+          return (
+            <button key={p.id} type="button" onClick={() => onEdit(p)} className="card"
+              style={{ width: '100%', marginBottom: 8, padding: '13px 16px', opacity: 0.72, display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', fontFamily: 'Outfit', color: 'var(--text)' }}
+              aria-label={'View ' + p.client_name + ' completed project'}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.client_name}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>Outstanding amount</div>
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 800 }}>KSh {t.remaining.toLocaleString()}</div>
+              <span style={{ color: 'var(--text-3)', fontSize: 16 }}>›</span>
+            </button>
+          );
+        })}
+      </div>}
     </div>
   );
 }
-
 // ─── RESEARCH LOG ───────────────────────────────────────────────────────────
 // Findings/notes on anything — a job lead, a hackathon idea, a tech discovery.
 // The "AI helper" is a thin UI over /api/jarvis-research: each search pass
