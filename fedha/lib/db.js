@@ -392,6 +392,25 @@ export const getProjects = () => projectsStore.getAll();
 export const saveProject = (p) => projectsStore.save(p);
 export const deleteProject = (id) => projectsStore.remove(id);
 
+// ─── CLIENT PROJECTS (Tech Hub / paid client work) ─────────────────────────
+// Stored in settings so this feature remains schema-free and synced through
+// the same offline-first settings pipeline as the rest of Fedha.
+export async function getClientProjects() {
+  const value = await getSetting('client_projects', []);
+  return Array.isArray(value) ? value : [];
+}
+export async function saveClientProject(project) {
+  const all = await getClientProjects();
+  const record = { ...project, id: project.id || localId(), created_at: project.created_at || new Date().toISOString(), updated_at: new Date().toISOString() };
+  const next = all.some((p) => p.id === record.id) ? all.map((p) => p.id === record.id ? record : p) : [record, ...all];
+  await setSetting('client_projects', next);
+  return record;
+}
+export async function deleteClientProject(id) {
+  const all = await getClientProjects();
+  await setSetting('client_projects', all.filter((p) => p.id !== id));
+}
+
 // ─── ONLINE JOBS ─────────────────────────────────────────────────────────────
 const onlineJobsStore = jsonStore('online_jobs');
 export async function getOnlineJobs() {
