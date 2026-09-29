@@ -1687,7 +1687,7 @@ export default function TechHubPage() {
           </div>
         </div>
 
-        <div style={{ padding: '16px 20px' }}>
+        <div style={{ padding: '16px 20px 150px' }}>
           {aiError && (
             <div style={{ background: 'var(--red-dim)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: 'var(--red)', marginBottom: 16 }}>
               ⚠ {aiError}
