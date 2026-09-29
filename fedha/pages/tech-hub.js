@@ -1218,8 +1218,19 @@ function ClientProjectsSection({ projects, wallets, onAdd, onEdit, onDelete, onR
                 <div style={{ fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.client_name}</div>
                 <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>Outstanding amount</div>
               </div>
-              <div style={{ fontSize: 14, fontWeight: 800 }}>KSh {t.remaining.toLocaleString()}</div>
-              <span style={{ color: 'var(--text-3)', fontSize: 16 }}>›</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 800 }}>KSh {t.remaining.toLocaleString()}</div>
+                {t.remaining > 0 && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onRecordPayment(p); }}
+                    style={{ padding: '7px 10px', background: 'var(--green)', border: 'none', borderRadius: 8, color: '#000', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'Outfit', whiteSpace: 'nowrap' }}
+                  >
+                    💰 Pay
+                  </button>
+                )}
+                <span style={{ color: 'var(--text-3)', fontSize: 16 }}>›</span>
+              </div>
             </button>
           );
         })}
