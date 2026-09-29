@@ -1901,6 +1901,12 @@ export default function TechHubPage() {
       {projModal !== null && (
         <ProjectModal initial={projModal} onClose={() => setProjModal(null)} onSave={saveProjectForm} />
       )}
+      {clientModal !== null && (
+        <ClientProjectModal initial={clientModal} onClose={() => setClientModal(null)} onSave={handleClientSave} />
+      )}
+      {clientPayment !== null && (
+        <ClientPaymentModal project={clientPayment} wallets={wallets} onClose={() => setClientPayment(null)} onPaid={handleClientPayment} />
+      )}
       {certModal !== null && (
         <CertificateModal initial={certModal} onClose={() => setCertModal(null)} onSave={saveCertForm} />
       )}
