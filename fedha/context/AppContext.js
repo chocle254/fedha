@@ -15,7 +15,8 @@ import {
   getOnlineJobs, saveOnlineJob, deleteOnlineJob,
   getProjects, saveProject, deleteProject,
   getCertificates, saveCertificate, deleteCertificate,
-  getResearch, saveResearch, deleteResearch,\n  getClientProjects, saveClientProject, deleteClientProject,
+  getResearch, saveResearch, deleteResearch,
+  getClientProjects, saveClientProject, deleteClientProject,
   getSetting, setSetting, seedDefaultData,
 } from '../lib/db';
 
