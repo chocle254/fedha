@@ -1062,23 +1062,14 @@ const EMPTY_CLIENT_PROJECT = {
 };
 
 function clientProjectTotals(p) {
-  const basePayments = (p.payments || []).reduce((s, x) => s + Number(x.amount || 0), 0);
-  const basePaid = Number(p.previously_paid || 0) + basePayments;
-  const baseRemaining = Math.max(0, Number(p.agreed_amount || 0) - basePaid);
-  const extras = (p.change_requests || []).reduce((acc, x) => {
-    const paid = Number(x.previously_paid || 0) + (x.payments || []).reduce((s, q) => s + Number(q.amount || 0), 0);
-    acc.agreed += Number(x.amount || 0);
-    acc.paid += paid;
-    acc.remaining += Math.max(0, Number(x.amount || 0) - paid);
-    return acc;
-  }, { agreed: 0, paid: 0, remaining: 0 });
-  return {
-    agreed: Number(p.agreed_amount || 0) + extras.agreed,
-    paid: Number(p.previously_paid || 0) + basePayments + extras.paid,
-    remaining: baseRemaining + extras.remaining,
-  };
+  const previousPaid = Number(p.previously_paid || 0) +
+    (p.change_requests || []).reduce((s, x) => s + Number(x.previously_paid || 0), 0);
+  const payments = (p.payments || []).reduce((s, x) => s + Number(x.amount || 0), 0);
+  const extraAgreed = (p.change_requests || []).reduce((s, x) => s + Number(x.amount || 0), 0);
+  const agreed = Number(p.agreed_amount || 0) + extraAgreed;
+  const paid = previousPaid + payments;
+  return { agreed, paid, remaining: Math.max(0, agreed - paid) };
 }
-
 function ClientProjectModal({ initial, onClose, onSave }) {
   const [form, setForm] = useState({ ...EMPTY_CLIENT_PROJECT, ...initial, payments: initial?.payments || [], change_requests: initial?.change_requests || [] });
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
