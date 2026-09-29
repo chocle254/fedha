@@ -1054,6 +1054,167 @@ function ShowroomSection({ projects, onAdd, onEdit, onDelete }) {
   );
 }
 
+// ─── CLIENT WORK ──────────────────────────────────────────────────────────────
+const EMPTY_CLIENT_PROJECT = {
+  client_name: '', name: '', description: '', agreed_amount: '', previously_paid: '',
+  payment_plan: 'installments', deadline: '', estimated_days: '', status: 'active',
+  payments: [], change_requests: [],
+};
+
+function clientProjectTotals(p) {
+  const basePayments = (p.payments || []).reduce((s, x) => s + Number(x.amount || 0), 0);
+  const basePaid = Number(p.previously_paid || 0) + basePayments;
+  const baseRemaining = Math.max(0, Number(p.agreed_amount || 0) - basePaid);
+  const extras = (p.change_requests || []).reduce((acc, x) => {
+    const paid = Number(x.previously_paid || 0) + (x.payments || []).reduce((s, q) => s + Number(q.amount || 0), 0);
+    acc.agreed += Number(x.amount || 0);
+    acc.paid += paid;
+    acc.remaining += Math.max(0, Number(x.amount || 0) - paid);
+    return acc;
+  }, { agreed: 0, paid: 0, remaining: 0 });
+  return {
+    agreed: Number(p.agreed_amount || 0) + extras.agreed,
+    paid: Number(p.previously_paid || 0) + basePayments + extras.paid,
+    remaining: baseRemaining + extras.remaining,
+  };
+}
+
+function ClientProjectModal({ initial, onClose, onSave }) {
+  const [form, setForm] = useState({ ...EMPTY_CLIENT_PROJECT, ...initial, payments: initial?.payments || [], change_requests: initial?.change_requests || [] });
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const [extra, setExtra] = useState({ name: '', amount: '', estimated_days: '', deadline: '' });
+
+  function addExtra() {
+    if (!extra.name.trim() || Number(extra.amount) <= 0) return;
+    setForm((f) => ({ ...f, change_requests: [{ id: genId(), name: extra.name.trim(), amount: Number(extra.amount), estimated_days: Number(extra.estimated_days) || 1, deadline: extra.deadline || '', previously_paid: 0, payments: [], status: 'active', created_at: new Date().toISOString() }, ...(f.change_requests || [])] }));
+    setExtra({ name: '', amount: '', estimated_days: '', deadline: '' });
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-sheet" style={{ maxHeight: '92vh' }}>
+        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+        <div className="modal-header">
+          <span style={{ fontSize: 16, fontWeight: 700 }}>{initial?.id ? 'Edit Client Project' : 'New Client Project'}</span>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{ overflowY: 'auto' }}>
+          <div style={{ padding: 12, background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 12, marginBottom: 14 }}>
+            <div style={{ fontWeight: 700, fontSize: 13 }}>💼 Paid client work gets Planner priority</div>
+            <div style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 4 }}>Client projects automatically outrank ordinary side projects.</div>
+          </div>
+          <Field label="Client Name"><input className="input" placeholder="e.g. Brian" value={form.client_name} onChange={set('client_name')} autoFocus /></Field>
+          <Field label="Project Name"><input className="input" placeholder="e.g. E-commerce website" value={form.name} onChange={set('name')} /></Field>
+          <Field label="Project Description"><textarea className="input" rows={3} placeholder="What are you building?" value={form.description} onChange={set('description')} style={{ resize: 'vertical', fontFamily: 'Outfit' }} /></Field>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Field label="Agreed Amount"><input className="input font-num" type="number" min="0" value={form.agreed_amount} onChange={set('agreed_amount')} /></Field>
+            <Field label="Previously Paid"><input className="input font-num" type="number" min="0" value={form.previously_paid} onChange={set('previously_paid')} /></Field>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Field label="Payment Agreement">
+              <select className="input" value={form.payment_plan} onChange={set('payment_plan')}>
+                <option value="full">Full payment</option><option value="installments">Installments</option><option value="split">Split payment</option>
+              </select>
+            </Field>
+            <Field label="Estimated Days"><input className="input font-num" type="number" min="1" value={form.estimated_days} onChange={set('estimated_days')} /></Field>
+          </div>
+          <Field label="Deadline"><input className="input" type="date" value={form.deadline} onChange={set('deadline')} /></Field>
+          <Field label="Status">
+            <select className="input" value={form.status} onChange={set('status')}>
+              <option value="active">Active — ongoing client</option><option value="waiting_client">Waiting for client</option><option value="paused">Paused</option><option value="completed">Completed</option>
+            </select>
+          </Field>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 6 }}>
+            <div className="section-title">Additional Work / Feature Requests</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 10 }}>New paid features stay attached to this client project.</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.7fr', gap: 8 }}>
+              <input className="input" placeholder="Feature / fix" value={extra.name} onChange={(e) => setExtra((x) => ({ ...x, name: e.target.value }))} />
+              <input className="input font-num" type="number" placeholder="Amount" value={extra.amount} onChange={(e) => setExtra((x) => ({ ...x, amount: e.target.value }))} />
+              <input className="input font-num" type="number" placeholder="Days" value={extra.estimated_days} onChange={(e) => setExtra((x) => ({ ...x, estimated_days: e.target.value }))} />
+              <input className="input" type="date" value={extra.deadline} onChange={(e) => setExtra((x) => ({ ...x, deadline: e.target.value }))} />
+            </div>
+            <button className="btn-ghost" style={{ width: '100%', marginTop: 8 }} onClick={addExtra}>+ Add feature / fix</button>
+            {(form.change_requests || []).map((x) => (
+              <div key={x.id} style={{ marginTop: 8, padding: 10, background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ flex: 1, fontSize: 12 }}>{x.name}</span>
+                <span style={{ fontSize: 12, fontWeight: 700 }}>KSh {Number(x.amount || 0).toLocaleString()}</span>
+                <button className="btn-icon" onClick={() => setForm((f) => ({ ...f, change_requests: f.change_requests.filter((q) => q.id !== x.id) }))}>✕</button>
+              </div>
+            ))}
+          </div>
+          <button className="btn-primary" disabled={!form.client_name.trim() || !form.name.trim()} onClick={() => onSave({ ...form, agreed_amount: Number(form.agreed_amount) || 0, previously_paid: Number(form.previously_paid) || 0, estimated_days: Number(form.estimated_days) || 1 })}>
+            {initial?.id ? 'Save Client Project' : 'Add Client Project'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClientPaymentModal({ project, wallets, onClose, onPaid }) {
+  const [amount, setAmount] = useState('');
+  const [walletId, setWalletId] = useState(wallets?.[0]?.id || '');
+  const [note, setNote] = useState('');
+  const max = clientProjectTotals(project).remaining;
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-sheet">
+        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+        <div className="modal-header"><span style={{ fontWeight: 700 }}>Record Client Payment</span><button className="btn-icon" onClick={onClose}>✕</button></div>
+        <div className="modal-body">
+          <div style={{ padding: 12, background: 'var(--card-2)', borderRadius: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{project.client_name} — {project.name}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>Outstanding: <b style={{ color: 'var(--green)' }}>KSh {max.toLocaleString()}</b></div>
+          </div>
+          <Field label="Amount Received"><input className="input font-num" type="number" min="1" max={max} value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
+          <Field label="Money Received Into">
+            <select className="input" value={walletId} onChange={(e) => setWalletId(e.target.value)}>
+              {(wallets || []).map((w) => <option key={w.id} value={w.id}>{w.name} — KSh {Number(w.balance || 0).toLocaleString()}</option>)}
+            </select>
+          </Field>
+          <Field label="Note (optional)"><input className="input" placeholder="e.g. Second installment" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+          <button className="btn-primary" disabled={!walletId || Number(amount) <= 0 || Number(amount) > max} onClick={() => onPaid({ amount: Number(amount), walletId, note })}>Record KSh {Number(amount || 0).toLocaleString()} Payment</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClientProjectsSection({ projects, wallets, onAdd, onEdit, onDelete, onRecordPayment }) {
+  const active = (projects || []).filter((p) => p.status !== 'completed');
+  const completed = (projects || []).filter((p) => p.status === 'completed');
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div><div className="section-title" style={{ marginBottom: 2 }}>Client Work</div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>Paid work stays active until you decide the client relationship is finished.</div></div>
+        <button onClick={onAdd} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>+ Client</button>
+      </div>
+      {active.length === 0 ? <div className="empty-state"><div className="icon">💼</div><h3>No client projects</h3><p>Add a paid client project and it will automatically become Planner priority.</p></div> : active.map((p) => {
+        const t = clientProjectTotals(p);
+        const deadline = p.deadline ? countdownTo(p.deadline) : null;
+        return (
+          <div key={p.id} className="card" style={{ marginBottom: 12, borderColor: 'rgba(16,185,129,0.28)' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 800 }}>{p.client_name} <span style={{ color: 'var(--text-3)', fontWeight: 500 }}>·</span> {p.name}</div><div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 3 }}>{p.description || 'Client development work'}</div></div>
+              <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--green)', background: 'var(--green-dim)', padding: '5px 8px', borderRadius: 999 }}>PRIORITY</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginTop: 12 }}>
+              <div><div style={{ fontSize: 10, color: 'var(--text-3)' }}>AGREED</div><b>KSh {t.agreed.toLocaleString()}</b></div><div><div style={{ fontSize: 10, color: 'var(--text-3)' }}>RECEIVED</div><b style={{ color: 'var(--green)' }}>KSh {t.paid.toLocaleString()}</b></div><div><div style={{ fontSize: 10, color: 'var(--text-3)' }}>OUTSTANDING</div><b style={{ color: t.remaining ? 'var(--gold)' : 'var(--green)' }}>KSh {t.remaining.toLocaleString()}</b></div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10, fontSize: 11, color: 'var(--text-3)' }}>
+              <span>💳 {p.payment_plan || 'installments'}</span>{p.deadline && <span>📅 {p.deadline}{deadline ? ' · ' + (deadline.past ? 'overdue' : formatCountdown(p.deadline)) : ''}</span>}<span>⏱ {p.estimated_days || 1} day{Number(p.estimated_days) === 1 ? '' : 's'}</span>{p.change_requests?.length ? <span>🧩 {p.change_requests.length} extra feature{p.change_requests.length === 1 ? '' : 's'}</span> : null}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button className="btn-primary" style={{ flex: 1 }} disabled={!t.remaining} onClick={() => onRecordPayment(p)}>💰 Record Payment</button><button className="btn-ghost" onClick={() => onEdit(p)}>✏️</button><button className="btn-ghost" onClick={() => onDelete(p.id)}>🗑</button>
+            </div>
+          </div>
+        );
+      })}
+      {completed.length > 0 && <div style={{ marginTop: 20 }}><div className="section-title">Completed Client Work</div>{completed.map((p) => { const t = clientProjectTotals(p); return <div key={p.id} className="card" style={{ marginBottom: 8, opacity: .72 }}><b>{p.client_name} · {p.name}</b><div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 3 }}>KSh {t.paid.toLocaleString()} received · KSh {t.remaining.toLocaleString()} outstanding</div></div>; })}</div>}
+    </div>
+  );
+}
+
 // ─── RESEARCH LOG ───────────────────────────────────────────────────────────
 // Findings/notes on anything — a job lead, a hackathon idea, a tech discovery.
 // The "AI helper" is a thin UI over /api/jarvis-research: each search pass
@@ -1281,6 +1442,7 @@ export default function TechHubPage() {
     certificates: certificatesRaw, addCertificate, updateCertificate, removeCertificate,
     research: researchRaw, addResearch, updateResearch, removeResearch,
     onlineJobs: onlineJobsRaw,
+    clientProjects, addClientProject, updateClientProject, removeClientProject, wallets, addTransaction,
   } = useApp();
   // useApp() should always return these as arrays (AppContext.js defaults
   // each to []), but guarding here too means a transient/unexpected
@@ -1307,9 +1469,38 @@ export default function TechHubPage() {
   const [detailHackId, setDetailHackId] = useState(null);
   const [certModal, setCertModal] = useState(null); // {} = new, {...cert} = edit, null = closed
   const [certDetail, setCertDetail] = useState(null); // cert being viewed full-screen
-  const [projModal, setProjModal] = useState(null); // {} for new, object for edit, null for closed
+  const [projModal, setProjModal] = useState(null);
+  const [clientModal, setClientModal] = useState(null);
+  const [clientPayment, setClientPayment] = useState(null); // {} for new, object for edit, null for closed
   const [researchModal, setResearchModal] = useState(null); // {} for new, object for edit, null for closed
   const [researchSaveError, setResearchSaveError] = useState(null);
+
+  async function handleClientSave(project) {
+    if (project.id) await updateClientProject(project);
+    else await addClientProject(project);
+    setClientModal(null);
+  }
+
+  async function handleClientPayment({ amount, walletId, note }) {
+    const project = clientPayment;
+    if (!project || !Number.isFinite(amount) || amount <= 0) return;
+    const outstanding = clientProjectTotals(project).remaining;
+    if (amount > outstanding) return;
+    await addTransaction({
+      type: 'income',
+      amount,
+      category: 'Freelance',
+      wallet_id: walletId,
+      description: note ? project.client_name + ' — ' + project.name + ' — ' + note : project.client_name + ' — ' + project.name + ' — client payment',
+      client_project_id: project.id,
+      client_name: project.client_name,
+    });
+    await updateClientProject({
+      ...project,
+      payments: [{ id: genId(), amount, date: todayISO(), wallet_id: walletId, note: note || '', transaction_category: 'Freelance' }, ...(project.payments || [])],
+    });
+    setClientPayment(null);
+  }
 
   // location (shared by AI fetches)
   const [location, setLocation] = useState(null);
@@ -1497,6 +1688,7 @@ export default function TechHubPage() {
             <button className={`chip ${tab === 'events' ? 'active' : ''}`} onClick={() => setTab('events')}>📅 Events</button>
             <button className={`chip ${tab === 'startups' ? 'active' : ''}`} onClick={() => setTab('startups')}>💡 Startups</button>
             <button className={`chip ${tab === 'certificates' ? 'active' : ''}`} onClick={() => setTab('certificates')}>🖼 Certificates</button>
+            <button className={`chip ${tab === 'client-work' ? 'active' : ''}`} onClick={() => setTab('client-work')}>💼 Client Work</button>
             <button className={`chip ${tab === 'showroom' ? 'active' : ''}`} onClick={() => setTab('showroom')}>🗂 Showroom</button>
             <button className={`chip ${tab === 'research' ? 'active' : ''}`} onClick={() => setTab('research')}>🔍 Research</button>
           </div>
@@ -1585,6 +1777,15 @@ export default function TechHubPage() {
               onAdd={() => setCertModal({})}
               onOpen={(c) => setCertDetail(c)}
             />
+          )}
+
+          {/* ── CLIENT WORK ───────────────────────────────────── */}
+          {tab === 'client-work' && (
+            <ClientProjectsSection projects={clientProjects} wallets={wallets}
+              onAdd={() => setClientModal({})}
+              onEdit={(p) => setClientModal(p)}
+              onDelete={(id) => removeClientProject(id)}
+              onRecordPayment={(p) => setClientPayment(p)} />
           )}
 
           {/* ── PROJECT SHOWROOM ───────────────────────────── */}
