@@ -71,36 +71,74 @@ function ActivityCard({ item, onBook, currency }) {
 // ─── OPPORTUNITY CARD ─────────────────────────────────────────────────────────
 function OpportunityCard({ item, onClaim }) {
   const diffColor = { Easy: '#10B981', Medium: '#F59E0B', Hard: '#EF4444' };
+  const siteUrl = item.site_url || item.url || '';
+  const safeUrl = siteUrl ? (siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`) : '';
   return (
     <div className="card" style={{ padding: '16px', marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 10 }}>
         <div style={{ width: 48, height: 48, borderRadius: 14, background: 'var(--card-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>
           {item.emoji}
         </div>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 700 }}>{item.title}</div>
           <div style={{ fontSize: 12, color: 'var(--blue)', fontWeight: 600, marginTop: 2 }}>{item.platform}</div>
-        </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div className="font-num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--green)' }}>{item.estimated_earnings}</div>
+          {item.site_verified && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 5, padding: '3px 8px', borderRadius: 100, background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.2)', color: 'var(--green)', fontSize: 10, fontWeight: 700 }}>
+              ✓ SITE VERIFIED
+            </div>
+          )}
         </div>
       </div>
+
       <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12, lineHeight: 1.5 }}>{item.description}</div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+        <div style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 10px' }}>
+          <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: .7 }}>Est. / day</div>
+          <div className="font-num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--green)', marginTop: 3 }}>{item.estimated_daily_earnings || '—'}</div>
+        </div>
+        <div style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 10px' }}>
+          <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: .7 }}>Est. / week</div>
+          <div className="font-num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--green)', marginTop: 3 }}>{item.estimated_weekly_earnings || '—'}</div>
+        </div>
+      </div>
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        <span style={{ background: `${diffColor[item.difficulty]}20`, border: `1px solid ${diffColor[item.difficulty]}40`, color: diffColor[item.difficulty], fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 100 }}>
-          {item.difficulty}
+        <span style={{ background: `${diffColor[item.difficulty] || '#6B7280'}20`, border: `1px solid ${diffColor[item.difficulty] || '#6B7280'}40`, color: diffColor[item.difficulty] || 'var(--text-2)', fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 100 }}>
+          {item.difficulty || 'Unknown'}
         </span>
         <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 11, padding: '3px 10px', borderRadius: 100 }}>
-          ⏱ {item.time_required}
+          ⏱ {item.working_hours || item.time_required || 'Varies'}
         </span>
-        {item.link_hint && (
-          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>🔗 {item.link_hint}</span>
+        {item.rating != null && (
+          <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-2)', fontSize: 11, padding: '3px 10px', borderRadius: 100 }}>
+            ★ {item.rating}{item.rating_count ? ` · ${item.rating_count} reviews` : ''}
+          </span>
         )}
       </div>
-      <button onClick={() => onClaim(item)}
-        style={{ width: '100%', padding: '11px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10, color: 'var(--green)', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>
-        🙋 I'll do this!
-      </button>
+
+      {item.site_verification_note && (
+        <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.4 }}>
+          🔎 {item.site_verification_note}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        {safeUrl ? (
+          <a href={safeUrl} target="_blank" rel="noreferrer"
+            style={{ flex: 1, padding: '11px', background: 'var(--blue)', border: 'none', borderRadius: 10, color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none', textAlign: 'center' }}>
+            🌐 Visit Site ↗
+          </a>
+        ) : (
+          <div style={{ flex: 1, padding: '11px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-3)', fontSize: 12, textAlign: 'center' }}>
+            Site link unavailable
+          </div>
+        )}
+        <button onClick={() => onClaim(item)}
+          style={{ flex: 1, padding: '11px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10, color: 'var(--green)', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>
+          🙋 I'll do this!
+        </button>
+      </div>
     </div>
   );
 }
