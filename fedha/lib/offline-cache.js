@@ -145,18 +145,32 @@ export async function cacheDelete(table, id) {
 export async function cacheReplaceAll(table, rows) {
   await withStoreFallback(async () => {
     const db = await getDb();
-    const pendingIdsForTable = new Set(
-      (await getAllPendingOpsUnsafe()).filter((op) => op.table === table).map((op) => op.id)
-    );
-    const protectedRows = pendingIdsForTable.size
-      ? await Promise.all([...pendingIdsForTable].map((id) => db.get(table, id)))
-      : [];
-
+    const pendingOps = await getAllPendingOpsUnsafe();
+    const pendingIds = new Set(pendingOps.filter((op) => op.table === table).map((op) => op.id));
+    const pendingDeletes = new Set(pendingOps.filter((op) => op.table === table && op.kind === 'delete').map((op) => op.id));
+    const existing = await db.getAll(table);
+    const existingById = new Map(existing.map((r) => [r.id, r]));
+    const merged = [];
+    for (const serverRow of (rows || [])) {
+      const local = existingById.get(serverRow.id);
+      if (local && local.updated_at && serverRow.updated_at) {
+        const localTime = new Date(local.updated_at).getTime();
+        const serverTime = new Date(serverRow.updated_at).getTime();
+        if (Number.isFinite(localTime) && Number.isFinite(serverTime) && localTime > serverTime) {
+          merged.push(local);
+          continue;
+        }
+      }
+      merged.push(serverRow);
+    }
+    for (const local of existing) {
+      if (merged.some((r) => r.id === local.id)) continue;
+      if (pendingDeletes.has(local.id)) continue;
+      if (pendingIds.has(local.id) || !(rows || []).some((r) => r.id === local.id)) merged.push(local);
+    }
     const tx = db.transaction(table, 'readwrite');
     await tx.store.clear();
-    const serverRows = rows.filter((r) => !pendingIdsForTable.has(r.id));
-    const allRows = [...serverRows, ...protectedRows.filter(Boolean)];
-    await Promise.all([...allRows.map((r) => tx.store.put(r)), tx.done]);
+    await Promise.all([...merged.map((r) => tx.store.put(r)), tx.done]);
   }, undefined);
 }
 
@@ -179,7 +193,7 @@ export async function cacheGetSetting(key) {
   return row ? row.value : undefined;
 }
 export async function cachePutSetting(key, value) {
-  return cachePut('settings', { id: settingRowId(key), key, value });
+  return cachePut('settings', { id: settingRowId(key), key, value, updated_at: new Date().toISOString() });
 }
 
 // ─── PENDING WRITE QUEUE ─────────────────────────────────────────────────────
