@@ -122,7 +122,15 @@ export async function getSetting(key, fallback = null) {
       try {
         const { data, error } = await supabase.from('settings').select('value').eq('key', key).maybeSingle();
         if (error) throw error;
-        if (data) { await cachePutSetting(key, data.value); notifyChanged('settings'); }
+        if (data) {
+          const localRow = await cacheGet('settings', `setting:${key}`);
+          const localTime = localRow?.updated_at ? new Date(localRow.updated_at).getTime() : 0;
+          const serverTime = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+          if (!localTime || !serverTime || serverTime >= localTime) {
+            await cachePutSetting(key, data.value);
+            notifyChanged('settings');
+          }
+        }
       } catch (e) { console.warn('[fedha] background getSetting refresh failed:', key, e?.message); }
     })();
   }
