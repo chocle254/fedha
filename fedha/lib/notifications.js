@@ -1,14 +1,14 @@
 // Fedha Notification System
-// Schedules meal and planner reminders via service worker
+// Schedules meal, planner and event reminders via service worker
 // Works offline as long as Chrome is running in background
 
 // ─── VIBRATION PATTERNS ───────────────────────────────────────────────────────
 export const VIBRATE = {
-  gentle:  [100, 50, 100],                          // soft reminder
-  medium:  [200, 100, 200],                          // normal alert
-  strong:  [300, 100, 300, 100, 300],               // important (meals, school)
-  urgent:  [500, 100, 500, 100, 500, 100, 500],     // sleep, missed block
-  success: [100, 50, 100, 50, 300],                  // completed set / done
+  gentle:  [100, 50, 100],
+  medium:  [200, 100, 200],
+  strong:  [300, 100, 300, 100, 300],
+  urgent:  [500, 100, 500, 100, 500, 100, 500],
+  success: [100, 50, 100, 50, 300],
 };
 
 // ─── CHECK PERMISSION ─────────────────────────────────────────────────────────
@@ -31,7 +31,6 @@ export async function requestPermission() {
 export async function showNotif({ title, body, icon = '/icon.svg', badge = '/icon.svg', tag, vibrate = VIBRATE.medium, requireInteraction = false, actions = [] }) {
   if (!notifGranted()) return;
 
-  // Vibrate immediately
   if (navigator.vibrate) navigator.vibrate(vibrate);
 
   try {
@@ -47,7 +46,6 @@ export async function showNotif({ title, body, icon = '/icon.svg', badge = '/ico
       data: { url: '/' },
     });
   } catch {
-    // Fallback to basic notification
     try { new Notification(title, { body, icon, tag }); } catch {}
   }
 }
@@ -59,7 +57,6 @@ const scheduled = {};
 export function scheduleAt(timeStr, id, notifOptions) {
   if (!notifGranted()) return;
 
-  // Cancel existing schedule for this id
   if (scheduled[id]) clearTimeout(scheduled[id]);
 
   const [h, m] = timeStr.split(':').map(Number);
@@ -67,7 +64,21 @@ export function scheduleAt(timeStr, id, notifOptions) {
   target.setHours(h, m, 0, 0);
   const delay = target - Date.now();
 
-  if (delay <= 0 || delay > 24 * 60 * 60 * 1000) return; // skip past or too far
+  if (delay <= 0 || delay > 24 * 60 * 60 * 1000) return;
+
+  scheduled[id] = setTimeout(() => showNotif(notifOptions), delay);
+  return scheduled[id];
+}
+
+// Schedule against an exact Date, used for event reminders that may be on a
+// future day rather than only today's HH:mm clock time.
+export function scheduleAtDate(date, id, notifOptions) {
+  if (!notifGranted() || !(date instanceof Date) || Number.isNaN(date.getTime())) return;
+
+  if (scheduled[id]) clearTimeout(scheduled[id]);
+
+  const delay = date.getTime() - Date.now();
+  if (delay <= 0 || delay > 7 * 24 * 60 * 60 * 1000) return;
 
   scheduled[id] = setTimeout(() => showNotif(notifOptions), delay);
   return scheduled[id];
@@ -83,7 +94,6 @@ export function cancelAll() {
 }
 
 // ─── MEAL REMINDERS ───────────────────────────────────────────────────────────
-// Call this once when app loads with today's meal plan
 export function scheduleMealReminders(meals) {
   if (!notifGranted() || !meals) return;
 
@@ -98,7 +108,6 @@ export function scheduleMealReminders(meals) {
     const meal = meals[slot];
     if (!meal) return;
 
-    // Prep reminder (cook now)
     if (times.prepTime) {
       scheduleAt(times.prepTime, `meal_prep_${slot}`, {
         title: `🍳 Start cooking ${times.label} now`,
@@ -110,7 +119,6 @@ export function scheduleMealReminders(meals) {
       });
     }
 
-    // Eat reminder
     scheduleAt(times.eatTime, `meal_eat_${slot}`, {
       title: `🍽️ Time to eat ${times.label}!`,
       body: `${meal.name} — ${meal.cal} cal · ${meal.protein} protein`,
@@ -127,7 +135,6 @@ export function schedulePlannerReminders(blocks) {
   blocks.forEach(block => {
     const [h, m] = block.time.split(':').map(Number);
 
-    // On-time notification
     scheduleAt(block.time, `block_${block.id}`, {
       title: blockTitle(block),
       body: block.note,
@@ -136,7 +143,6 @@ export function schedulePlannerReminders(blocks) {
       requireInteraction: ['study', 'coding', 'sleep', 'meal'].includes(block.type),
     });
 
-    // Warning notifications before important blocks
     if (block.type === 'meal' && block.label.includes('Eat')) {
       const warnMins = h * 60 + m - 25;
       if (warnMins > 0) {
@@ -193,6 +199,25 @@ export function schedulePlannerReminders(blocks) {
   });
 }
 
+// ─── EVENT REMINDERS ──────────────────────────────────────────────────────────
+// Event reminders fire 30 minutes before an event's exact start time.
+export function scheduleEventReminder(event, startDate) {
+  if (!notifGranted() || !(startDate instanceof Date) || Number.isNaN(startDate.getTime())) return;
+
+  const reminder = new Date(startDate.getTime() - 30 * 60 * 1000);
+  const id = `event_30m_${event.id}`;
+
+  if (reminder <= new Date()) return;
+
+  return scheduleAtDate(reminder, id, {
+    title: `📅 ${event.name || 'Upcoming event'} starts in 30 minutes`,
+    body: [event.location || event.venue, event.url_hint ? `Link: ${event.url_hint}` : null].filter(Boolean).join(' · ') || 'Get ready to join.',
+    tag: id,
+    vibrate: VIBRATE.strong,
+    requireInteraction: true,
+  });
+}
+
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function formatTime12(t) {
   const [h, m] = t.split(':').map(Number);
@@ -226,7 +251,6 @@ function blockVibrate(block) {
 }
 
 // ─── MISSED BLOCK ALERT ───────────────────────────────────────────────────────
-// Call when app opens to check for missed blocks today
 export async function checkMissedBlocks(blocks, completedIds) {
   if (!notifGranted() || !blocks) return;
 
