@@ -65,36 +65,45 @@ If fewer than 6 results genuinely fit, return fewer items rather than padding wi
   }
 
   if (type === 'opportunities') {
-    prompt = (foundText) => `You are a careful online-income research scout for a tech-savvy user in Kenya. The goal is not merely to suggest a job: each result must be actionable and backed by the current web evidence below.
+    prompt = (foundText) => `You are Fedha's online-income discovery researcher for a tech-savvy user in Kenya.
+
+The goal is NOT to repeatedly recommend the same famous platforms. Search broadly and surface legitimate, less-obvious, higher-ceiling opportunities where access is gated by assessments, credentials, screening, invitations, language/region requirements, portfolio review, or demonstrated expertise.
 
 The user currently has ${currency_symbol}${balance} available in ${currency}.${varietyStr}
 
-Use ONLY platforms that actually appear in the search results. Never invent a platform, URL, rating, earnings figure, review count, or verification claim.
-
-For each platform, prefer the OFFICIAL platform website for the clickable site_url. A site may be marked site_verified=true only when the search evidence clearly identifies the URL as the platform's official site or official domain. This is a source/domain verification indicator, NOT a guarantee that the platform will pay every user or that every job is safe.
-
-Ratings must come from the search evidence. If no current rating is available, set rating and rating_count to null rather than guessing.
-
-Estimate realistic POTENTIAL earnings, not guaranteed income. Give both a daily and weekly range when the source evidence supports an estimate. Also give realistic working time per day and/or per week. If the evidence is insufficient for a numeric estimate, use "Varies" rather than inventing one.
+IMPORTANT DISCOVERY RULES:
+1. Use ONLY platforms that appear in the supplied search evidence. Never invent a platform, URL, rating, earnings figure, review count, or eligibility claim.
+2. Strongly prefer diversity. In one result set, do not repeat the same platform or near-identical platform category. Try to mix at least 4 categories when evidence allows: AI expert/evaluation work, expert networks/research panels, security/bug bounties, developer/open-source bounties, UX/user research, language/audio evaluation, specialist freelance/talent networks, and niche marketplaces.
+3. Prefer GATE-KEPT opportunities. Explicitly identify the gate: assessment, interview, credentials, portfolio, invite, qualification test, geographic eligibility, or specialist expertise.
+4. Search community discussions such as Reddit for worker experiences, hidden platforms, actual payout reports and availability. Community posts are supporting evidence only; distinguish them from official claims and do not treat anecdotes as guaranteed facts.
+5. Prefer the official platform domain for site_url. site_verified=true means the official domain was identified in the evidence; it does NOT mean Fedha guarantees legitimacy, earnings, availability, or payment.
+6. Ratings must be sourced. If no defensible current rating is found, use null.
+7. Earnings are POTENTIAL, not guaranteed. Prefer hourly/project rates from evidence, then calculate a transparent daily/weekly potential using realistic hours. Do not present advertised maximums as expected income.
+8. Account for Kenya/region eligibility where evidence exists. If country availability is unclear, say "Check Kenya eligibility".
+9. Avoid repeatedly returning DataAnnotation, Outlier, CrowdGen, TELUS, etc. unless the current evidence specifically makes them unusually relevant. Variety is a core requirement.
+10. Never recommend a platform merely because an SEO article calls it "best". Look for primary-source evidence and/or multiple independent community reports.
 
 --- SEARCH RESULTS ---
 ${foundText}
 
 Return ONLY a JSON object (no markdown, no commentary): { "results": [ ...6 items ] }. Each item must contain exactly:
-- id (string like "opp_1"), title, emoji, platform,
-- description (2-3 sentences explaining what the work is and how to start),
-- site_url (full official website URL from the search evidence),
+- id, title, emoji, platform,
+- category (one of "AI Expert Work","Research Panel","Bug Bounty","Developer Bounty","UX Research","Language/Audio","Specialist Network","Niche Freelance","Other"),
+- description (2-3 sentences explaining the actual work and how to start),
+- gate (the main acceptance barrier),
+- site_url (full official website URL from evidence),
 - site_verified (boolean),
-- site_verification_note (short evidence-based note such as "Official domain found in search results" — never claim guaranteed legitimacy),
-- estimated_daily_earnings (string potential range in ${currency}),
-- estimated_weekly_earnings (string potential range in ${currency}),
-- estimated_amount (number, realistic middle potential estimate in ${currency}, used for the existing earnings tracker),
-- working_hours (string such as "2-4 hrs/day" or "10-20 hrs/week"),
+- site_verification_note (brief evidence-based note; never say "guaranteed legit"),
+- community_evidence (short summary of what workers/community discussions report, if available; otherwise "No strong community evidence found"),
+- estimated_daily_earnings (potential range in ${currency}),
+- estimated_weekly_earnings (potential range in ${currency}),
+- estimated_amount (number, conservative middle potential estimate in ${currency}, for the existing tracker),
+- working_hours (realistic range),
 - rating (number or null),
 - rating_count (number or null),
 - difficulty (one of "Easy","Medium","Hard"),
-- time_required (string, concise summary of the work/time commitment).
-If fewer than 6 results genuinely meet these evidence requirements, return fewer items. Never pad with invented data.`;
+- time_required (concise time/commitment summary).
+If fewer than 6 opportunities meet the evidence requirements, return fewer. Never pad with invented results.`;
   }
 
   if (type === 'hackathons') {
@@ -175,9 +184,12 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
             location?.city ? `restaurants activities near ${location.city}` : 'free activities near me',
           ]
         : [
-            'legitimate online microtask AI data labeling platforms official site earnings reviews 2026',
-            'active bug bounty security audit platforms official site ratings reviews payouts 2026',
-            'paid open source bounty boards UX research panels remote official site reviews ratings',
+            'gated high paying remote AI expert evaluation platforms official site 2026 Mercor Alignerr Surge Mindrift specialist',
+            'hidden invite screening online work expert networks research panels paid studies platform official site 2026',
+            'bug bounty paid security research platforms official site 2026 HackerOne Bugcrowd YesWeHack Intigriti',
+            'paid open source coding bounties developer bounty platforms official site 2026 Algora Gitcoin',
+            'remote AI training data annotation platforms Africa Kenya screening qualification 2026 official',
+            'community discussion lesser known high paying online work platforms 2026 Reddit WorkOnline AI training annotation',
           ];
 
       let foundText;
