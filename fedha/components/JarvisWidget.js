@@ -196,13 +196,11 @@ export default function JarvisWidget() {
       return { path: '/transactions?add=1', reply: 'Opening transactions so you can record it. 💰' };
     }
 
-    if (/\\b(course|courses|learn|learning|study|studying|certification|certificate)\\b/.test(value)) {
+    if (/\b(course|courses|learn|learning|study|studying|certification|certificate)\b/.test(value)) {
       return { path: '/learning', reply: 'Opening your Learning Hub — pick a course, continue your notes, or add a new certification goal. 🎓' };
     }
 
     return null;
-  }
-
   }
 
   async function send(rawText) {
