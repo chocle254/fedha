@@ -38,6 +38,7 @@ export function AppProvider({ children }) {
   const [certificates, setCertificates] = useState([]);
   const [research, setResearch] = useState([]);
   const [clientProjects, setClientProjects] = useState([]);
+  const [courses, setCourses] = useState([]);
   const [currency, setCurrencyState] = useState('KES');
   const [isOnline, setIsOnline] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -47,16 +48,16 @@ export function AppProvider({ children }) {
 
   const loadAll = useCallback(async () => {
     await seedDefaultData();
-    const [ws, ts, bs, ls, gs, ips, chs, hks, sts, ojs, prs, crts, rsc, cps, cur, cachedRates, spd] = await Promise.all([
+    const [ws, ts, bs, ls, gs, ips, chs, hks, sts, ojs, prs, crts, rsc, cps, crs, cur, cachedRates, spd] = await Promise.all([
       getWallets(), getTransactions(), getBudgets(), getLoans(),
       getGoals(), getIncomePlans(), getChallenges(),
       getHackathons(), getStartups(), getOnlineJobs(), getProjects(), getCertificates(), getResearch(), getClientProjects(),
-      getSetting('currency', 'KES'), getSetting('fx_rates', null),
+      getSetting('courses', []), getSetting('currency', 'KES'), getSetting('fx_rates', null),
       getSetting('savings_plan_days', null),
     ]);
     setWallets(ws); setTransactions(ts); setBudgets(bs); setLoans(ls);
     setGoals(gs); setIncomePlans(ips); setChallenges(chs);
-    setHackathons(hks); setStartups(sts); setOnlineJobs(ojs); setProjects(prs); setCertificates(crts); setResearch(rsc); setClientProjects(cps || []); setCurrencyState(cur);
+    setHackathons(hks); setStartups(sts); setOnlineJobs(ojs); setProjects(prs); setCertificates(crts); setResearch(rsc); setClientProjects(cps || []); setCourses(Array.isArray(crs) ? crs : []); setCurrencyState(cur);
     setSavingsPlanDaysState(spd);
 
     // Use cached rates immediately (offline-first), then refresh from network.
@@ -183,6 +184,31 @@ export function AppProvider({ children }) {
   const updateOnlineJob = useCallback(async (job) => { const j = await saveOnlineJob(job); setOnlineJobs((p) => p.map((x) => (x.id === j.id ? j : x))); return j; }, []);
   const removeOnlineJob = useCallback(async (id) => { await deleteOnlineJob(id); setOnlineJobs((p) => p.filter((x) => x.id !== id)); }, []);
 
+  // ─── LEARNING / COURSES ────────────────────────────────────────────────────
+  const saveCourses = useCallback(async (next) => {
+    const normalized = Array.isArray(next) ? next : [];
+    await setSetting('courses', normalized);
+    setCourses(normalized);
+    return normalized;
+  }, []);
+
+  const addCourse = useCallback(async (data) => {
+    const course = { id: genId(), created_at: new Date().toISOString(), status: 'active', priority: 3, estimated_hours: 10, weekly_hours: 3, completed_minutes: 0, modules: [], notes: '', ...data };
+    const next = [...courses, course];
+    await saveCourses(next);
+    return course;
+  }, [courses, saveCourses]);
+
+  const updateCourse = useCallback(async (course) => {
+    const next = courses.map((x) => x.id === course.id ? course : x);
+    await saveCourses(next);
+    return course;
+  }, [courses, saveCourses]);
+
+  const removeCourse = useCallback(async (id) => {
+    await saveCourses(courses.filter((x) => x.id !== id));
+  }, [courses, saveCourses]);
+
   // ─── SETTINGS ──────────────────────────────────────────────────────────────
   const setCurrency = useCallback(async (cur) => { await setSetting('currency', cur); setCurrencyState(cur); }, []);
   const setSavingsPlanDays = useCallback(async (days) => { await setSetting('savings_plan_days', days); setSavingsPlanDaysState(days); }, []);
@@ -212,6 +238,7 @@ export function AppProvider({ children }) {
       certificates, addCertificate, updateCertificate, removeCertificate,
       research, addResearch, updateResearch, removeResearch,
       clientProjects, addClientProject, updateClientProject, removeClientProject,
+      courses, addCourse, updateCourse, removeCourse,
       totalBalance, totalLoaned, totalBorrowed, totalGoalSaved, netWorth,
       reload: loadAll,
     }}>
