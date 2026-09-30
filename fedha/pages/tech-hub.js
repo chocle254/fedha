@@ -402,13 +402,10 @@ function DiscoverCard({ item, kind, onAdd }) {
           </button>
         )}
         {item.url_hint && (
-          <div style={{ flex: kind === 'hack' ? 0 : 1, minWidth: 0, padding: '9px 11px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10 }}>
-            <a href={`https://${item.url_hint.replace(/^https?:\/\//, '')}`} target="_blank" rel="noreferrer"
-              style={{ display: 'block', color: 'var(--blue)', fontSize: 12, lineHeight: 1.4, textDecoration: 'underline', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-              {item.url_hint}
-            </a>
-            <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 4 }}>Open link ↗</div>
-          </div>
+          <a href={`https://${item.url_hint.replace(/^https?:\/\//, '')}`} target="_blank" rel="noreferrer"
+            style={{ flex: kind === 'hack' ? 0 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '10px 16px', background: 'var(--blue)', border: 'none', borderRadius: 10, color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none', textAlign: 'center', whiteSpace: 'nowrap' }}>
+            🎥 Join Meeting ↗
+          </a>
         )}
       </div>
     </div>
@@ -2037,6 +2034,8 @@ export default function TechHubPage() {
     </Layout>
   );
 }
+
+
 
 
 
