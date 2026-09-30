@@ -65,22 +65,36 @@ If fewer than 6 results genuinely fit, return fewer items rather than padding wi
   }
 
   if (type === 'opportunities') {
-    prompt = (foundText) => `You are a sharp income scout helping a tech-savvy person in Kenya find LESS OBVIOUS, higher-value online earning opportunities — the "hidden gems" most people don't know about.
+    prompt = (foundText) => `You are a careful online-income research scout for a tech-savvy user in Kenya. The goal is not merely to suggest a job: each result must be actionable and backed by the current web evidence below.
 
 The user currently has ${currency_symbol}${balance} available in ${currency}.${varietyStr}
 
-Below are real, current web search results about online micro-task platforms, gig sites, bounty programs, and remote micro-jobs. Using ONLY platforms that actually appear in these results — never invent a name or URL not present below — pick the most interesting lesser-known, hidden-gem opportunities (not just generic Fiverr/Upwork basics): things like data-labelling/AI-training micro-tasks, bug bounty or security-audit contest platforms, crypto/web3 testnet incentives, paid open-source bounty boards, UX research panels, and niche freelance marketplaces.
+Use ONLY platforms that actually appear in the search results. Never invent a platform, URL, rating, earnings figure, review count, or verification claim.
+
+For each platform, prefer the OFFICIAL platform website for the clickable site_url. A site may be marked site_verified=true only when the search evidence clearly identifies the URL as the platform's official site or official domain. This is a source/domain verification indicator, NOT a guarantee that the platform will pay every user or that every job is safe.
+
+Ratings must come from the search evidence. If no current rating is available, set rating and rating_count to null rather than guessing.
+
+Estimate realistic POTENTIAL earnings, not guaranteed income. Give both a daily and weekly range when the source evidence supports an estimate. Also give realistic working time per day and/or per week. If the evidence is insufficient for a numeric estimate, use "Varies" rather than inventing one.
 
 --- SEARCH RESULTS ---
 ${foundText}
 
-Do NOT state a single fixed exact price. Instead express realistic POTENTIAL earnings as a range based on what the results suggest.
-
-Return ONLY a JSON object (no markdown, no commentary): { "results": [ ...6 items ] }. Each item has exactly:
-- id (string like "opp_1"), title, emoji, platform, description (2-3 sentences explaining why it's a hidden opportunity and how to start),
-- estimated_earnings (string POTENTIAL range like "KSh 5,000 - 80,000 per audit" or "Up to $500/mo"), estimated_amount (number, realistic middle potential estimate in ${currency}),
-- time_required (string), difficulty (one of "Easy","Medium","Hard"), link_hint (the platform website/app name as it appears in the results).
-If fewer than 6 results genuinely fit, return fewer items rather than padding with invented ones.`;
+Return ONLY a JSON object (no markdown, no commentary): { "results": [ ...6 items ] }. Each item must contain exactly:
+- id (string like "opp_1"), title, emoji, platform,
+- description (2-3 sentences explaining what the work is and how to start),
+- site_url (full official website URL from the search evidence),
+- site_verified (boolean),
+- site_verification_note (short evidence-based note such as "Official domain found in search results" — never claim guaranteed legitimacy),
+- estimated_daily_earnings (string potential range in ${currency}),
+- estimated_weekly_earnings (string potential range in ${currency}),
+- estimated_amount (number, realistic middle potential estimate in ${currency}, used for the existing earnings tracker),
+- working_hours (string such as "2-4 hrs/day" or "10-20 hrs/week"),
+- rating (number or null),
+- rating_count (number or null),
+- difficulty (one of "Easy","Medium","Hard"),
+- time_required (string, concise summary of the work/time commitment).
+If fewer than 6 results genuinely meet these evidence requirements, return fewer items. Never pad with invented data.`;
   }
 
   if (type === 'hackathons') {
@@ -161,9 +175,9 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
             location?.city ? `restaurants activities near ${location.city}` : 'free activities near me',
           ]
         : [
-            'lesser known online micro task gig platforms 2026',
-            'bug bounty security audit contest platforms currently active',
-            'paid open source bounty boards UX research panels remote',
+            'legitimate online microtask AI data labeling platforms official site earnings reviews 2026',
+            'active bug bounty security audit platforms official site ratings reviews payouts 2026',
+            'paid open source bounty boards UX research panels remote official site reviews ratings',
           ];
 
       let foundText;
