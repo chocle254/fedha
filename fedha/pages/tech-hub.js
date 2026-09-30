@@ -402,10 +402,13 @@ function DiscoverCard({ item, kind, onAdd }) {
           </button>
         )}
         {item.url_hint && (
-          <a href={`https://${item.url_hint.replace(/^https?:\/\//, '')}`} target="_blank" rel="noreferrer"
-            style={{ flex: kind === 'hack' ? 0 : 1, padding: '10px 16px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontSize: 13, fontWeight: 600, textDecoration: 'none', textAlign: 'center', whiteSpace: 'nowrap' }}>
-            {item.url_hint} ↗
-          </a>
+          <div style={{ flex: kind === 'hack' ? 0 : 1, minWidth: 0, padding: '9px 11px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+            <a href={`https://${item.url_hint.replace(/^https?:\/\//, '')}`} target="_blank" rel="noreferrer"
+              style={{ display: 'block', color: 'var(--blue)', fontSize: 12, lineHeight: 1.4, textDecoration: 'underline', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+              {item.url_hint}
+            </a>
+            <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 4 }}>Open link ↗</div>
+          </div>
         )}
       </div>
     </div>
@@ -1938,7 +1941,7 @@ export default function TechHubPage() {
               ) : events.map((e) => (
                 <div key={e.id} style={{ position: 'relative' }}>
                   <DiscoverCard item={e} kind="event" />
-                  <button onClick={async () => { const next = events.filter((x) => x.id !== e.id); setEvents(next); await setSetting('tech_hub_events', next); }}
+                  <button onClick={async () => { const next = events.filter((x) => x.id !== e.id); setEvents(next); await setSetting('tech_hub_events', next.filter((x) => x.source !== 'ai')); }}
                     style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 13 }} aria-label="Remove">🗑️</button>
                 </div>
               ))}
@@ -2034,6 +2037,8 @@ export default function TechHubPage() {
     </Layout>
   );
 }
+
+
 
 
 
