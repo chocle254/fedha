@@ -205,7 +205,7 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
 
       let rawText;
       try {
-        rawText = await nvidiaChat({ prompt: prompt(foundText), temperature: 0.8, maxTokens: 2000 });
+        rawText = await nvidiaChat({ prompt: prompt(foundText), temperature: 0.5, maxTokens: type === 'opportunities' ? 4000 : 2500 });
       } catch (e) {
         console.error('[fedha] NVIDIA NIM failed for', type, ':', e.status, e.message);
         // NVIDIA's own staff confirm the free tier can genuinely run out of
@@ -283,27 +283,55 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
 // falling back to a bare array match. Returns null if nothing parseable
 // was found.
 function parseResultsJson(rawText) {
-  try {
-    const obj = JSON.parse(rawText);
-    return Array.isArray(obj) ? obj : obj.results || obj.items || obj.data || [];
-  } catch {
-    const stripped = rawText.replace(/```json|```/gi, '').trim();
+  const clean = String(rawText || '').replace(/^\\uFEFF/, '').trim();
+  const candidates = [clean];
+  const unfenced = clean
+    .replace(/^\\s*\`\`\`(?:json)?\\s*/i, '')
+    .replace(/\\s*\`\`\`\\s*$/i, '')
+    .trim();
+  if (unfenced !== clean) candidates.push(unfenced);
+
+  for (const candidate of candidates) {
     try {
-      const obj = JSON.parse(stripped);
-      return Array.isArray(obj) ? obj : obj.results || obj.items || obj.data || [];
-    } catch {
-      const objMatch = stripped.match(/\{[\s\S]*\}/);
-      const arrMatch = stripped.match(/\[[\s\S]*\]/);
-      if (objMatch) {
-        try {
-          const obj = JSON.parse(objMatch[0]);
-          return Array.isArray(obj) ? obj : obj.results || obj.items || obj.data || [];
-        } catch { /* fall through to array match below */ }
-      }
-      if (arrMatch) {
-        try { return JSON.parse(arrMatch[0]); } catch { /* fall through */ }
-      }
-      return null;
+      const obj = JSON.parse(candidate);
+      return Array.isArray(obj) ? obj : obj?.results || obj?.items || obj?.data || [];
+    } catch {}
+  }
+
+  for (const candidate of candidates) {
+    for (let start = 0; start < candidate.length; start++) {
+      if (candidate[start] !== '{' && candidate[start] !== '[') continue;
+      const end = findBalancedJsonEnd(candidate, start);
+      if (end === -1) continue;
+      try {
+        const obj = JSON.parse(candidate.slice(start, end + 1));
+        return Array.isArray(obj) ? obj : obj?.results || obj?.items || obj?.data || [];
+      } catch {}
     }
   }
+  return null;
+}
+
+function findBalancedJsonEnd(text, start) {
+  const stack = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{' || ch === '[') stack.push(ch);
+    else if (ch === '}' || ch === ']') {
+      const expected = ch === '}' ? '{' : '[';
+      if (stack[stack.length - 1] !== expected) return -1;
+      stack.pop();
+      if (stack.length === 0) return i;
+    }
+  }
+  return -1;
 }
