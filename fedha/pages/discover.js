@@ -90,7 +90,12 @@ function OpportunityCard({ item, onClaim }) {
         </div>
       </div>
 
-      <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12, lineHeight: 1.5 }}>{item.description}</div>
+      <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 10, lineHeight: 1.5 }}>{item.description}</div>
+      {item.gate && (
+        <div style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.18)', borderRadius: 10, padding: '9px 10px', marginBottom: 10, fontSize: 11, color: 'var(--text-2)' }}>
+          🔐 <strong>Gate:</strong> {item.gate}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
         <div style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 10px' }}>
@@ -118,8 +123,13 @@ function OpportunityCard({ item, onClaim }) {
       </div>
 
       {item.site_verification_note && (
-        <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.4 }}>
+        <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 7, lineHeight: 1.4 }}>
           🔎 {item.site_verification_note}
+        </div>
+      )}
+      {item.community_evidence && (
+        <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.4 }}>
+          💬 {item.community_evidence}
         </div>
       )}
 
