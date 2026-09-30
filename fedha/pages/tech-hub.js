@@ -6,6 +6,7 @@ import { useApp } from '../context/AppContext';
 import { genId, countdownTo, formatCountdown, formatDate, resizeImage, toNairobi, TZ_ABBREVIATIONS, URGENT_MS, todayISO } from '../lib/utils';
 import { fetchRepos, sortRepos, REPO_SORTS } from '../lib/github';
 import { getSetting, setSetting } from '../lib/db';
+import { scheduleEventReminder, cancelSchedule } from '../lib/notifications';
 
 // ─── HACKATHON STATUS ─────────────────────────────────────────────────────────
 // Backward-compatible with older records that only have the `submitted` boolean:
@@ -268,10 +269,19 @@ function ResultsBanner({ hack }) {
         {c?.past ? '🎉 Results are out — check now!' : `⏱ in ${formatCountdown(k.iso)}`}
       </div>
       {hack.meeting_link && (
-        <a href={hack.meeting_link.startsWith('http') ? hack.meeting_link : `https://${hack.meeting_link}`} target="_blank" rel="noreferrer"
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10, padding: '9px', background: live ? 'var(--blue)' : 'var(--card-2)', border: live ? 'none' : '1px solid var(--border)', borderRadius: 8, color: live ? '#fff' : 'var(--text)', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
-          🎥 Join results meeting ↗
-        </a>
+        <div style={{ marginTop: 10, padding: '9px 10px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Meeting / results link</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <a href={hack.meeting_link.startsWith('http') ? hack.meeting_link : `https://${hack.meeting_link}`} target="_blank" rel="noreferrer"
+              style={{ flex: 1, minWidth: 0, color: 'var(--blue)', fontSize: 12, lineHeight: 1.4, textDecoration: 'underline', overflowWrap: 'anywhere' }}>
+              {hack.meeting_link}
+            </a>
+            <a href={hack.meeting_link.startsWith('http') ? hack.meeting_link : `https://${hack.meeting_link}`} target="_blank" rel="noreferrer"
+              style={{ flexShrink: 0, padding: '7px 9px', background: live ? 'var(--blue)' : 'var(--card)', border: '1px solid var(--border)', borderRadius: 7, color: live ? '#fff' : 'var(--text)', fontSize: 11, fontWeight: 700, textDecoration: 'none' }}>
+              Open ↗
+            </a>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -381,6 +391,7 @@ function DiscoverCard({ item, kind, onAdd }) {
         {item.venue && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 12, padding: '3px 10px', borderRadius: 100 }}>📍 {item.venue}</span>}
         {item.is_free && <span style={{ background: 'var(--green-dim)', color: 'var(--green)', fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 100 }}>FREE</span>}
         {(item.deadline || item.date) && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: 100 }}><Countdown deadline={item.deadline || item.date} /></span>}
+        {item.time && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: 100 }}>🕐 {item.time}</span>}
       </div>
       {item.themes && <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>🏷 {item.themes}</div>}
       <div style={{ display: 'flex', gap: 8 }}>
@@ -1560,20 +1571,36 @@ export default function TechHubPage() {
   // state (not DB-backed, see useState above), so a manually-added event
   // is shaped the same as an AI one and just pushed into the same array.
   const [showEventForm, setShowEventForm] = useState(false);
-  const [eventForm, setEventForm] = useState({ name: '', organizer: '', description: '', location: '', date: '', url_hint: '', is_free: false });
+  const [eventForm, setEventForm] = useState({ name: '', organizer: '', description: '', location: '', date: '', time: '', url_hint: '', is_free: false });
   async function addManualEvent() {
     if (!eventForm.name.trim()) return;
-    const next = [{ id: genId(), ...eventForm, name: eventForm.name.trim() }, ...events];
+    const next = [{ id: genId(), ...eventForm, source: 'manual', name: eventForm.name.trim() }, ...events];
     setEvents(next);
     await setSetting('tech_hub_events', next);
-    setEventForm({ name: '', organizer: '', description: '', location: '', date: '', url_hint: '', is_free: false });
+    setEventForm({ name: '', organizer: '', description: '', location: '', date: '', time: '', url_hint: '', is_free: false });
     setShowEventForm(false);
   }
 
-  useEffect(() => { getSetting('last_location', null).then((v) => { if (v) { setLocation(v); setLocStatus('got'); } }); getSetting('tech_hub_events', []).then((v) => { if (Array.isArray(v)) setEvents(v); }); }, []);
+  useEffect(() => { getSetting('last_location', null).then((v) => { if (v) { setLocation(v); setLocStatus('got'); } }); getSetting('tech_hub_events', []).then((v) => { if (Array.isArray(v)) setEvents(v.map((e) => ({ ...e, source: e.source || 'manual' }))); }); }, []);
 
   // Ask for notification permission once, then alert when any results time arrives.
   const firedResults = useRef(new Set());
+  const eventReminderDates = useRef(new Map());
+
+  function getEventStartDate(event) {
+    const raw = event?.datetime || event?.start_time || event?.start || event?.date;
+    if (!raw) return null;
+
+    // Manual events store date + time separately. Build a local date-time
+    // string so the browser interprets it in the user's local timezone.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(raw)) && event.time) {
+      const d = new Date(`${raw}T${event.time}:00`);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
   useEffect(() => {
     try { if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {}); } catch {}
     const check = () => {
@@ -1595,6 +1622,36 @@ export default function TechHubPage() {
     const t = setInterval(check, 30000);
     return () => clearInterval(t);
   }, [hackathons]);
+
+  // Schedule a single 30-minute reminder for every event that has an exact
+  // start time. Refreshing discovered events never deletes manual events,
+  // and each reminder is keyed by the event id so it cannot duplicate.
+  useEffect(() => {
+    const activeIds = new Set();
+
+    for (const event of events) {
+      const start = getEventStartDate(event);
+      if (!start) continue;
+
+      const reminderAt = new Date(start.getTime() - 30 * 60 * 1000);
+      if (reminderAt <= new Date()) continue;
+
+      activeIds.add(event.id);
+      const previous = eventReminderDates.current.get(event.id);
+      if (!previous || previous.getTime() !== reminderAt.getTime()) {
+        if (previous) cancelSchedule(`event_30m_${event.id}`);
+        scheduleEventReminder(event, start);
+        eventReminderDates.current.set(event.id, reminderAt);
+      }
+    }
+
+    for (const [id] of eventReminderDates.current.entries()) {
+      if (!activeIds.has(id)) {
+        cancelSchedule(`event_30m_${id}`);
+        eventReminderDates.current.delete(id);
+      }
+    }
+  }, [events]);
 
   function getLocation() {
     if (!navigator.geolocation) { setLocStatus('denied'); return; }
@@ -1623,8 +1680,16 @@ export default function TechHubPage() {
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      if (type === 'hackathons') setDiscHacks(data.results || []);
-      else setEvents(data.results || []);
+      if (type === 'hackathons') {
+        setDiscHacks(data.results || []);
+      } else {
+        // AI discovery is a separate layer. Never overwrite events the user
+        // entered manually. Persisted events are manual; freshly discovered
+        // events live in memory until the next refresh.
+        const manualEvents = events.filter((e) => e.source !== 'ai');
+        const discoveredEvents = (data.results || []).map((e) => ({ ...e, source: 'ai' }));
+        setEvents([...manualEvents, ...discoveredEvents]);
+      }
     } catch (e) { setAiError(e.message); }
     finally { setLoading(false); }
   }
@@ -1858,7 +1923,10 @@ export default function TechHubPage() {
                   <div style={{ height: 12 }} />
                   <Field label="Location / Venue (optional)"><input className="input" placeholder="e.g. iHub, Nairobi" value={eventForm.location} onChange={(e) => setEventForm((f) => ({ ...f, location: e.target.value }))} /></Field>
                   <div style={{ height: 12 }} />
-                  <Field label="Date (optional)"><input className="input" type="date" value={eventForm.date} onChange={(e) => setEventForm((f) => ({ ...f, date: e.target.value }))} /></Field>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <Field label="Date (optional)" style={{ flex: 1 }}><input className="input" type="date" value={eventForm.date} onChange={(e) => setEventForm((f) => ({ ...f, date: e.target.value }))} /></Field>
+                    <Field label="Start time (optional)" style={{ flex: 1 }}><input className="input" type="time" value={eventForm.time} onChange={(e) => setEventForm((f) => ({ ...f, time: e.target.value }))} /></Field>
+                  </div>
                   <div style={{ height: 12 }} />
                   <Field label="Link (optional)"><input className="input" placeholder="e.g. lu.ma/event-slug" value={eventForm.url_hint} onChange={(e) => setEventForm((f) => ({ ...f, url_hint: e.target.value }))} /></Field>
                   <button className="btn-primary" style={{ marginTop: 14 }} disabled={!eventForm.name.trim()} onClick={addManualEvent}>Add Event</button>
@@ -1966,3 +2034,6 @@ export default function TechHubPage() {
     </Layout>
   );
 }
+
+
+
