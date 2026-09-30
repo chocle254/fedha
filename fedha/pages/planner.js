@@ -25,6 +25,7 @@ const TYPE_COLORS = {
   meal:     { bg:'rgba(245,158,11,0.12)',  border:'rgba(245,158,11,0.35)',  text:'#FCD34D', dot:'#F59E0B' },
   coding:   { bg:'rgba(16,185,129,0.12)', border:'rgba(16,185,129,0.35)', text:'#6EE7B7', dot:'#10B981' },
   research: { bg:'rgba(59,130,246,0.12)', border:'rgba(59,130,246,0.35)', text:'#93C5FD', dot:'#3B82F6' },
+  learning: { bg:'rgba(16,185,129,0.12)', border:'rgba(16,185,129,0.35)', text:'#6EE7B7', dot:'#10B981' },
   personal: { bg:'rgba(236,72,153,0.12)', border:'rgba(236,72,153,0.35)', text:'#F9A8D4', dot:'#EC4899' },
   chores:   { bg:'rgba(234,179,8,0.12)',  border:'rgba(234,179,8,0.35)',   text:'#FDE047', dot:'#EAB308' },
   workout:  { bg:'rgba(239,68,68,0.12)',  border:'rgba(239,68,68,0.35)',   text:'#FCA5A5', dot:'#EF4444' },
@@ -39,6 +40,7 @@ const NOTIF_MSGS = {
   meal: (b) => ({ title: b.label.includes('Eat') ? '🍽️ TIME TO EAT' : '🍳 START COOKING NOW', body: b.label.includes('Eat') ? `${b.emoji} ${b.label} — eat properly, no phone` : `Cook now so food is ready on time. Check Meals tab.` }),
   coding: (b) => ({ title:`💻 ${b.label}`, body:`Phone away. ${b.note}` }),
   research: (b) => ({ title:`🔍 ${b.label}`, body: b.note }),
+  learning: (b) => ({ title:`🎓 ${b.label}`, body: b.note }),
   personal: (b) => ({ title: b.label.includes('Bae') ? '💕 BAE TIME' : '🎧 FREE TIME', body: b.note }),
   chores: (b) => ({ title:'🏠 CHORES TIME', body: b.note }),
   workout: (b) => ({ title:`🏋️ ${b.label}`, body: b.note }),
@@ -69,88 +71,90 @@ function getOpenResearchItem(research) {
   return { emoji: '🔍', label: `Research — ${r.title}`, note: already ? `Continue digging into this — ${already} search${already === 1 ? '' : 'es'} logged so far. Open Tech Hub → Research.` : `Start researching this in Tech Hub → Research. Use the AI search helper, then Wrap Up when you have enough.` };
 }
 
-function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs, clientProjects }) {
-  const items = [];
+function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs, clientProjects, courses }) {
+  const candidates = [];
+  const now = Date.now();
 
-  // Paid client work is the highest-priority work pool. Side projects,
-  // startups and ordinary portfolio work wait until client commitments have
-  // been given a realistic amount of time.
-  const activeClientProjects = (clientProjects || [])
-    .filter((p) => p.status === 'active')
-    .map((p) => {
-      const previousPaid = Number(p.previously_paid || 0) + (p.change_requests || []).reduce((s, x) => s + Number(x.previously_paid || 0), 0);
-      const payments = (p.payments || []).reduce((s, x) => s + Number(x.amount || 0), 0);
-      const extraAgreed = (p.change_requests || []).reduce((s, x) => s + Number(x.amount || 0), 0);
-      const agreed = Number(p.agreed_amount || 0) + extraAgreed;
-      const remaining = Math.max(0, agreed - previousPaid - payments);
-      const deadlineMs = p.deadline ? new Date(p.deadline).getTime() : Number.MAX_SAFE_INTEGER;
-      return { ...p, remaining, deadlineMs };
-    })
-    .sort((a, b) => a.deadlineMs - b.deadlineMs || b.remaining - a.remaining || Number(a.estimated_days || 1) - Number(b.estimated_days || 1));
+  function deadlinePressure(deadline) {
+    if (!deadline) return 0;
+    const ms = new Date(deadline).getTime() - now;
+    const days = ms / 86400000;
+    if (days <= 0) return 60;
+    if (days <= 1) return 55;
+    if (days <= 3) return 45;
+    if (days <= 7) return 32;
+    if (days <= 14) return 18;
+    if (days <= 30) return 8;
+    return 0;
+  }
 
-  if (activeClientProjects.length) {
-    return activeClientProjects.map((p) => ({
-      emoji: '💼',
-      label: 'Client — ' + p.client_name + ': ' + p.name,
-      note: (p.remaining > 0 ? 'KSh ' + p.remaining.toLocaleString() + ' still outstanding. ' : '') +
+  function add(item, base, deadline, remainingHours = 1) {
+    const pressure = deadlinePressure(deadline);
+    const remainingPressure = Math.min(25, Math.max(0, Number(remainingHours) || 0) * 2);
+    candidates.push({ ...item, score: base + pressure + remainingPressure });
+  }
+
+  // Paid client work gets the strongest baseline, but deadline pressure can
+  // change the ordering when another important commitment is genuinely closer.
+  (clientProjects || []).filter(p => p.status === 'active').forEach(p => {
+    const previousPaid = Number(p.previously_paid || 0) + (p.change_requests || []).reduce((s,x) => s + Number(x.previously_paid || 0), 0);
+    const payments = (p.payments || []).reduce((s,x) => s + Number(x.amount || 0), 0);
+    const extraAgreed = (p.change_requests || []).reduce((s,x) => s + Number(x.amount || 0), 0);
+    const agreed = Number(p.agreed_amount || 0) + extraAgreed;
+    const remaining = Math.max(0, agreed - previousPaid - payments);
+    add({
+      emoji:'💼',
+      label:'Client — ' + p.client_name + ': ' + p.name,
+      note:(remaining > 0 ? 'KSh ' + remaining.toLocaleString() + ' still outstanding. ' : '') +
         (p.deadline ? 'Deadline ' + p.deadline + '. ' : '') +
-        'Client work has priority over ordinary side projects. Estimated duration: ' + (p.estimated_days || 1) + ' day(s).',
-    }));
-  }
+        'Client work is a high-value commitment. Estimated duration: ' + (p.estimated_days || 1) + ' day(s).',
+    }, 100, p.deadline, Number(p.estimated_days || 1) * 4);
+  });
 
-  const criticalProject = (projects || [])
-    .filter((p) => ['planning', 'in_progress'].includes(projectStatus(p)) && Number(p.importance) >= 100)
-    .sort((a, b) => Number(new Date(b.updated_at || 0)) - Number(new Date(a.updated_at || 0)))[0];
-
-  // 100% means exclusive project-work focus. Other project/startup/hackathon
-  // work is not added to the work rotation until the priority is lowered.
-  if (criticalProject) {
-    return [{
-      emoji: '🎯',
-      label: `Critical Project — ${criticalProject.name}`,
-      note: criticalProject.description || `100% priority. All project-work time is reserved for ${criticalProject.name}.`,
-    }];
-  }
+  // Courses compete in the same pool. Priority, deadline and hours remaining
+  // matter together, so a serious course nearing its deadline can displace
+  // leisure/side-project work without being permanently buried by newer items.
+  (courses || []).filter(c => c.status !== 'completed').forEach(course => {
+    const remaining = Math.max(0, Number(course.estimated_hours || 0) - Number(course.completed_minutes || 0) / 60);
+    const weekly = Math.max(0.25, Number(course.weekly_hours || 1));
+    add({
+      emoji:'🎓',
+      label:'Course — ' + course.title,
+      note:(course.deadline ? 'Target ' + course.deadline + '. ' : '') +
+        'P' + (course.priority || 3) + ' learning commitment — ' + remaining.toFixed(1) + 'h remaining. Planner target: about ' + weekly.toFixed(1) + 'h/week.',
+    }, 40 + Number(course.priority || 3) * 10, course.deadline, remaining);
+  });
 
   const urgentHacks = (hackathons || []).filter(isUrgent);
-  const activeHacks = (hackathons || []).filter((h) => hackStatus(h) === 'active' && !isUrgent(h));
-  const activeProjects = (projects || []).filter((p) => ['planning', 'in_progress'].includes(projectStatus(p)));
-
-  if (urgentHacks.length) {
-    const h = urgentHacks[0];
-    items.push({ emoji: '🔥', label: `Hackathon Sprint — ${h.name}`, note: `Deadline closing soon${h.project_name ? ` — get ${h.project_name} submission-ready` : ''}. This is priority #1 today.` });
-  } else if (activeHacks.length) {
+  const activeHacks = (hackathons || []).filter(h => hackStatus(h) === 'active' && !isUrgent(h));
+  urgentHacks.forEach(h => add({
+    emoji:'🔥', label:'Hackathon Sprint — ' + h.name,
+    note:'Deadline closing soon' + (h.project_name ? ' — get ' + h.project_name + ' submission-ready.' : '') + ' This can temporarily displace lower-priority work.',
+  }, 90, h.deadline, 8));
+  if (!urgentHacks.length && activeHacks.length) {
     const h = activeHacks[0];
-    items.push({ emoji: '🏆', label: `Hackathon Work — ${h.name}`, note: `Keep building${h.project_name ? ` on ${h.project_name}` : ''}. Check your task list in Tech Hub.` });
+    add({ emoji:'🏆', label:'Hackathon Work — ' + h.name, note:'Keep building' + (h.project_name ? ' on ' + h.project_name : '') + '. Check your task list in Tech Hub.' }, 65, h.deadline, 8);
   }
 
   if ((onlineJobs || []).length) {
     const job = onlineJobs[0];
     let prog = null;
-    try { prog = computeJobProgress(job); } catch { /* missing fields — skip the progress note */ }
-    const who = `${job.name}${job.platform ? ` on ${job.platform}` : ''}`;
-    const note = prog && !prog.metThreshold
-      ? `${who} — ${prog.daysLeft} day${prog.daysLeft === 1 ? '' : 's'} left to hit this period's payout target.`
-      : `${who} — log tasks in My Jobs as you go.`;
-    items.push({ emoji: '💼', label: `Job Work — ${job.name}`, note });
+    try { prog = computeJobProgress(job); } catch {}
+    add({ emoji:'💼', label:'Job Work — ' + job.name, note:prog && !prog.metThreshold
+      ? job.name + ' — ' + prog.daysLeft + ' day' + (prog.daysLeft === 1 ? '' : 's') + ' left to hit this period target.'
+      : job.name + ' — log tasks in My Jobs as you go.' }, 55, null, 4);
   }
 
-  if ((startups || []).length) {
-    const s = startups[0];
-    items.push({ emoji: '🚀', label: `Startup Work — ${s.name}`, note: `Move ${s.name} forward — check your stage checklist in Tech Hub.` });
-  }
+  (startups || []).slice(0,2).forEach(s => add({ emoji:'🚀', label:'Startup Work — ' + s.name, note:'Move ' + s.name + ' forward — check your stage checklist in Tech Hub.' }, 45, null, 4));
 
-  if (activeProjects.length) {
-    const p = activeProjects[0];
-    items.push({ emoji: '🗂️', label: `Project Work — ${p.name}`, note: p.description || 'Keep building — log progress in Tech Hub when you wrap up.' });
-  }
+  (projects || []).filter(p => ['planning','in_progress'].includes(projectStatus(p))).slice(0,2).forEach(p => {
+    add({ emoji:'🗂️', label:'Project Work — ' + p.name, note:p.description || 'Keep building — log progress in Tech Hub when you wrap up.' }, Number(p.importance || 40), p.deadline, 4);
+  });
 
-  if (!items.length) {
-    items.push({ emoji: '💻', label: 'Deep Work Block', note: 'Nothing active in Tech Hub or My Jobs right now — good time to learn something new or start one.' });
-  }
-  return items;
+  candidates.sort((a,b) => b.score - a.score);
+  if (!candidates.length) return [{ emoji:'💻', label:'Deep Work Block', note:'Nothing active right now — good time to learn something new or start one.' }];
+  return candidates.slice(0, 4);
 }
-
 function pickWork(items, i) {
   const base = items[i % items.length];
   const isRepeat = i >= items.length;
@@ -199,12 +203,14 @@ function buildTodayBlocks(ctx, isWeekend) {
   if (isWeekend) want('laundry_sort', 'Sort & Start Laundry', 'chores', '👕', 'Sort clothes, start soaking or machine wash — do this first so clothes dry by afternoon.', PRIORITY.chores, 15, 30);
 
   const w1 = pickWork(workItems, 0);
-  want('work1', w1.label, 'coding', w1.emoji, w1.note, PRIORITY.work, 45, 90);
+  const w1Type = w1.label.startsWith('Course —') ? 'learning' : 'coding';
+  want('work1', w1.label, w1Type, w1.emoji, w1.note, PRIORITY.work, 45, 90);
 
   if (!isWeekend) want('snack', '10am Snack', 'meal', '🍌', 'Banana + groundnuts. Drink water, then back to focus.', PRIORITY.essential, 10, 15);
 
   const w2 = pickWork(workItems, 1);
-  want('work2', w2.label, 'coding', w2.emoji, w2.note, PRIORITY.work, 45, 90);
+  const w2Type = w2.label.startsWith('Course —') ? 'learning' : 'coding';
+  want('work2', w2.label, w2Type, w2.emoji, w2.note, PRIORITY.work, 45, 90);
 
   if (researchItem) want('research', researchItem.label, 'research', researchItem.emoji, researchItem.note, PRIORITY.work, 30, 60);
 
@@ -222,7 +228,8 @@ function buildTodayBlocks(ctx, isWeekend) {
   if (isWeekend) want('house_clean', 'Clean House / Room', 'chores', '🏠', 'Full room clean — sweep, mop, arrange, take out trash.', PRIORITY.chores, 20, 60);
 
   const w3 = pickWork(workItems, 2);
-  want('work3', w3.label, 'coding', w3.emoji, w3.note, PRIORITY.work, 45, 90);
+  const w3Type = w3.label.startsWith('Course —') ? 'learning' : 'coding';
+  want('work3', w3.label, w3Type, w3.emoji, w3.note, PRIORITY.work, 45, 90);
 
   if (isWeekend) want('laundry_fold', 'Fold & Put Away Clothes', 'chores', '👕', 'Fold and put away dry clothes.', PRIORITY.chores, 10, 20);
 
@@ -338,7 +345,7 @@ function scheduleAll(blocks) {
     const startMs = new Date().setHours(Math.floor(bMins/60), bMins%60, 0, 0);
     const diff = startMs - nowMs;
     const msgs = NOTIF_MSGS[b.type] ? NOTIF_MSGS[b.type](b) : { title:`⏰ ${b.label}`, body: b.note };
-    const important = ['meal','coding','sleep','workout'].includes(b.type);
+    const important = ['meal','coding','learning','sleep','workout'].includes(b.type);
 
     if (diff > 0 && diff < 86400000) {
       scheduledTimerIds.push(setTimeout(() => fireNotif(msgs.title, msgs.body, important), diff));
@@ -349,7 +356,7 @@ function scheduleAll(blocks) {
       if (d > 0) scheduledTimerIds.push(setTimeout(() => fireNotif('🍳 START COOKING NOW', `Start preparing now so ${b.label.replace('Eat ','')} is ready by ${fmt12(b.time)}`, true), d));
     }
     // 5 min warning for work blocks
-    if (b.type === 'coding') {
+    if (b.type === 'coding' || b.type === 'learning') {
       const d = startMs - 5*60*1000 - nowMs;
       if (d > 0) scheduledTimerIds.push(setTimeout(() => fireNotif(`⚠️ ${b.label} in 5 minutes`, `Put your phone down now. ${b.note}`), d));
     }
@@ -403,7 +410,7 @@ function EditModal({ block, onSave, onClose }) {
 }
 
 export default function PlannerPage() {
-  const { hackathons, startups, projects, onlineJobs, research, clientProjects } = useApp();
+  const { hackathons, startups, projects, onlineJobs, research, clientProjects, courses } = useApp();
   const isWeekend = [0,6].includes(new Date().getDay());
   const [blocks, setBlocks] = useState([]);
   const [droppedToday, setDroppedToday] = useState([]);
@@ -435,6 +442,7 @@ export default function PlannerPage() {
     clientProjects?.map((p) => [p.id, p.status, p.deadline, p.agreed_amount, p.previously_paid, (p.payments || []).length, (p.change_requests || []).length, p.estimated_days]) || [],
     onlineJobs?.map((j) => [j.id, j.status]) || [],
     research?.map((r) => [r.id, r.status, (r.entries || []).length]) || [],
+    courses?.map((c) => [c.id, c.status, c.priority, c.deadline, c.estimated_hours, c.weekly_hours, c.completed_minutes]) || [],
   ]);
 
   // _app.js's NotificationScheduler and lib/push.js's syncReminderSettings
@@ -462,7 +470,7 @@ export default function PlannerPage() {
   useEffect(() => {
     async function load() {
       const aiBlocks = await getSetting(`planner_ai_blocks_${todayISO()}`, null);
-      const generated = aiBlocks?.length ? aiBlocks : buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research, clientProjects }, isWeekend);
+      const generated = aiBlocks?.length ? aiBlocks : buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research, clientProjects, courses }, isWeekend);
       setUsingAI(!!aiBlocks?.length);
       setDroppedToday(generated._droppedToday || []);
       const overrides = await getSetting(`planner_overrides_${todayISO()}`, {});
@@ -813,7 +821,7 @@ export default function PlannerPage() {
           {tab === 'stats' && (
             <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:24 }}>
               {[
-                { label:'Work Time', v: blocks.filter(b=>b.type==='coding').reduce((s,b)=>s+b.duration,0), color:'#10B981', emoji:'💻' },
+                { label:'Work Time', v: blocks.filter(b=>['coding','learning'].includes(b.type)).reduce((s,b)=>s+b.duration,0), color:'#10B981', emoji:'💻' },
                 { label:'Workout Time', v: blocks.filter(b=>b.type==='workout').reduce((s,b)=>s+b.duration,0), color:'#EF4444', emoji:'🏋️' },
                 { label:'Bae Time', v: blocks.filter(b=>b.type==='personal'&&b.label.toLowerCase().includes('bae')).reduce((s,b)=>s+b.duration,0), color:'#EC4899', emoji:'💕' },
                 { label:'Chores', v: blocks.filter(b=>b.type==='chores').reduce((s,b)=>s+b.duration,0), color:'#EAB308', emoji:'🏠', showIfZero:false },
