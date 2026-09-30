@@ -507,4 +507,8 @@ export default function JarvisWidget() {
       )}
     </>
   );
-}
+}    if (/\\b(course|courses|learn|learning|study|studying|certification|certificate)\\b/.test(value)) {
+      return { path: '/learning', reply: 'Opening your Learning Hub — pick a course, continue your notes, or add a new certification goal. 🎓' };
+    }
+
+
