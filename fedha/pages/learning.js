@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Layout from '../components/Layout';
 import { useApp } from '../context/AppContext';
 import { resizeImage, genId } from '../lib/utils';
+import Player from '@vimeo/player';
 
 const EMPTY = {
   title:'', provider:'', url:'', description:'', priority:3, status:'active',
@@ -73,6 +74,40 @@ export default function LearningPage(){
       await updateCourse(updated);setSelected(updated);setAiLesson(null);setAiTranscript('');
     }catch(err){setAiError(err.message||'Could not generate notes');}finally{setAiLoading(false);}
   }
+  async function generateVimeoNotes(course,module){
+    if(!module.url)return;
+    setAiLoading(true);setAiError('');
+    try{
+      const holder=document.createElement('div');
+      holder.style.position='fixed';holder.style.width='1px';holder.style.height='1px';holder.style.left='-9999px';holder.style.top='0';
+      document.body.appendChild(holder);
+      const player=new Player(holder,{url:module.url,width:1,autoplay:false,controls:false,transcript:true});
+      await player.ready();
+      const tracks=await player.getTextTracks();
+      const track=tracks.find(t=>t.kind==='captions'&&/^en(?:-|$)/i.test(t.language||''))||tracks.find(t=>t.kind==='captions')||tracks.find(t=>t.kind==='subtitles');
+      if(!track)throw new Error('This Vimeo lesson does not expose captions/subtitles to the player.');
+      const cues=new Map();
+      const onCue=data=>{(data.cues||[]).forEach(cue=>{const text=String(cue.text||'').replace(/<[^>]+>/g,' ').replace(/\\s+/g,' ').trim();if(text)cues.set(text,text);});};
+      player.on('cuechange',onCue);
+      await player.enableTextTrack(track.language,track.kind,false);
+      const duration=await player.getDuration();
+      if(!duration||!Number.isFinite(duration))throw new Error('Could not read the Vimeo lesson duration.');
+      setAiTranscript('Reading Vimeo captions… 0%');
+      for(let t=0;t<=duration;t+=1){
+        await player.setCurrentTime(Math.min(t,duration));
+        if(t%15===0)setAiTranscript('Reading Vimeo captions… '+Math.round(t/duration*100)+'%');
+      }
+      await new Promise(resolve=>setTimeout(resolve,500));
+      player.off('cuechange',onCue);
+      await player.destroy().catch(()=>{});holder.remove();
+      const transcript=Array.from(cues.values()).join('\\n');
+      if(transcript.length<100)throw new Error('Vimeo captions were found, but not enough caption text could be collected.');
+      setAiTranscript(transcript);
+      await generateLessonNotes(course,module,transcript);
+    }catch(err){setAiError(err.message||'Could not read Vimeo captions');setAiTranscript('');}
+    finally{setAiLoading(false);}
+  }
+
   async function uploadCertificate(e,course){
     const file=e.target.files?.[0];if(!file)return;setSavingCert(true);
     try{
@@ -108,7 +143,7 @@ export default function LearningPage(){
     </div><button className="btn-primary" style={{width:'100%',marginTop:18}} onClick={save}>Save Course</button>
   </div></div></div>}
 
-  {selected&&!formOpen&&<CourseDetail course={selected} onClose={()=>setSelected(null)} onEdit={()=>{setFormOpen(true);setForm({...EMPTY,...selected,modules:normalizeModules(selected.modules)});setSelected(null)}} onToggle={toggleLesson} onSaveNotes={saveLessonNotes} onCertificate={uploadCertificate} savingCert={savingCert} openLesson={openLesson} setOpenLesson={setOpenLesson} aiLesson={aiLesson} setAiLesson={setAiLesson} aiTranscript={aiTranscript} setAiTranscript={setAiTranscript} aiLoading={aiLoading} aiError={aiError} generateLessonNotes={generateLessonNotes}/>}
+  {selected&&!formOpen&&<CourseDetail course={selected} onClose={()=>setSelected(null)} onEdit={()=>{setFormOpen(true);setForm({...EMPTY,...selected,modules:normalizeModules(selected.modules)});setSelected(null)}} onToggle={toggleLesson} onSaveNotes={saveLessonNotes} onCertificate={uploadCertificate} savingCert={savingCert} openLesson={openLesson} setOpenLesson={setOpenLesson} aiLesson={aiLesson} setAiLesson={setAiLesson} aiTranscript={aiTranscript} setAiTranscript={setAiTranscript} aiLoading={aiLoading} aiError={aiError} generateLessonNotes={generateLessonNotes} generateVimeoNotes={generateVimeoNotes}/>}
   </Layout>;
 }
 
@@ -117,20 +152,20 @@ function CourseCard({course,onOpen,onEdit,onDelete}){
   return <div className="card" style={{padding:15,marginBottom:10,borderColor:urgent?'rgba(239,68,68,.45)':'var(--border)'}}><div style={{display:'flex',gap:12,alignItems:'flex-start'}}><div style={{width:44,height:44,borderRadius:12,background:'rgba(16,185,129,.12)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:23,flexShrink:0}}>🎓</div><div style={{flex:1,minWidth:0}}><div style={{display:'flex',justifyContent:'space-between',gap:8}}><div style={{fontWeight:800,fontSize:15}}>{course.title}</div><span style={{fontSize:11,color:course.status==='completed'?'var(--green)':urgent?'var(--red)':'var(--text-3)'}}>P{course.priority||3}</span></div><div style={{fontSize:11,color:'var(--text-3)',marginTop:3}}>{course.provider||'Self study'} · {mods.length?done+'/'+mods.length+' lessons':hoursLeft(course).toFixed(1)+'h remaining'}{d!==null?' · '+(d<0?'overdue':d+'d left'):''}</div><div style={{height:6,background:'var(--card-2)',borderRadius:8,overflow:'hidden',marginTop:10}}><div style={{height:'100%',width:p+'%',background:'var(--green)'}}/></div><div style={{display:'flex',gap:7,marginTop:10}}><button className="btn-ghost" style={{flex:1}} onClick={onOpen}>Open Course</button><button className="btn-ghost" onClick={onEdit}>Edit</button><button className="btn-icon" onClick={onDelete}>✕</button></div></div></div></div>;
 }
 
-function CourseDetail({course,onClose,onEdit,onToggle,onSaveNotes,onCertificate,savingCert,openLesson,setOpenLesson,aiLesson,setAiLesson,aiTranscript,setAiTranscript,aiLoading,aiError,generateLessonNotes}){
+function CourseDetail({course,onClose,onEdit,onToggle,onSaveNotes,onCertificate,savingCert,openLesson,setOpenLesson,aiLesson,setAiLesson,aiTranscript,setAiTranscript,aiLoading,aiError,generateLessonNotes,generateVimeoNotes}){
   const mods=normalizeModules(course.modules),p=progress(course),d=daysLeft(course),groups=mods.reduce((a,m)=>{const k=m.section||'Course content';(a[k]||(a[k]=[])).push(m);return a},{});
   return <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}><div className="modal-sheet" style={{maxHeight:'94vh',overflowY:'auto'}}><div style={{width:36,height:4,background:'var(--border)',borderRadius:2,margin:'12px auto'}}/><div className="modal-header"><span style={{fontWeight:800}}>🎓 {course.title}</span><button className="btn-icon" onClick={onClose}>✕</button></div><div className="modal-body">
     <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}><span className="badge">{course.provider||'Self study'}</span><span className="badge">P{course.priority||3}</span>{d!==null&&<span className="badge">{d<0?'Overdue':d+'d left'}</span>}</div>
     {course.description&&<div style={{fontSize:13,color:'var(--text-2)',lineHeight:1.6,marginBottom:16}}>{course.description}</div>}
     <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'var(--text-3)',marginBottom:6}}><span>{mods.length?mods.filter(m=>m.completed).length+'/'+mods.length+' lessons':''} {p}% complete</span><span>{hoursLeft(course).toFixed(1)}h remaining</span></div><div style={{height:8,background:'var(--card-2)',borderRadius:10,overflow:'hidden',marginBottom:18}}><div style={{height:'100%',width:p+'%',background:'var(--green)'}}/></div>
     <div style={{fontSize:12,fontWeight:800,letterSpacing:1,textTransform:'uppercase',marginBottom:9}}>Curriculum</div>
-    {Object.entries(groups).map(([section,items])=><div key={section} style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:13,marginBottom:7,padding:'8px 10px',background:'var(--card-2)',borderRadius:9}}>§ {section}<span style={{float:'right',fontWeight:500,color:'var(--text-3)'}}>{items.filter(m=>m.completed).length}/{items.length}</span></div>{items.map(m=><div key={m.id} style={{border:'1px solid var(--border)',borderRadius:10,marginBottom:7,overflow:'hidden'}}><button onClick={()=>setOpenLesson(openLesson===m.id?null:m.id)} style={{width:'100%',border:0,background:'transparent',color:'var(--text)',padding:'11px 10px',display:'flex',gap:9,alignItems:'center',textAlign:'left',cursor:'pointer'}}><span>{m.completed?'✅':(TYPES.find(t=>t.value===m.type)?.label.split(' ')[0]||'📌')}</span><span style={{flex:1,fontSize:13}}>{m.title}</span><span style={{fontSize:11,color:'var(--text-3)'}}>{m.minutes}m</span><span style={{fontSize:12}}>{openLesson===m.id?'⌃':'⌄'}</span></button>{openLesson===m.id&&<div style={{padding:'0 10px 11px',borderTop:'1px solid var(--border)'}}><div style={{display:'flex',gap:7,marginTop:9}}><button className={`btn-${m.completed?'ghost':'primary'}`} style={{flex:1}} onClick={()=>onToggle(course,m.id)}>{m.completed?'↩ Mark incomplete':'✓ Mark complete'}</button>{m.url&&<a className="btn-ghost" href={m.url} target="_blank" rel="noreferrer" style={{textDecoration:'none'}}>Open ↗</a>}</div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginTop:10,marginBottom:6}}><label style={{fontSize:11,color:'var(--text-3)',fontWeight:700}}>AI NOTES</label><button className="btn-ghost" onClick={()=>{setAiLesson(m);setAiTranscript('');setAiError('');}}>✨ Generate AI Notes</button></div>{m.aiNotes&&<div style={{padding:11,background:'rgba(16,185,129,.07)',border:'1px solid rgba(16,185,129,.2)',borderRadius:9,fontSize:12,lineHeight:1.65,whiteSpace:'pre-wrap',marginBottom:9}}>{m.aiNotes}</div>}<label style={{display:'block',fontSize:11,color:'var(--text-3)',fontWeight:700,marginBottom:5}}>MY NOTES</label><textarea className="input" rows={5} defaultValue={m.notes||''} onBlur={e=>onSaveNotes(course,m.id,e.target.value)} placeholder="Your own notes, thoughts and examples..."/></div>}</div>)}</div>)}
+    {Object.entries(groups).map(([section,items])=><div key={section} style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:13,marginBottom:7,padding:'8px 10px',background:'var(--card-2)',borderRadius:9}}>§ {section}<span style={{float:'right',fontWeight:500,color:'var(--text-3)'}}>{items.filter(m=>m.completed).length}/{items.length}</span></div>{items.map(m=><div key={m.id} style={{border:'1px solid var(--border)',borderRadius:10,marginBottom:7,overflow:'hidden'}}><button onClick={()=>setOpenLesson(openLesson===m.id?null:m.id)} style={{width:'100%',border:0,background:'transparent',color:'var(--text)',padding:'11px 10px',display:'flex',gap:9,alignItems:'center',textAlign:'left',cursor:'pointer'}}><span>{m.completed?'✅':(TYPES.find(t=>t.value===m.type)?.label.split(' ')[0]||'📌')}</span><span style={{flex:1,fontSize:13}}>{m.title}</span><span style={{fontSize:11,color:'var(--text-3)'}}>{m.minutes}m</span><span style={{fontSize:12}}>{openLesson===m.id?'⌃':'⌄'}</span></button>{openLesson===m.id&&<div style={{padding:'0 10px 11px',borderTop:'1px solid var(--border)'}}><div style={{display:'flex',gap:7,marginTop:9}}><button className={`btn-${m.completed?'ghost':'primary'}`} style={{flex:1}} onClick={()=>onToggle(course,m.id)}>{m.completed?'↩ Mark incomplete':'✓ Mark complete'}</button>{m.url&&<a className="btn-ghost" href={m.url} target="_blank" rel="noreferrer" style={{textDecoration:'none'}}>Open ↗</a>}</div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginTop:10,marginBottom:6}}><label style={{fontSize:11,color:'var(--text-3)',fontWeight:700}}>AI NOTES</label><button className="btn-ghost" onClick={()=>{setAiLesson(m);setAiTranscript('');setAiError('');}}>✨ Generate AI Notes</button>{m.url&&<button className="btn-ghost" disabled={aiLoading} onClick={()=>generateVimeoNotes(course,m)}>🎬 Read Vimeo captions</button>}</div>{m.aiNotes&&<div style={{padding:11,background:'rgba(16,185,129,.07)',border:'1px solid rgba(16,185,129,.2)',borderRadius:9,fontSize:12,lineHeight:1.65,whiteSpace:'pre-wrap',marginBottom:9}}>{m.aiNotes}</div>}<label style={{display:'block',fontSize:11,color:'var(--text-3)',fontWeight:700,marginBottom:5}}>MY NOTES</label><textarea className="input" rows={5} defaultValue={m.notes||''} onBlur={e=>onSaveNotes(course,m.id,e.target.value)} placeholder="Your own notes, thoughts and examples..."/></div>}</div>)}</div>)}
     {!mods.length&&<div className="card-2" style={{padding:14,color:'var(--text-3)',fontSize:12}}>No curriculum added yet. Edit the course and add lessons with their real durations.</div>}
     <Field label="Course notes / overall notes"><textarea className="input" rows={5} defaultValue={course.notes||''} onBlur={e=>onSaveNotes(course,'__course__',e.target.value)} placeholder="Big-picture notes, projects, ideas and things to revisit..."/></Field>
     {course.url&&<a href={course.url} target="_blank" rel="noreferrer" className="btn-ghost" style={{display:'block',textAlign:'center',textDecoration:'none',marginBottom:10}}>🌐 Open Course</a>}
     <label className="btn-ghost" style={{display:'block',textAlign:'center',cursor:'pointer',marginBottom:10}}>{savingCert?'Processing…':course.certificate?'🏆 Certificate Stored':'📜 Add Course Certificate'}<input type="file" accept="image/*" style={{display:'none'}} disabled={savingCert} onChange={e=>onCertificate(e,course)}/></label>
     {course.certificate?.image&&<img src={course.certificate.image} alt="Course certificate" style={{width:'100%',borderRadius:10,border:'1px solid var(--border)'}}/>}
     <button className="btn-primary" style={{width:'100%',marginTop:5}} onClick={onEdit}>Edit Course</button>
-    {aiLesson&&<div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&!aiLoading&&setAiLesson(null)}><div className="modal-sheet" style={{maxHeight:'90vh',overflowY:'auto'}}><div style={{width:36,height:4,background:'var(--border)',borderRadius:2,margin:'12px auto'}}/><div className="modal-header"><span style={{fontWeight:800}}>✨ AI Notes — {aiLesson.title}</span><button className="btn-icon" onClick={()=>!aiLoading&&setAiLesson(null)}>✕</button></div><div className="modal-body"><div style={{fontSize:12,color:'var(--text-3)',lineHeight:1.6,marginBottom:12}}>Paste the lesson transcript/captions here. Fedha will turn it into structured study notes, key concepts and a quick knowledge check, then save them permanently to this lesson.</div><textarea className="input" rows={12} value={aiTranscript} onChange={e=>setAiTranscript(e.target.value)} placeholder="Paste the video's transcript or captions here..."/>{aiError&&<div style={{color:'var(--red)',fontSize:12,marginTop:8}}>{aiError}</div>}<button className="btn-primary" style={{width:'100%',marginTop:12}} disabled={aiLoading||!aiTranscript.trim()} onClick={()=>generateLessonNotes(course,aiLesson,aiTranscript)}>{aiLoading?'Generating notes…':'✨ Generate & Save Notes'}</button></div></div></div>}
+    {aiLesson&&<div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&!aiLoading&&setAiLesson(null)}><div className="modal-sheet" style={{maxHeight:'90vh',overflowY:'auto'}}><div style={{width:36,height:4,background:'var(--border)',borderRadius:2,margin:'12px auto'}}/><div className="modal-header"><span style={{fontWeight:800}}>✨ AI Notes — {aiLesson.title}</span><button className="btn-icon" onClick={()=>!aiLoading&&setAiLesson(null)}>✕</button></div><div className="modal-body"><div style={{fontSize:12,color:'var(--text-3)',lineHeight:1.6,marginBottom:12}}>Fedha can read captions exposed by the Vimeo player automatically. If captions are unavailable, you can still paste a transcript manually.</div><textarea className="input" rows={12} value={aiTranscript} onChange={e=>setAiTranscript(e.target.value)} placeholder="Paste the video's transcript or captions here..."/>{aiError&&<div style={{color:'var(--red)',fontSize:12,marginTop:8}}>{aiError}</div>}<button className="btn-primary" style={{width:'100%',marginTop:12}} disabled={aiLoading||!aiTranscript.trim()} onClick={()=>generateLessonNotes(course,aiLesson,aiTranscript)}>{aiLoading?'Generating notes…':'✨ Generate & Save Notes'}</button></div></div></div>}
   </div></div></div>;
 }
