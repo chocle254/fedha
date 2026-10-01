@@ -25,8 +25,10 @@ const SEARCH_GROUNDED_TYPES = new Set(['activities', 'opportunities']);
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup } = req.body;
+  const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup, lesson, transcript } = req.body;
   const useSearch = SEARCH_GROUNDED_TYPES.has(type);
+
+  if (type === 'lesson_notes' && !transcript?.trim()) return res.status(400).json({ error: 'Lesson transcript is required' });
 
   if (!useSearch) {
     const GROQ_API_KEY = process.env.GROQ_API_KEY;
@@ -36,6 +38,30 @@ export default async function handler(req, res) {
   let prompt = '';
 
   const varietyStr = nonce ? `\nFreshness token: ${nonce}. Give a DIFFERENT, fresh set of ideas than you might usually pick — avoid repeating the obvious defaults.` : '';
+
+  if (type === 'lesson_notes') {
+    prompt = `You are Fedha's study-notes assistant. Turn the supplied lesson transcript into accurate, useful study notes.
+
+Course: ${lesson?.course || 'Unknown course'}
+Section: ${lesson?.section || 'Course content'}
+Lesson: ${lesson?.title || 'Lesson'}
+Provider: ${lesson?.provider || 'Unknown'}
+
+Rules:
+- Use ONLY information contained in the transcript. Do not invent facts.
+- Make the notes easy to revise later.
+- Start with a short lesson summary.
+- Extract the most important concepts and explain them clearly.
+- Include important terms/definitions when the transcript provides them.
+- Include practical examples mentioned in the transcript.
+- End with 3-5 short knowledge-check questions. Do not include answers unless the transcript explicitly gives them.
+- Keep the output concise enough to review, but do not omit important ideas.
+- Use clean Markdown headings and bullets.
+
+TRANSCRIPT:
+${transcript}`;
+
+  }
 
   if (type === 'activities') {
     const locationStr = location?.city
@@ -232,11 +258,11 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
     const GROQ_API_KEY = process.env.GROQ_API_KEY;
     const body = {
       model: GROQ_MODEL,
-      temperature: 0.8,
-      max_tokens: 2000,
-      response_format: { type: 'json_object' },
+      temperature: type === 'lesson_notes' ? 0.3 : 0.8,
+      max_tokens: type === 'lesson_notes' ? 3000 : 2000,
+      ...(type === 'lesson_notes' ? {} : { response_format: { type: 'json_object' } }),
       messages: [
-        { role: 'system', content: 'You output only valid JSON. No markdown, no commentary.' },
+        { role: 'system', content: type === 'lesson_notes' ? 'Produce accurate study notes in clean Markdown. Do not add information that is not in the transcript.' : 'You output only valid JSON. No markdown, no commentary.' },
         { role: 'user', content: prompt },
       ],
     };
@@ -254,6 +280,8 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
 
     const rawText = data.choices?.[0]?.message?.content || '';
     if (!rawText) return res.status(500).json({ error: 'Empty response from Groq' });
+
+    if (type === 'lesson_notes') return res.status(200).json({ notes: rawText.trim() });
 
     // For analysis types, return the full object (not just results)
     if (type === 'startup_analysis') {
