@@ -23,7 +23,8 @@
     "workbox-precaching": "^6.5.4",
     "workbox-routing": "^6.5.4",
     "workbox-strategies": "^6.5.4",
-    "workbox-expiration": "^6.5.4"
+    "workbox-expiration": "^6.5.4",
+    "@vimeo/player": "^2.27.0"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.19",
