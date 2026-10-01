@@ -2,7 +2,6 @@ import { useState } from 'react';
 import Layout from '../components/Layout';
 import { useApp } from '../context/AppContext';
 import { resizeImage, genId } from '../lib/utils';
-import Player from '@vimeo/player';
 
 const EMPTY = {
   title:'', provider:'', url:'', description:'', priority:3, status:'active',
@@ -74,10 +73,23 @@ export default function LearningPage(){
       await updateCourse(updated);setSelected(updated);setAiLesson(null);setAiTranscript('');
     }catch(err){setAiError(err.message||'Could not generate notes');}finally{setAiLoading(false);}
   }
+  function loadVimeoPlayerSdk(){
+    if(typeof window==='undefined')return Promise.reject(new Error('Vimeo Player is only available in the browser.'));
+    if(window.Vimeo?.Player)return Promise.resolve(window.Vimeo.Player);
+    return new Promise((resolve,reject)=>{
+      const existing=document.querySelector('script[data-fedha-vimeo-player]');
+      if(existing){existing.addEventListener('load',()=>resolve(window.Vimeo?.Player));existing.addEventListener('error',()=>reject(new Error('Could not load the Vimeo Player SDK.')));return;}
+      const script=document.createElement('script');script.src='https://player.vimeo.com/api/player.js';script.async=true;script.dataset.fedhaVimeoPlayer='true';
+      script.onload=()=>window.Vimeo?.Player?resolve(window.Vimeo.Player):reject(new Error('Vimeo Player SDK loaded without the Player API.'));
+      script.onerror=()=>reject(new Error('Could not load the Vimeo Player SDK.'));document.head.appendChild(script);
+    });
+  }
+
   async function generateVimeoNotes(course,module){
     if(!module.url)return;
     setAiLoading(true);setAiError('');
     try{
+      const Player=await loadVimeoPlayerSdk();
       const holder=document.createElement('div');
       holder.style.position='fixed';holder.style.width='1px';holder.style.height='1px';holder.style.left='-9999px';holder.style.top='0';
       document.body.appendChild(holder);
