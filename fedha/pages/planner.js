@@ -20,6 +20,12 @@ const WEEKEND_WAKE = 9 * 60;         // 09:00
 const BEDTIME_EARLIEST = 22 * 60;    // 22:00 (10pm) — sleep can start here if the day's light
 const BEDTIME_LATEST = 23 * 60;      // 23:00 (11pm) — absolute latest bedtime, even on a packed day
 const MIN_SLEEP_MINUTES = 7 * 60;    // never schedule less than 7h sleep before the next wake time
+// Meals are pinned to the clock; everything else flows around them.
+const LUNCH_AT = 13 * 60;            // lunch starts exactly here (prep finishes right before)
+const DINNER_AT = 19 * 60;           // dinner starts exactly here
+// Work blocks soak up every spare minute between the fixed things, within these limits.
+const WORK_MIN = 45;                 // a work block is never shorter than this
+const WORK_MAX = 150;                // ...and never longer than this without a break
 
 const TYPE_COLORS = {
   routine:  { bg:'rgba(99,102,241,0.12)',  border:'rgba(99,102,241,0.35)',  text:'#818CF8', dot:'#6366F1' },
@@ -191,119 +197,160 @@ function buildTodayBlocks(ctx, isWeekend) {
   const wake = isWeekend ? WEEKEND_WAKE : WEEKDAY_WAKE;
 
   // ── PASS 1: wish list ──────────────────────────────────────────────────
-  // Each item: { id, label, type, emoji, note, priority, min, ideal, fixedAfter? }
-  // `fixedAfter` marks conditional items whose note depends on runtime data
-  // (workout titles, work item picks) computed above.
+  // Every block the day would ideally include, tagged with:
+  //   seg      which part of the day it belongs to (see SEGMENTS below)
+  //   priority how soon it gets shrunk/dropped when the segment is too full
+  //   min/ideal the duration range; `grow` items (work) soak up spare time up to `max`
+  // Order inside a segment is the order blocks appear on the clock.
   const wish = [];
-  const want = (id, label, type, emoji, note, priority, min, ideal = min) =>
-    wish.push({ id, label, type, emoji, note, priority, min, ideal: Math.max(ideal, min) });
+  const want = (seg, id, label, type, emoji, note, priority, min, ideal = min, extra = {}) =>
+    wish.push({ seg, id, label, type, emoji, note, priority, min, ideal: Math.max(ideal, min), ...extra });
+  const continued = (item) => ({ ...item, label: item.label.endsWith('(continued)') ? item.label : item.label + ' (continued)' });
+  const work = (seg, id, item, ideal) => {
+    const type = item.label.startsWith('Course —') ? 'learning' : 'coding';
+    want(seg, id, item.label, type, item.emoji, item.note, PRIORITY.work, WORK_MIN, ideal, { grow: true, max: WORK_MAX });
+  };
 
-  want('wake', 'Wake Up — No Phone', 'routine', '⏰', 'First 20 mins phone-free. Drink water, stretch, wash face.', PRIORITY.essential, 15, 20);
-  want('bfast_prep', 'Prepare Breakfast', 'meal', '🍳', "Start cooking now. Check Meals tab for today's breakfast.", PRIORITY.essential, 15, isWeekend ? 25 : 20);
-  want('breakfast', 'Eat Breakfast', 'meal', '🍽️', 'Sit down and eat. No phone while eating.', PRIORITY.essential, 15, isWeekend ? 30 : 20);
-  want('dishes1', 'Clean Dishes', 'routine', '🧹', '10 mins now saves stress later.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
-
-  if (isWeekend) want('laundry_sort', 'Sort & Start Laundry', 'chores', '👕', 'Sort clothes, start soaking or machine wash — do this first so clothes dry by afternoon.', PRIORITY.chores, 15, 30);
-
-  const w1 = pickWork(workItems, 0);
-  const w1Type = w1.label.startsWith('Course —') ? 'learning' : 'coding';
-  want('work1', w1.label, w1Type, w1.emoji, w1.note, PRIORITY.work, 45, 90);
-
-  if (!isWeekend) want('snack', '10am Snack', 'meal', '🍌', 'Banana + groundnuts. Drink water, then back to focus.', PRIORITY.essential, 10, 15);
-
-  const w2 = pickWork(workItems, 1);
-  const w2Type = w2.label.startsWith('Course —') ? 'learning' : 'coding';
-  want('work2', w2.label, w2Type, w2.emoji, w2.note, PRIORITY.work, 45, 90);
-
-  if (researchItem) want('research', researchItem.label, 'research', researchItem.emoji, researchItem.note, PRIORITY.work, 30, 60);
-
-  if (isWeekend) want('laundry_hang', 'Hang / Check Laundry', 'chores', '👕', 'Hang clothes out to dry or move to the dryer.', PRIORITY.chores, 10, 15);
-
-  want('lunch_prep', 'Prepare Lunch', 'meal', '🍲', 'Start cooking now — check Meals tab.', PRIORITY.essential, 15, isWeekend ? 30 : 25);
-  want('lunch', 'Eat Lunch', 'meal', '🍽️', 'Biggest meal of the day — fuel for the afternoon.', PRIORITY.essential, 20, isWeekend ? 30 : 25);
-  want('dishes2', 'Clean Up', 'routine', '🧹', 'Quick clean. Clear space = clear mind.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
-  want('bath', 'Bathing / Afternoon Reset', 'health', '🛁', 'Freshen up in the afternoon — you have earned it after a solid morning.', PRIORITY.essential, 15, 25);
-
+  // MORNING — body first, then the first deep-work run before lunch.
+  want('am', 'wake', 'Wake Up — No Phone', 'routine', '⏰', 'First 20 mins phone-free. Drink water, stretch, wash face.', PRIORITY.essential, 15, 20);
   if (morningWorkoutMin > 0) {
-    want('workout1', `Workout — ${dayPlan.focus}`, 'workout', '🏋️', `${dayPlan.morning.title}: ${exerciseSummary(dayPlan.morning.exercises)}`, PRIORITY.essential, morningWorkoutMin, morningWorkoutMin);
+    want('am', 'workout1', `Workout — ${dayPlan.focus}`, 'workout', '🏋️', `${dayPlan.morning.title}: ${exerciseSummary(dayPlan.morning.exercises)}`, PRIORITY.essential, morningWorkoutMin, morningWorkoutMin);
   }
+  want('am', 'bath', 'Bath & Freshen Up', 'health', '🛁', 'Wash off the workout and reset before the day starts.', PRIORITY.essential, 15, 25);
+  want('am', 'bfast_prep', 'Prepare Breakfast', 'meal', '🍳', "Start cooking now. Check Meals tab for today's breakfast.", PRIORITY.essential, 15, isWeekend ? 25 : 20);
+  want('am', 'breakfast', 'Eat Breakfast', 'meal', '🍽️', 'Sit down and eat. No phone while eating.', PRIORITY.essential, 15, isWeekend ? 30 : 20);
+  want('am', 'dishes1', 'Clean Dishes', 'routine', '🧹', '10 mins now saves stress later.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
+  if (isWeekend) want('am', 'laundry_sort', 'Sort & Start Laundry', 'chores', '👕', 'Sort clothes, start soaking or machine wash — do this first so clothes dry by afternoon.', PRIORITY.chores, 15, 30);
+  work('am', 'work1', pickWork(workItems, 0), 150);
+  if (!isWeekend) want('am', 'snack', 'Mid-Morning Snack', 'meal', '🍌', 'Banana + groundnuts. Drink water, then back to focus.', PRIORITY.essential, 10, 15);
+  work('am', 'work2', pickWork(workItems, 1), 90);
+  if (isWeekend) want('am', 'laundry_hang', 'Hang / Check Laundry', 'chores', '👕', 'Hang clothes out to dry or move to the dryer.', PRIORITY.chores, 10, 15);
 
-  if (isWeekend) want('house_clean', 'Clean House / Room', 'chores', '🏠', 'Full room clean — sweep, mop, arrange, take out trash.', PRIORITY.chores, 20, 60);
+  // MIDDAY — lunch is pinned to LUNCH_AT; these three are placed around it.
+  want('mid', 'lunch_prep', 'Prepare Lunch', 'meal', '🍲', 'Start cooking now — check Meals tab.', PRIORITY.essential, 15, isWeekend ? 30 : 25);
+  want('mid', 'lunch', 'Eat Lunch', 'meal', '🍽️', 'Biggest meal of the day — fuel for the afternoon.', PRIORITY.essential, 20, isWeekend ? 30 : 25);
+  want('mid', 'dishes2', 'Clean Up', 'routine', '🧹', 'Quick clean. Clear space = clear mind.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
 
-  const w3 = pickWork(workItems, 2);
-  const w3Type = w3.label.startsWith('Course —') ? 'learning' : 'coding';
-  want('work3', w3.label, w3Type, w3.emoji, w3.note, PRIORITY.work, 45, 90);
-
-  if (isWeekend) want('laundry_fold', 'Fold & Put Away Clothes', 'chores', '👕', 'Fold and put away dry clothes.', PRIORITY.chores, 10, 20);
-
-  want('bae', 'Bae Time 💕', 'personal', '💕', 'Protected time. Phone down. Be fully present.', PRIORITY.social, 30, isWeekend ? 120 : 90);
-
-  want('dinner_prep', 'Prepare Dinner', 'meal', '🍲', 'Start cooking. Check Meals tab for tonight.', PRIORITY.essential, 15, isWeekend ? 30 : 20);
-  want('dinner', 'Eat Dinner', 'meal', '🍽️', 'Eat well — this fuels overnight recovery.', PRIORITY.essential, 20, isWeekend ? 30 : 25);
-  want('dishes3', 'Clean Kitchen', 'routine', '🧹', 'Full clean. Good kitchen tonight = easy morning tomorrow.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
-
+  // AFTERNOON — the long work stretch, then the second workout well clear of lunch AND dinner.
+  if (researchItem) want('pm', 'research', researchItem.label, 'research', researchItem.emoji, researchItem.note, PRIORITY.work, 30, 60, { grow: true, max: 90 });
+  // The top-priority item gets a second run after lunch, so it ends up with the biggest share of the day.
+  work('pm', 'work3', continued(pickWork(workItems, 0)), 120);
+  if (isWeekend) {
+    want('pm', 'house_clean', 'Clean House / Room', 'chores', '🏠', 'Full room clean — sweep, mop, arrange, take out trash.', PRIORITY.chores, 20, 60);
+    want('pm', 'laundry_fold', 'Fold & Put Away Clothes', 'chores', '👕', 'Fold and put away dry clothes.', PRIORITY.chores, 10, 20);
+  } else {
+    want('pm', 'break1', 'Break — Walk & Water', 'personal', '☕', 'Step away from the screen. Walk, stretch, drink water.', PRIORITY.chores, 5, 10);
+    work('pm', 'work4', pickWork(workItems, 2), 90);
+  }
   if (eveningWorkoutMin > 0) {
-    want('workout2', `Workout — ${dayPlan.focus} (Evening)`, 'workout', '💪', `${dayPlan.evening.title}: ${exerciseSummary(dayPlan.evening.exercises)}`, PRIORITY.essential, eveningWorkoutMin, eveningWorkoutMin);
-  } else if (dayPlan.evening.isRest) {
-    want('recovery', 'Active Recovery — Stretch', 'workout', '🧘', 'Rest day evening — light stretching, no heavy sets.', PRIORITY.essential, 10, 15);
+    want('pm', 'workout2', `Workout — ${dayPlan.focus} (Evening)`, 'workout', '💪', `${dayPlan.evening.title}: ${exerciseSummary(dayPlan.evening.exercises)}`, PRIORITY.essential, eveningWorkoutMin, eveningWorkoutMin);
+    want('pm', 'freshen', 'Quick Wash & Change', 'health', '🚿', 'Rinse off and change before cooking dinner.', PRIORITY.essential, 5, 10);
   }
 
-  if (isWeekend) want('week_plan', 'Plan Next Week', 'routine', '📋', 'What do you want to achieve? Any big purchases? Check Tech Hub deadlines.', PRIORITY.chores, 10, 20);
+  // DINNER — pinned to DINNER_AT.
+  want('din', 'dinner_prep', 'Prepare Dinner', 'meal', '🍲', 'Start cooking. Check Meals tab for tonight.', PRIORITY.essential, 15, isWeekend ? 30 : 20);
+  want('din', 'dinner', 'Eat Dinner', 'meal', '🍽️', 'Eat well — this fuels overnight recovery.', PRIORITY.essential, 20, isWeekend ? 30 : 25);
+  want('din', 'dishes3', 'Clean Kitchen', 'routine', '🧹', 'Full clean. Good kitchen tonight = easy morning tomorrow.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
 
-  want('gaming', 'Gaming 🎮', 'gaming', '🎮', 'Earned screen time — enjoy it guilt-free.', PRIORITY.leisure, 0, 90);
-  want('freetime', 'Free Time 🎧', 'personal', '🎧', 'Wind down however you like.', PRIORITY.leisure, 15, 60);
-  want('review', 'Daily Review', 'routine', '📝', 'What did you learn today? What to do differently? Write 3 lines.', PRIORITY.chores, 5, 15);
-  want('night_prep', 'Night Prep', 'routine', '🌙', 'Set clothes, pack bag, set alarm. Drink milk before bed.', PRIORITY.essential, 10, 15);
+  // EVENING — wind down to bed.
+  if (dayPlan.evening.isRest) want('eve', 'recovery', 'Active Recovery — Stretch', 'workout', '🧘', 'Rest day evening — light stretching, no heavy sets.', PRIORITY.essential, 10, 15);
+  want('eve', 'bae', 'Bae Time 💕', 'personal', '💕', 'Protected time. Phone down. Be fully present.', PRIORITY.social, 30, isWeekend ? 120 : 90);
+  if (isWeekend) want('eve', 'week_plan', 'Plan Next Week', 'routine', '📋', 'What do you want to achieve? Any big purchases? Check Tech Hub deadlines.', PRIORITY.chores, 10, 20);
+  want('eve', 'gaming', 'Gaming 🎮', 'gaming', '🎮', 'Earned screen time — enjoy it guilt-free.', PRIORITY.leisure, 0, 60);
+  want('eve', 'freetime', 'Free Time 🎧', 'personal', '🎧', 'Wind down however you like.', PRIORITY.leisure, 15, 45);
+  want('eve', 'review', 'Daily Review', 'routine', '📝', 'What did you learn today? What to do differently? Write 3 lines.', PRIORITY.chores, 5, 15);
+  want('eve', 'night_prep', 'Night Prep', 'routine', '🌙', 'Set clothes, pack bag, set alarm. Drink milk before bed.', PRIORITY.essential, 10, 15);
 
-  // ── PASS 2: fit the wish list into the actual time available ────────────
-  // Try the latest acceptable bedtime first (more room), falling back to
-  // the earliest if the ideal-duration day already fits comfortably.
-  const idealTotal = wish.reduce((s, w) => s + w.ideal, 0);
-  const roomAtEarliest = BEDTIME_EARLIEST - wake;
-  const targetBedtime = idealTotal <= roomAtEarliest ? BEDTIME_EARLIEST : BEDTIME_LATEST;
-  const budget = targetBedtime - wake;
-
+  // ── PASS 2: fit each segment into the minutes it actually has ───────────
+  // Too full  → shrink toward `min`, lowest priority first, then drop whole
+  //             blocks (never essential ones).
+  // Too empty → spare minutes go to `grow` blocks (work), up to their max;
+  //             anything left over lands on the last one so there are no gaps.
   const dropped = [];
-  let allocated = wish.map((w) => ({ ...w, duration: w.ideal }));
-  let total = () => allocated.reduce((s, w) => s + w.duration, 0);
+  function fitSegment(items, budget) {
+    let alloc = items.map((w) => ({ ...w, duration: w.ideal }));
+    const total = () => alloc.reduce((s, w) => s + w.duration, 0);
 
-  // Step A: shrink toward minimum, lowest priority first, until it fits or
-  // everything's already at its floor.
-  for (let tier = PRIORITY.leisure; tier >= PRIORITY.essential && total() > budget; tier--) {
-    for (const w of allocated.filter((x) => x.priority === tier)) {
-      if (total() <= budget) break;
-      const over = total() - budget;
-      const shrinkable = w.duration - w.min;
-      if (shrinkable <= 0) continue;
-      const cut = Math.min(shrinkable, over);
-      w.duration -= cut;
+    // Shrink from the END of each tier first, so the highest-priority item
+    // (e.g. the paid client block, which is listed first) keeps its time longest.
+    for (let tier = PRIORITY.leisure; tier >= PRIORITY.essential && total() > budget; tier--) {
+      for (const w of alloc.filter((x) => x.priority === tier).reverse()) {
+        const over = total() - budget;
+        if (over <= 0) break;
+        const cut = Math.min(w.duration - w.min, over);
+        if (cut > 0) w.duration -= cut;
+      }
     }
+    for (let tier = PRIORITY.leisure; tier > PRIORITY.essential && total() > budget; tier--) {
+      const tierItems = alloc.filter((x) => x.priority === tier).sort((a, b) => a.duration - b.duration);
+      for (const w of tierItems) {
+        if (total() <= budget) break;
+        dropped.push({ id: w.id, label: w.label });
+        alloc = alloc.filter((x) => x.id !== w.id);
+      }
+    }
+
+    let spare = budget - total();
+    const growers = alloc.filter((w) => w.grow);
+    while (spare > 0 && growers.some((w) => w.duration < w.max)) {
+      const open = growers.filter((w) => w.duration < w.max);
+      const weight = open.reduce((s, w) => s + w.ideal, 0);
+      let given = 0;
+      for (const w of open) {
+        const add = Math.min(w.max - w.duration, Math.floor((spare * w.ideal) / weight));
+        w.duration += add;
+        given += add;
+      }
+      if (given === 0) { open[0].duration += 1; given = 1; }
+      spare -= given;
+    }
+    if (spare > 0 && growers.length) growers[growers.length - 1].duration += spare;
+    return alloc;
   }
 
-  // Step B: if shrinking alone isn't enough, drop entire blocks — lowest
-  // priority first, and within a tier, drop the ones already at minimum
-  // (i.e. shrinking bought nothing) before touching anything still above min.
-  for (let tier = PRIORITY.leisure; tier >= PRIORITY.essential && total() > budget; tier--) {
-    const tierItems = allocated.filter((x) => x.priority === tier).sort((a, b) => a.duration - b.duration);
-    for (const w of tierItems) {
-      if (total() <= budget) break;
-      if (w.priority === PRIORITY.essential) continue; // essential items are never dropped, only shrunk (Step A already did what it could)
-      dropped.push({ id: w.id, label: w.label });
-      allocated = allocated.filter((x) => x.id !== w.id);
-    }
-  }
-
-  // ── PASS 3: place what's left on the clock, in original order ───────────
-  const order = wish.map((w) => w.id);
-  const byId = Object.fromEntries(allocated.map((w) => [w.id, w]));
+  // ── PASS 3: place on the clock, pinning lunch and dinner ────────────────
+  const bySeg = (seg) => wish.filter((w) => w.seg === seg);
   const blocks = [];
   let cursor = wake;
-  for (const id of order) {
-    const w = byId[id];
-    if (!w || w.duration <= 0) continue;
+  const place = (w) => {
+    if (!w || w.duration <= 0) return;
     blocks.push({ id: w.id, time: m2t(cursor), label: w.label, type: w.type, duration: w.duration, emoji: w.emoji, note: w.note });
     cursor += w.duration;
+  };
+  // Meal segments [prep, eat, cleanup]: the meal starts exactly at its pinned
+  // time and prep finishes right before it. Only if the stretch before it
+  // genuinely overran does the meal start late.
+  function placeMeal(seg, eatAt) {
+    const [prep, eat, after] = bySeg(seg);
+    cursor = Math.max(cursor, eatAt - prep.ideal);
+    place({ ...prep, duration: prep.ideal });
+    cursor = Math.max(cursor, eatAt);
+    place({ ...eat, duration: eat.ideal });
+    place({ ...after, duration: after.ideal });
   }
+
+  // Work out where each work stretch must end so the meal lands on its pinned time.
+  const lunchPrepIdeal = bySeg('mid')[0].ideal;
+  const dinnerPrepIdeal = bySeg('din')[0].ideal;
+
+  // MORNING
+  const amEnd = LUNCH_AT - lunchPrepIdeal;
+  for (const w of fitSegment(bySeg('am'), Math.max(0, amEnd - cursor))) place(w);
+
+  // LUNCH
+  placeMeal('mid', LUNCH_AT);
+
+  // AFTERNOON
+  const pmEnd = DINNER_AT - dinnerPrepIdeal;
+  for (const w of fitSegment(bySeg('pm'), Math.max(0, pmEnd - cursor))) place(w);
+
+  // DINNER
+  placeMeal('din', DINNER_AT);
+
+  // EVENING — bedtime is the earliest allowed if the ideal evening fits, else the latest.
+  const eveIdeal = bySeg('eve').reduce((s, w) => s + w.ideal, 0);
+  const targetBedtime = cursor + eveIdeal <= BEDTIME_EARLIEST ? BEDTIME_EARLIEST : BEDTIME_LATEST;
+  for (const w of fitSegment(bySeg('eve'), Math.max(0, targetBedtime - cursor))) place(w);
 
   const bedMod = cursor % 1440;
   const sleepMinutes = Math.max(MIN_SLEEP_MINUTES, bedMod < wake ? wake - bedMod : (1440 - bedMod) + wake);
