@@ -7,6 +7,7 @@ import { genId, countdownTo, formatCountdown, formatDate, resizeImage, toNairobi
 import { fetchRepos, sortRepos, REPO_SORTS } from '../lib/github';
 import { getSetting, setSetting } from '../lib/db';
 import { scheduleEventReminder, cancelSchedule } from '../lib/notifications';
+import { eventWindow, isEventEnded, sortEventsByStart, eventTimeLabel, eventDateLabel, pruneEndedEvents } from '../lib/events';
 
 // ─── HACKATHON STATUS ─────────────────────────────────────────────────────────
 // Backward-compatible with older records that only have the `submitted` boolean:
@@ -37,6 +38,35 @@ function Countdown({ deadline }) {
       {c.past ? '⏳ Ended' : `⏱ ${formatCountdown(deadline)}`}
     </span>
   );
+}
+
+// ─── EVENT COUNTDOWN ──────────────────────────────────────────────────────────
+// Counts to the event's real start (not the end of its date), switches to
+// "Live · ends in …" while it's running, and reads "Ended" once it's over.
+function fmtSpan(ms) {
+  const total = Math.max(1, Math.ceil(ms / 60000));
+  const d = Math.floor(total / 1440);
+  const h = Math.floor((total % 1440) / 60);
+  const m = total % 60;
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+function EventCountdown({ event }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+  const w = eventWindow(event);
+  if (!w) return null;
+  const startMs = w.start.getTime();
+  const endMs = w.end.getTime();
+  let text; let color;
+  if (now >= endMs) { text = '⏳ Ended'; color = 'var(--text-3)'; }
+  else if (now >= startMs) { text = w.allDay ? '🔴 Today' : `🔴 Live · ends in ${fmtSpan(endMs - now)}`; color = 'var(--green)'; }
+  else { const left = startMs - now; text = `⏱ ${fmtSpan(left)} left`; color = left < URGENT_MS ? 'var(--red)' : 'var(--green)'; }
+  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color }}>{text}</span>;
 }
 
 // ─── GITHUB REPO PICKER ───────────────────────────────────────────────────────
@@ -390,8 +420,22 @@ function DiscoverCard({ item, kind, onAdd }) {
         {item.location && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 12, padding: '3px 10px', borderRadius: 100 }}>📍 {item.location}</span>}
         {item.venue && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 12, padding: '3px 10px', borderRadius: 100 }}>📍 {item.venue}</span>}
         {item.is_free && <span style={{ background: 'var(--green-dim)', color: 'var(--green)', fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 100 }}>FREE</span>}
-        {(item.deadline || item.date) && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: 100 }}><Countdown deadline={item.deadline || item.date} /></span>}
-        {item.time && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: 100 }}>🕐 {item.time}</span>}
+        {kind === 'event' ? (
+          <>
+            {eventDateLabel(item) && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 12, padding: '3px 10px', borderRadius: 100 }}>📅 {eventDateLabel(item)}</span>}
+            {eventWindow(item) && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: 100 }}><EventCountdown event={item} /></span>}
+            {eventTimeLabel(item) && (
+              <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 12, padding: '3px 10px', borderRadius: 100 }}>
+                🕐 {eventTimeLabel(item)}{item.tz && item.tz !== 'LOCAL' ? ` · set as ${item.time} ${item.tz}` : ''}
+              </span>
+            )}
+          </>
+        ) : (
+          <>
+            {(item.deadline || item.date) && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: 100 }}><Countdown deadline={item.deadline || item.date} /></span>}
+            {item.time && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: 100 }}>🕐 {item.time}</span>}
+          </>
+        )}
       </div>
       {item.themes && <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>🏷 {item.themes}</div>}
       <div style={{ display: 'flex', gap: 8 }}>
@@ -1571,13 +1615,15 @@ export default function TechHubPage() {
   // state (not DB-backed, see useState above), so a manually-added event
   // is shaped the same as an AI one and just pushed into the same array.
   const [showEventForm, setShowEventForm] = useState(false);
-  const [eventForm, setEventForm] = useState({ name: '', organizer: '', description: '', location: '', date: '', time: '', url_hint: '', is_free: false });
+  const EMPTY_EVENT_FORM = { name: '', organizer: '', description: '', location: '', date: '', time: '', end_time: '', tz: 'LOCAL', url_hint: '', is_free: false };
+  const [eventForm, setEventForm] = useState(EMPTY_EVENT_FORM);
   async function addManualEvent() {
     if (!eventForm.name.trim()) return;
     const next = [{ id: genId(), ...eventForm, source: 'manual', name: eventForm.name.trim() }, ...events];
     setEvents(next);
-    await setSetting('tech_hub_events', next);
-    setEventForm({ name: '', organizer: '', description: '', location: '', date: '', time: '', url_hint: '', is_free: false });
+    // Only manual events are persisted; AI-discovered ones live in memory.
+    await setSetting('tech_hub_events', next.filter((x) => x.source !== 'ai'));
+    setEventForm(EMPTY_EVENT_FORM);
     setShowEventForm(false);
   }
 
@@ -1587,19 +1633,10 @@ export default function TechHubPage() {
   const firedResults = useRef(new Set());
   const eventReminderDates = useRef(new Map());
 
+  // Exact start instant (null for all-day / undated events).
   function getEventStartDate(event) {
-    const raw = event?.datetime || event?.start_time || event?.start || event?.date;
-    if (!raw) return null;
-
-    // Manual events store date + time separately. Build a local date-time
-    // string so the browser interprets it in the user's local timezone.
-    if (/^\d{4}-\d{2}-\d{2}$/.test(String(raw)) && event.time) {
-      const d = new Date(`${raw}T${event.time}:00`);
-      return Number.isNaN(d.getTime()) ? null : d;
-    }
-
-    const d = new Date(raw);
-    return Number.isNaN(d.getTime()) ? null : d;
+    const w = eventWindow(event);
+    return w && !w.allDay ? w.start : null;
   }
   useEffect(() => {
     try { if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {}); } catch {}
@@ -1652,6 +1689,23 @@ export default function TechHubPage() {
       }
     }
   }, [events]);
+
+  // Finished events disappear on their own: a 16:00 – 18:00 event is removed at
+  // 18:00. Checked every 30s while this page is open, and once on load.
+  const [eventsNow, setEventsNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setEventsNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    const live = events.filter((e) => !isEventEnded(e, eventsNow));
+    if (live.length !== events.length) {
+      setEvents(live);
+      setSetting('tech_hub_events', live.filter((x) => x.source !== 'ai'));
+    }
+  }, [events, eventsNow]);
+  // Closest event first.
+  const sortedEvents = sortEventsByStart(events.filter((e) => !isEventEnded(e, eventsNow)));
 
   function getLocation() {
     if (!navigator.geolocation) { setLocStatus('denied'); return; }
@@ -1923,19 +1977,28 @@ export default function TechHubPage() {
                   <div style={{ height: 12 }} />
                   <Field label="Location / Venue (optional)"><input className="input" placeholder="e.g. iHub, Nairobi" value={eventForm.location} onChange={(e) => setEventForm((f) => ({ ...f, location: e.target.value }))} /></Field>
                   <div style={{ height: 12 }} />
+                  <Field label="Date (optional)"><input className="input" type="date" value={eventForm.date} onChange={(e) => setEventForm((f) => ({ ...f, date: e.target.value }))} /></Field>
+                  <div style={{ height: 12 }} />
                   <div style={{ display: 'flex', gap: 10 }}>
-                    <Field label="Date (optional)" style={{ flex: 1 }}><input className="input" type="date" value={eventForm.date} onChange={(e) => setEventForm((f) => ({ ...f, date: e.target.value }))} /></Field>
-                    <Field label="Start time (optional)" style={{ flex: 1 }}><input className="input" type="time" value={eventForm.time} onChange={(e) => setEventForm((f) => ({ ...f, time: e.target.value }))} /></Field>
+                    <Field label="Start time" style={{ flex: 1 }}><input className="input" type="time" value={eventForm.time} onChange={(e) => setEventForm((f) => ({ ...f, time: e.target.value }))} /></Field>
+                    <Field label="End time" style={{ flex: 1 }}><input className="input" type="time" value={eventForm.end_time} onChange={(e) => setEventForm((f) => ({ ...f, end_time: e.target.value }))} /></Field>
                   </div>
+                  <div style={{ height: 12 }} />
+                  <Field label="Times are in">
+                    <select className="input" value={eventForm.tz} onChange={(e) => setEventForm((f) => ({ ...f, tz: e.target.value }))}>
+                      <option value="LOCAL">My local time</option>
+                      {TZ_ABBREVIATIONS.map((z) => <option key={z.abbr} value={z.abbr}>{z.abbr} — {z.name}</option>)}
+                    </select>
+                  </Field>
                   <div style={{ height: 12 }} />
                   <Field label="Link (optional)"><input className="input" placeholder="e.g. lu.ma/event-slug" value={eventForm.url_hint} onChange={(e) => setEventForm((f) => ({ ...f, url_hint: e.target.value }))} /></Field>
                   <button className="btn-primary" style={{ marginTop: 14 }} disabled={!eventForm.name.trim()} onClick={addManualEvent}>Add Event</button>
                 </div>
               )}
 
-              {events.length === 0 && !loadingEvents ? (
+              {sortedEvents.length === 0 && !loadingEvents ? (
                 <div className="empty-state"><div className="icon">📅</div><h3>Find tech events near you</h3><p>{location ? `Scanning around ${location.city}.` : 'Share your location above, then'} tap "Find events" for nearby meetups, conferences & demo days, or add one yourself</p></div>
-              ) : events.map((e) => (
+              ) : sortedEvents.map((e) => (
                 <div key={e.id} style={{ position: 'relative' }}>
                   <DiscoverCard item={e} kind="event" />
                   <button onClick={async () => { const next = events.filter((x) => x.id !== e.id); setEvents(next); await setSetting('tech_hub_events', next.filter((x) => x.source !== 'ai')); }}

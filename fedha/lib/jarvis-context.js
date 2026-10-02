@@ -14,6 +14,7 @@ import {
   getGoals, getSetting, getFoodLogs, getHackathons, getProjects, getCertificates, getStartups, getResearch, getClientProjects,
 } from './db';
 import { todayISO, countdownTo, formatShort } from './utils';
+import { eventWindow, isEventEnded, sortEventsByStart, eventDateLabel, eventTimeLabel } from './events';
 import { detectJarvisRole, detectJarvisSituation, getJarvisRoleGuidance } from './jarvis-intelligence';
 
 const RECENT_TRANSACTION_COUNT = 15;
@@ -181,11 +182,14 @@ async function summarizeClientProjects() {
 }
 
 async function summarizeTechEvents() {
-  const events = await getSetting('tech_hub_events', []);
-  const now = new Date();
-  const upcoming = (Array.isArray(events) ? events : []).filter((e) => e.date && new Date(e.date) >= now);
+  const stored = await getSetting('tech_hub_events', []);
+  const nowMs = Date.now();
+  const upcoming = sortEventsByStart(Array.isArray(stored) ? stored : []).filter((e) => eventWindow(e) && !isEventEnded(e, nowMs));
   if (!upcoming.length) return null;
-  return 'UPCOMING TECH HUB EVENTS — consider these when planning today:\n- ' + upcoming.slice(0, 12).map((e) => e.name + (e.date ? ' — ' + e.date : '') + (e.location ? ' — ' + e.location : '') + (e.description ? ': ' + e.description : '')).join('\n- ');
+  return 'UPCOMING TECH HUB EVENTS (closest first; times are the phone\'s local time) — consider these when planning today:\n- ' + upcoming.slice(0, 12).map((e) => {
+    const when = [eventDateLabel(e), eventTimeLabel(e)].filter(Boolean).join(' ');
+    return e.name + (when ? ' — ' + when : '') + (e.location ? ' — ' + e.location : '') + (e.description ? ': ' + e.description : '');
+  }).join('\n- ');
 }
 
 // Full career/portfolio picture — used for CV drafting and feature-idea

@@ -6,6 +6,7 @@ import { todayISO, computeJobProgress } from '../lib/utils';
 import { hackStatus, isUrgent, projectStatus } from './tech-hub';
 import { WEEKLY_PLAN, weekdayPlanIndex, estimateWorkoutMinutes, exerciseSummary } from './workout';
 import { buildJarvisContext } from '../lib/jarvis-context';
+import { pruneEndedEvents, todaysEventBlocks } from '../lib/events';
 import { format } from 'date-fns';
 
 // ─── DAY ANCHORS ───────────────────────────────────────────────────────────
@@ -32,8 +33,9 @@ const TYPE_COLORS = {
   health:   { bg:'rgba(6,182,212,0.12)',  border:'rgba(6,182,212,0.35)',   text:'#67E8F9', dot:'#06B6D4' },
   gaming:   { bg:'rgba(167,139,250,0.12)',border:'rgba(167,139,250,0.35)', text:'#C4B5FD', dot:'#A78BFA' },
   sleep:    { bg:'rgba(30,41,59,0.5)',    border:'rgba(51,65,85,0.5)',     text:'#475569', dot:'#334155' },
+  event:    { bg:'rgba(249,115,22,0.12)', border:'rgba(249,115,22,0.4)',   text:'#FDBA74', dot:'#F97316' },
 };
-const TYPE_LABELS = { routine:'Routine', meal:'Meal', coding:'Work', personal:'Personal', chores:'Chores', workout:'Workout', health:'Health', gaming:'Gaming', sleep:'Sleep', research:'Research' };
+const TYPE_LABELS = { routine:'Routine', meal:'Meal', coding:'Work', personal:'Personal', chores:'Chores', workout:'Workout', health:'Health', gaming:'Gaming', sleep:'Sleep', research:'Research', event:'Event' };
 
 const NOTIF_MSGS = {
   routine: (b) => ({ title:'⏰ ' + b.label.toUpperCase(), body: b.note }),
@@ -47,6 +49,7 @@ const NOTIF_MSGS = {
   health: (b) => ({ title:`🛁 ${b.label}`, body: b.note }),
   gaming: (b) => ({ title:'🎮 GAMING TIME', body: b.note }),
   sleep: (b) => ({ title:'😴 TIME TO SLEEP', body: b.note }),
+  event: (b) => ({ title:`📅 ${b.label} starts now`, body: b.note }),
 };
 
 function t2m(t) { const [h,m] = t.split(':').map(Number); return h*60+m; }
@@ -311,6 +314,52 @@ function buildTodayBlocks(ctx, isWeekend) {
   return blocks;
 }
 
+// ─── EVENTS ON THE CLOCK ───────────────────────────────────────────────────
+// Tech Hub events that happen today are fixed commitments: they sit at their
+// exact start time for their exact length. Flexible blocks (work, learning,
+// research, free time, gaming, chores) that collide with one are trimmed or
+// split around it; meals, workouts, bathing and sleep are never touched, so a
+// real clash stays visible rather than being silently hidden.
+const FLEX_TYPES = new Set(['coding', 'learning', 'research', 'personal', 'gaming', 'chores']);
+const MIN_KEPT_MINUTES = 15;
+
+function applyEventBlocks(blocks, eventBlocks) {
+  const base = blocks.filter((b) => b.type !== 'event' && !String(b.id).endsWith('__after'));
+  if (!eventBlocks.length) return base;
+  let out = base;
+  for (const ev of eventBlocks) {
+    const es = t2m(ev.time);
+    const ee = es + ev.duration;
+    out = out.flatMap((b) => {
+      if (!FLEX_TYPES.has(b.type)) return [b];
+      const bs = t2m(b.time);
+      const be = bs + b.duration;
+      if (be <= es || bs >= ee) return [b];
+      const before = es - bs;
+      const after = be - ee;
+      if (bs < es && be > ee) {
+        const parts = [];
+        if (before >= MIN_KEPT_MINUTES) parts.push({ ...b, duration: before });
+        if (after >= MIN_KEPT_MINUTES) parts.push({ ...b, id: `${b.id}__after`, time: m2t(ee), duration: after });
+        return parts;
+      }
+      if (bs < es) return before >= MIN_KEPT_MINUTES ? [{ ...b, duration: before }] : [];
+      return after >= MIN_KEPT_MINUTES ? [{ ...b, time: m2t(ee), duration: after }] : [];
+    });
+  }
+  return [...out, ...eventBlocks].sort((a, b) => t2m(a.time) - t2m(b.time));
+}
+
+async function loadTodayEventBlocks() {
+  try {
+    const live = await pruneEndedEvents();
+    return todaysEventBlocks(live, new Date());
+  } catch (e) {
+    console.warn('[fedha] could not load events for planner:', e?.message);
+    return [];
+  }
+}
+
 async function requestNotif() {
   if (!('Notification' in window)) return false;
   if (Notification.permission === 'granted') return true;
@@ -345,7 +394,7 @@ function scheduleAll(blocks) {
     const startMs = new Date().setHours(Math.floor(bMins/60), bMins%60, 0, 0);
     const diff = startMs - nowMs;
     const msgs = NOTIF_MSGS[b.type] ? NOTIF_MSGS[b.type](b) : { title:`⏰ ${b.label}`, body: b.note };
-    const important = ['meal','coding','learning','sleep','workout'].includes(b.type);
+    const important = ['meal','coding','learning','sleep','workout','event'].includes(b.type);
 
     if (diff > 0 && diff < 86400000) {
       scheduledTimerIds.push(setTimeout(() => fireNotif(msgs.title, msgs.body, important), diff));
@@ -483,7 +532,8 @@ export default function PlannerPage() {
       // .map() above only ever visits ids that already exist in `generated`.
       const generatedIds = new Set(generated.map((b) => b.id));
       const extraBlocks = Object.values(overrides).filter((o) => o?.id && !generatedIds.has(o.id));
-      const merged = [...patched, ...extraBlocks].sort((a, b) => t2m(a.time) - t2m(b.time));
+      const eventBlocks = await loadTodayEventBlocks();
+      const merged = applyEventBlocks([...patched, ...extraBlocks].sort((a, b) => t2m(a.time) - t2m(b.time)), eventBlocks);
       setBlocks(merged);
       await syncPlannerBlocksSetting(merged);
 
@@ -545,6 +595,7 @@ export default function PlannerPage() {
       nextBlocks = blocks.map((b, i) => {
         if (i < idx) return b;
         if (i === idx) return { ...b, ...updated };
+        if (b.type === 'event') return b; // events are fixed on the clock
         return { ...b, time: m2t(t2m(b.time) + deltaMin) };
       });
     } else {
@@ -580,8 +631,9 @@ export default function PlannerPage() {
     setAiError(null);
     const fresh = buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research }, isWeekend);
     setDroppedToday(fresh._droppedToday || []);
-    setBlocks(fresh);
-    await syncPlannerBlocksSetting(fresh);
+    const withEvents = applyEventBlocks(fresh, await loadTodayEventBlocks());
+    setBlocks(withEvents);
+    await syncPlannerBlocksSetting(withEvents);
   }
 
   // "I'm Awake" — replaces the fixed wake-time assumption with whatever
@@ -625,11 +677,12 @@ export default function PlannerPage() {
 
       await setSetting(`planner_overrides_${todayISO()}`, {});
       await setSetting(`planner_ai_blocks_${todayISO()}`, computed);
+      const withEvents = applyEventBlocks(computed, await loadTodayEventBlocks());
       setUsingAI(true);
       setDroppedToday([]);
-      setBlocks(computed);
-      await syncPlannerBlocksSetting(computed);
-      if (notifEnabled) scheduleAll(computed);
+      setBlocks(withEvents);
+      await syncPlannerBlocksSetting(withEvents);
+      if (notifEnabled) scheduleAll(withEvents);
     } catch (e) {
       setAiError(e.message || 'Could not generate your day — try again in a moment.');
     } finally {
@@ -857,7 +910,7 @@ export default function PlannerPage() {
                 const c = TYPE_COLORS[block.type];
                 return (
                   <div key={block.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'var(--card)', border:'1px solid var(--border)', borderRadius:10, marginBottom:8, cursor:'pointer' }}
-                    onClick={() => setEditBlock(block)}>
+                    onClick={() => { if (block.type !== 'event') setEditBlock(block); }}>
                     <div style={{ width:8, height:8, borderRadius:'50%', background:c.dot, flexShrink:0 }} />
                     <span className="font-num" style={{ fontSize:11, color:'var(--text-3)', width:54, flexShrink:0 }}>{fmt12(block.time)}</span>
                     <div style={{ flex:1, fontSize:13, fontWeight:500 }}>{block.emoji} {block.label}</div>
