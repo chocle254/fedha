@@ -5,7 +5,7 @@ import { getSetting, setSetting } from '../lib/db';
 import { todayISO, computeJobProgress } from '../lib/utils';
 import { hackStatus, isUrgent, projectStatus } from './tech-hub';
 import { WEEKLY_PLAN, weekdayPlanIndex, estimateWorkoutMinutes, exerciseSummary } from './workout';
-import { buildJarvisContext } from '../lib/jarvis-context';
+import { showNotif, VIBRATE } from '../lib/notifications';
 import { pruneEndedEvents, todaysEventBlocks } from '../lib/events';
 import { format } from 'date-fns';
 
@@ -26,6 +26,7 @@ const DINNER_AT = 19 * 60;           // dinner starts exactly here
 // Work blocks soak up every spare minute between the fixed things, within these limits.
 const WORK_MIN = 45;                 // a work block is never shorter than this
 const WORK_MAX = 150;                // ...and never longer than this without a break
+const WORK_SQUEEZE = 25;             // in a tight stretch a work block may shrink this far before it is dropped
 
 const TYPE_COLORS = {
   routine:  { bg:'rgba(99,102,241,0.12)',  border:'rgba(99,102,241,0.35)',  text:'#818CF8', dot:'#6366F1' },
@@ -42,21 +43,6 @@ const TYPE_COLORS = {
   event:    { bg:'rgba(249,115,22,0.12)', border:'rgba(249,115,22,0.4)',   text:'#FDBA74', dot:'#F97316' },
 };
 const TYPE_LABELS = { routine:'Routine', meal:'Meal', coding:'Work', personal:'Personal', chores:'Chores', workout:'Workout', health:'Health', gaming:'Gaming', sleep:'Sleep', research:'Research', event:'Event' };
-
-const NOTIF_MSGS = {
-  routine: (b) => ({ title:'⏰ ' + b.label.toUpperCase(), body: b.note }),
-  meal: (b) => ({ title: b.label.includes('Eat') ? '🍽️ TIME TO EAT' : '🍳 START COOKING NOW', body: b.label.includes('Eat') ? `${b.emoji} ${b.label} — eat properly, no phone` : `Cook now so food is ready on time. Check Meals tab.` }),
-  coding: (b) => ({ title:`💻 ${b.label}`, body:`Phone away. ${b.note}` }),
-  research: (b) => ({ title:`🔍 ${b.label}`, body: b.note }),
-  learning: (b) => ({ title:`🎓 ${b.label}`, body: b.note }),
-  personal: (b) => ({ title: b.label.includes('Bae') ? '💕 BAE TIME' : '🎧 FREE TIME', body: b.note }),
-  chores: (b) => ({ title:'🏠 CHORES TIME', body: b.note }),
-  workout: (b) => ({ title:`🏋️ ${b.label}`, body: b.note }),
-  health: (b) => ({ title:`🛁 ${b.label}`, body: b.note }),
-  gaming: (b) => ({ title:'🎮 GAMING TIME', body: b.note }),
-  sleep: (b) => ({ title:'😴 TIME TO SLEEP', body: b.note }),
-  event: (b) => ({ title:`📅 ${b.label} starts now`, body: b.note }),
-};
 
 function t2m(t) { const [h,m] = t.split(':').map(Number); return h*60+m; }
 function m2t(m) { return `${String(Math.floor(m/60)%24).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`; }
@@ -186,7 +172,14 @@ function pickWork(items, i) {
 // 3am — nothing was ever checking whether the day fit before bedtime.
 const PRIORITY = { essential: 0, work: 1, chores: 2, social: 3, leisure: 4 };
 
-function buildTodayBlocks(ctx, isWeekend) {
+// opts.startAt  — minutes since midnight to start the day from ("I'm Awake" passes the current time).
+//                 Omitted = the normal fixed wake time.
+// opts.doneIds  — ids of blocks already completed today; they are not scheduled again.
+function buildTodayBlocks(ctx, isWeekend, opts = {}) {
+  const { startAt = null, doneIds = [] } = opts;
+  const anchored = startAt != null;
+  const done = new Set(doneIds);
+
   const workItems = getWorkPriorityItems(ctx);
   const researchItem = getOpenResearchItem(ctx.research);
   const dayIdx = weekdayPlanIndex(new Date());
@@ -194,45 +187,63 @@ function buildTodayBlocks(ctx, isWeekend) {
   const morningWorkoutMin = estimateWorkoutMinutes(dayPlan.morning.exercises);
   const eveningWorkoutMin = dayPlan.evening.isRest ? 0 : estimateWorkoutMinutes(dayPlan.evening.exercises);
 
-  const wake = isWeekend ? WEEKEND_WAKE : WEEKDAY_WAKE;
+  // The normal wake time is still what the NEXT morning's sleep is measured to;
+  // `startAt` only moves where today's clock begins.
+  const defaultWake = isWeekend ? WEEKEND_WAKE : WEEKDAY_WAKE;
+  const wake = anchored ? startAt : defaultWake;
+
+  // Late-start rules (only when anchored). Waking at 12:40 should not produce a
+  // full breakfast-then-workout-then-bath routine in front of a 13:00 lunch.
+  const pastBreakfast = anchored && startAt >= LUNCH_AT - 150;       // 10:30+  → lunch is close, skip breakfast
+  const pastSnack = anchored && startAt >= 9 * 60 + 30;             // 09:30+  → no mid-morning snack right after a late breakfast
+  const lateMorning = anchored && startAt >= 11 * 60 + 30;           // 11:30+  → morning workout moves to the afternoon
+  const pastLunch = anchored && startAt >= 16 * 60;                  // 16:00+  → too late for lunch
+  const pastDinner = anchored && startAt >= 21 * 60;                 // 21:00+  → no dinner block
 
   // ── PASS 1: wish list ──────────────────────────────────────────────────
   // Every block the day would ideally include, tagged with:
-  //   seg      which part of the day it belongs to (see SEGMENTS below)
-  //   priority how soon it gets shrunk/dropped when the segment is too full
-  //   min/ideal the duration range; `grow` items (work) soak up spare time up to `max`
-  // Order inside a segment is the order blocks appear on the clock.
+  //   seg       which part of the day it belongs to (am / mid / pm / din / eve)
+  //   priority  how soon it gets shrunk/dropped when its stretch is too full
+  //   min/ideal duration range; `grow` items (work) soak up spare time up to `max`
+  //   role      prep / eat / after, for the pinned meals
+  const MEAL_OF = { bfast_prep: 'breakfast', dishes1: 'breakfast', lunch_prep: 'lunch', dishes2: 'lunch', dinner_prep: 'dinner', dishes3: 'dinner' };
   const wish = [];
-  const want = (seg, id, label, type, emoji, note, priority, min, ideal = min, extra = {}) =>
+  const want = (seg, id, label, type, emoji, note, priority, min, ideal = min, extra = {}) => {
+    if (done.has(id) || (MEAL_OF[id] && done.has(MEAL_OF[id]))) return; // already done today
     wish.push({ seg, id, label, type, emoji, note, priority, min, ideal: Math.max(ideal, min), ...extra });
+  };
   const continued = (item) => ({ ...item, label: item.label.endsWith('(continued)') ? item.label : item.label + ' (continued)' });
   const work = (seg, id, item, ideal) => {
     const type = item.label.startsWith('Course —') ? 'learning' : 'coding';
-    want(seg, id, item.label, type, item.emoji, item.note, PRIORITY.work, WORK_MIN, ideal, { grow: true, max: WORK_MAX });
+    want(seg, id, item.label, type, item.emoji, item.note, PRIORITY.work, WORK_MIN, ideal, { grow: true, max: WORK_MAX, squeeze: WORK_SQUEEZE });
   };
 
   // MORNING — body first, then the first deep-work run before lunch.
   want('am', 'wake', 'Wake Up — No Phone', 'routine', '⏰', 'First 20 mins phone-free. Drink water, stretch, wash face.', PRIORITY.essential, 15, 20);
-  if (morningWorkoutMin > 0) {
+  if (morningWorkoutMin > 0 && !lateMorning) {
     want('am', 'workout1', `Workout — ${dayPlan.focus}`, 'workout', '🏋️', `${dayPlan.morning.title}: ${exerciseSummary(dayPlan.morning.exercises)}`, PRIORITY.essential, morningWorkoutMin, morningWorkoutMin);
   }
-  want('am', 'bath', 'Bath & Freshen Up', 'health', '🛁', 'Wash off the workout and reset before the day starts.', PRIORITY.essential, 15, 25);
-  want('am', 'bfast_prep', 'Prepare Breakfast', 'meal', '🍳', "Start cooking now. Check Meals tab for today's breakfast.", PRIORITY.essential, 15, isWeekend ? 25 : 20);
-  want('am', 'breakfast', 'Eat Breakfast', 'meal', '🍽️', 'Sit down and eat. No phone while eating.', PRIORITY.essential, 15, isWeekend ? 30 : 20);
-  want('am', 'dishes1', 'Clean Dishes', 'routine', '🧹', '10 mins now saves stress later.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
-  if (isWeekend) want('am', 'laundry_sort', 'Sort & Start Laundry', 'chores', '👕', 'Sort clothes, start soaking or machine wash — do this first so clothes dry by afternoon.', PRIORITY.chores, 15, 30);
+  if (!lateMorning) want('am', 'bath', 'Bath & Freshen Up', 'health', '🛁', 'Wash off the workout and reset before the day starts.', PRIORITY.essential, 15, 25);
+  if (!pastBreakfast) {
+    want('am', 'bfast_prep', 'Prepare Breakfast', 'meal', '🍳', "Start cooking now. Check Meals tab for today's breakfast.", PRIORITY.essential, 15, isWeekend ? 25 : 20);
+    want('am', 'breakfast', 'Eat Breakfast', 'meal', '🍽️', 'Sit down and eat. No phone while eating.', PRIORITY.essential, 15, isWeekend ? 30 : 20);
+    want('am', 'dishes1', 'Clean Dishes', 'routine', '🧹', '10 mins now saves stress later.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
+  }
+  if (isWeekend && !pastBreakfast) want('am', 'laundry_sort', 'Sort & Start Laundry', 'chores', '👕', 'Sort clothes, start soaking or machine wash — do this first so clothes dry by afternoon.', PRIORITY.chores, 15, 30);
   work('am', 'work1', pickWork(workItems, 0), 150);
-  if (!isWeekend) want('am', 'snack', 'Mid-Morning Snack', 'meal', '🍌', 'Banana + groundnuts. Drink water, then back to focus.', PRIORITY.essential, 10, 15);
+  if (!isWeekend && !pastSnack) want('am', 'snack', 'Mid-Morning Snack', 'meal', '🍌', 'Banana + groundnuts. Drink water, then back to focus.', PRIORITY.essential, 10, 15);
   work('am', 'work2', pickWork(workItems, 1), 90);
-  if (isWeekend) want('am', 'laundry_hang', 'Hang / Check Laundry', 'chores', '👕', 'Hang clothes out to dry or move to the dryer.', PRIORITY.chores, 10, 15);
+  if (isWeekend && !pastBreakfast) want('am', 'laundry_hang', 'Hang / Check Laundry', 'chores', '👕', 'Hang clothes out to dry or move to the dryer.', PRIORITY.chores, 10, 15);
 
-  // MIDDAY — lunch is pinned to LUNCH_AT; these three are placed around it.
-  want('mid', 'lunch_prep', 'Prepare Lunch', 'meal', '🍲', 'Start cooking now — check Meals tab.', PRIORITY.essential, 15, isWeekend ? 30 : 25);
-  want('mid', 'lunch', 'Eat Lunch', 'meal', '🍽️', 'Biggest meal of the day — fuel for the afternoon.', PRIORITY.essential, 20, isWeekend ? 30 : 25);
-  want('mid', 'dishes2', 'Clean Up', 'routine', '🧹', 'Quick clean. Clear space = clear mind.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
+  // MIDDAY — lunch is pinned to LUNCH_AT; prep ends right as it starts.
+  if (!pastLunch) {
+    want('mid', 'lunch_prep', 'Prepare Lunch', 'meal', '🍲', 'Start cooking now — check Meals tab.', PRIORITY.essential, 15, isWeekend ? 30 : 25, { role: 'prep' });
+    want('mid', 'lunch', 'Eat Lunch', 'meal', '🍽️', 'Biggest meal of the day — fuel for the afternoon.', PRIORITY.essential, 20, isWeekend ? 30 : 25, { role: 'eat' });
+    want('mid', 'dishes2', 'Clean Up', 'routine', '🧹', 'Quick clean. Clear space = clear mind.', PRIORITY.chores, 5, isWeekend ? 15 : 10, { role: 'after' });
+  }
 
-  // AFTERNOON — the long work stretch, then the second workout well clear of lunch AND dinner.
-  if (researchItem) want('pm', 'research', researchItem.label, 'research', researchItem.emoji, researchItem.note, PRIORITY.work, 30, 60, { grow: true, max: 90 });
+  // AFTERNOON — the long work stretch, then the workout(s) well clear of lunch AND dinner.
+  if (researchItem) want('pm', 'research', researchItem.label, 'research', researchItem.emoji, researchItem.note, PRIORITY.work, 30, 60, { grow: true, max: 90, squeeze: 20 });
   // The top-priority item gets a second run after lunch, so it ends up with the biggest share of the day.
   work('pm', 'work3', continued(pickWork(workItems, 0)), 120);
   if (isWeekend) {
@@ -242,15 +253,22 @@ function buildTodayBlocks(ctx, isWeekend) {
     want('pm', 'break1', 'Break — Walk & Water', 'personal', '☕', 'Step away from the screen. Walk, stretch, drink water.', PRIORITY.chores, 5, 10);
     work('pm', 'work4', pickWork(workItems, 2), 90);
   }
+  if (morningWorkoutMin > 0 && lateMorning) {
+    want('pm', 'workout1', `Workout — ${dayPlan.focus} (morning session)`, 'workout', '🏋️', `Moved to the afternoon because the day started late. ${dayPlan.morning.title}: ${exerciseSummary(dayPlan.morning.exercises)}`, PRIORITY.essential, morningWorkoutMin, morningWorkoutMin);
+  }
   if (eveningWorkoutMin > 0) {
     want('pm', 'workout2', `Workout — ${dayPlan.focus} (Evening)`, 'workout', '💪', `${dayPlan.evening.title}: ${exerciseSummary(dayPlan.evening.exercises)}`, PRIORITY.essential, eveningWorkoutMin, eveningWorkoutMin);
+  }
+  if (eveningWorkoutMin > 0 || (morningWorkoutMin > 0 && lateMorning)) {
     want('pm', 'freshen', 'Quick Wash & Change', 'health', '🚿', 'Rinse off and change before cooking dinner.', PRIORITY.essential, 5, 10);
   }
 
   // DINNER — pinned to DINNER_AT.
-  want('din', 'dinner_prep', 'Prepare Dinner', 'meal', '🍲', 'Start cooking. Check Meals tab for tonight.', PRIORITY.essential, 15, isWeekend ? 30 : 20);
-  want('din', 'dinner', 'Eat Dinner', 'meal', '🍽️', 'Eat well — this fuels overnight recovery.', PRIORITY.essential, 20, isWeekend ? 30 : 25);
-  want('din', 'dishes3', 'Clean Kitchen', 'routine', '🧹', 'Full clean. Good kitchen tonight = easy morning tomorrow.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
+  if (!pastDinner) {
+    want('din', 'dinner_prep', 'Prepare Dinner', 'meal', '🍲', 'Start cooking. Check Meals tab for tonight.', PRIORITY.essential, 15, isWeekend ? 30 : 20, { role: 'prep' });
+    want('din', 'dinner', 'Eat Dinner', 'meal', '🍽️', 'Eat well — this fuels overnight recovery.', PRIORITY.essential, 20, isWeekend ? 30 : 25, { role: 'eat' });
+    want('din', 'dishes3', 'Clean Kitchen', 'routine', '🧹', 'Full clean. Good kitchen tonight = easy morning tomorrow.', PRIORITY.chores, 5, isWeekend ? 15 : 10, { role: 'after' });
+  }
 
   // EVENING — wind down to bed.
   if (dayPlan.evening.isRest) want('eve', 'recovery', 'Active Recovery — Stretch', 'workout', '🧘', 'Rest day evening — light stretching, no heavy sets.', PRIORITY.essential, 10, 15);
@@ -261,9 +279,9 @@ function buildTodayBlocks(ctx, isWeekend) {
   want('eve', 'review', 'Daily Review', 'routine', '📝', 'What did you learn today? What to do differently? Write 3 lines.', PRIORITY.chores, 5, 15);
   want('eve', 'night_prep', 'Night Prep', 'routine', '🌙', 'Set clothes, pack bag, set alarm. Drink milk before bed.', PRIORITY.essential, 10, 15);
 
-  // ── PASS 2: fit each segment into the minutes it actually has ───────────
-  // Too full  → shrink toward `min`, lowest priority first, then drop whole
-  //             blocks (never essential ones).
+  // ── PASS 2: fit a stretch of the day into the minutes it actually has ───
+  // Too full  → shrink toward `min`, lowest priority (and latest in the list) first,
+  //             then drop whole blocks (never essential ones).
   // Too empty → spare minutes go to `grow` blocks (work), up to their max;
   //             anything left over lands on the last one so there are no gaps.
   const dropped = [];
@@ -281,9 +299,20 @@ function buildTodayBlocks(ctx, isWeekend) {
         if (cut > 0) w.duration -= cut;
       }
     }
+    // Still too full: squeeze work blocks below their normal minimum (latest
+    // first) before giving any of them up. A short focused block beats an
+    // empty gap and a dropped task.
+    for (const w of alloc.filter((x) => x.squeeze != null).reverse()) {
+      const over = total() - budget;
+      if (over <= 0) break;
+      const cut = Math.min(w.duration - w.squeeze, over);
+      if (cut > 0) w.duration -= cut;
+    }
+    // Last resort: drop whole blocks, lowest tier first and, inside a tier, the
+    // LATEST in the list first — the list is in priority order, so the top
+    // client block is the last work block to go.
     for (let tier = PRIORITY.leisure; tier > PRIORITY.essential && total() > budget; tier--) {
-      const tierItems = alloc.filter((x) => x.priority === tier).sort((a, b) => a.duration - b.duration);
-      for (const w of tierItems) {
+      for (const w of alloc.filter((x) => x.priority === tier && x.duration > 0).reverse()) {
         if (total() <= budget) break;
         dropped.push({ id: w.id, label: w.label });
         alloc = alloc.filter((x) => x.id !== w.id);
@@ -317,43 +346,62 @@ function buildTodayBlocks(ctx, isWeekend) {
     blocks.push({ id: w.id, time: m2t(cursor), label: w.label, type: w.type, duration: w.duration, emoji: w.emoji, note: w.note });
     cursor += w.duration;
   };
-  // Meal segments [prep, eat, cleanup]: the meal starts exactly at its pinned
-  // time and prep finishes right before it. Only if the stretch before it
-  // genuinely overran does the meal start late.
+  const prepOf = (seg) => bySeg(seg).find((w) => w.role === 'prep');
+  const hasMeal = (seg) => bySeg(seg).some((w) => w.role === 'eat');
+
+  // Meal: the eating starts exactly at its pinned time and prep finishes right
+  // before it. Only if the stretch before it genuinely overran does the meal
+  // start late.
   function placeMeal(seg, eatAt) {
-    const [prep, eat, after] = bySeg(seg);
-    cursor = Math.max(cursor, eatAt - prep.ideal);
-    place({ ...prep, duration: prep.ideal });
+    const items = bySeg(seg);
+    const prep = items.find((w) => w.role === 'prep');
+    const eat = items.find((w) => w.role === 'eat');
+    const after = items.find((w) => w.role === 'after');
+    if (prep) {
+      cursor = Math.max(cursor, eatAt - prep.ideal);
+      place({ ...prep, duration: prep.ideal });
+    }
     cursor = Math.max(cursor, eatAt);
     place({ ...eat, duration: eat.ideal });
-    place({ ...after, duration: after.ideal });
+    if (after) place({ ...after, duration: after.ideal });
   }
 
-  // Work out where each work stretch must end so the meal lands on its pinned time.
-  const lunchPrepIdeal = bySeg('mid')[0].ideal;
-  const dinnerPrepIdeal = bySeg('din')[0].ideal;
+  // Walk the day as alternating "flexible stretch" and "pinned meal" steps. A
+  // meal that isn't happening (already eaten, or too late in the day) simply
+  // lets the stretches on either side merge into one.
+  const flow = [];
+  let stretch = [];
+  for (const seg of ['am', 'mid', 'pm', 'din', 'eve']) {
+    if (seg === 'mid' || seg === 'din') {
+      if (hasMeal(seg)) {
+        flow.push({ kind: 'fit', items: stretch });
+        flow.push({ kind: 'meal', seg, at: seg === 'mid' ? LUNCH_AT : DINNER_AT });
+        stretch = [];
+      }
+    } else {
+      stretch = stretch.concat(bySeg(seg));
+    }
+  }
+  flow.push({ kind: 'fit', items: stretch, last: true });
 
-  // MORNING
-  const amEnd = LUNCH_AT - lunchPrepIdeal;
-  for (const w of fitSegment(bySeg('am'), Math.max(0, amEnd - cursor))) place(w);
+  flow.forEach((step, i) => {
+    if (step.kind === 'meal') { placeMeal(step.seg, step.at); return; }
+    if (step.last) {
+      // Final stretch runs to bedtime: earliest if the ideal evening fits, else the latest.
+      const ideal = step.items.reduce((s, w) => s + w.ideal, 0);
+      const bed = cursor + ideal <= BEDTIME_EARLIEST ? BEDTIME_EARLIEST : BEDTIME_LATEST;
+      for (const w of fitSegment(step.items, Math.max(0, bed - cursor))) place(w);
+    } else {
+      const next = flow[i + 1]; // always the meal that follows this stretch
+      const nextPrep = prepOf(next.seg);
+      const end = next.at - (nextPrep ? nextPrep.ideal : 0);
+      for (const w of fitSegment(step.items, Math.max(0, end - cursor))) place(w);
+    }
+  });
 
-  // LUNCH
-  placeMeal('mid', LUNCH_AT);
-
-  // AFTERNOON
-  const pmEnd = DINNER_AT - dinnerPrepIdeal;
-  for (const w of fitSegment(bySeg('pm'), Math.max(0, pmEnd - cursor))) place(w);
-
-  // DINNER
-  placeMeal('din', DINNER_AT);
-
-  // EVENING — bedtime is the earliest allowed if the ideal evening fits, else the latest.
-  const eveIdeal = bySeg('eve').reduce((s, w) => s + w.ideal, 0);
-  const targetBedtime = cursor + eveIdeal <= BEDTIME_EARLIEST ? BEDTIME_EARLIEST : BEDTIME_LATEST;
-  for (const w of fitSegment(bySeg('eve'), Math.max(0, targetBedtime - cursor))) place(w);
-
+  // Sleep is always measured to the NEXT normal wake time, never to `startAt`.
   const bedMod = cursor % 1440;
-  const sleepMinutes = Math.max(MIN_SLEEP_MINUTES, bedMod < wake ? wake - bedMod : (1440 - bedMod) + wake);
+  const sleepMinutes = Math.max(MIN_SLEEP_MINUTES, bedMod < defaultWake ? defaultWake - bedMod : (1440 - bedMod) + defaultWake);
   blocks.push({ id: 'sleep', time: m2t(cursor), label: 'Sleep', type: 'sleep', duration: sleepMinutes, emoji: '😴', note: `Phone in another room. ~${(sleepMinutes / 60).toFixed(1)}h of sleep — protect it even on a full day.` });
 
   if (dropped.length) blocks._droppedToday = dropped; // surfaced to the UI below, not persisted as a real block
@@ -407,72 +455,36 @@ async function loadTodayEventBlocks() {
   }
 }
 
+// Puts today's actual planned meal (from the Meals tab) into the prepare/eat
+// reminders, so the planner's meal blocks carry the same detail the old
+// fixed-time meal reminders had. Skips anything the user edited by hand
+// because overrides are layered on top afterwards.
+const MEAL_BLOCKS = { snack: 'snack', breakfast: 'breakfast', lunch: 'lunch', dinner: 'dinner' };
+const MEAL_PREP_FOR = { bfast_prep: 'breakfast', lunch_prep: 'lunch', dinner_prep: 'dinner' };
+function withMealNotes(blocks, mealWeekPlan) {
+  const meals = mealWeekPlan?.[weekdayPlanIndex(new Date())];
+  if (!meals) return blocks;
+  return blocks.map((b) => {
+    const eatSlot = MEAL_BLOCKS[b.id];
+    if (eatSlot && meals[eatSlot]) {
+      const m = meals[eatSlot];
+      return { ...b, note: [m.name, m.cal ? `${m.cal} cal` : null, m.protein ? `${m.protein} protein` : null].filter(Boolean).join(' · ') };
+    }
+    const prepSlot = MEAL_PREP_FOR[b.id];
+    if (prepSlot && meals[prepSlot]) {
+      const m = meals[prepSlot];
+      const eat = blocks.find((x) => x.id === prepSlot);
+      const first = String(m.ingredients || '').split(',')[0].trim();
+      return { ...b, note: `${m.name}${eat ? ` — ready by ${fmt12(eat.time)}` : ''}${first ? `. Start with: ${first}` : ''}` };
+    }
+    return b;
+  });
+}
+
 async function requestNotif() {
   if (!('Notification' in window)) return false;
   if (Notification.permission === 'granted') return true;
   return (await Notification.requestPermission()) === 'granted';
-}
-
-function fireNotif(title, body, requireInteraction = false) {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  try { new Notification(title, { body, icon:'/icon-192.png', badge:'/icon-192.png', requireInteraction, vibrate:[200,100,200,100,200] }); } catch(e) {}
-}
-
-// enableNotifs(), handleEditSave(), and generateAIDay() (the "I'm Awake" /
-// "Regenerate My Day" button) all call this. It used to just queue a fresh
-// batch of setTimeouts on top of whatever an earlier call had already
-// queued, with nothing anywhere to cancel the old batch — so tapping
-// "Regenerate My Day" left the PREVIOUS schedule's notifications still
-// sitting in the browser's timer queue, and they'd fire later with the old
-// labels/times/notes even though the planner on screen now showed the new
-// plan. Tracking every timer id this function hands out and clearing all of
-// them before queuing the next batch means only the current schedule is
-// ever actually live.
-let scheduledTimerIds = [];
-
-function scheduleAll(blocks) {
-  scheduledTimerIds.forEach(clearTimeout);
-  scheduledTimerIds = [];
-
-  const now = new Date();
-  const nowMs = now.getTime();
-  blocks.forEach(b => {
-    const bMins = t2m(b.time);
-    const startMs = new Date().setHours(Math.floor(bMins/60), bMins%60, 0, 0);
-    const diff = startMs - nowMs;
-    const msgs = NOTIF_MSGS[b.type] ? NOTIF_MSGS[b.type](b) : { title:`⏰ ${b.label}`, body: b.note };
-    const important = ['meal','coding','learning','sleep','workout','event'].includes(b.type);
-
-    if (diff > 0 && diff < 86400000) {
-      scheduledTimerIds.push(setTimeout(() => fireNotif(msgs.title, msgs.body, important), diff));
-    }
-    // Cook warning 25 min before eating
-    if (b.type === 'meal' && b.label.includes('Eat')) {
-      const d = startMs - 25*60*1000 - nowMs;
-      if (d > 0) scheduledTimerIds.push(setTimeout(() => fireNotif('🍳 START COOKING NOW', `Start preparing now so ${b.label.replace('Eat ','')} is ready by ${fmt12(b.time)}`, true), d));
-    }
-    // 5 min warning for work blocks
-    if (b.type === 'coding' || b.type === 'learning') {
-      const d = startMs - 5*60*1000 - nowMs;
-      if (d > 0) scheduledTimerIds.push(setTimeout(() => fireNotif(`⚠️ ${b.label} in 5 minutes`, `Put your phone down now. ${b.note}`), d));
-    }
-    // 5 min warning for workouts
-    if (b.type === 'workout') {
-      const d = startMs - 5*60*1000 - nowMs;
-      if (d > 0) scheduledTimerIds.push(setTimeout(() => fireNotif(`🏋️ ${b.label} in 5 minutes`, `Get changed and get water ready. ${b.note}`), d));
-    }
-    // 30 min wind-down before sleep
-    if (b.type === 'sleep') {
-      const d = startMs - 30*60*1000 - nowMs;
-      if (d > 0) scheduledTimerIds.push(setTimeout(() => fireNotif('🌙 Wind Down in 30 Minutes', 'Start wrapping up everything. Put the phone down.'), d));
-    }
-    // Gaming notification
-    if (b.type === 'gaming') {
-      if (diff > 0 && diff < 86400000) {
-        scheduledTimerIds.push(setTimeout(() => fireNotif('🎮 GAMING TIME UNLOCKED', `You have ${b.duration} minutes. Enjoy!`), diff));
-      }
-    }
-  });
 }
 
 function EditModal({ block, onSave, onClose }) {
@@ -541,23 +553,26 @@ export default function PlannerPage() {
     courses?.map((c) => [c.id, c.status, c.priority, c.deadline, c.estimated_hours, c.weekly_hours, c.completed_minutes]) || [],
   ]);
 
-  // _app.js's NotificationScheduler and lib/push.js's syncReminderSettings
-  // both read a single 'planner_blocks' setting for the server-side push
-  // sender to work from — the planner itself no longer persists a fixed
-  // block list (it's generated fresh each load from Tech Hub/Jobs/workout
-  // plus today's overrides), so that setting has to be kept in sync
-  // explicitly whenever the effective schedule changes.
+  // The single exit point for every plan change (first load, I'm Awake, edit,
+  // reset, notifications switched on). It saves the plan together with the day
+  // it belongs to, then — if reminders are on — REPLACES every earlier
+  // reminder, both the in-app timers and the server push copy, with ones for
+  // exactly these blocks. Nothing else in this file schedules notifications.
   async function syncPlannerBlocksSetting(effectiveBlocks) {
     await setSetting('planner_blocks', effectiveBlocks);
+    await setSetting('planner_blocks_date', todayISO());
     try {
       const notifsOn = await getSetting('planner_notifs', false);
-      if (notifsOn) {
-        const { syncReminderSettings } = await import('../lib/push');
-        const mealWeekPlan = await getSetting('meal_week_plan', null);
-        await syncReminderSettings({ mealWeekPlan, plannerBlocks: effectiveBlocks, plannerNotifs: true });
-      }
+      if (!notifsOn) return;
+      const { syncPlannerReminders } = await import('../lib/notifications');
+      syncPlannerReminders(effectiveBlocks);
+      const { syncReminderSettings, toPushBlocks } = await import('../lib/push');
+      // mealWeekPlan is null on purpose: the planner's own prepare/eat blocks
+      // are the meal reminders now. Sending the meal plan as well would add a
+      // second, fixed-time meal schedule on top of it.
+      await syncReminderSettings({ mealWeekPlan: null, plannerBlocks: toPushBlocks(effectiveBlocks), plannerNotifs: true });
     } catch (e) {
-      console.warn('[fedha] planner_blocks resync failed:', e?.message);
+      console.warn('[fedha] planner reminders resync failed:', e?.message);
     }
   }
 
@@ -565,10 +580,17 @@ export default function PlannerPage() {
   // changes, then layer any per-day manual edits on top.
   useEffect(() => {
     async function load() {
-      const aiBlocks = await getSetting(`planner_ai_blocks_${todayISO()}`, null);
-      const generated = aiBlocks?.length ? aiBlocks : buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research, clientProjects, courses }, isWeekend);
-      setUsingAI(!!aiBlocks?.length);
-      setDroppedToday(generated._droppedToday || []);
+      // "Anchored" = built from the moment I'm Awake was pressed (stored under
+      // the same key the AI version used, so an existing plan keeps loading).
+      const mealWeekPlan = await getSetting('meal_week_plan', null);
+      const anchoredBlocks = await getSetting(`planner_ai_blocks_${todayISO()}`, null);
+      const isAnchored = !!anchoredBlocks?.length;
+      const raw = isAnchored
+        ? anchoredBlocks
+        : buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research, clientProjects, courses }, isWeekend);
+      const generated = withMealNotes(raw, mealWeekPlan);
+      setUsingAI(isAnchored);
+      setDroppedToday(isAnchored ? await getSetting(`planner_dropped_${todayISO()}`, []) : (raw._droppedToday || []));
       const overrides = await getSetting(`planner_overrides_${todayISO()}`, {});
       const patched = generated.map((b) => (overrides[b.id] ? { ...b, ...overrides[b.id] } : b));
       // Some override entries aren't patches to a generated block at all —
@@ -608,23 +630,21 @@ export default function PlannerPage() {
   async function enableNotifs() {
     const ok = await requestNotif();
     setNotifPerm(ok ? 'granted' : 'denied');
-    if (ok) {
-      setNotifEnabled(true);
-      await setSetting('planner_notifs', true);
-      scheduleAll(blocks);
-      fireNotif('🟢 Fedha Planner Active', `All reminders are on for today's ${isWeekend ? 'weekend' : 'weekday'} schedule.`, false);
+    if (!ok) return;
+    setNotifEnabled(true);
+    await setSetting('planner_notifs', true);
 
-      // Subscribe to real push right away so reminders still fire once you
-      // close the app — no need to wait for the next reload.
-      try {
-        const { ensurePushSubscription, syncReminderSettings } = await import('../lib/push');
-        await ensurePushSubscription();
-        const mealWeekPlan = await getSetting('meal_week_plan', null);
-        await syncReminderSettings({ mealWeekPlan, plannerBlocks: blocks, plannerNotifs: true });
-      } catch (e) {
-        console.warn('[fedha] push subscription on enable failed:', e?.message);
-      }
+    // Subscribe to real push first, so reminders still fire once the app is
+    // closed. Then one sync call schedules the in-app timers AND mirrors the
+    // plan to the server, replacing anything that was there before.
+    try {
+      const { ensurePushSubscription } = await import('../lib/push');
+      await ensurePushSubscription();
+    } catch (e) {
+      console.warn('[fedha] push subscription on enable failed:', e?.message);
     }
+    await syncPlannerBlocksSetting(blocks);
+    showNotif({ tag: 'planner_active', title: '🟢 Fedha Planner Active', body: `Reminders are on for today's ${isWeekend ? 'weekend' : 'weekday'} schedule.`, vibrate: VIBRATE.gentle });
   }
 
   async function handleEditSave(updated) {
@@ -668,70 +688,60 @@ export default function PlannerPage() {
     setBlocks(nextBlocks);
     setEditBlock(null);
     await syncPlannerBlocksSetting(nextBlocks);
-    if (notifEnabled) scheduleAll(nextBlocks);
   }
 
   async function resetToday() {
     await setSetting(`planner_overrides_${todayISO()}`, {});
     await setSetting(`planner_ai_blocks_${todayISO()}`, null);
+    await setSetting(`planner_dropped_${todayISO()}`, []);
     setUsingAI(false);
     setAiError(null);
-    const fresh = buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research }, isWeekend);
+    // Full context (this used to leave out client projects and courses, so a
+    // reset quietly dropped paid client work from the plan).
+    const fresh = buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research, clientProjects, courses }, isWeekend);
     setDroppedToday(fresh._droppedToday || []);
-    const withEvents = applyEventBlocks(fresh, await loadTodayEventBlocks());
+    const mealWeekPlan = await getSetting('meal_week_plan', null);
+    const withEvents = applyEventBlocks(withMealNotes(fresh, mealWeekPlan), await loadTodayEventBlocks());
     setBlocks(withEvents);
     await syncPlannerBlocksSetting(withEvents);
   }
 
-  // "I'm Awake" — replaces the fixed wake-time assumption with whatever
-  // moment the person actually presses this. Builds the same rich context
-  // Jarvis already sees (money, meals, hackathons, jobs, projects, research)
-  // plus today's workout plan, sends it to /api/planner-generate, and lays
-  // out the returned relative durations starting from right now. Falls
-  // back to leaving the current (deterministic) schedule untouched if
-  // anything about the call fails — this is additive, never destructive
-  // on failure.
-  async function generateAIDay() {
+  // "I'm Awake" — rebuilds the REST of today starting from this exact moment.
+  // It uses the same builder as the automatic plan (so lunch and dinner stay
+  // pinned to 13:00 / 19:00, client work gets the biggest share, workouts sit
+  // clear of meals) with two differences: the clock starts now instead of at
+  // the usual wake time, and anything already ticked off today is not
+  // scheduled again. It used to ask a language model to invent the whole day
+  // from a long context dump; the model knew nothing about the pinned meals,
+  // reused block ids between runs, and could return a different shape every
+  // time, which is why the result felt random.
+  async function planFromNow() {
     setAiGenerating(true); setAiError(null);
     try {
       const nowDate = new Date();
-      const nowMins = nowDate.getHours() * 60 + nowDate.getMinutes();
+      // Round up to the next 5 minutes so the first block starts on a clean time.
+      const startAt = Math.ceil((nowDate.getHours() * 60 + nowDate.getMinutes() + 1) / 5) * 5;
 
-      const dayIdx = weekdayPlanIndex(nowDate);
-      const dayPlan = WEEKLY_PLAN[dayIdx];
-      const workoutDone = blocks.some((b) => b.type === 'workout' && completedIds.includes(b.id));
-      const workoutSummary = workoutDone
-        ? "Today's workout already completed."
-        : `Today's workout plan (${dayPlan.focus}): morning — ${dayPlan.morning.title}: ${exerciseSummary(dayPlan.morning.exercises)}${dayPlan.evening.isRest ? '; evening is a rest day' : `; evening — ${dayPlan.evening.title}: ${exerciseSummary(dayPlan.evening.exercises)}`}. Not yet done today.`;
-
-      const baseContext = await buildJarvisContext();
-      const context = `${baseContext}\n\n— TODAY'S WORKOUT PLAN —\n${workoutSummary}\n\n— PLANNER PRIORITY RULE —\nActive paid client projects are the highest-priority work. If there are multiple clients, prioritize by nearest deadline first, then outstanding balance, then estimated duration. Ordinary side projects should wait until client commitments are allocated. Use registered hackathons and Tech Hub events from the context; do not invent events or projects.`;
-
-      const res = await fetch('/api/planner-generate', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ context, nowLabel: nowDate.toLocaleString(), isWeekend }),
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-
-      let cursor = nowMins;
-      const computed = (data.blocks || []).map((b, i) => {
-        const block = { id: `ai_${i}`, time: m2t(cursor), label: b.label, type: b.type, duration: b.duration_minutes, emoji: b.emoji, note: b.note };
-        cursor += b.duration_minutes;
-        return block;
-      });
-      if (!computed.length) throw new Error('No blocks generated');
+      const built = buildTodayBlocks(
+        { hackathons, startups, projects, onlineJobs, research, clientProjects, courses },
+        isWeekend,
+        { startAt, doneIds: completedIds },
+      );
+      const mealWeekPlan = await getSetting('meal_week_plan', null);
+      const computed = withMealNotes(built, mealWeekPlan);
+      if (!computed.length) throw new Error('Nothing left to plan today.');
+      const dropped = built._droppedToday || [];
 
       await setSetting(`planner_overrides_${todayISO()}`, {});
       await setSetting(`planner_ai_blocks_${todayISO()}`, computed);
+      await setSetting(`planner_dropped_${todayISO()}`, dropped);
       const withEvents = applyEventBlocks(computed, await loadTodayEventBlocks());
       setUsingAI(true);
-      setDroppedToday([]);
+      setDroppedToday(dropped);
       setBlocks(withEvents);
       await syncPlannerBlocksSetting(withEvents);
-      if (notifEnabled) scheduleAll(withEvents);
     } catch (e) {
-      setAiError(e.message || 'Could not generate your day — try again in a moment.');
+      setAiError(e.message || 'Could not plan your day — try again.');
     } finally {
       setAiGenerating(false);
     }
@@ -772,23 +782,23 @@ export default function PlannerPage() {
             <h1 style={{ fontSize:22, fontWeight:700 }}>Daily Planner</h1>
             <span className="font-num" style={{ fontSize:13, color:'var(--text-3)' }}>{format(now,'h:mm a')}</span>
           </div>
-          <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:16 }}>{format(now,'EEEE, d MMMM yyyy')} · {usingAI ? 'AI-planned from your day' : "auto-built from Tech Hub, My Jobs & today's workout"}</div>
+          <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:16 }}>{format(now,'EEEE, d MMMM yyyy')} · {usingAI ? 'planned from when you woke up' : "auto-built from Tech Hub, My Jobs & today's workout"}</div>
 
-          <button onClick={generateAIDay} disabled={aiGenerating}
+          <button onClick={planFromNow} disabled={aiGenerating}
             style={{ width:'100%', padding:'14px 16px', background: usingAI ? 'var(--card-2)' : 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.15))', border: `1px solid ${usingAI ? 'var(--border)' : 'rgba(16,185,129,0.35)'}`, borderRadius:12, display:'flex', alignItems:'center', gap:12, cursor: aiGenerating ? 'default' : 'pointer', marginBottom:14, textAlign:'left', fontFamily:'Outfit' }}>
             <span style={{ fontSize:22 }}>{aiGenerating ? '⏳' : '☀️'}</span>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:14, fontWeight:700, color:'var(--text)' }}>
-                {aiGenerating ? 'Planning your day…' : usingAI ? 'Regenerate My Day' : "I'm Awake — Plan My Day"}
+                {aiGenerating ? 'Planning your day…' : usingAI ? 'Re-plan From Now' : "I'm Awake — Plan My Day"}
               </div>
               <div style={{ fontSize:12, color:'var(--text-3)' }}>
-                {aiGenerating ? 'Reading your money, deadlines, research & workouts' : 'AI builds the rest of today from right now, based on everything active in Fedha'}
+                {aiGenerating ? 'Fitting your day around lunch and dinner' : 'Rebuilds the rest of today from right now. Lunch stays at 1 PM, dinner at 7 PM, work fills the gaps'}
               </div>
             </div>
           </button>
           {aiError && (
             <div style={{ padding:'10px 14px', background:'var(--red-dim)', border:'1px solid rgba(239,68,68,0.2)', borderRadius:10, fontSize:13, color:'var(--red)', marginBottom:14 }}>
-              ⚠ {aiError}{aiError.includes('GROQ') && <div style={{ marginTop:6, color:'var(--text-3)' }}>Add GROQ_API_KEY to your environment variables.</div>}
+              ⚠ {aiError}
             </div>
           )}
 
@@ -814,7 +824,7 @@ export default function PlannerPage() {
           )}
           {droppedToday.length > 0 && (
             <div style={{ padding:'10px 14px', background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.25)', borderRadius:10, fontSize:13, color:'#FCD34D', marginBottom:14 }}>
-              ⚠️ Today's plan was too full to fit everything before bedtime, so this got dropped: {droppedToday.map((d) => d.label).join(', ')}.
+              ⚠️ Not enough time left for everything today, so this was left out: {droppedToday.map((d) => d.label).join(', ')}.
             </div>
           )}
 

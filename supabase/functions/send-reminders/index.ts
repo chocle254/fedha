@@ -98,16 +98,24 @@ function buildMealNotifs(mealPlan: any, dayIdx: number, nowMins: number, dateKey
 
 // ─── PLANNER REMINDER RULES (mirrors schedulePlannerReminders) ──────────────
 function blockTitle(block: any): string {
+  const label = String(block.label ?? '');
   const titles: Record<string, string> = {
-    meal: `🍽️ ${block.label}`,
-    study: `📚 Study time — ${block.label}`,
-    coding: `💻 Coding block — start now`,
-    school: `🏫 ${block.label}`,
-    routine: `⏰ ${block.label}`,
-    personal: block.label?.toLowerCase().includes('bae') ? `💕 ${block.label}` : `🎧 ${block.label}`,
+    meal: /^prepare/i.test(label) ? `🍳 Start cooking — ${label.replace(/^prepare\s+/i, '')}` : `🍽️ ${label}`,
+    study: `📚 Study time — ${label}`,
+    coding: `💻 ${label}`,
+    learning: `🎓 ${label}`,
+    research: `🔍 ${label}`,
+    workout: `🏋️ ${label}`,
+    health: `🛁 ${label}`,
+    chores: `🏠 ${label}`,
+    gaming: `🎮 Gaming time`,
+    event: `📅 ${label} starts now`,
+    school: `🏫 ${label}`,
+    routine: `⏰ ${label}`,
+    personal: label.toLowerCase().includes('bae') ? `💕 ${label}` : `🎧 ${label}`,
     sleep: `😴 Time to sleep`,
   };
-  return titles[block.type] || `⏰ ${block.label}`;
+  return titles[block.type] || `⏰ ${label}`;
 }
 
 function buildPlannerNotifs(blocks: any[], nowMins: number, dateKey: string): Notif[] {
@@ -122,22 +130,12 @@ function buildPlannerNotifs(blocks: any[], nowMins: number, dateKey: string): No
         key: `block_${block.id}_${dateKey}`,
         title: blockTitle(block),
         body: block.note,
-        requireInteraction: ['study', 'coding', 'sleep', 'meal'].includes(block.type),
+        requireInteraction: ['study', 'coding', 'learning', 'sleep', 'meal', 'event'].includes(block.type),
       });
     }
 
-    if (block.type === 'meal' && block.label?.includes('Eat')) {
-      const warnMins = blockMins - 25;
-      if (warnMins > 0 && isDueNow(minutesToHHMM(warnMins), nowMins)) {
-        out.push({
-          key: `block_warn_${block.id}_${dateKey}`,
-          title: `🍳 Start cooking in 25 min`,
-          body: `Prepare ${block.label.replace('Eat ', '')} now so it's ready by ${fmt12(block.time)}`,
-          requireInteraction: true,
-          vibrate: [300, 100, 300, 100, 300],
-        });
-      }
-    }
+    // No "start cooking in 25 min" warning: every meal has its own "Prepare …"
+    // block in the planner, which sends its own reminder at the right time.
 
     if (block.type === 'school') {
       const warnMins = blockMins - 12;
@@ -163,13 +161,24 @@ function buildPlannerNotifs(blocks: any[], nowMins: number, dateKey: string): No
       }
     }
 
-    if (['study', 'coding'].includes(block.type)) {
+    if (['study', 'coding', 'learning', 'research'].includes(block.type)) {
       const warnMins = blockMins - 5;
       if (warnMins > 0 && isDueNow(minutesToHHMM(warnMins), nowMins)) {
         out.push({
           key: `block_5min_${block.id}_${dateKey}`,
           title: `⚠️ ${block.label} in 5 minutes`,
-          body: 'Put your phone down and get ready. Phone goes in another room.',
+          body: 'Put your phone down and get ready.',
+        });
+      }
+    }
+
+    if (block.type === 'workout') {
+      const warnMins = blockMins - 5;
+      if (warnMins > 0 && isDueNow(minutesToHHMM(warnMins), nowMins)) {
+        out.push({
+          key: `block_5min_${block.id}_${dateKey}`,
+          title: `🏋️ ${block.label} in 5 minutes`,
+          body: 'Get changed and get water ready.',
         });
       }
     }

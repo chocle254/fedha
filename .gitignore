@@ -1,0 +1,10 @@
+# Secrets and local env files — never commit these
+.env
+.env.*
+!.env.example
+.vercel
+
+# Dependencies and build output
+node_modules/
+.next/
+*.log

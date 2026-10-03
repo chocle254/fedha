@@ -93,6 +93,15 @@ export function cancelAll() {
   Object.keys(scheduled).forEach(id => delete scheduled[id]);
 }
 
+// Cancels every pending schedule whose id starts with `prefix`. The planner
+// uses this to throw away ALL of the previous plan's reminders before
+// scheduling the new one, without touching meal or event reminders.
+export function cancelByPrefix(prefix) {
+  Object.keys(scheduled).forEach((id) => {
+    if (id.startsWith(prefix)) { clearTimeout(scheduled[id]); delete scheduled[id]; }
+  });
+}
+
 // ─── MEAL REMINDERS ───────────────────────────────────────────────────────────
 export function scheduleMealReminders(meals) {
   if (!notifGranted() || !meals) return;
@@ -129,74 +138,84 @@ export function scheduleMealReminders(meals) {
 }
 
 // ─── PLANNER BLOCK REMINDERS ──────────────────────────────────────────────────
+// ONE scheduler for the planner. Every caller (the planner page, the app-level
+// scheduler in _app.js) goes through here, and each call first cancels every
+// earlier `block_*` timer, so scheduling is idempotent: calling it twice, or
+// regenerating the day, can never leave a previous plan's reminders behind.
+const WORK_TYPES = new Set(['coding', 'learning', 'research']);
+
+function toMins(t) { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; }
+function fromMins(n) { return `${String(Math.floor(n / 60) % 24).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`; }
+
+function blockMessage(b) {
+  const label = String(b.label || '');
+  switch (b.type) {
+    case 'meal':
+      if (/^prepare/i.test(label)) return { title: `🍳 Start cooking — ${label.replace(/^prepare\s+/i, '')}`, body: b.note };
+      if (/^eat/i.test(label)) return { title: `🍽️ ${label}`, body: b.note };
+      return { title: `🍌 ${label}`, body: b.note };
+    case 'coding':   return { title: `💻 ${label}`, body: `Phone away. ${b.note}` };
+    case 'learning': return { title: `🎓 ${label}`, body: b.note };
+    case 'research': return { title: `🔍 ${label}`, body: b.note };
+    case 'workout':  return { title: `🏋️ ${label}`, body: b.note };
+    case 'health':   return { title: `🛁 ${label}`, body: b.note };
+    case 'gaming':   return { title: '🎮 Gaming time', body: b.note };
+    case 'chores':   return { title: `🏠 ${label}`, body: b.note };
+    case 'event':    return { title: `📅 ${label} starts now`, body: b.note };
+    case 'personal': return { title: /bae/i.test(label) ? `💕 ${label}` : `🎧 ${label}`, body: b.note };
+    case 'sleep':    return { title: '😴 Time to sleep', body: b.note };
+    default:         return { title: `⏰ ${label}`, body: b.note };
+  }
+}
+
+function blockVibrateFor(b) {
+  if (b.type === 'sleep') return VIBRATE.urgent;
+  if (b.type === 'meal' || b.type === 'event') return VIBRATE.strong;
+  if (['coding', 'learning', 'research', 'workout'].includes(b.type)) return VIBRATE.medium;
+  return VIBRATE.gentle;
+}
+
 export function schedulePlannerReminders(blocks) {
-  if (!notifGranted() || !blocks) return;
+  if (!notifGranted() || !Array.isArray(blocks)) return;
 
-  blocks.forEach(block => {
-    const [h, m] = block.time.split(':').map(Number);
+  cancelByPrefix('block_'); // drop every reminder from any earlier version of the plan
 
-    scheduleAt(block.time, `block_${block.id}`, {
-      title: blockTitle(block),
-      body: block.note,
-      tag: `block_${block.id}`,
-      vibrate: blockVibrate(block),
-      requireInteraction: ['study', 'coding', 'sleep', 'meal'].includes(block.type),
+  const warn = (b, minsBefore, key, opts) => {
+    const at = toMins(b.time) - minsBefore;
+    if (at <= 0) return;
+    scheduleAt(fromMins(at), `block_${key}_${b.id}`, { tag: `block_${key}_${b.id}`, ...opts });
+  };
+
+  blocks.forEach((b) => {
+    if (!b?.time) return;
+    const msg = blockMessage(b);
+    scheduleAt(b.time, `block_${b.id}`, {
+      title: msg.title,
+      body: msg.body,
+      tag: `block_${b.id}`,
+      vibrate: blockVibrateFor(b),
+      requireInteraction: ['coding', 'learning', 'sleep', 'meal', 'event'].includes(b.type),
     });
 
-    if (block.type === 'meal' && block.label.includes('Eat')) {
-      const warnMins = h * 60 + m - 25;
-      if (warnMins > 0) {
-        const warnTime = `${String(Math.floor(warnMins / 60)).padStart(2,'0')}:${String(warnMins % 60).padStart(2,'0')}`;
-        scheduleAt(warnTime, `block_warn_${block.id}`, {
-          title: `🍳 Start cooking in 25 min`,
-          body: `Prepare ${block.label.replace('Eat ','')} now so it's ready by ${formatTime12(block.time)}`,
-          tag: `block_warn_${block.id}`,
-          vibrate: VIBRATE.strong,
-          requireInteraction: true,
-        });
-      }
+    // The planner has a separate "Prepare …" block before every meal, so there
+    // is no extra "start cooking in 25 min" warning any more — it would just
+    // duplicate that block's own reminder.
+    if (WORK_TYPES.has(b.type)) {
+      warn(b, 5, '5min', { title: `⚠️ ${b.label} in 5 minutes`, body: 'Put your phone down and get ready.', vibrate: VIBRATE.medium });
     }
-
-    if (block.type === 'school') {
-      const warnMins = h * 60 + m - 12;
-      if (warnMins > 0) {
-        const warnTime = `${String(Math.floor(warnMins / 60)).padStart(2,'0')}:${String(warnMins % 60).padStart(2,'0')}`;
-        scheduleAt(warnTime, `block_walk_${block.id}`, {
-          title: `🚶 Leave for school NOW`,
-          body: `10-min walk — arrive by ${formatTime12(block.time)}. Pack your bag.`,
-          tag: `block_walk_${block.id}`,
-          vibrate: VIBRATE.urgent,
-          requireInteraction: true,
-        });
-      }
+    if (b.type === 'workout') {
+      warn(b, 5, '5min', { title: `🏋️ ${b.label} in 5 minutes`, body: 'Get changed and get water ready.', vibrate: VIBRATE.medium });
     }
-
-    if (block.type === 'sleep') {
-      const warnMins = h * 60 + m - 30;
-      if (warnMins > 0) {
-        const warnTime = `${String(Math.floor(warnMins / 60)).padStart(2,'0')}:${String(warnMins % 60).padStart(2,'0')}`;
-        scheduleAt(warnTime, `block_sleep_warn_${block.id}`, {
-          title: `🌙 Wind down — sleep in 30 mins`,
-          body: 'Put the phone down. Prepare for bed. 9 hours = max muscle growth.',
-          tag: `block_sleep_warn_${block.id}`,
-          vibrate: VIBRATE.gentle,
-        });
-      }
-    }
-
-    if (['study', 'coding'].includes(block.type)) {
-      const warnMins = h * 60 + m - 5;
-      if (warnMins > 0) {
-        const warnTime = `${String(Math.floor(warnMins / 60)).padStart(2,'0')}:${String(warnMins % 60).padStart(2,'0')}`;
-        scheduleAt(warnTime, `block_5min_${block.id}`, {
-          title: `⚠️ ${block.label} in 5 minutes`,
-          body: 'Put your phone down and get ready. Phone goes in another room.',
-          tag: `block_5min_${block.id}`,
-          vibrate: VIBRATE.medium,
-        });
-      }
+    if (b.type === 'sleep') {
+      warn(b, 30, 'sleep_warn', { title: '🌙 Wind down — sleep in 30 mins', body: 'Put the phone down. Start wrapping up.', vibrate: VIBRATE.gentle });
     }
   });
+}
+
+// Convenience used after any plan change: replaces all planner reminders with
+// the ones for `blocks`.
+export function syncPlannerReminders(blocks) {
+  schedulePlannerReminders(blocks);
 }
 
 // ─── EVENT REMINDERS ──────────────────────────────────────────────────────────
@@ -222,32 +241,6 @@ export function scheduleEventReminder(event, startDate) {
 function formatTime12(t) {
   const [h, m] = t.split(':').map(Number);
   return `${h % 12 || 12}:${String(m).padStart(2,'0')} ${h >= 12 ? 'PM' : 'AM'}`;
-}
-
-function blockTitle(block) {
-  const titles = {
-    meal:     `🍽️ ${block.label}`,
-    study:    `📚 Study time — ${block.label}`,
-    coding:   `💻 Coding block — start now`,
-    school:   `🏫 ${block.label}`,
-    routine:  `⏰ ${block.label}`,
-    personal: block.label.toLowerCase().includes('bae') ? `💕 ${block.label}` : `🎧 ${block.label}`,
-    sleep:    `😴 Time to sleep`,
-  };
-  return titles[block.type] || `⏰ ${block.label}`;
-}
-
-function blockVibrate(block) {
-  const patterns = {
-    meal:     VIBRATE.strong,
-    study:    VIBRATE.medium,
-    coding:   VIBRATE.medium,
-    school:   VIBRATE.urgent,
-    routine:  VIBRATE.gentle,
-    personal: VIBRATE.gentle,
-    sleep:    VIBRATE.urgent,
-  };
-  return patterns[block.type] || VIBRATE.medium;
 }
 
 // ─── MISSED BLOCK ALERT ───────────────────────────────────────────────────────

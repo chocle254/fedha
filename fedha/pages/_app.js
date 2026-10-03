@@ -26,40 +26,69 @@ function NotificationScheduler() {
   useEffect(() => {
     async function setup() {
       if (typeof window === 'undefined') return;
-      const { notifGranted, scheduleMealReminders, schedulePlannerReminders, cancelAll } = await import('../lib/notifications');
+      const { notifGranted, scheduleMealReminders, schedulePlannerReminders, scheduleEventReminder, cancelByPrefix } = await import('../lib/notifications');
       if (!notifGranted()) return;
 
       const { getSetting } = await import('../lib/db');
       const { todayISO } = await import('../lib/utils');
 
-      // Cancel all existing schedules first (prevent duplicates on re-render)
-      cancelAll();
+      // Cancel the planner and meal schedules first (prevent duplicates on
+      // re-render). Event reminders are keyed per event id and replace
+      // themselves, so they are deliberately NOT wiped here.
+      cancelByPrefix('block_');
+      cancelByPrefix('meal_');
 
-      // Schedule meal reminders for today
       const mealPlan = await getSetting('meal_week_plan', null);
-      if (mealPlan) {
+
+      // The planner's saved blocks only count if they were built TODAY. They
+      // used to be re-scheduled and re-pushed forever, so yesterday's plan
+      // (or a plan from before "I'm Awake" was pressed) kept firing as if it
+      // were current. A stale plan now schedules nothing until the planner is
+      // opened or "I'm Awake" is pressed for the new day.
+      const blocks = await getSetting('planner_blocks', null);
+      const blocksDate = await getSetting('planner_blocks_date', null);
+      const notifEnabled = await getSetting('planner_notifs', false);
+      const plannerFresh = Array.isArray(blocks) && blocksDate === todayISO();
+      const plannerLive = plannerFresh && !!notifEnabled;
+
+      if (plannerLive) {
+        schedulePlannerReminders(blocks);
+      } else if (mealPlan) {
+        // Fallback meal reminders only when the planner is NOT driving the
+        // day. With the planner live, its own prepare/eat blocks are the
+        // meal reminders (pinned at 13:00 and 19:00); keeping these fixed-time
+        // ones as well produced a second, conflicting meal schedule.
         const dayIdx = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
         const todayMeals = mealPlan[dayIdx];
         if (todayMeals) scheduleMealReminders(todayMeals);
       }
 
-      // Schedule planner block reminders
-      const blocks = await getSetting('planner_blocks', null);
-      const notifEnabled = await getSetting('planner_notifs', false);
-      if (blocks && notifEnabled) {
-        schedulePlannerReminders(blocks);
+      // Tech Hub event reminders (30 min before). These used to be scheduled
+      // only while the Tech Hub page was open, so they vanished on every reload.
+      try {
+        const { eventWindow } = await import('../lib/events');
+        const events = await getSetting('tech_hub_events', []);
+        for (const ev of Array.isArray(events) ? events : []) {
+          const w = eventWindow(ev);
+          if (w && !w.allDay) scheduleEventReminder(ev, w.start);
+        }
+      } catch (e) {
+        console.warn('[fedha] event reminders skipped:', e?.message);
       }
 
       // ── Real push: works even when the app is fully closed ──────────────
-      // The setTimeout scheduling above only runs while this tab is alive.
-      // This subscribes the browser to Web Push and mirrors the same
-      // meal/planner data to Supabase so a server-side Edge Function can
-      // send the reminder as an actual push message.
+      // Mirrors the SAME single source of truth to Supabase for the server
+      // sender: today's planner blocks (or none if stale), and the meal plan
+      // only when the planner isn't covering meals.
       try {
-        const { ensurePushSubscription, syncReminderSettings, listenForSubscriptionRotation } = await import('../lib/push');
+        const { ensurePushSubscription, syncReminderSettings, listenForSubscriptionRotation, toPushBlocks } = await import('../lib/push');
         listenForSubscriptionRotation();
         await ensurePushSubscription();
-        await syncReminderSettings({ mealWeekPlan: mealPlan, plannerBlocks: blocks, plannerNotifs: notifEnabled });
+        await syncReminderSettings({
+          mealWeekPlan: plannerLive ? null : mealPlan,
+          plannerBlocks: plannerFresh ? toPushBlocks(blocks) : [],
+          plannerNotifs: !!notifEnabled && plannerFresh,
+        });
       } catch (e) {
         console.warn('[fedha] push setup skipped:', e?.message);
       }

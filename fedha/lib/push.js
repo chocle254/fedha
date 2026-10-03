@@ -82,6 +82,15 @@ async function saveSubscription(sub) {
   return data?.id ?? null;
 }
 
+// The server de-duplicates reminders per (block id, day). Block ids repeat
+// every time the day is rebuilt ('lunch', 'workout1', ...), so after a
+// regeneration any block whose id had already been sent that day would be
+// silently skipped, and a moved block would never fire at its new time.
+// Making the id unique per time slot fixes both without a server change.
+export function toPushBlocks(blocks) {
+  return (blocks || []).map((b) => ({ ...b, id: `${b.id}@${b.time}` }));
+}
+
 // Mirrors the reminder-relevant settings (meal plan, planner blocks, the
 // notifications toggle) to Supabase so the server-side Edge Function has
 // something to read — it has no access to this browser's IndexedDB.

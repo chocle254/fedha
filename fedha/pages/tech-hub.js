@@ -7,7 +7,7 @@ import { genId, countdownTo, formatCountdown, formatDate, resizeImage, toNairobi
 import { fetchRepos, sortRepos, REPO_SORTS } from '../lib/github';
 import { getSetting, setSetting } from '../lib/db';
 import { scheduleEventReminder, cancelSchedule } from '../lib/notifications';
-import { eventWindow, isEventEnded, sortEventsByStart, eventTimeLabel, eventDateLabel, pruneEndedEvents } from '../lib/events';
+import { eventWindow, isEventEnded, sortEventsByStart, eventTimeLabel, eventDateLabel } from '../lib/events';
 
 // ─── HACKATHON STATUS ─────────────────────────────────────────────────────────
 // Backward-compatible with older records that only have the `submitted` boolean:
