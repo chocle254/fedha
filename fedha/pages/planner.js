@@ -523,6 +523,10 @@ async function loggedMealIds() {
   } catch { return []; }
 }
 
+// Bumped by every deliberate plan change (I'm Awake, reset, edit). A load()
+// that started before one of those must not save its older plan over it.
+let planRevision = 0;
+
 const LOW_CASH = 1000; // base currency (KES) — below this, income work goes first
 
 // Puts today's actual planned meal (from the Meals tab) into the prepare/eat
@@ -637,6 +641,10 @@ export default function PlannerPage() {
   async function syncPlannerBlocksSetting(effectiveBlocks) {
     await setSetting('planner_blocks', effectiveBlocks);
     await setSetting('planner_blocks_date', todayISO());
+    // Stamp the save so the app-start scheduler in _app.js can tell its copy
+    // is out of date, and tell other open Fedha windows to reschedule.
+    await setSetting('planner_blocks_rev', Date.now());
+    try { new BroadcastChannel('fedha-planner').postMessage({ type: 'plan-updated' }); } catch {}
     try {
       const notifsOn = await getSetting('planner_notifs', false);
       if (!notifsOn) return;
@@ -656,6 +664,7 @@ export default function PlannerPage() {
   // changes, then layer any per-day manual edits on top.
   useEffect(() => {
     async function load() {
+      const rev = planRevision;
       // "Anchored" = built from the moment I'm Awake was pressed (stored under
       // the same key the AI version used, so an existing plan keeps loading).
       const mealWeekPlan = await getSetting('meal_week_plan', null);
@@ -680,6 +689,9 @@ export default function PlannerPage() {
       const { blocks: eventBlocks, allDay } = await loadTodayEvents(hackathons);
       setAllDayEvents(allDay);
       const merged = applyEventBlocks([...patched, ...extraBlocks].sort((a, b) => t2m(a.time) - t2m(b.time)), eventBlocks);
+      // I'm Awake / reset / an edit happened while this was loading — that
+      // newer plan wins; don't overwrite it (or its reminders) with this one.
+      if (rev !== planRevision) return;
       setBlocks(merged);
       await syncPlannerBlocksSetting(merged);
 
@@ -727,6 +739,7 @@ export default function PlannerPage() {
   }
 
   async function handleEditSave(updated) {
+    planRevision++;
     const original = blocks.find((b) => b.id === updated.id);
     const timeChanged = original && updated.time && updated.time !== original.time;
 
@@ -770,6 +783,7 @@ export default function PlannerPage() {
   }
 
   async function resetToday() {
+    planRevision++;
     await setSetting(`planner_overrides_${todayISO()}`, {});
     await setSetting(`planner_ai_blocks_${todayISO()}`, null);
     await setSetting(`planner_dropped_${todayISO()}`, []);
@@ -797,6 +811,7 @@ export default function PlannerPage() {
   // reused block ids between runs, and could return a different shape every
   // time, which is why the result felt random.
   async function planFromNow() {
+    planRevision++;
     setAiGenerating(true); setAiError(null);
     try {
       const nowDate = new Date();

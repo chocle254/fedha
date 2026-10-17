@@ -64,7 +64,13 @@ function fmt12(t: string): string {
   return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 }
 
-type Notif = { key: string; title: string; body: string; requireInteraction?: boolean; vibrate?: number[] };
+// `tag` matches the tag the open app uses for the same reminder
+// (lib/notifications.js), so if both fire, the phone shows ONE notification.
+type Notif = { key: string; tag?: string; title: string; body: string; requireInteraction?: boolean; vibrate?: number[] };
+
+// Push block ids are "<id>@<time>" (unique per slot for de-duping); the app's
+// tags use the plain id.
+const baseId = (id: string) => String(id).split('@')[0];
 
 function buildMealNotifs(mealPlan: any, dayIdx: number, nowMins: number, dateKey: string): Notif[] {
   const todayMeals = mealPlan?.[dayIdx];
@@ -78,6 +84,7 @@ function buildMealNotifs(mealPlan: any, dayIdx: number, nowMins: number, dateKey
     if (times.prepTime && isDueNow(times.prepTime, nowMins)) {
       out.push({
         key: `meal_prep_${slot}_${dateKey}`,
+        tag: `meal_prep_${slot}`,
         title: `🍳 Start cooking ${times.label} now`,
         body: `${meal.name} — ready by ${fmt12(times.eatTime)}. Ingredients: ${String(meal.ingredients).split(',')[0]}…`,
         requireInteraction: true,
@@ -87,6 +94,7 @@ function buildMealNotifs(mealPlan: any, dayIdx: number, nowMins: number, dateKey
     if (isDueNow(times.eatTime, nowMins)) {
       out.push({
         key: `meal_eat_${slot}_${dateKey}`,
+        tag: `meal_eat_${slot}`,
         title: `🍽️ Time to eat ${times.label}!`,
         body: `${meal.name} — ${meal.cal} cal · ${meal.protein} protein`,
         vibrate: [200, 100, 200],
@@ -128,6 +136,7 @@ function buildPlannerNotifs(blocks: any[], nowMins: number, dateKey: string): No
     if (isDueNow(block.time, nowMins)) {
       out.push({
         key: `block_${block.id}_${dateKey}`,
+        tag: `block_${baseId(block.id)}`,
         title: blockTitle(block),
         body: block.note,
         requireInteraction: ['study', 'coding', 'learning', 'sleep', 'meal', 'event'].includes(block.type),
@@ -155,6 +164,7 @@ function buildPlannerNotifs(blocks: any[], nowMins: number, dateKey: string): No
       if (warnMins > 0 && isDueNow(minutesToHHMM(warnMins), nowMins)) {
         out.push({
           key: `block_sleep_warn_${block.id}_${dateKey}`,
+          tag: `block_sleep_warn_${baseId(block.id)}`,
           title: `🌙 Wind down — sleep in 30 mins`,
           body: 'Put the phone down. Prepare for bed. 9 hours = max muscle growth.',
         });
@@ -166,6 +176,7 @@ function buildPlannerNotifs(blocks: any[], nowMins: number, dateKey: string): No
       if (warnMins > 0 && isDueNow(minutesToHHMM(warnMins), nowMins)) {
         out.push({
           key: `block_5min_${block.id}_${dateKey}`,
+          tag: `block_5min_${baseId(block.id)}`,
           title: `⚠️ ${block.label} in 5 minutes`,
           body: 'Put your phone down and get ready.',
         });
@@ -177,6 +188,7 @@ function buildPlannerNotifs(blocks: any[], nowMins: number, dateKey: string): No
       if (warnMins > 0 && isDueNow(minutesToHHMM(warnMins), nowMins)) {
         out.push({
           key: `block_5min_${block.id}_${dateKey}`,
+          tag: `block_5min_${baseId(block.id)}`,
           title: `🏋️ ${block.label} in 5 minutes`,
           body: 'Get changed and get water ready.',
         });
@@ -226,8 +238,10 @@ Deno.serve(async () => {
         .insert({ push_subscription_id: row.push_subscription_id, reminder_key: n.key });
 
       if (logError) {
-        // Unique violation means it was already sent — expected, not a bug.
-        skipped++;
+        // 23505 = already sent today (expected). Anything else is a real
+        // failure and must not be hidden as "skipped".
+        if (logError.code === '23505') skipped++;
+        else console.error('push_sent_log insert failed:', n.key, logError.code, logError.message);
         continue;
       }
 
@@ -237,6 +251,7 @@ Deno.serve(async () => {
           JSON.stringify({
             title: n.title,
             body: n.body,
+            tag: n.tag,
             requireInteraction: !!n.requireInteraction,
             vibrate: n.vibrate ?? [200, 100, 200],
             url: '/planner',

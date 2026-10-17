@@ -31,10 +31,15 @@ export async function requestPermission() {
 export async function showNotif({ title, body, icon = '/icon.svg', badge = '/icon.svg', tag, vibrate = VIBRATE.medium, requireInteraction = false, actions = [] }) {
   if (!notifGranted()) return;
 
-  if (navigator.vibrate) navigator.vibrate(vibrate);
-
   try {
     const reg = await navigator.serviceWorker.ready;
+    // The server push for this same reminder may already be showing (it uses
+    // the same tag). Don't buzz and show it a second time.
+    if (tag) {
+      const existing = await reg.getNotifications({ tag });
+      if (existing.length) return;
+    }
+    if (navigator.vibrate) navigator.vibrate(vibrate);
     await reg.showNotification(title, {
       body,
       icon,

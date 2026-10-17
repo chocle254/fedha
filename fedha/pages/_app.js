@@ -27,6 +27,22 @@ function ConfigErrorScreen() {
 }
 
 function NotificationScheduler() {
+  // Another Fedha window (Chrome tab vs installed app) changed today's plan:
+  // replace this window's planner timers with the saved plan.
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return;
+    const ch = new BroadcastChannel('fedha-planner');
+    ch.onmessage = async (e) => {
+      if (e.data?.type !== 'plan-updated') return;
+      const { schedulePlannerReminders, cancelByPrefix } = await import('../lib/notifications');
+      const { getSetting } = await import('../lib/db');
+      const blocks = await getSetting('planner_blocks', null);
+      if ((await getSetting('planner_notifs', false)) && Array.isArray(blocks)) schedulePlannerReminders(blocks);
+      else cancelByPrefix('block_');
+    };
+    return () => ch.close();
+  }, []);
+
   useEffect(() => {
     async function setup() {
       if (typeof window === 'undefined') return;
@@ -51,6 +67,7 @@ function NotificationScheduler() {
       // opened or "I'm Awake" is pressed for the new day.
       const blocks = await getSetting('planner_blocks', null);
       const blocksDate = await getSetting('planner_blocks_date', null);
+      const blocksRev = await getSetting('planner_blocks_rev', 0);
       const notifEnabled = await getSetting('planner_notifs', false);
       const plannerFresh = Array.isArray(blocks) && blocksDate === todayISO();
       const plannerLive = plannerFresh && !!notifEnabled;
@@ -88,11 +105,18 @@ function NotificationScheduler() {
         const { ensurePushSubscription, syncReminderSettings, listenForSubscriptionRotation, toPushBlocks } = await import('../lib/push');
         listenForSubscriptionRotation();
         await ensurePushSubscription();
-        await syncReminderSettings({
-          mealWeekPlan: plannerLive ? null : mealPlan,
-          plannerBlocks: plannerFresh ? toPushBlocks(blocks) : [],
-          plannerNotifs: !!notifEnabled && plannerFresh,
-        });
+        // The planner may have saved a newer plan (e.g. I'm Awake) while the
+        // subscription call above was in flight. It already synced that plan
+        // itself — sending our older copy now would bring the original
+        // schedule back on the server.
+        const stillCurrent = (await getSetting('planner_blocks_rev', 0)) === blocksRev;
+        if (stillCurrent) {
+          await syncReminderSettings({
+            mealWeekPlan: plannerLive ? null : mealPlan,
+            plannerBlocks: plannerFresh ? toPushBlocks(blocks) : [],
+            plannerNotifs: !!notifEnabled && plannerFresh,
+          });
+        }
       } catch (e) {
         console.warn('[fedha] push setup skipped:', e?.message);
       }

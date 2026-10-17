@@ -122,16 +122,23 @@ self.addEventListener('push', (event) => {
   } = payload;
 
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon,
-      badge,
-      tag,
-      requireInteraction,
-      vibrate,
-      actions,
-      data: { url },
-    })
+    (async () => {
+      // The open app's own timer may have shown this exact reminder already
+      // (same tag). Replace it silently instead of buzzing a second time —
+      // Chrome still needs a notification shown for every push.
+      const already = tag ? (await self.registration.getNotifications({ tag })).length > 0 : false;
+      await self.registration.showNotification(title, {
+        body,
+        icon,
+        badge,
+        tag,
+        requireInteraction,
+        vibrate: already ? undefined : vibrate,
+        silent: already,
+        actions,
+        data: { url },
+      });
+    })()
   );
 });
 
