@@ -13,6 +13,8 @@ export default function HealthPage() {
   const [ziidiAmount, setZiidiAmount] = useState('');
   const [showZiidiSetup, setShowZiidiSetup] = useState(false);
   const [walletId, setWalletId] = useState(wallets[0]?.id || '');
+  // Wallets often load after the first render — pick the first one once they arrive.
+  useEffect(() => { if (!walletId && wallets[0]?.id) setWalletId(wallets[0].id); }, [wallets, walletId]);
   // Ziidi "standby for next update" flow — remember the floating-cash level at the last save
   const [ziidiBasis, setZiidiBasis] = useState(null);
   const [lastSaved, setLastSaved] = useState(0);
@@ -25,7 +27,16 @@ export default function HealthPage() {
   const { from, to } = monthRange(0);
   const monthTxns = transactions.filter(t => t.date >= from && t.date <= to);
   const monthIncome = monthTxns.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
-  const monthExpense = monthTxns.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
+  // Money moved to savings (Ziidi) is stored as an expense so wallet balances
+  // drop, but it isn't spending — counting it made saving lower your score.
+  const isSaving = (t) => t.category === 'savings';
+  const monthExpense = monthTxns.filter(t => t.type === 'expense' && !isSaving(t)).reduce((s, t) => s + Number(t.amount), 0);
+  const monthSaved = monthTxns.filter(t => t.type === 'expense' && isSaving(t)).reduce((s, t) => s + Number(t.amount), 0);
+
+  // Where the money went this month, biggest first.
+  const byCategory = {};
+  monthTxns.filter(t => t.type === 'expense' && !isSaving(t)).forEach(t => { const c = t.category || 'other'; byCategory[c] = (byCategory[c] || 0) + Number(t.amount); });
+  const topCategories = Object.entries(byCategory).sort((a, b) => b[1] - a[1]).slice(0, 3);
   const totalBalance = wallets.reduce((s, w) => s + Number(w.balance || 0), 0);
   const totalBudgeted = budgets.reduce((s, b) => s + Math.max(0, Number(b.allocated || 0) - Number(b.spent || 0)), 0);
   const totalBorrowed = loans.filter(l => l.type === 'borrowed' && l.status === 'active').reduce((s, l) => s + Number(l.remaining || l.amount || 0), 0);
@@ -75,46 +86,52 @@ export default function HealthPage() {
     });
   }
 
-  if (savings < 0) {
-    recs.push({ type:'danger', icon:'🚨', title:'You are spending more than you earn', body:`You spent ${formatShort(Math.abs(savings), currency)} more than you earned this month. Cut food costs by planning meals around what you have. Reduce impulse buys.`, action:null });
+  // Recommendations in priority order — the first one is "do this next".
+  // Only one money-split card, and no "save more" advice while you're
+  // overspending or carrying loans (those come first).
+  const overspending = savings < 0;
+  const hasLoans = totalBorrowed > 0;
+
+  if (overspending) {
+    const top = topCategories[0];
+    recs.push({ type:'danger', icon:'🚨', title:`You've spent ${formatShort(Math.abs(savings), currency)} more than you earned this month`, body: top ? `Your biggest spend is ${top[0]} at ${formatShort(top[1], currency)} (${Math.round((top[1] / (monthExpense || 1)) * 100)}% of spending). Cutting that by a quarter saves about ${formatShort(top[1] * 0.25, currency)}.` : 'Pause anything non-essential until income lands.', action:null });
   }
 
-  if (savingsRate >= 0 && savingsRate < 10 && monthIncome > 0) {
+  if (hasLoans) {
+    const active = loans.filter(l => l.type === 'borrowed' && l.status === 'active').sort((a, b) => Number(a.remaining || a.amount || 0) - Number(b.remaining || b.amount || 0));
+    const smallest = active[0];
+    recs.push({ type:'warning', icon:'📤', title:`You owe ${formatShort(totalBorrowed, currency)} across ${active.length} loan${active.length === 1 ? '' : 's'}`, body: smallest ? `Clear the smallest first: ${smallest.contact_name || smallest.name || 'that loan'} — ${formatShort(Number(smallest.remaining || smallest.amount || 0), currency)}. Quick wins free up cash for the next one. Don't take new loans until these are done.` : 'Pay these down before saving extra.', action:null });
+  }
+
+  if (!overspending && monthIncome > 0 && savingsRate < 10) {
     const suggestSave = Math.round(monthIncome * 0.1);
-    recs.push({ type:'warning', icon:'💰', title:`Save at least KSh ${suggestSave.toLocaleString()} this month`, body:`That is 10% of your income. Even saving KSh ${Math.round(suggestSave/4).toLocaleString()} a week builds a cushion fast. Move it to Ziidi immediately when income arrives.`, action:'ziidi' });
+    recs.push({ type:'warning', icon:'💰', title:`Aim to keep ${formatShort(suggestSave, currency)} this month`, body:`That's 10% of the ${formatShort(monthIncome, currency)} you've earned. Right now you're keeping ${savingsRate.toFixed(0)}%.${hasLoans ? ' Put it toward your loans first.' : ` Moving ${formatShort(Math.round(suggestSave / 4), currency)} a week to Ziidi gets you there.`}`, action: hasLoans ? null : 'ziidi' });
   }
 
-  if (showSplit && savingsRate >= 10) {
-    const ziidiSuggest = Math.round(monthIncome * 0.15);
-    const leisureSuggest = Math.round(floating * 0.3);
-    const foodSuggest = Math.round(floating * 0.25);
-    const personalSuggest = Math.round(floating * 0.1);
-    recs.push({ type:'success', icon:'✅', title:`Good saving rate — here is how to split your ${formatShort(floating, currency)} floating cash`, body:`Ziidi (untouchable savings): ${formatShort(ziidiSuggest, currency)}\nFood & ingredients: ${formatShort(foodSuggest, currency)}\nLeisure & bae: ${formatShort(leisureSuggest, currency)}\nPersonal pocket cash: ${formatShort(personalSuggest, currency)}`, action:'ziidi' });
-  }
-
-  if (!ziidiGoal || ziidiSaved === 0) {
-    recs.push({ type:'info', icon:'🏦', title:'Set up your Ziidi emergency fund', body:'Ziidi is money you never touch — it is your safety net for when things go wrong. Start with just KSh 500. Every time you earn, move 10% here before spending anything.', action:'ziidi' });
-  } else {
-    const target = ziidiGoal.target;
-    const pct = Math.min(100, (ziidiSaved / target) * 100);
-    recs.push({ type:'success', icon:'🏦', title:`Ziidi: ${formatShort(ziidiSaved, currency)} saved (${pct.toFixed(0)}%)`, body:`You have ${formatShort(ziidiSaved, currency)} in your emergency fund. Target is ${formatShort(target, currency)}. Keep adding — this money is only for true emergencies.`, action:null });
+  if (!overspending && !hasLoans && showSplit && floating > 500) {
+    const save = Math.round(floating * 0.20);
+    const food = Math.round(floating * 0.25);
+    const leisure = Math.round(floating * 0.25);
+    const personal = Math.round(floating * 0.15);
+    const reserve = floating - save - food - leisure - personal;
+    recs.push({ type:'info', icon:'📊', title:`How to use your ${formatShort(floating, currency)} floating cash`, body:`🏦 Ziidi: ${formatShort(save, currency)}\n🍽️ Food: ${formatShort(food, currency)}\n🎉 Leisure: ${formatShort(leisure, currency)}\n💵 Personal: ${formatShort(personal, currency)}\n🔒 Reserve: ${formatShort(reserve, currency)}`, action:'ziidi' });
   }
 
   if (impulseTotal > 0) {
-    recs.push({ type:'warning', icon:'⚡', title:`You spent ${formatShort(impulseTotal, currency)} on impulse this month`, body:'Before buying anything unplanned, ask: "Do I need this or do I just want it right now?" Wait 24 hours before any purchase over KSh 500.', action:null });
+    recs.push({ type:'warning', icon:'⚡', title:`${formatShort(impulseTotal, currency)} went on impulse buys this month`, body:`That's ${Math.round((impulseTotal / (monthExpense || 1)) * 100)}% of your spending. Before anything unplanned over ${formatShort(500, currency)}, wait 24 hours.`, action:null });
   }
 
-  if (totalBorrowed > 0) {
-    recs.push({ type:'warning', icon:'📤', title:`You owe ${formatShort(totalBorrowed, currency)} — pay loans before saving`, body:'Loans cost more the longer they sit. Pay the smallest loan first (quick win), then attack the next. Do not borrow more while you still have active loans.', action:null });
+  if (topCategories.length && !overspending) {
+    recs.push({ type:'info', icon:'🧾', title:'Where your money went this month', body: topCategories.map(([c, v]) => `${c}: ${formatShort(v, currency)} (${Math.round((v / (monthExpense || 1)) * 100)}%)`).join('\n'), action:null });
   }
 
-  if (showSplit && floating > 500 && savingsRate >= 0) {
-    const food = Math.round(floating * 0.25);
-    const save = Math.round(floating * 0.20);
-    const leisure = Math.round(floating * 0.30);
-    const personal = Math.round(floating * 0.15);
-    const reserve = floating - food - save - leisure - personal;
-    recs.push({ type:'info', icon:'📊', title:`Budget your ${formatShort(floating, currency)} floating cash`, body:`Suggested split:\n🍽️ Food: ${formatShort(food, currency)}\n🏦 Ziidi: ${formatShort(save, currency)}\n🎉 Leisure: ${formatShort(leisure, currency)}\n💵 Personal: ${formatShort(personal, currency)}\n🔒 Reserve: ${formatShort(reserve, currency)}`, action:'ziidi' });
+  if (!ziidiGoal || ziidiSaved === 0) {
+    recs.push({ type:'info', icon:'🏦', title:'Set up your Ziidi emergency fund', body:`Money you never touch — your safety net. Start with ${formatShort(500, currency)}.${hasLoans ? ' Once your loans are cleared, move 10% of every income here first.' : ' Every time you earn, move 10% here before spending.'}`, action: hasLoans ? null : 'ziidi' });
+  } else {
+    const target = ziidiGoal.target;
+    const pct = Math.min(100, (ziidiSaved / target) * 100);
+    const monthlyExpense = monthExpense || 1;
+    recs.push({ type:'success', icon:'🏦', title:`Ziidi: ${formatShort(ziidiSaved, currency)} saved (${pct.toFixed(0)}% of target)`, body:`That covers about ${(ziidiSaved / monthlyExpense).toFixed(1)} months of this month's spending. Aim for 3.${monthSaved > 0 ? ` You've added ${formatShort(monthSaved, currency)} this month.` : ''}`, action:null });
   }
 
   async function createZiidi() {
@@ -188,6 +205,7 @@ export default function HealthPage() {
               const c = recColors[rec.type];
               return (
                 <div key={i} style={{ background:c.bg, border:`1px solid ${c.border}`, borderRadius:12, padding:'14px 16px' }}>
+                  {i === 0 && <div style={{ fontSize:10, fontWeight:800, letterSpacing:1.5, color:c.title, marginBottom:6 }}>DO THIS NEXT</div>}
                   <div style={{ display:'flex', gap:10, alignItems:'flex-start', marginBottom:8 }}>
                     <span style={{ fontSize:22, flexShrink:0 }}>{rec.icon}</span>
                     <div style={{ fontSize:14, fontWeight:700, color:c.title, lineHeight:1.4 }}>{rec.title}</div>

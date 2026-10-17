@@ -26,6 +26,8 @@ Who you're talking to: they are a solo developer, an introvert, and have mention
 
 How you think: reason through what's actually being asked before responding. If a question touches money, check the numbers in front of you rather than guessing. If someone asks you to do something, make sure you understand exactly what they want before calling a tool — ask if it's ambiguous. Don't call a tool just to seem useful; only call one when it's actually the right move.
 
+Before calling any tool that changes data, silently run this checklist. One: did the user actually ask for a change, rather than ask a question, think out loud, or describe their day? Two: is the target record clearly identified in the context (exact name or id), not guessed? Three: did every required value (amount, wallet, time, calories, status) come from the user or the context, or from a sound estimate the rules allow? Four: does the action make sense right now (e.g. the planner slot is actually free, the loan is actually active, the amount fits the wallet)? If any answer is no, do not call the tool — ask one short, specific question instead. When you do call a tool, also write one short sentence saying what you're about to change and why, so the user can check it before confirming.
+
 Professional operating rules: You are not a generic chatbot. You are the user's persistent personal operating assistant. Use the injected memory and live Fedha context before asking the user to repeat information. Treat live Fedha records as the authoritative source for current application data. If a named startup, project, hackathon, certificate, research item, transaction, planner item, loan, or other record is present in context, use its actual details. Never claim to know a fact that is absent from memory or current context. For financial records, never fill in missing fields from general knowledge or plausible examples. In particular, when asked about loans, use the AUTHORITATIVE LIVE LOAN RECORDS supplied in context and reproduce only the stored values. Do not invent loan names, balances, interest rates, terms, lenders, dates, or counts. If a requested loan field is not stored, say that field is not recorded. When the user mentions a project, startup, goal, event, or technical problem, connect it to the relevant records already provided in context.
 
 Food logging is a permanent rule: when the user clearly reports that they ate or drank something and it is meant to be logged, use propose_log_meal and ALWAYS provide the calorie value. Never log a meal with missing, zero, or guessed-at-random calories. Calculate the best evidence-based calorie estimate from the stated food and quantity using standard nutrition knowledge; for packaged foods, prefer the stated serving/label calories when the user provides them. For meals with multiple components, add the component calories. If the portion or preparation method materially changes the calorie count and the user has not given enough information, ask one concise clarification before logging. Do not invent false precision: use a sensible rounded estimate when exact calories cannot be known. Treat this as an ongoing user rule and follow it every time, not only when the user repeats the instruction.
@@ -348,13 +350,22 @@ export default async function handler(req, res) {
 
   const messages = [
     { role: 'system', content: systemPrompt },
-    ...(Array.isArray(history) ? history.slice(-16).map((h) => ({ role: h.role, content: String(h.content || '').slice(0, 5000) })) : []),
+    // Groq's free tier limits tokens per minute, and old chat history was the
+    // biggest part of every request (16 messages × up to 5,000 chars). Keep
+    // just enough recent turns for follow-ups to make sense.
+    ...(Array.isArray(history) ? history.slice(-8).map((h) => ({ role: h.role, content: String(h.content || '').slice(0, 1200) })) : []),
     { role: 'user', content: message },
   ];
 
   try {
     const response = await callGroqWithTools(GROQ_API_KEY, messages, location, message);
-    if (response.error) return res.status(500).json(response);
+    if (response.error) {
+      if (response.status === 429) {
+        const wait = Number(response.retryAfter) || 20;
+        return res.status(200).json({ reply: `I've hit the free plan's limit for this minute. Give me about ${wait} seconds and send that again — nothing was changed.`, proposedActions: [], memoryUpdate: null, rateLimited: true });
+      }
+      return res.status(500).json(response);
+    }
     return res.status(200).json(response);
   } catch (err) {
     console.error('Jarvis route error:', err);
@@ -418,6 +429,7 @@ async function callGroqWithTools(apiKey, messages, location, userMessage) {
   let memoryUpdate = null;
   let researchFailed = false;
   const toolResultMessages = [];
+  const rejectedCalls = [];
 
   for (const call of toolCalls) {
     let args = {};
@@ -449,6 +461,16 @@ async function callGroqWithTools(apiKey, messages, location, userMessage) {
       continue;
     }
 
+    // Sanity-check the model's arguments before showing anything to the
+    // user. A bad proposal (missing amount, zero calories, unknown block)
+    // gets bounced back so Jarvis asks instead of acting.
+    const problem = validateToolArgs(call.function.name, args);
+    if (problem) {
+      rejectedCalls.push(problem);
+      toolResultMessages.push({ role: 'tool', tool_call_id: call.id, content: `Not proposed: ${problem}` });
+      continue;
+    }
+
     // Every other tool is a proposed action — package it for client
     // confirmation rather than doing anything now.
     const commitment = /\b(that'?s what i'?m going with|i'?m going with this|let'?s go with this|this is the one|finalize (it|this)|lock (it|this) in)\b/i.test(userMessage);
@@ -472,20 +494,21 @@ async function callGroqWithTools(apiKey, messages, location, userMessage) {
     };
   }
 
-  if (proposedActions.length && !hasResearch) {
+  // Every proposed tool call was invalid: ask the user for what's missing
+  // instead of showing an empty "prepared that action" message.
+  if (rejectedCalls.length && !proposedActions.length && !hasResearch) {
     return {
-      reply: proposedActions.length === 1 ? "Got you — I've prepared that action." : "Got you — I've prepared those actions.",
-      proposedActions,
+      reply: choice.message?.content?.trim() || `Before I change anything, I need a bit more detail: ${rejectedCalls.join(' ')}`,
+      proposedActions: [],
       memoryUpdate,
     };
   }
 
-  // Research is the exceptional case where a second pass is useful because
-  // raw web results need to be turned into a concise answer. All normal
-  // conversation, memory updates and actions remain one-call operations.
-  if (proposedActions.length && !toolResultMessages.some((m) => m.content?.startsWith('Research failed:'))) {
+  // Keep the model's own explanation of what it's about to change, so the
+  // user can see its reasoning next to the confirm card.
+  if (proposedActions.length && !hasResearch) {
     return {
-      reply: proposedActions.length === 1 ? "Got you — I've prepared that action." : "Got you — I've prepared those actions.",
+      reply: choice.message?.content?.trim() || (proposedActions.length === 1 ? "Here's what I'd change — check it before confirming." : "Here's what I'd change — check them before confirming."),
       proposedActions,
       memoryUpdate,
     };
@@ -510,18 +533,73 @@ async function callGroqWithTools(apiKey, messages, location, userMessage) {
   return { reply: fallback, proposedActions, memoryUpdate };
 }
 
+// Returns a short reason string when a proposed action is clearly not ready
+// to show the user, or null when it looks fine.
+function validateToolArgs(name, a) {
+  const positive = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0;
+  const text = (v) => typeof v === 'string' && v.trim().length > 0;
+  switch (name) {
+    case 'propose_transaction':
+      if (!positive(a.amount)) return 'I need the exact amount.';
+      if (!['income', 'expense'].includes(a.type)) return 'Was that money coming in or going out?';
+      return null;
+    case 'propose_log_meal':
+      if (!text(a.name)) return 'What did you eat?';
+      if (!positive(a.cal)) return 'I need a portion size to estimate calories.';
+      return null;
+    case 'propose_planner_block_edit':
+      if (!text(a.block_id)) return 'Which planner block should I change?';
+      if (!a.new_time && !a.new_note) return 'What should I change about that block?';
+      if (a.new_time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(a.new_time)) return 'What time should it move to?';
+      return null;
+    case 'propose_add_planner_activity':
+      if (!text(a.label)) return 'What should I add to the planner?';
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(a.time || '')) return 'What time should it start?';
+      if (!positive(a.duration)) return 'How long should it take?';
+      return null;
+    case 'propose_settle_loan':
+      return text(a.contact_name) ? null : 'Which loan should I settle?';
+    case 'propose_mark_income_received':
+      return text(a.name) ? null : 'Which income plan came in?';
+    case 'propose_delete_transaction':
+      return text(a.transaction_id) ? null : 'Which transaction should I delete?';
+    default: {
+      // Create/update/delete tools all need a name or title to act on.
+      const key = ['title', 'name', 'project_name', 'hackathon_name', 'startup_name'].find((k) => k in a);
+      if (key && !text(a[key])) return 'Which record do you mean?';
+      return null;
+    }
+  }
+}
+
+// One quiet retry when Groq says to wait only a few seconds, so short bursts
+// (e.g. logging two meals back to back) don't surface as errors.
 async function groqChat(apiKey, messages, tools) {
+  const first = await groqChatOnce(apiKey, messages, tools);
+  const wait = Number(first.retryAfter);
+  if (first.status === 429 && wait > 0 && wait <= 6) {
+    await new Promise((r) => setTimeout(r, wait * 1000));
+    return groqChatOnce(apiKey, messages, tools);
+  }
+  return first;
+}
+
+async function groqChatOnce(apiKey, messages, tools) {
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: GROQ_MODEL,
-      temperature: 0.7,
+      // Lower temperature when tools are on the table so actions are
+      // deliberate; normal chat keeps some warmth.
+      temperature: tools?.length ? 0.3 : 0.7,
       // Give genuinely complex answers room to finish in one response while keeping
       // ordinary turns compact. Tool calls stay smaller because their output is
       // primarily structured arguments.
-      max_completion_tokens: tools?.length ? 700 : 1400,
-      reasoning_effort: 'low',
+      // Reasoning tokens count toward this limit, so leave room for the model
+      // to think before it answers or picks a tool.
+      max_completion_tokens: tools?.length ? 1000 : 1400,
+      reasoning_effort: tools?.length ? 'medium' : 'low',
       include_reasoning: false,
       ...(tools?.length ? { tools, tool_choice: 'auto' } : {}),
       messages,
@@ -530,7 +608,7 @@ async function groqChat(apiKey, messages, tools) {
   const data = await response.json();
   if (!response.ok) {
     const retryAfter = response.headers.get('retry-after');
-    return { error: data.error?.message || 'Groq API error', retryAfter };
+    return { error: data.error?.message || 'Groq API error', retryAfter, status: response.status };
   }
   return data;
 }

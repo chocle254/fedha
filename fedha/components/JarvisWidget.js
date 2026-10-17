@@ -181,25 +181,31 @@ export default function JarvisWidget() {
     } catch {}
   }, [voiceReplyEnabled]);
 
+  // Only jump to another page when the user explicitly asks to go there
+  // ("open workouts", "take me to my courses"). Previously any message that
+  // merely mentioned a keyword ("draft my CV from my certificates", "I'm
+  // tired of training") was hijacked into a page change and never reached
+  // Jarvis at all, which made it look like Jarvis acted without thinking.
   function getNavigationIntent(text) {
     const value = String(text || '').toLowerCase().trim();
+    const explicit = /^(please\s+)?(open|go to|goto|take me to|navigate to|bring up)\b/.test(value);
+    if (!explicit || value.split(/\s+/).length > 8) return null;
 
-    if (/\b(workout|work out|exercise|exercises|training|train|gym)\b/.test(value)) {
+    if (/\b(workout|workouts|exercise|exercises|training|gym)\b/.test(value)) {
       return { path: '/workout', reply: 'Opening your workout section — choose the day and session you want to do. 💪' };
     }
-
-    if ((/\b(log|record|add)\b/.test(value) && /\b(food|meal|breakfast|lunch|dinner|snack|calories|nutrition)\b/.test(value))) {
-      return { path: '/meals?log=1', reply: 'Opening food logging so you can choose what you ate. 🍽️' };
+    if (/\b(food log|meal log|meals|food logging)\b/.test(value)) {
+      return { path: '/meals?log=1', reply: 'Opening food logging. 🍽️' };
     }
-
-    if ((/\b(log|record|add)\b/.test(value) && /\b(expense|income|transaction|spending|payment)\b/.test(value))) {
-      return { path: '/transactions?add=1', reply: 'Opening transactions so you can record it. 💰' };
+    if (/\b(transactions|transaction page)\b/.test(value)) {
+      return { path: '/transactions?add=1', reply: 'Opening transactions. 💰' };
     }
-
-    if (/\b(course|courses|learn|learning|study|studying|certification|certificate)\b/.test(value)) {
-      return { path: '/learning', reply: 'Opening your Learning Hub — pick a course, continue your notes, or add a new certification goal. 🎓' };
+    if (/\b(courses|learning hub|learning)\b/.test(value)) {
+      return { path: '/learning', reply: 'Opening your Learning Hub. 🎓' };
     }
-
+    if (/\b(certificates|certificates room)\b/.test(value)) {
+      return { path: '/tech-hub?tab=certificates', reply: 'Opening your Certificates Room. 🏆' };
+    }
     return null;
   }
 

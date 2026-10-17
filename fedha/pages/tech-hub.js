@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
@@ -130,7 +131,7 @@ function RepoPicker({ onPick }) {
 }
 
 // ─── HACKATHON MODAL ──────────────────────────────────────────────────────────
-const EMPTY_HACK = { name: '', prize_pool: '', project_name: '', themes: '', deadline: '', repo_url: '', project_image: '', mode: '', organizer: '', status: 'active', submitted: false, certificate_image: '', results_date: '', results_time: '', results_tz: 'ET', meeting_link: '' };
+const EMPTY_HACK = { name: '', prize_pool: '', project_name: '', themes: '', deadline: '', repo_url: '', project_image: '', mode: '', organizer: '', status: 'active', submitted: false, certificate_image: '', results_place: '', results_date: '', results_time: '', results_tz: 'ET', meeting_link: '' };
 
 function HackathonModal({ initial, onClose, onSave }) {
   const [form, setForm] = useState({ ...EMPTY_HACK, ...initial });
@@ -240,6 +241,10 @@ function HackathonModal({ initial, onClose, onSave }) {
                 </button>
               )}
               <input ref={certFileRef} type="file" accept="image/*" onChange={handleCertImage} style={{ display: 'none' }} />
+              <select className="input" style={{ marginTop: 8 }} value={form.results_place || ''} onChange={(e) => setForm((f) => ({ ...f, results_place: e.target.value }))}>
+                <option value="">Result: Participant</option>
+                {ACHIEVEMENTS.filter((a) => a !== 'Participant' && a !== 'Completion').map((a) => <option key={a} value={a}>Result: {a}</option>)}
+              </select>
               <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>Shows up framed in the Certificates Room ✨</div>
             </div>
           )}
@@ -524,18 +529,43 @@ const RANK_STYLE = {
   '3rd Place': { ribbon: '🥉', color: '#CD8B5C', label: '3rd Place' },
   'Winner':    { ribbon: '🏆', color: '#F5C56B', label: 'Winner' },
 };
+const CERT_SHELF_LABEL = { Hackathon: '🏆 Hackathons', 'Gaming Tournament': '🎮 Gaming Tournaments', Course: '🎓 Courses', Competition: '⚔️ Competitions', Award: '🏅 Awards', Other: '📜 Other' };
 function rankMeta(achievement) { return RANK_STYLE[achievement] || { ribbon: '🎖️', color: 'var(--text-3)', label: achievement || 'Achievement' }; }
+
+// Date.parse that never returns NaN, so bad/missing dates can't scramble the sort.
+function certTime(c) {
+  const t = Date.parse(c?.date_earned || '');
+  return Number.isNaN(t) ? 0 : t;
+}
+
+// Higher-placed certificates come first when two share a date.
+const RANK_ORDER = ['1st Place', 'Winner', '2nd Place', '3rd Place', 'Finalist', 'Award', 'Completion', 'Participant'];
+function rankIndex(a) { const i = RANK_ORDER.indexOf(a); return i === -1 ? RANK_ORDER.length : i; }
+
+// Older records (e.g. course certificates from the Learning Hub) use values
+// outside the pickers — map them onto the known lists so filters, stats and
+// grouping all work.
+function normalizeCert(c) {
+  let achievement = c.achievement;
+  if (!ACHIEVEMENTS.includes(achievement)) achievement = /course|complet/i.test(achievement || '') ? 'Completion' : (achievement || 'Participant');
+  let category = c.category;
+  if (!CERT_CATEGORIES.includes(category)) category = c.source === 'course' || c.course_id ? 'Course' : 'Other';
+  return { ...c, achievement, category };
+}
 
 // Normalizes the two sources of certificates into one shape: hackathons with
 // an uploaded certificate_image, plus standalone Certificate records added
-// directly from this tab.
+// directly from this tab (or from the Learning Hub / Jarvis).
 function unifyCertificates(hackathons, certificates) {
   const fromHacks = hackathons.filter((h) => h.certificate_image).map((h) => ({
     id: `hack_${h.id}`,
     hack_id: h.id,
     title: h.name,
     organization: h.organizer || 'Hackathon',
-    achievement: h.results_place || 'Winner',
+    // Used to default to "Winner" for every hackathon, which mislabelled
+    // participation certificates as wins. Set the real place in the
+    // hackathon's Edit form.
+    achievement: h.results_place || 'Participant',
     category: 'Hackathon',
     date_earned: h.results_date || h.deadline || h.created_at,
     description: h.project_name ? `Awarded for ${h.name}, presenting "${h.project_name}".` : `Awarded for participation in ${h.name}.`,
@@ -543,12 +573,17 @@ function unifyCertificates(hackathons, certificates) {
     recipient_name: 'Chocle254',
   }));
   const standalone = (certificates || []).map((c) => ({ ...c, hack_id: null }));
-  return [...standalone, ...fromHacks].sort((a, b) => new Date(b.date_earned || 0) - new Date(a.date_earned || 0));
+  return [...standalone, ...fromHacks].map(normalizeCert).sort(compareCerts('newest'));
+}
+
+function compareCerts(sort) {
+  const dir = sort === 'oldest' ? -1 : 1;
+  return (a, b) => dir * (certTime(b) - certTime(a)) || rankIndex(a.achievement) - rankIndex(b.achievement) || String(a.title || '').localeCompare(String(b.title || ''));
 }
 
 function CertStatChip({ icon, value, label }) {
   return (
-    <div className="card-2" style={{ flex: 1, minWidth: 0, padding: '10px 8px', textAlign: 'center' }}>
+    <div className="card-2" style={{ minWidth: 0, padding: '10px 8px', textAlign: 'center' }}>
       <div style={{ fontSize: 18, marginBottom: 2 }}>{icon}</div>
       <div className="font-num" style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{value}</div>
       {/* was var(--text-3) at 10px — too low-contrast against --card-2 to read
@@ -562,10 +597,10 @@ function CertStatChip({ icon, value, label }) {
 
 function CertCard({ cert, onOpen }) {
   const meta = rankMeta(cert.achievement);
-  const year = cert.date_earned ? new Date(cert.date_earned).getFullYear() : '';
+  const year = certTime(cert) ? new Date(certTime(cert)).getFullYear() : '';
   return (
     <div className="cert-slot" onClick={() => onOpen(cert)} style={{ cursor: 'pointer' }}>
-      <div className="cert-frame" style={{ padding: 8 }}>
+      <div className="cert-frame">
         <div className="cert-glow" />
         <div className="cert-rank-badge" style={{ background: meta.color }}>{meta.ribbon}</div>
         {cert.image ? (
@@ -588,18 +623,18 @@ function CertCard({ cert, onOpen }) {
 function GeneratedCertArt({ cert, compact }) {
   const meta = rankMeta(cert.achievement);
   return (
-    <div className="generated-cert" style={{ padding: compact ? 14 : 22 }}>
+    <div className={`generated-cert${compact ? ' compact' : ''}`} style={{ padding: compact ? 10 : 22 }}>
       <div className="generated-cert-header">
         <span style={{ fontSize: compact ? 16 : 22 }}>⚡</span>
         <span style={{ fontSize: compact ? 11 : 14, fontWeight: 800, letterSpacing: 1.5 }}>FEDHA {compact ? '' : 'TECH HUB'}</span>
       </div>
       <div style={{ fontSize: compact ? 8 : 11, color: 'var(--text-3)', letterSpacing: 2, marginTop: compact ? 6 : 10, textTransform: 'uppercase' }}>Certificate of Achievement</div>
-      <div style={{ fontSize: compact ? 7 : 10, color: 'var(--text-3)', marginTop: compact ? 4 : 8 }}>Proudly presented to</div>
-      <div className="generated-cert-name" style={{ fontSize: compact ? 15 : 26 }}>{cert.recipient_name || 'Chocle254'}</div>
-      <div style={{ fontSize: compact ? 7 : 11, color: 'var(--text-2)', marginTop: compact ? 4 : 10, padding: compact ? '0 4px' : '0 20px', lineHeight: 1.5 }}>
+      {!compact && <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 8 }}>Proudly presented to</div>}
+      <div className="generated-cert-name" style={{ fontSize: compact ? 13 : 26 }}>{cert.recipient_name || 'Chocle254'}</div>
+      <div className={compact ? 'generated-cert-line' : undefined} style={{ fontSize: compact ? 9 : 11, color: 'var(--text-2)', marginTop: compact ? 3 : 10, padding: compact ? '0 4px' : '0 20px', lineHeight: 1.4 }}>
         {compact ? cert.title : (cert.description || `For outstanding performance in ${cert.title}.`)}
       </div>
-      <div className="generated-cert-seal" style={{ width: compact ? 22 : 40, height: compact ? 22 : 40, fontSize: compact ? 11 : 18 }}>{meta.ribbon}</div>
+      {!compact && <div className="generated-cert-seal" style={{ width: 40, height: 40, fontSize: 18 }}>{meta.ribbon}</div>}
     </div>
   );
 }
@@ -649,15 +684,21 @@ function CertificatesRoom({ hackathons, certificates, onAdd, onOpen }) {
   const total = all.length;
   const firstPlace = all.filter((c) => c.achievement === '1st Place').length;
   const top3 = all.filter((c) => ['1st Place', '2nd Place', '3rd Place'].includes(c.achievement)).length;
-  const mostRecentYear = all.length ? new Date(all[0].date_earned || Date.now()).getFullYear() : '—';
+  const newest = all.find((c) => certTime(c));
+  const mostRecentYear = newest ? new Date(certTime(newest)).getFullYear() : '—';
 
-  let shown = all.filter((c) => {
+  const shown = all.filter((c) => {
     if (search && !`${c.title} ${c.organization}`.toLowerCase().includes(search.toLowerCase())) return false;
     if (filters.achievement && c.achievement !== filters.achievement) return false;
     if (filters.category && c.category !== filters.category) return false;
     return true;
-  });
-  shown = shown.sort((a, b) => (filters.sort === 'oldest' ? 1 : -1) * (new Date(b.date_earned || 0) - new Date(a.date_earned || 0)));
+  }).sort(compareCerts(filters.sort));
+
+  // One shelf per category (Hackathons, Courses, …) in a fixed order, so the
+  // gallery reads as organised sections instead of one mixed wall.
+  const groups = CERT_CATEGORIES
+    .map((cat) => ({ cat, items: shown.filter((c) => c.category === cat) }))
+    .filter((g) => g.items.length);
 
   const activeFilterCount = (filters.achievement ? 1 : 0) + (filters.category ? 1 : 0);
 
@@ -669,7 +710,7 @@ function CertificatesRoom({ hackathons, certificates, onAdd, onOpen }) {
       </div>
 
       {total > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <div className="cert-stats-grid">
           <CertStatChip icon="🎖️" value={total} label="Total Certs" />
           <CertStatChip icon="🥇" value={firstPlace} label="1st Place" />
           <CertStatChip icon="🏅" value={top3} label="Top 3 Finishes" />
@@ -697,9 +738,17 @@ function CertificatesRoom({ hackathons, certificates, onAdd, onOpen }) {
         <div className="empty-state"><div className="icon">🔍</div><h3>No matches</h3><p>Try a different search or clear your filters.</p></div>
       ) : (
         <div className="cert-gallery">
-          <div className="cert-gallery-grid">
-            {shown.map((c) => <CertCard key={c.id} cert={c} onOpen={onOpen} />)}
-          </div>
+          {groups.map((g) => (
+            <section key={g.cat} className="cert-shelf">
+              <div className="cert-shelf-title">
+                <span>{CERT_SHELF_LABEL[g.cat] || g.cat}</span>
+                <span className="cert-shelf-count">{g.items.length}</span>
+              </div>
+              <div className="cert-gallery-grid">
+                {g.items.map((c) => <CertCard key={c.id} cert={c} onOpen={onOpen} />)}
+              </div>
+            </section>
+          ))}
         </div>
       )}
 
@@ -1555,6 +1604,12 @@ export default function TechHubPage() {
     if (!Array.isArray(researchRaw)) console.warn('[fedha] research from useApp() was not an array:', researchRaw);
   }
   const [tab, setTab] = useState('hackathons');
+  const router = useRouter();
+  // Lets links (e.g. Jarvis "open my certificates") land on a specific tab.
+  useEffect(() => {
+    const t = router.query.tab;
+    if (typeof t === 'string' && ['hackathons', 'events', 'startups', 'certificates', 'client-work', 'showroom', 'research'].includes(t)) setTab(t);
+  }, [router.query.tab]);
   const [showTxn, setShowTxn] = useState(false);
   const [detailHackId, setDetailHackId] = useState(null);
   const [certModal, setCertModal] = useState(null); // {} = new, {...cert} = edit, null = closed

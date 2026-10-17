@@ -3,9 +3,10 @@ import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import FoodLogModal from '../components/FoodLogModal';
 import FoodHub from '../components/FoodHub';
-import { genId, todayISO } from '../lib/utils';
-import { getFoodLogs, saveFoodLog, deleteFoodLog, getSetting, setSetting } from '../lib/db';
-import { MEAL_SLOTS, defaultSlotForHour } from '../lib/foods';
+import { genId, todayISO, formatCurrency } from '../lib/utils';
+import { getFoodLogs, saveFoodLog, deleteFoodLog, getSetting, setSetting, getFoodProfile } from '../lib/db';
+import { MEAL_SLOTS, COMMON_FOODS, defaultSlotForHour, rankMealIdeas } from '../lib/foods';
+import { useFloatingCash } from '../lib/floating';
 
 const WATER_GOAL = 8; // glasses
 
@@ -37,6 +38,8 @@ export default function FoodDiaryPage() {
   const [goalDraft, setGoalDraft] = useState('2800');
   const [proteinDraft, setProteinDraft] = useState('120');
   const [foodMode, setFoodMode] = useState('diary');
+  const [foodProfile, setFoodProfile] = useState({});
+  const { floating, currency } = useFloatingCash();
 
   const reloadAll = useCallback(async () => {
     const all = await getFoodLogs();
@@ -63,6 +66,7 @@ export default function FoodDiaryPage() {
       setProteinGoal(Number(pg));
       setGoalDraft(String(cg));
       setProteinDraft(String(pg));
+      getFoodProfile().then((p) => setFoodProfile(p || {})).catch(() => {});
       await reloadAll();
     }
     init();
@@ -203,6 +207,22 @@ export default function FoodDiaryPage() {
   }
   const weekMax = Math.max(calorieGoal, ...week.map((w) => w.cal));
 
+  // "Up next": the best meal for the current slot given what's left today,
+  // your likes/dislikes and (when prices are set) your Floating Balance.
+  const isToday = date === todayISO();
+  const nextSlot = defaultSlotForHour(new Date().getHours());
+  const upNext = isToday && remainingCal > 0
+    ? rankMealIdeas({
+        foods: [...COMMON_FOODS, ...(foodProfile.customFoods || [])],
+        profile: foodProfile,
+        floating,
+        remainingCal,
+        remainingProtein: Math.max(0, proteinGoal - eatenProtein),
+        slot: nextSlot,
+      }).slice(0, 2)
+    : [];
+  const slotLogged = isToday && logs.some((l) => l.slot === nextSlot);
+
   const ringColor = calPct >= 100 ? 'var(--green)' : calPct >= 70 ? 'var(--yellow)' : 'var(--blue)';
   const circumference = 2 * Math.PI * 52;
 
@@ -283,6 +303,42 @@ export default function FoodDiaryPage() {
               </button>
             </div>
           </div>
+
+          {/* Up next */}
+          {isToday && (
+            <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
+              <div className="section-title" style={{ marginBottom: 6 }}>UP NEXT</div>
+              {remainingCal <= 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
+                  You've hit today's {calorieGoal.toLocaleString()} cal goal{eatenProtein < proteinGoal ? ` — but you're ${Math.round(proteinGoal - eatenProtein)}g short on protein. A boiled egg or a glass of mala closes that cheaply.` : ' and your protein. Nice work. 💪'}
+                </div>
+              ) : upNext.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--text-2)' }}>No ready-made meal fits right now — use + Add to log what you have.</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 10 }}>
+                    {slotLogged ? 'Already logged this meal? ' : ''}{Math.round(remainingCal)} cal and {Math.max(0, Math.round(proteinGoal - eatenProtein))}g protein to go today.
+                  </div>
+                  {upNext.map((idea) => (
+                    <div key={idea.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{idea.name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                          {idea.cal} cal · {idea.protein}g protein{idea.costKnown ? ` · ${formatCurrency(idea.cost, currency)}` : ''}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 2 }}>{idea.reason}</div>
+                      </div>
+                      <button
+                        className="btn-ghost"
+                        style={{ padding: '6px 12px', width: 'auto', flexShrink: 0 }}
+                        onClick={() => handleFoodHubLog({ items: idea.items, slot: nextSlot, name: idea.name })}
+                      >Log</button>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
 
           {/* Goal editor */}
           {editingGoal && (

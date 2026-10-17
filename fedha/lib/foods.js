@@ -87,3 +87,61 @@ export function defaultSlotForHour(hour) {
   if (hour < 18) return 'snack';
   return 'dinner';
 }
+
+// Ready-made Kenyan meal combos built from COMMON_FOODS ids.
+export const MEAL_IDEAS = [
+  { id:'eggs_bread_milk', name:'Eggs + Bread + Milk', ids:['egg_boiled','bread','milk'], slot:'breakfast', tags:['protein','energy'] },
+  { id:'oats_banana_pb', name:'Oatmeal + Banana + Peanut Butter', ids:['oatmeal','banana','peanutbutter'], slot:'breakfast', tags:['high-calorie','energy'] },
+  { id:'eggs_chapati_milk', name:'Eggs + Chapati + Milk', ids:['egg_boiled','chapati','milk'], slot:'breakfast', tags:['high-calorie','protein'] },
+  { id:'uji_eggs', name:'Uji + 2 Boiled Eggs', ids:['uji','egg_boiled','egg_boiled'], slot:'breakfast', tags:['budget','protein'] },
+  { id:'banana_pb_milk', name:'Banana + Peanut Butter + Milk', ids:['banana','peanutbutter','milk'], slot:'snack', tags:['high-calorie','protein'] },
+  { id:'yogurt_groundnuts', name:'Yogurt + Groundnuts', ids:['yogurt','groundnuts'], slot:'snack', tags:['protein'] },
+  { id:'mala_mandazi', name:'Mala + Mandazi', ids:['mala','mandazi'], slot:'snack', tags:['budget','Kenyan'] },
+  { id:'ugali_beef_sukuma', name:'Ugali + Beef Stew + Sukuma Wiki', ids:['ugali','beef_stew','sukuma'], slot:'lunch', tags:['protein','balanced'] },
+  { id:'rice_beans_avocado', name:'Rice + Beans + Avocado', ids:['rice','beans','avocado'], slot:'lunch', tags:['protein','budget'] },
+  { id:'githeri_avocado', name:'Githeri + Avocado', ids:['githeri','avocado'], slot:'lunch', tags:['protein','Kenyan'] },
+  { id:'chapati_ndengu', name:'Chapati + Ndengu', ids:['chapati','ndengu'], slot:'lunch', tags:['budget','protein'] },
+  { id:'ugali_omena_sukuma', name:'Ugali + Omena + Sukuma Wiki', ids:['ugali','omena','sukuma'], slot:'dinner', tags:['protein','Kenyan'] },
+  { id:'rice_chicken_cabbage', name:'Rice + Chicken + Cabbage', ids:['rice','chicken_thigh','cabbage'], slot:'dinner', tags:['protein','balanced'] },
+  { id:'ugali_tilapia_kachumbari', name:'Ugali + Tilapia + Kachumbari', ids:['ugali','tilapia','kachumbari'], slot:'dinner', tags:['protein','Kenyan'] },
+];
+
+// Ranks meal ideas for *right now*: drops anything with a disliked food or
+// meal, anything you can't afford (when prices are known), and prefers the
+// current meal slot and meals that close today's protein/calorie gap without
+// blowing far past it. Each result carries a plain-language `reason`.
+export function rankMealIdeas({ foods, profile = {}, floating = Infinity, remainingCal, remainingProtein, slot }) {
+  const map = Object.fromEntries(foods.map((f) => [f.id, f]));
+  const pref = (id) => profile.preferences?.[id] || { score: 0, state: 'neutral' };
+  const mealPref = (id) => profile.mealPreferences?.[id] || { score: 0, state: 'neutral' };
+
+  return MEAL_IDEAS.map((idea) => {
+    const items = idea.ids.map((id) => map[id]).filter(Boolean);
+    if (items.length !== idea.ids.length) return null;
+    if (items.some((f) => pref(f.id).state === 'disliked') || mealPref(idea.id).state === 'disliked') return null;
+
+    const prices = items.map((f) => profile.prices?.[f.id]);
+    const costKnown = prices.every((v) => v != null && Number(v) >= 0);
+    const cost = costKnown ? prices.reduce((s, v) => s + Number(v), 0) : null;
+    if (costKnown && cost > Math.max(0, floating)) return null;
+
+    const cal = items.reduce((s, f) => s + Number(f.cal || 0), 0);
+    const protein = items.reduce((s, f) => s + Number(f.protein || 0), 0);
+    const likes = items.reduce((s, f) => s + pref(f.id).score, 0) + mealPref(idea.id).score * 2;
+
+    // Gap fit: reward protein toward the remaining target, penalise going
+    // well past the remaining calories.
+    const proteinFit = remainingProtein > 0 ? Math.min(protein, remainingProtein) / remainingProtein : 0;
+    const overCal = Math.max(0, cal - remainingCal - 150);
+    let score = proteinFit * 10 - overCal / 100 + likes;
+    if (idea.slot === slot) score += 6;
+
+    let reason;
+    if (remainingCal <= 0) reason = "You've hit today's calories — only if you're still hungry.";
+    else if (remainingProtein > 0 && protein >= remainingProtein * 0.4) reason = `Covers ${Math.round(proteinFit * 100)}% of the ${Math.round(remainingProtein)}g protein you still need.`;
+    else if (cal <= remainingCal) reason = `Fits the ${Math.round(remainingCal)} cal you have left today.`;
+    else reason = `About ${cal - Math.round(remainingCal)} cal over today's goal.`;
+
+    return { ...idea, items, cost, costKnown, cal, protein, score, reason };
+  }).filter(Boolean).sort((a, b) => b.score - a.score);
+}

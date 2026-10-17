@@ -1,22 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { COMMON_FOODS, FOOD_GROUPS } from '../lib/foods';
-import { getFoodProfile, saveFoodProfile, getFoodLogs, getSetting, saveTransaction } from '../lib/db';
+import { COMMON_FOODS, FOOD_GROUPS, MEAL_IDEAS, MEAL_SLOTS, rankMealIdeas, defaultSlotForHour } from '../lib/foods';
+import { getFoodProfile, saveFoodProfile, getFoodLogs, getSetting } from '../lib/db';
 import { useFloatingCash } from '../lib/floating';
 import { formatCurrency, genId, todayISO } from '../lib/utils';
 import { useApp } from '../context/AppContext';
-
-const MEAL_IDEAS = [
-  { id:'eggs_bread_milk', name:'Eggs + Bread + Milk', ids:['egg_boiled','bread','milk'], slot:'breakfast', tags:['protein','energy'] },
-  { id:'oats_banana_pb', name:'Oatmeal + Banana + Peanut Butter', ids:['oatmeal','banana','peanutbutter'], slot:'breakfast', tags:['high-calorie','energy'] },
-  { id:'ugali_beef_sukuma', name:'Ugali + Beef Stew + Sukuma Wiki', ids:['ugali','beef_stew','sukuma'], slot:'lunch', tags:['protein','balanced'] },
-  { id:'rice_beans_avocado', name:'Rice + Beans + Avocado', ids:['rice','beans','avocado'], slot:'lunch', tags:['protein','budget'] },
-  { id:'githeri_avocado', name:'Githeri + Avocado', ids:['githeri','avocado'], slot:'lunch', tags:['protein','Kenyan'] },
-  { id:'ugali_omena_sukuma', name:'Ugali + Omena + Sukuma Wiki', ids:['ugali','omena','sukuma'], slot:'dinner', tags:['protein','Kenyan'] },
-  { id:'banana_pb_milk', name:'Banana + Peanut Butter + Milk', ids:['banana','peanutbutter','milk'], slot:'snack', tags:['high-calorie','protein'] },
-  { id:'eggs_chapati_milk', name:'Eggs + Chapati + Milk', ids:['egg_boiled','chapati','milk'], slot:'breakfast', tags:['high-calorie','protein'] },
-];
-
-function defaultSlotForHour(hour) { return hour < 10 ? 'breakfast' : hour < 12 ? 'snack' : hour < 16 ? 'lunch' : hour < 18 ? 'snack' : 'dinner'; }
 
 const DEFAULT_PROFILE = { customFoods:[], preferences:{}, mealPreferences:{}, prices:{}, savedMeals:[] };
 const LOCATION_SESSION_KEY = 'fedha_food_location_session';
@@ -27,7 +14,9 @@ function pref(profile, id) {
 
 export default function FoodHub({ onLogMeal }) {
   const { floating, currency } = useFloatingCash();
-  const { wallets } = useApp();
+  // addTransaction (not raw saveTransaction) so wallet balances and the
+  // Floating Balance update straight away after a nearby purchase.
+  const { wallets, addTransaction } = useApp();
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const [logs, setLogs] = useState([]);
   const [calGoal, setCalGoal] = useState(2800);
@@ -134,7 +123,8 @@ export default function FoodHub({ onLogMeal }) {
     if (!acceptedPlace || !food || !Number.isFinite(cal) || cal < 0 || !Number.isFinite(price) || price < 0 || !purchase.walletId) return;
     const item = { id: 'nearby_' + genId(), name: food, cal, protein: Number(purchase.protein) || 0, icon: '🍽️', qty: 1, slot: defaultSlotForHour(new Date().getHours()) };
     if (onLogMeal) await onLogMeal({ items: [item], slot: item.slot, name: food + ' at ' + acceptedPlace.name });
-    await saveTransaction({ id: genId(), type: 'expense', amount: price, category: 'food', description: food + ' at ' + acceptedPlace.name, wallet_id: purchase.walletId, date: todayISO(), created_at: new Date().toISOString() });
+    await addTransaction({ type: 'expense', amount: price, category: 'food', description: food + ' at ' + acceptedPlace.name, wallet_id: purchase.walletId, date: todayISO() });
+    await load();
     setAcceptedPlace(null);
     setPurchase({food:'',cal:'',protein:'',price:'',walletId:''});
   }
@@ -183,28 +173,12 @@ export default function FoodHub({ onLogMeal }) {
     });
   },[foods,query,group,filter,profile]);
 
-  const ideas = useMemo(() => {
-    const map=Object.fromEntries(foods.map(f=>[f.id,f]));
-    return MEAL_IDEAS.map(idea => {
-      const items=idea.ids.map(id=>map[id]).filter(Boolean);
-      if(items.length!==idea.ids.length) return null;
-      const costValues=items.map(f=>profile.prices?.[f.id]);
-      const costKnown=costValues.every(v=>v!=null && Number(v)>=0);
-      const cost=costKnown ? costValues.reduce((s,v)=>s+Number(v),0) : null;
-      const cal=items.reduce((s,f)=>s+Number(f.cal||0),0);
-      const protein=items.reduce((s,f)=>s+Number(f.protein||0),0);
-      const score=items.reduce((s,f)=>s+pref(profile,f.id).score,0);
-      const fitsBalance=!costKnown || cost<=Math.max(0,floating);
-      const fitsToday=cal<=remainingCal || protein<=remainingProtein;
-      return {...idea,items,cost,costKnown,cal,protein,score,fitsBalance,fitsToday};
-    }).filter(Boolean).filter(x=>x.fitsBalance);
-  },[foods,profile,floating,remainingCal,remainingProtein]);
-
-  const rankedIdeas=[...ideas].sort((a,b) => {
-    const aNeed=(a.protein<=remainingProtein?1:0)+(a.cal<=remainingCal?1:0);
-    const bNeed=(b.protein<=remainingProtein?1:0)+(b.cal<=remainingCal?1:0);
-    return (b.score-a.score) || (bNeed-aNeed) || (b.protein-a.protein);
-  });
+  const currentSlot = defaultSlotForHour(new Date().getHours());
+  const [ideaSlot, setIdeaSlot] = useState(currentSlot);
+  const rankedIdeas = useMemo(
+    () => rankMealIdeas({ foods, profile, floating, remainingCal, remainingProtein, slot: ideaSlot }),
+    [foods, profile, floating, remainingCal, remainingProtein, ideaSlot]
+  );
 
   async function rate(id,state) {
     const old=pref(profile,id);
@@ -251,8 +225,10 @@ export default function FoodHub({ onLogMeal }) {
     setCustomOpen(false);
   }
 
-  function logItems(items,slot) {
-    if(onLogMeal) onLogMeal({items,slot:slot||'lunch',name:items.map(f=>f.name).join(' + ')});
+  async function logItems(items,slot) {
+    if(!onLogMeal) return;
+    await onLogMeal({items,slot:slot||currentSlot,name:items.map(f=>f.name).join(' + ')});
+    await load(); // refresh today's totals so suggestions use the new gap
   }
 
   async function saveMeal() {
@@ -315,18 +291,21 @@ export default function FoodHub({ onLogMeal }) {
     {tab==='suggestions' && <div>
       <div className="card" style={{padding:15,marginBottom:14}}>
         <div className="section-title" style={{marginBottom:7}}>PERSONALIZED MEAL IDEAS</div>
-        <div style={{fontSize:12,color:'var(--text-3)'}}>Fedha uses your preferences, today's nutrition gap and the existing Floating Balance. Prices are your own local prices.</div>
+        <div style={{fontSize:12,color:'var(--text-3)',marginBottom:10}}>You still need <b style={{color:'var(--text)'}}>{Math.round(remainingCal)} cal</b> and <b style={{color:'var(--text)'}}>{Math.round(remainingProtein)}g protein</b> today. Disliked foods are left out, and meals you can't afford from your Floating Balance are hidden once you've set prices.</div>
+        <div style={{display:'flex',gap:6,overflowX:'auto'}}>
+          {MEAL_SLOTS.map(s=><button key={s.id} className={'chip '+(ideaSlot===s.id?'active':'')} onClick={()=>setIdeaSlot(s.id)}>{s.icon} {s.label}</button>)}
+        </div>
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:10}}>
-        {rankedIdeas.map(idea=><div key={idea.id} className="card" style={{padding:15}}>
-          <div style={{display:'flex',justifyContent:'space-between',gap:10}}><div><div style={{fontSize:15,fontWeight:700}}>{idea.name}</div><div style={{fontSize:12,color:'var(--text-3)',marginTop:3}}>{idea.cal} cal · {idea.protein}g protein · {idea.slot}</div></div><div style={{display:'flex',gap:5}}>
+        {rankedIdeas.slice(0,6).map(idea=><div key={idea.id} className="card" style={{padding:15}}>
+          <div style={{display:'flex',justifyContent:'space-between',gap:10}}><div><div style={{fontSize:15,fontWeight:700}}>{idea.name}</div><div style={{fontSize:12,color:'var(--text-3)',marginTop:3}}>{idea.cal} cal · {idea.protein}g protein · {idea.slot}</div><div style={{fontSize:12,color:'var(--green)',marginTop:5}}>{idea.reason}</div></div><div style={{display:'flex',gap:5}}>
             <button className="btn-ghost" style={{padding:'5px 8px'}} onClick={()=>rateMeal(idea.id,'liked')}>❤️</button>
             <button className="btn-ghost" style={{padding:'5px 8px'}} onClick={()=>rateMeal(idea.id,'disliked')}>👎</button>
           </div></div>
           <div style={{display:'flex',gap:7,flexWrap:'wrap',marginTop:10}}>{idea.tags.map(t=><span key={t} className="chip">{t}</span>)}{idea.costKnown?<span className="chip" style={{color:'var(--green)'}}>💰 {formatCurrency(idea.cost,currency)}</span>:<span className="chip">Price not set</span>}{idea.costKnown&&idea.cost<=Math.max(0,floating)&&<span className="chip" style={{color:'var(--green)'}}>✓ Fits Floating Balance</span>}</div>
           <button className="btn-primary" style={{width:'100%',marginTop:12}} onClick={()=>logItems(idea.items,idea.slot)}>Log this meal</button>
         </div>)}
-        {!rankedIdeas.length && <div className="empty-state"><div className="icon">💰</div><h3>No meal ideas fit right now</h3><p>Set prices for foods you use so Fedha can apply your Floating Balance.</p></div>}
+        {!rankedIdeas.length && <div className="empty-state"><div className="icon">💰</div><h3>No meal ideas fit right now</h3><p>Either you've disliked the foods in every idea, or the priced ones cost more than your Floating Balance. Try Build to make your own.</p></div>}
       </div>
     </div>}
 
