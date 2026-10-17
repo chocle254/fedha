@@ -588,9 +588,10 @@ function EditModal({ block, onSave, onClose }) {
 }
 
 export default function PlannerPage() {
-  const { hackathons, startups, projects, onlineJobs, research, clientProjects, courses } = useApp();
+  const { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, wallets } = useApp();
   const { floating } = useFloatingCash();
-  const lowCash = floating < LOW_CASH;
+  // Wait for wallets to load — before that the balance reads as 0.
+  const lowCash = (wallets || []).length > 0 && floating < LOW_CASH;
   const planCtx = { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, lowCash };
   const [allDayEvents, setAllDayEvents] = useState([]);
   const isWeekend = [0,6].includes(new Date().getDay());
