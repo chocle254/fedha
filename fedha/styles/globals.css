@@ -557,6 +557,37 @@ select.input option { background: var(--card-2); }
   font-size: 10.5px; color: var(--text-3); margin-top: 2px; letter-spacing: 0.3px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.cert-plaque-org {
+  display: none;
+  font-size: 11px; color: var(--text-3); margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Phones: two framed certificates side by side are too small to read, so
+   each certificate becomes a row — picture on the left, details on the right. */
+@media (max-width: 559px) {
+  .cert-gallery { padding: 14px 10px; }
+  .cert-gallery-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .cert-slot {
+    flex-direction: row; align-items: center; gap: 12px;
+    padding: 8px;
+    background: var(--card-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .cert-frame { width: 46%; flex-shrink: 0; padding: 5px; border-radius: 10px; }
+  .cert-frame img { border-radius: 6px; }
+  .cert-rank-badge { top: 4px; left: 4px; width: 22px; height: 22px; font-size: 12px; }
+  .cert-plaque {
+    flex: 1; min-width: 0;
+    margin-top: 0; padding: 0;
+    text-align: left;
+    background: none; border: none;
+  }
+  .cert-plaque-name { font-size: 13.5px; -webkit-line-clamp: 3; min-height: 0; }
+  .cert-plaque-meta { font-size: 12px; margin-top: 5px; color: var(--gold, #F5C56B); font-weight: 600; }
+  .cert-plaque-org { display: block; }
+}
 
 /* ─── PROJECT SHOWROOM ────────────────────────────────────────────────────────── */
 .showroom-grid {

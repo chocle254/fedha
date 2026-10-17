@@ -613,6 +613,7 @@ function CertCard({ cert, onOpen }) {
       <div className="cert-plaque">
         <div className="cert-plaque-name">{cert.title}</div>
         <div className="cert-plaque-meta">{[meta.label, year].filter(Boolean).join(' · ')}</div>
+        {cert.organization && <div className="cert-plaque-org">{cert.organization}</div>}
       </div>
     </div>
   );
