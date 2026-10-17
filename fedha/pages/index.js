@@ -3,9 +3,9 @@ import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import SavingsMotivator from '../components/SavingsMotivator';
 import SavingsChallenges from '../components/SavingsChallenges';
+import BalanceHistoryChart from '../components/BalanceHistoryChart';
 import { useApp } from '../context/AppContext';
-import { formatCurrency, formatShort, formatDate, formatDateRelative, getCategoryById, groupByDay, monthRange, getBalanceChart } from '../lib/utils';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { formatCurrency, formatShort, formatDate, formatDateRelative, getCategoryById, groupByDay, monthRange } from '../lib/utils';
 import { format } from 'date-fns';
 
 function StatCard({ label, value, currency, sub, color = 'var(--green)' }) {
@@ -14,20 +14,6 @@ function StatCard({ label, value, currency, sub, color = 'var(--green)' }) {
       <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>{label}</div>
       <div className="font-num" style={{ fontSize: 16, fontWeight: 700, color }}>{formatShort(value, currency)}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>{sub}</div>}
-    </div>
-  );
-}
-
-function BalanceTooltip({ active, payload, label, currency }) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px' }}>
-      <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 6 }}>{label}</div>
-      {payload.map((p) => (
-        <div key={p.name} style={{ fontSize: 13, fontWeight: 600, color: p.color, fontFamily: 'DM Mono' }}>
-          Balance: {formatShort(p.value, currency)}
-        </div>
-      ))}
     </div>
   );
 }
@@ -50,7 +36,6 @@ export default function Dashboard() {
   const monthTxns = transactions.filter((t) => t.date >= from && t.date <= to);
   const monthExpense = monthTxns.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
   const monthIncome = monthTxns.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
-  const chartData = getBalanceChart(transactions, totalBalance, 7);
   const recent = transactions.slice(0, 5);
   const activeLoans = loans.filter((l) => l.status === 'active');
   const overBudget = budgets.filter((b) => (b.spent || 0) > b.allocated);
@@ -116,29 +101,10 @@ export default function Dashboard() {
         {/* Savings challenges */}
         <SavingsChallenges />
 
-        {/* 7-day balance chart */}
+        {/* Balance over time — one line for days, months and the year */}
         <div className="section">
-          <div className="section-title">Last 7 Days Balance</div>
-          <div className="card" style={{ padding: '16px 4px 8px' }}>
-            <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={chartData} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="gBalance" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="#1F2D45" strokeDasharray="4 4" vertical={false} />
-                <XAxis dataKey="label" tick={{ fill: '#3D5070', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#3D5070', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
-                <Tooltip content={<BalanceTooltip currency={currency} />} />
-                <Area type="monotone" dataKey="balance" stroke="#10B981" strokeWidth={2.5} fill="url(#gBalance)" dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 20, padding: '8px 0 4px', fontSize: 12, color: 'var(--text-3)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 2, background: '#10B981', display: 'inline-block', borderRadius: 1 }} /> Balance</div>
-            </div>
-          </div>
+          <div className="section-title">Balance Over Time</div>
+          <BalanceHistoryChart transactions={transactions} currentBalance={totalBalance} currency={currency} />
         </div>
 
         {/* Wallet balances */}

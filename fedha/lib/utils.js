@@ -485,7 +485,8 @@ export function getBalanceChart(transactions, currentBalance, days = 7) {
     // Balance on this day = current balance - (all transactions after this day)
     const txnsAfterDay = transactions.filter((t) => t.date > key);
     const totalNetAfterDay = txnsAfterDay.reduce((s, t) => {
-      return s + (t.type === 'income' ? Number(t.amount) : -Number(t.amount));
+      // Transfers move money between your own wallets — the total doesn't change.
+      return s + (t.type === 'income' ? Number(t.amount) : t.type === 'expense' ? -Number(t.amount) : 0);
     }, 0);
     
     const balance = currentBalance - totalNetAfterDay;
