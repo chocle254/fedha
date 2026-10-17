@@ -25,7 +25,7 @@ function StatCard({ label, value, currency, sub, color = 'var(--green)' }) {
 function useIsDesktop() {
   const [desk, setDesk] = useState(false);
   useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1024px)');
+    const mq = window.matchMedia('(min-width: 960px)');
     const on = () => setDesk(mq.matches);
     on();
     mq.addEventListener?.('change', on);

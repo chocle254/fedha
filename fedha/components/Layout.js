@@ -44,7 +44,7 @@ const MORE = [
 const MORE_HREFS = MORE.map((m) => m.href);
 
 
-// ─── DESKTOP SIDEBAR (≥1024px) ─────────────────────────────────────────────
+// ─── DESKTOP SIDEBAR (≥960px) ─────────────────────────────────────────────
 // Every page in one list, grouped, with simple line icons.
 const ICON_PATHS = {
   home: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0h6',
