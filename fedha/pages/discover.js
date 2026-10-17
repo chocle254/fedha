@@ -310,7 +310,7 @@ export default function DiscoverPage() {
     <Layout onFab={() => setShowTxn(true)}>
       <div className="page">
         {/* Header */}
-        <div style={{ padding: '52px 20px 0' }}>
+        <div className="page-top" style={{ padding: '52px 20px 0' }}>
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Discover ✨</div>
             <div style={{ fontSize: 13, color: 'var(--text-3)' }}>AI-powered ideas based on your money</div>

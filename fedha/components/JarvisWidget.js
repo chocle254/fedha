@@ -358,6 +358,7 @@ export default function JarvisWidget() {
       <button
         onClick={() => setOpen(true)}
         aria-label="Talk to Jarvis"
+        className="jarvis-fab"
         style={{
           position: 'fixed', bottom: 84, left: 20, width: 56, height: 56, borderRadius: '50%',
           background: 'linear-gradient(135deg, #6366F1, #8B5CF6)', border: 'none', cursor: 'pointer',

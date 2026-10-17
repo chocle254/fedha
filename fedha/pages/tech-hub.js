@@ -1914,7 +1914,7 @@ export default function TechHubPage() {
   return (
     <Layout onFab={() => setShowTxn(true)}>
       <div className="page">
-        <div style={{ padding: '52px 20px 0' }}>
+        <div className="page-top" style={{ padding: '52px 20px 0' }}>
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Tech Hub 🚀</div>
             <div style={{ fontSize: 13, color: 'var(--text-3)' }}>Hackathons, events & your startup journey</div>

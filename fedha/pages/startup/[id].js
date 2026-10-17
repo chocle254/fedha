@@ -250,7 +250,7 @@ export default function StartupDetail() {
   return (
     <Layout fab={false}>
       <div className="page">
-        <div style={{ padding: '52px 20px 0' }}>
+        <div className="page-top" style={{ padding: '52px 20px 0' }}>
           <button onClick={() => router.push('/tech-hub')} style={{ background: 'none', border: 'none', color: 'var(--text-3)', fontSize: 14, cursor: 'pointer', padding: 0, marginBottom: 16, fontFamily: 'Outfit' }}>← Tech Hub</button>
           <div className="muse-hero" style={{ '--stage': stage.color }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
