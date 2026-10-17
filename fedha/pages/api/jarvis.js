@@ -1,3 +1,4 @@
+import { requireUser } from '../../lib/require-user';
 // pages/api/jarvis.js — the Jarvis assistant's brain.
 //
 // Uses Groq's OpenAI-compatible tool-calling. The model can call tools to
@@ -71,6 +72,7 @@ const TOOLS = [
           category: { type: 'string', description: 'e.g. food, transport, salary, other' },
           description: { type: 'string' },
           wallet_name: { type: 'string', description: 'Which wallet by name, e.g. "M-Pesa". Defaults to the first wallet if omitted.' },
+          fee: { type: 'number', description: 'Transaction charge the user paid (e.g. M-Pesa fee), if they mentioned one. Recorded as a separate fee expense. Never guess it.' },
         },
         required: ['type', 'amount', 'category'],
       },
@@ -336,6 +338,7 @@ const TOOLS = [
 ];
 
 export default async function handler(req, res) {
+  if (!(await requireUser(req, res))) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const GROQ_API_KEY = process.env.GROQ_API_KEY;

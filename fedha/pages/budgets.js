@@ -271,7 +271,7 @@ export default function BudgetsPage() {
                       </div>
                       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                         <button onClick={() => setEditBudget(b)} style={{ flex: 1, padding: '8px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit' }}>✏️ Edit</button>
-                        <button onClick={() => removeBudget(b.id)} style={{ flex: 1, padding: '8px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑 Remove</button>
+                        <button onClick={() => window.confirm(`Delete this budget? This can't be undone.`) && removeBudget(b.id)} style={{ flex: 1, padding: '8px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑 Remove</button>
                       </div>
                     </div>
                   );
@@ -335,7 +335,7 @@ export default function BudgetsPage() {
                           {p.is_received ? '✓ Received' : 'Mark Received'}
                         </button>
                         <button onClick={() => setEditPlan(p)} style={{ padding: '8px 14px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit' }}>✏️</button>
-                        <button onClick={() => removeIncomePlan(p.id)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑</button>
+                        <button onClick={() => window.confirm(`Delete income plan "${p.name}"? This can't be undone.`) && removeIncomePlan(p.id)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑</button>
                       </div>
                     </div>
                   );
@@ -408,7 +408,7 @@ export default function BudgetsPage() {
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={() => settleLoan(l)} style={{ flex: 1, padding: '8px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, color: 'var(--green)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', fontWeight: 600 }}>✓ Mark Settled</button>
                         <button onClick={() => setEditLoan(l)} style={{ padding: '8px 14px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit' }}>✏️</button>
-                        <button onClick={() => removeLoan(l.id)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑</button>
+                        <button onClick={() => window.confirm(`Delete the loan with ${l.contact_name}? This can't be undone.`) && removeLoan(l.id)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑</button>
                       </div>
                     </div>
                   );

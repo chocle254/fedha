@@ -7,7 +7,7 @@
 // silently doing nothing or guessing).
 
 import { getWallets, getLoans, getIncomePlans, getSetting, setSetting, getProjects, getHackathons, saveProject, deleteProject, saveHackathon, deleteHackathon, getStartups, saveStartup, deleteStartup, getCertificates, saveCertificate, deleteCertificate, getResearch, saveResearch, deleteResearch, getTransactions } from './db';
-import { toggleIncomeReceived, settleLoan } from './finance-actions';
+import { toggleIncomeReceived, settleLoan, addTransactionWithFee } from './finance-actions';
 import { todayISO } from './utils';
 
 function findByNameLoose(list, field, needle) {
@@ -31,7 +31,7 @@ export async function executeProposedAction(action, ctx) {
         ? findByNameLoose(wallets, 'name', args.wallet_name) || wallets[0]
         : wallets[0];
       if (!wallet) throw new Error('No wallet exists to record this against — add one first.');
-      return ctx.addTransaction({
+      return addTransactionWithFee(ctx.addTransaction, {
         type: args.type,
         amount: Number(args.amount),
         wallet_id: wallet.id,
@@ -39,7 +39,7 @@ export async function executeProposedAction(action, ctx) {
         description: args.description || '',
         date: todayISO(),
         currency: ctx.currency,
-      });
+      }, args.fee);
     }
 
     case 'propose_settle_loan': {
@@ -203,7 +203,7 @@ export function describeProposedAction(action) {
   const { tool, args } = action;
   switch (tool) {
     case 'propose_transaction':
-      return `${args.type === 'income' ? 'Add income' : 'Add expense'}: ${args.amount} (${args.category})${args.description ? ` — ${args.description}` : ''}${args.wallet_name ? ` from ${args.wallet_name}` : ''}`;
+      return `${args.type === 'income' ? 'Add income' : 'Add expense'}: ${args.amount} (${args.category})${args.description ? ` — ${args.description}` : ''}${args.wallet_name ? ` from ${args.wallet_name}` : ''}${Number(args.fee) > 0 ? ` + ${args.fee} fee` : ''}`;
     case 'propose_settle_loan':
       return `Mark loan with ${args.contact_name} as settled`;
     case 'propose_mark_income_received':

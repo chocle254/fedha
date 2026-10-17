@@ -118,7 +118,7 @@ export default function SavingsChallenges() {
                       {badges.map((b) => <span key={b.pct} style={{ fontSize: 16 }}>{b.badge}</span>)}
                     </div>
                   )}
-                  <button onClick={() => removeChallenge(c.id)} className="btn-icon" aria-label="Leave challenge" style={{ width: 30, height: 30 }}>✕</button>
+                  <button onClick={() => window.confirm(`Delete this challenge? This can't be undone.`) && removeChallenge(c.id)} className="btn-icon" aria-label="Leave challenge" style={{ width: 30, height: 30 }}>✕</button>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>

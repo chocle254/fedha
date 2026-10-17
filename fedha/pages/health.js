@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
-import { formatCurrency, formatShort, monthRange } from '../lib/utils';
+import { formatCurrency, formatShort, monthRange, todayISO } from '../lib/utils';
 import { getSetting, setSetting } from '../lib/db';
 
 const ZIIDI_COLOR = '#10B981';
@@ -142,7 +142,7 @@ export default function HealthPage() {
     } else {
       await addGoal({ name:'Ziidi — Emergency Fund', target: Math.max(amount * 10, 5000), current: amount, icon:'🏦', color:'#10B981', deadline:null });
     }
-    await addTransaction({ type:'expense', amount, wallet_id: walletId, category:'savings', description:'Ziidi Emergency Fund', date: new Date().toISOString().split('T')[0], currency });
+    await addTransaction({ type:'expense', amount, wallet_id: walletId, category:'savings', description:'Ziidi Emergency Fund', date: todayISO(), currency });
 
     // Lock in the "standby for next update" state: basis = floating cash AFTER this save.
     const newBasis = Math.max(0, floating - amount);

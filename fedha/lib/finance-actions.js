@@ -11,7 +11,32 @@
 // already have their own reference to these via useApp() or a direct
 // lib/db import, so there's no reason to couple this module to either.
 
-import { todayISO } from './utils';
+import { todayISO, genId } from './utils';
+
+// Records a transaction plus, when `fee` > 0, the charge for it (M-Pesa,
+// bank, Airtel…) as its own "fees" expense taken from the sending wallet.
+// The fee's id is the main id + "_fee", which is how deleting the main
+// transaction finds and removes its fee too — no extra database column.
+export const feeIdFor = (txId) => `${txId}_fee`;
+export async function addTransactionWithFee(addTransaction, tx, fee) {
+  const id = tx.id || genId();
+  const main = await addTransaction({ ...tx, id });
+  const f = Number(fee) || 0;
+  if (f > 0) {
+    const what = tx.type === 'transfer' ? 'transfer' : (tx.description || tx.category || tx.type);
+    await addTransaction({
+      id: feeIdFor(id),
+      type: 'expense',
+      amount: f,
+      wallet_id: tx.wallet_id,
+      category: 'fees',
+      description: `Fee: ${what}`,
+      date: tx.date || todayISO(),
+      currency: tx.currency,
+    });
+  }
+  return main;
+}
 
 // Marks an income plan received: creates a real income transaction for the
 // full expected amount and links it via settled_txn_id, or un-marks it by

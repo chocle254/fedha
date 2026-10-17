@@ -14,7 +14,7 @@ import {
   getStartups, saveStartup, deleteStartup,
   getOnlineJobs, saveOnlineJob, deleteOnlineJob,
   getProjects, saveProject, deleteProject,
-  getCertificates, saveCertificate, deleteCertificate,
+  getCertificates, saveCertificate, deleteCertificate, transactionExists,
   getResearch, saveResearch, deleteResearch,
   getClientProjects, saveClientProject, deleteClientProject,
   getSetting, setSetting, seedDefaultData,
@@ -121,7 +121,11 @@ export function AppProvider({ children }) {
     const [ws, bs] = await Promise.all([getWallets(), getBudgets()]); setWallets(ws); setBudgets(bs); return tx;
   }, []);
   const removeTransaction = useCallback(async (id) => {
-    await deleteTransaction(id); setTransactions((prev) => prev.filter((x) => x.id !== id));
+    // A transaction's fee (id + "_fee") goes with it, so balances stay right.
+    const feeId = `${id}_fee`;
+    await deleteTransaction(id);
+    if (await transactionExists(feeId)) await deleteTransaction(feeId);
+    setTransactions((prev) => prev.filter((x) => x.id !== id && x.id !== feeId));
     const [ws, bs] = await Promise.all([getWallets(), getBudgets()]); setWallets(ws); setBudgets(bs);
   }, []);
 

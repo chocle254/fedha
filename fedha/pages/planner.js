@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { useApp } from '../context/AppContext';
-import { getSetting, setSetting } from '../lib/db';
+import { getSetting, setSetting, getFoodLogs } from '../lib/db';
+import { useFloatingCash } from '../lib/floating';
 import { todayISO, computeJobProgress } from '../lib/utils';
 import { hackStatus, isUrgent, projectStatus } from './tech-hub';
 import { WEEKLY_PLAN, weekdayPlanIndex, estimateWorkoutMinutes, exerciseSummary } from './workout';
 import { showNotif, VIBRATE } from '../lib/notifications';
-import { pruneEndedEvents, todaysEventBlocks } from '../lib/events';
+import { pruneEndedEvents, todaysEventBlocks, eventWindow } from '../lib/events';
 import { format } from 'date-fns';
 
 // ─── DAY ANCHORS ───────────────────────────────────────────────────────────
@@ -42,6 +43,9 @@ const TYPE_COLORS = {
   sleep:    { bg:'rgba(30,41,59,0.5)',    border:'rgba(51,65,85,0.5)',     text:'#475569', dot:'#334155' },
   event:    { bg:'rgba(249,115,22,0.12)', border:'rgba(249,115,22,0.4)',   text:'#FDBA74', dot:'#F97316' },
 };
+// Blocks from Jarvis or older plans can carry a type we don't have colours
+// for — fall back to "personal" instead of crashing the page.
+const colorsFor = (type) => TYPE_COLORS[type] || TYPE_COLORS.personal;
 const TYPE_LABELS = { routine:'Routine', meal:'Meal', coding:'Work', personal:'Personal', chores:'Chores', workout:'Workout', health:'Health', gaming:'Gaming', sleep:'Sleep', research:'Research', event:'Event' };
 
 function t2m(t) { const [h,m] = t.split(':').map(Number); return h*60+m; }
@@ -66,7 +70,7 @@ function getOpenResearchItem(research) {
   return { emoji: '🔍', label: `Research — ${r.title}`, note: already ? `Continue digging into this — ${already} search${already === 1 ? '' : 'es'} logged so far. Open Tech Hub → Research.` : `Start researching this in Tech Hub → Research. Use the AI search helper, then Wrap Up when you have enough.` };
 }
 
-function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs, clientProjects, courses }) {
+function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs, clientProjects, courses, lowCash = false }) {
   const candidates = [];
   const now = Date.now();
 
@@ -98,6 +102,7 @@ function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs, clie
     const agreed = Number(p.agreed_amount || 0) + extraAgreed;
     const remaining = Math.max(0, agreed - previousPaid - payments);
     add({
+      earns: remaining > 0,
       emoji:'💼',
       label:'Client — ' + p.client_name + ': ' + p.name,
       note:(remaining > 0 ? 'KSh ' + remaining.toLocaleString() + ' still outstanding. ' : '') +
@@ -120,31 +125,61 @@ function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs, clie
     }, 40 + Number(course.priority || 3) * 10, course.deadline, remaining);
   });
 
-  const urgentHacks = (hackathons || []).filter(isUrgent);
-  const activeHacks = (hackathons || []).filter(h => hackStatus(h) === 'active' && !isUrgent(h));
-  urgentHacks.forEach(h => add({
-    emoji:'🔥', label:'Hackathon Sprint — ' + h.name,
-    note:'Deadline closing soon' + (h.project_name ? ' — get ' + h.project_name + ' submission-ready.' : '') + ' This can temporarily displace lower-priority work.',
-  }, 90, h.deadline, 8));
-  if (!urgentHacks.length && activeHacks.length) {
-    const h = activeHacks[0];
-    add({ emoji:'🏆', label:'Hackathon Work — ' + h.name, note:'Keep building' + (h.project_name ? ' on ' + h.project_name : '') + '. Check your task list in Tech Hub.' }, 65, h.deadline, 8);
-  }
+  // Every active hackathon is weighed by how much work is left against the
+  // time left: open tasks (≈1.5h each, or 8h if no task list yet) spread over
+  // the days until the deadline. The more hours a day it needs, the higher it
+  // ranks — so a hackathon that's due in 2 days with 6 open tasks beats a
+  // side project, and the note says exactly what to work on next.
+  (hackathons || []).filter((h) => hackStatus(h) === 'active').forEach((h) => {
+    const deadlineMs = h.deadline ? new Date(h.deadline).getTime() : NaN;
+    const daysLeft = Number.isFinite(deadlineMs) ? (deadlineMs - now) / 86400000 : null;
+    if (daysLeft != null && daysLeft < -1) return; // deadline long gone — nothing to plan
+    const open = (h.tasks || []).filter((t) => !t.done);
+    const total = (h.tasks || []).length;
+    const remainingHours = total ? open.length * 1.5 : 8;
+    if (total && !open.length) return; // all tasks done — submit it, don't plan more build time
+    const perDay = daysLeft != null ? remainingHours / Math.max(0.5, daysLeft) : remainingHours / 7;
+    const urgent = isUrgent(h);
+    const when = daysLeft == null ? '' : daysLeft < 1 ? 'Due TODAY. ' : `${Math.ceil(daysLeft)} day${Math.ceil(daysLeft) === 1 ? '' : 's'} left. `;
+    const next = open.slice(0, 2).map((t) => t.text).join(', then ');
+    add({
+      emoji: urgent ? '🔥' : '🏆',
+      label: (urgent ? 'Hackathon Sprint — ' : 'Hackathon Work — ') + h.name,
+      note: when + (next ? `Next: ${next}. ` : (h.project_name ? `Build ${h.project_name}. ` : 'Break the project into tasks in Tech Hub. ')) +
+        `About ${perDay >= 1 ? perDay.toFixed(1) + 'h' : Math.round(perDay * 60) + ' min'} a day keeps you on track.`,
+    }, (urgent ? 80 : 60) + Math.min(30, perDay * 6), h.deadline, remainingHours);
+  });
 
   if ((onlineJobs || []).length) {
     const job = onlineJobs[0];
     let prog = null;
     try { prog = computeJobProgress(job); } catch {}
-    add({ emoji:'💼', label:'Job Work — ' + job.name, note:prog && !prog.metThreshold
+    add({ earns: true, emoji:'💼', label:'Job Work — ' + job.name, note:prog && !prog.metThreshold
       ? job.name + ' — ' + prog.daysLeft + ' day' + (prog.daysLeft === 1 ? '' : 's') + ' left to hit this period target.'
       : job.name + ' — log tasks in My Jobs as you go.' }, 55, null, 4);
   }
 
-  (startups || []).slice(0,2).forEach(s => add({ emoji:'🚀', label:'Startup Work — ' + s.name, note:'Move ' + s.name + ' forward — check your stage checklist in Tech Hub.' }, 45, null, 4));
+  // A startup with an open weekly commitment ranks higher as its due date
+  // nears, and the block tells you exactly what you promised to finish.
+  (startups || []).slice(0,2).forEach(s => {
+    const f = s.focus && !s.focus.done ? s.focus : null;
+    add({ emoji:'🚀', label:'Startup Work — ' + s.name,
+      note: f ? `This week's commitment: ${f.text}.` : 'Move ' + s.name + ' forward — set a weekly commitment on its page.' },
+      f ? 55 : 45, f?.due || null, 4);
+  });
 
   (projects || []).filter(p => ['planning','in_progress'].includes(projectStatus(p))).slice(0,2).forEach(p => {
     add({ emoji:'🗂️', label:'Project Work — ' + p.name, note:p.description || 'Keep building — log progress in Tech Hub when you wrap up.' }, Number(p.importance || 40), p.deadline, 4);
   });
+
+  // Low on spendable cash: work that actually brings money in moves up.
+  if (lowCash) {
+    candidates.forEach((c) => {
+      if (!c.earns) return;
+      c.score += 25;
+      c.note = 'Cash is low — this brings money in. ' + c.note;
+    });
+  }
 
   candidates.sort((a,b) => b.score - a.score);
   if (!candidates.length) return [{ emoji:'💻', label:'Deep Work Block', note:'Nothing active right now — good time to learn something new or start one.' }];
@@ -445,15 +480,50 @@ function applyEventBlocks(blocks, eventBlocks) {
   return [...out, ...eventBlocks].sort((a, b) => t2m(a.time) - t2m(b.time));
 }
 
-async function loadTodayEventBlocks() {
+// Hackathon results announcements / judging calls are fixed-time events too.
+function hackathonEvents(hackathons) {
+  return (hackathons || [])
+    .filter((h) => h.results_date && h.results_time)
+    .map((h) => ({
+      id: `hackres_${h.id}`,
+      name: `Results — ${h.name}`,
+      emoji: '🏆',
+      date: h.results_date,
+      time: h.results_time,
+      tz: h.results_tz === 'LOCAL' ? 'LOCAL' : (h.results_tz || 'LOCAL'),
+      url_hint: h.meeting_link || '',
+    }));
+}
+
+// → { blocks, allDay } — timed events become fixed planner blocks; all-day
+// ones (no start time) are listed in a banner instead of being dropped.
+async function loadTodayEvents(hackathons) {
   try {
-    const live = await pruneEndedEvents();
-    return todaysEventBlocks(live, new Date());
+    const live = [...(await pruneEndedEvents()), ...hackathonEvents(hackathons)];
+    const now = new Date();
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dayEnd = new Date(dayStart.getTime() + 86400000);
+    const allDay = live.filter((e) => {
+      const w = eventWindow(e);
+      return w && w.allDay && w.start < dayEnd && w.end > dayStart;
+    });
+    return { blocks: todaysEventBlocks(live, now), allDay };
   } catch (e) {
     console.warn('[fedha] could not load events for planner:', e?.message);
-    return [];
+    return { blocks: [], allDay: [] };
   }
 }
+
+// Meal slots already logged in the Food Diary today count as done, so the
+// planner ticks them off and "I'm Awake" doesn't schedule them again.
+async function loggedMealIds() {
+  try {
+    const logs = await getFoodLogs(todayISO());
+    return [...new Set((logs || []).map((l) => l.slot).filter(Boolean))];
+  } catch { return []; }
+}
+
+const LOW_CASH = 1000; // base currency (KES) — below this, income work goes first
 
 // Puts today's actual planned meal (from the Meals tab) into the prepare/eat
 // reminders, so the planner's meal blocks carry the same detail the old
@@ -519,6 +589,10 @@ function EditModal({ block, onSave, onClose }) {
 
 export default function PlannerPage() {
   const { hackathons, startups, projects, onlineJobs, research, clientProjects, courses } = useApp();
+  const { floating } = useFloatingCash();
+  const lowCash = floating < LOW_CASH;
+  const planCtx = { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, lowCash };
+  const [allDayEvents, setAllDayEvents] = useState([]);
   const isWeekend = [0,6].includes(new Date().getDay());
   const [blocks, setBlocks] = useState([]);
   const [droppedToday, setDroppedToday] = useState([]);
@@ -544,7 +618,8 @@ export default function PlannerPage() {
   // means the effect only re-runs when something that would actually
   // change the generated schedule really changed.
   const workSignature = JSON.stringify([
-    hackathons?.map((h) => [h.id, hackStatus(h), h.deadline]) || [],
+    hackathons?.map((h) => [h.id, hackStatus(h), h.deadline, (h.tasks || []).filter((t) => !t.done).length, h.results_date, h.results_time]) || [],
+    lowCash,
     startups?.map((s) => s.id) || [],
     projects?.map((p) => [p.id, projectStatus(p)]) || [],
     clientProjects?.map((p) => [p.id, p.status, p.deadline, p.agreed_amount, p.previously_paid, (p.payments || []).length, (p.change_requests || []).length, p.estimated_days]) || [],
@@ -587,7 +662,7 @@ export default function PlannerPage() {
       const isAnchored = !!anchoredBlocks?.length;
       const raw = isAnchored
         ? anchoredBlocks
-        : buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research, clientProjects, courses }, isWeekend);
+        : buildTodayBlocks(planCtx, isWeekend);
       const generated = withMealNotes(raw, mealWeekPlan);
       setUsingAI(isAnchored);
       setDroppedToday(isAnchored ? await getSetting(`planner_dropped_${todayISO()}`, []) : (raw._droppedToday || []));
@@ -601,13 +676,16 @@ export default function PlannerPage() {
       // .map() above only ever visits ids that already exist in `generated`.
       const generatedIds = new Set(generated.map((b) => b.id));
       const extraBlocks = Object.values(overrides).filter((o) => o?.id && !generatedIds.has(o.id));
-      const eventBlocks = await loadTodayEventBlocks();
+      const { blocks: eventBlocks, allDay } = await loadTodayEvents(hackathons);
+      setAllDayEvents(allDay);
       const merged = applyEventBlocks([...patched, ...extraBlocks].sort((a, b) => t2m(a.time) - t2m(b.time)), eventBlocks);
       setBlocks(merged);
       await syncPlannerBlocksSetting(merged);
 
       const done = await getSetting(`planner_done_${todayISO()}`, []);
-      if (done) setCompletedIds(done);
+      const meals = await loggedMealIds();
+      const ids = new Set(merged.map((b) => b.id));
+      setCompletedIds([...new Set([...(done || []), ...meals.filter((m) => ids.has(m))])]);
       const ne = await getSetting('planner_notifs', false);
       setNotifEnabled(ne);
       if ('Notification' in window) setNotifPerm(Notification.permission);
@@ -698,10 +776,12 @@ export default function PlannerPage() {
     setAiError(null);
     // Full context (this used to leave out client projects and courses, so a
     // reset quietly dropped paid client work from the plan).
-    const fresh = buildTodayBlocks({ hackathons, startups, projects, onlineJobs, research, clientProjects, courses }, isWeekend);
+    const fresh = buildTodayBlocks(planCtx, isWeekend);
     setDroppedToday(fresh._droppedToday || []);
     const mealWeekPlan = await getSetting('meal_week_plan', null);
-    const withEvents = applyEventBlocks(withMealNotes(fresh, mealWeekPlan), await loadTodayEventBlocks());
+    const ev = await loadTodayEvents(hackathons);
+    setAllDayEvents(ev.allDay);
+    const withEvents = applyEventBlocks(withMealNotes(fresh, mealWeekPlan), ev.blocks);
     setBlocks(withEvents);
     await syncPlannerBlocksSetting(withEvents);
   }
@@ -722,11 +802,7 @@ export default function PlannerPage() {
       // Round up to the next 5 minutes so the first block starts on a clean time.
       const startAt = Math.ceil((nowDate.getHours() * 60 + nowDate.getMinutes() + 1) / 5) * 5;
 
-      const built = buildTodayBlocks(
-        { hackathons, startups, projects, onlineJobs, research, clientProjects, courses },
-        isWeekend,
-        { startAt, doneIds: completedIds },
-      );
+      const built = buildTodayBlocks(planCtx, isWeekend, { startAt, doneIds: [...completedIds, ...(await loggedMealIds())] });
       const mealWeekPlan = await getSetting('meal_week_plan', null);
       const computed = withMealNotes(built, mealWeekPlan);
       if (!computed.length) throw new Error('Nothing left to plan today.');
@@ -735,7 +811,9 @@ export default function PlannerPage() {
       await setSetting(`planner_overrides_${todayISO()}`, {});
       await setSetting(`planner_ai_blocks_${todayISO()}`, computed);
       await setSetting(`planner_dropped_${todayISO()}`, dropped);
-      const withEvents = applyEventBlocks(computed, await loadTodayEventBlocks());
+      const ev = await loadTodayEvents(hackathons);
+      setAllDayEvents(ev.allDay);
+      const withEvents = applyEventBlocks(computed, ev.blocks);
       setUsingAI(true);
       setDroppedToday(dropped);
       setBlocks(withEvents);
@@ -822,6 +900,16 @@ export default function PlannerPage() {
               🔔 All reminders active for today's {isWeekend ? 'weekend' : 'weekday'} schedule
             </div>
           )}
+          {allDayEvents.length > 0 && (
+            <div style={{ padding:'10px 14px', background:TYPE_COLORS.event.bg, border:`1px solid ${TYPE_COLORS.event.border}`, borderRadius:10, fontSize:13, color:TYPE_COLORS.event.text, marginBottom:14 }}>
+              📅 Today (all day): {allDayEvents.map((e) => e.name).join(', ')}. Add a start time in Tech Hub → Events to give it a slot.
+            </div>
+          )}
+          {lowCash && (
+            <div style={{ padding:'10px 14px', background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.25)', borderRadius:10, fontSize:13, color:'#FCD34D', marginBottom:14 }}>
+              💸 Floating cash is low, so paid work is scheduled first today.
+            </div>
+          )}
           {droppedToday.length > 0 && (
             <div style={{ padding:'10px 14px', background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.25)', borderRadius:10, fontSize:13, color:'#FCD34D', marginBottom:14 }}>
               ⚠️ Not enough time left for everything today, so this was left out: {droppedToday.map((d) => d.label).join(', ')}.
@@ -843,18 +931,18 @@ export default function PlannerPage() {
               {currentBlock && (
                 <div style={{ marginBottom:16 }}>
                   <div className="section-title">RIGHT NOW</div>
-                  <div style={{ background:TYPE_COLORS[currentBlock.type].bg, border:`2px solid ${TYPE_COLORS[currentBlock.type].border}`, borderRadius:16, padding:16 }}>
+                  <div style={{ background:colorsFor(currentBlock.type).bg, border:`2px solid ${colorsFor(currentBlock.type).border}`, borderRadius:16, padding:16 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:10 }}>
                       <span style={{ fontSize:28 }}>{currentBlock.emoji}</span>
                       <div style={{ flex:1 }}>
-                        <div style={{ fontSize:16, fontWeight:700, color:TYPE_COLORS[currentBlock.type].text }}>{currentBlock.label}</div>
+                        <div style={{ fontSize:16, fontWeight:700, color:colorsFor(currentBlock.type).text }}>{currentBlock.label}</div>
                         <div style={{ fontSize:12, color:'var(--text-3)', marginTop:2 }}>
                           {currentBlock.duration<60 ? `${currentBlock.duration} min block` : `${Math.floor(currentBlock.duration/60)}h${currentBlock.duration%60>0?' '+currentBlock.duration%60+'m':''} block`}
                         </div>
                       </div>
                     </div>
                     <div className="progress-bar" style={{ height:8, marginBottom:10 }}>
-                      <div className="progress-fill" style={{ width:`${currentProgress}%`, background:TYPE_COLORS[currentBlock.type].dot }} />
+                      <div className="progress-fill" style={{ width:`${currentProgress}%`, background:colorsFor(currentBlock.type).dot }} />
                     </div>
                     <div style={{ fontSize:13, color:'var(--text-2)', lineHeight:1.5 }}>{currentBlock.note}</div>
                   </div>
@@ -870,7 +958,7 @@ export default function PlannerPage() {
                       <div style={{ fontSize:14, fontWeight:600 }}>{nextBlock.label}</div>
                       <div style={{ fontSize:12, color:'var(--text-3)' }}>Starts {fmt12(nextBlock.time)}</div>
                     </div>
-                    <div style={{ width:10, height:10, borderRadius:'50%', background:TYPE_COLORS[nextBlock.type].dot, flexShrink:0 }} />
+                    <div style={{ width:10, height:10, borderRadius:'50%', background:colorsFor(nextBlock.type).dot, flexShrink:0 }} />
                   </div>
                 </div>
               )}
@@ -891,7 +979,7 @@ export default function PlannerPage() {
                   const isNow = nowMins>=t2m(block.time) && nowMins<t2m(block.time)+block.duration;
                   const isPast = nowMins >= t2m(block.time)+block.duration && !(block.type==='sleep');
                   const isDone = completedIds.includes(block.id);
-                  const c = TYPE_COLORS[block.type];
+                  const c = colorsFor(block.type);
                   return (
                     <div key={block.id} style={{ display:'flex', alignItems:'flex-start', gap:8, opacity: isPast&&!isDone ? 0.45 : 1 }}>
                       <div style={{ width:56, flexShrink:0, paddingTop:11, textAlign:'right' }}>
@@ -964,7 +1052,7 @@ export default function PlannerPage() {
             <div style={{ marginBottom:24 }}>
               <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:16 }}>Tap any block to adjust time, duration or note. Edits apply to today only — tomorrow rebuilds automatically from Tech Hub, My Jobs and the workout plan.</div>
               {blocks.map(block => {
-                const c = TYPE_COLORS[block.type];
+                const c = colorsFor(block.type);
                 return (
                   <div key={block.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'var(--card)', border:'1px solid var(--border)', borderRadius:10, marginBottom:8, cursor:'pointer' }}
                     onClick={() => { if (block.type !== 'event') setEditBlock(block); }}>

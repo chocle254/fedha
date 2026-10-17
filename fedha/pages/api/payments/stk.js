@@ -8,22 +8,34 @@ export default async function handler(req, res) {
   const channelId = process.env.PAYHERO_CHANNEL_ID;
   if (!token || !channelId) return res.status(500).json({ error: 'PayHero not configured' });
 
-  const { user_id, phone, amount } = req.body;
-  if (!user_id || !phone) return res.status(400).json({ error: 'user_id and phone are required' });
+  // Only a signed-in user can start a payment, and only for themselves —
+  // the user id comes from their Supabase session, never the request body.
+  // Without this, anyone could fire M-Pesa prompts at any number through
+  // this PayHero account.
+  const accessToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (!accessToken) return res.status(401).json({ error: 'Sign in first' });
+  const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(accessToken);
+  if (authError || !authData?.user) return res.status(401).json({ error: 'Sign in first' });
+  const user_id = authData.user.id;
+
+  const { phone } = req.body || {};
+  if (!phone) return res.status(400).json({ error: 'phone is required' });
 
   // Normalise phone to 2547XXXXXXXX
   let p = String(phone).replace(/\D/g, '');
   if (p.startsWith('0')) p = '254' + p.slice(1);
   if (p.startsWith('7') || p.startsWith('1')) p = '254' + p;
 
-  const amt = Number(amount) || Number(process.env.PRO_PRICE_KES) || 300;
+  // The server sets the price; a client-sent amount could be 1 shilling.
+  const amt = Number(process.env.PRO_PRICE_KES) || 300;
   const reference = `fedha_${user_id.slice(0, 8)}_${genId().slice(0, 8)}`;
 
   // Record the pending payment first (idempotent reference)
   await supabaseAdmin.from('payments').insert({
     external_reference: reference, user_id, amount: amt, phone: p, status: 'pending',
   });
-  await supabaseAdmin.from('subscriptions').upsert({ user_id, status: 'pending', plan: 'free' });
+  // Don't touch the subscription here: doing so downgraded an active Pro
+  // user to "free/pending" the moment they started an early renewal.
 
   try {
     const resp = await fetch('https://backend.payhero.co.ke/api/v2/payments', {
@@ -36,7 +48,7 @@ export default async function handler(req, res) {
         provider: 'm-pesa',
         external_reference: reference,
         customer_name: 'Fedha Pro',
-        callback_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/payments/callback`,
+        callback_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/payments/callback?secret=${encodeURIComponent(process.env.PAYHERO_CALLBACK_SECRET || '')}`,
       }),
     });
     const data = await resp.json();

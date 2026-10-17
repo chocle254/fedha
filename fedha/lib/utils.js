@@ -378,6 +378,7 @@ export const CATEGORIES = [
   { id: 'airtime',     label: 'Airtime / Data',   icon: '📡',  color: '#10B981' },
   { id: 'entertainment', label: 'Entertainment',  icon: '🎬',  color: '#F97316' },
   { id: 'savings',     label: 'Savings',          icon: '🏦',  color: '#14B8A6' },
+  { id: 'fees',        label: 'Transaction Fees', icon: '🧾',  color: '#78716C' },
   { id: 'family',      label: 'Family',           icon: '👨‍👩‍👧',  color: '#A78BFA' },
   { id: 'business',    label: 'Business',         icon: '💼',  color: '#64748B' },
   { id: 'salary',      label: 'Salary',           icon: '💰',  color: '#10B981' },

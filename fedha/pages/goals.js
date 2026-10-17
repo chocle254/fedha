@@ -198,7 +198,7 @@ export default function GoalsPage() {
                           + Add Savings
                         </button>
                         <button onClick={() => setEditGoal(g)} style={{ flex: 1, padding: '10px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit' }}>✏️</button>
-                        <button onClick={() => removeGoal(g.id)} style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑</button>
+                        <button onClick={() => window.confirm(`Delete goal "${g.name}"? This can't be undone.`) && removeGoal(g.id)} style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑</button>
                       </div>
                     </div>
                   );
@@ -218,7 +218,7 @@ export default function GoalsPage() {
                           <div style={{ fontSize: 12, color: 'var(--green)', marginTop: 2 }}>🎉 Goal achieved!</div>
                         </div>
                         <div className="font-num" style={{ fontSize: 16, fontWeight: 700, color: 'var(--green)' }}>{formatShort(g.target, currency)}</div>
-                        <button onClick={() => removeGoal(g.id)} className="btn-icon" style={{ opacity: 0.5 }}>✕</button>
+                        <button onClick={() => window.confirm(`Delete goal "${g.name}"? This can't be undone.`) && removeGoal(g.id)} className="btn-icon" style={{ opacity: 0.5 }}>✕</button>
                       </div>
                     ))}
                   </div>

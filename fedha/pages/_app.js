@@ -3,6 +3,10 @@ import { useRouter } from 'next/router';
 import { AppProvider } from '../context/AppContext';
 import { isSupabaseEnabled, getSession, onAuthChange } from '../lib/supabase';
 import '../styles/globals.css';
+import { installApiAuth } from '../lib/api-auth-client';
+
+// Attach the login token to the app's own /api calls (client only).
+if (typeof window !== 'undefined') installApiAuth();
 
 function Splash() {
   return <div aria-hidden="true" style={{ background: 'var(--bg)', minHeight: '100vh' }} />;

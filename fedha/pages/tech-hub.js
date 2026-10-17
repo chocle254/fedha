@@ -540,6 +540,7 @@ function certTime(c) {
 
 // Higher-placed certificates come first when two share a date.
 const RANK_ORDER = ['1st Place', 'Winner', '2nd Place', '3rd Place', 'Finalist', 'Award', 'Completion', 'Participant'];
+const PODIUM_RANKS = ['1st Place', 'Winner', '2nd Place', '3rd Place', 'Finalist'];
 function rankIndex(a) { const i = RANK_ORDER.indexOf(a); return i === -1 ? RANK_ORDER.length : i; }
 
 // Older records (e.g. course certificates from the Learning Hub) use values
@@ -595,27 +596,31 @@ function CertStatChip({ icon, value, label }) {
   );
 }
 
-function CertCard({ cert, onOpen }) {
+// One framed certificate standing in the cabinet: spotlight above, frame,
+// engraved brass name plate below. `place` (1–3) marks a podium slot.
+function CertCard({ cert, onOpen, place }) {
   const meta = rankMeta(cert.achievement);
   const year = certTime(cert) ? new Date(certTime(cert)).getFullYear() : '';
+  const gold = ['1st Place', 'Winner'].includes(cert.achievement);
   return (
-    <div className="cert-slot" onClick={() => onOpen(cert)} style={{ cursor: 'pointer' }}>
+    <button type="button" className={`trophy${place ? ` trophy-place-${place}` : ''}${gold ? ' trophy-gold' : ''}`} onClick={() => onOpen(cert)} aria-label={`${cert.title} — ${meta.label}`}>
+      <div className="trophy-spot" aria-hidden="true" />
       <div className="cert-frame">
         <div className="cert-glow" />
+        {gold && <div className="cert-shine" />}
         <div className="cert-rank-badge" style={{ background: meta.color }}>{meta.ribbon}</div>
         {cert.image ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={cert.image} alt={cert.title} />
+          <img src={cert.image} alt={cert.title} loading="lazy" />
         ) : (
           <GeneratedCertArt cert={cert} compact />
         )}
       </div>
-      <div className="cert-plaque">
-        <div className="cert-plaque-name">{cert.title}</div>
-        <div className="cert-plaque-meta">{[meta.label, year].filter(Boolean).join(' · ')}</div>
-        {cert.organization && <div className="cert-plaque-org">{cert.organization}</div>}
+      <div className="trophy-plate">
+        <div className="trophy-plate-name">{cert.title}</div>
+        <div className="trophy-plate-meta">{[meta.label, year].filter(Boolean).join(' · ')}</div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -697,8 +702,22 @@ function CertificatesRoom({ hackathons, certificates, onAdd, onOpen }) {
 
   // One shelf per category (Hackathons, Courses, …) in a fixed order, so the
   // gallery reads as organised sections instead of one mixed wall.
+  // Hall of Fame: the three best results (by place, then newest) stand on a
+  // podium — gold in the middle, raised highest. Only when not searching or
+  // filtering, so a search still shows plain matching shelves.
+  const browsing = !search && !filters.achievement && !filters.category;
+  const podium = browsing
+    ? all.filter((c) => PODIUM_RANKS.includes(c.achievement))
+        .sort((a, b) => rankIndex(a.achievement) - rankIndex(b.achievement) || certTime(b) - certTime(a))
+        .slice(0, 3)
+    : [];
+  const podiumIds = new Set(podium.map((c) => c.id));
+  // Podium order on screen: 2nd, 1st, 3rd.
+  const podiumSlots = [podium[1], podium[0], podium[2]].map((c, i) => c && { cert: c, place: [2, 1, 3][i] }).filter(Boolean);
+
+  // One cabinet shelf per category (Hackathons, Courses, …) in a fixed order.
   const groups = CERT_CATEGORIES
-    .map((cat) => ({ cat, items: shown.filter((c) => c.category === cat) }))
+    .map((cat) => ({ cat, items: shown.filter((c) => c.category === cat && !podiumIds.has(c.id)) }))
     .filter((g) => g.items.length);
 
   const activeFilterCount = (filters.achievement ? 1 : 0) + (filters.category ? 1 : 0);
@@ -738,16 +757,36 @@ function CertificatesRoom({ hackathons, certificates, onAdd, onOpen }) {
       ) : shown.length === 0 ? (
         <div className="empty-state"><div className="icon">🔍</div><h3>No matches</h3><p>Try a different search or clear your filters.</p></div>
       ) : (
-        <div className="cert-gallery">
+        <div className="trophy-room">
+          {podiumSlots.length > 0 && (
+            <section className="hall-of-fame">
+              <div className="hall-title">
+                <span className="hall-title-line" />
+                <span>HALL OF FAME</span>
+                <span className="hall-title-line" />
+              </div>
+              <div className="podium">
+                {podiumSlots.map(({ cert, place }) => (
+                  <div key={cert.id} className={`podium-col podium-col-${place}`}>
+                    <CertCard cert={cert} onOpen={onOpen} place={place} />
+                    <div className="podium-step"><span>{place}</span></div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
           {groups.map((g) => (
-            <section key={g.cat} className="cert-shelf">
-              <div className="cert-shelf-title">
+            <section key={g.cat} className="cabinet-shelf">
+              <div className="cabinet-shelf-title">
                 <span>{CERT_SHELF_LABEL[g.cat] || g.cat}</span>
                 <span className="cert-shelf-count">{g.items.length}</span>
+                {g.items.length > 1 && <span className="cabinet-hint">swipe →</span>}
               </div>
-              <div className="cert-gallery-grid">
+              <div className="cabinet-row">
                 {g.items.map((c) => <CertCard key={c.id} cert={c} onOpen={onOpen} />)}
               </div>
+              <div className="cabinet-ledge" aria-hidden="true" />
             </section>
           ))}
         </div>
@@ -1934,7 +1973,7 @@ export default function TechHubPage() {
                       {urgentHacks.map((h) => (
                         <MyHackathonCard key={h.id} hack={h}
                           onEdit={() => setHackModal(h)}
-                          onDelete={() => removeHackathon(h.id)}
+                          onDelete={() => window.confirm(`Delete hackathon "${h.name}"? This can't be undone.`) && removeHackathon(h.id)}
                           onToggleTask={(tid) => toggleTask(h, tid)}
                           onAddTask={(text) => addTask(h, text)}
                           onDeleteTask={(tid) => deleteTask(h, tid)}
@@ -2059,6 +2098,20 @@ export default function TechHubPage() {
                   <DiscoverCard item={e} kind="event" />
                   <button onClick={async () => { const next = events.filter((x) => x.id !== e.id); setEvents(next); await setSetting('tech_hub_events', next.filter((x) => x.source !== 'ai')); }}
                     style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 13 }} aria-label="Remove">🗑️</button>
+                  {e.source === 'ai' && (
+                    // Discovered events only live in memory and have no start time.
+                    // "I'm going" opens the add form pre-filled, so you add the time and
+                    // it's saved — then the Planner books its exact slot.
+                    <button onClick={() => {
+                      setEventForm({ ...EMPTY_EVENT_FORM, name: e.name || '', organizer: e.organizer || '', description: e.description || '', location: e.venue || e.location || '', date: String(e.date || '').slice(0, 10), is_free: !!e.is_free });
+                      setEvents((list) => list.filter((x) => x.id !== e.id));
+                      setShowEventForm(true);
+                      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                      style={{ margin: '-4px 0 12px', width: '100%', padding: '9px', background: 'rgba(249,115,22,0.12)', border: '1px solid rgba(249,115,22,0.4)', borderRadius: 10, color: '#FDBA74', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>
+                      ✓ I'm going — set the time & add to my planner
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -2090,8 +2143,11 @@ export default function TechHubPage() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{s.name}</div>
                       {s.accelerator && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>🏛 {s.accelerator}</div>}
+                      {s.focus && !s.focus.done
+                        ? <div style={{ fontSize: 12, color: 'var(--yellow)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>🎯 {s.focus.text}</div>
+                        : <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>No commitment this week — open to set one</div>}
                     </div>
-                    <button onClick={(e) => { e.preventDefault(); removeStartup(s.id); }} className="btn-icon" aria-label="Delete">🗑️</button>
+                    <button onClick={(e) => { e.preventDefault(); if (window.confirm(`Delete "${s.name}" and its whole journey? This can't be undone.`)) removeStartup(s.id); }} className="btn-icon" aria-label="Delete">🗑️</button>
                     <span style={{ color: 'var(--text-3)', fontSize: 18 }}>›</span>
                   </div>
                 </Link>

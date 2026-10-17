@@ -225,6 +225,10 @@ export async function saveTransaction(tx) {
   return record;
 }
 
+export async function transactionExists(id) {
+  return !!(await cacheGet('transactions', id));
+}
+
 export async function deleteTransaction(id) {
   const now = new Date().toISOString();
   const tx = await cacheGet('transactions', id);

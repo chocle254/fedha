@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { useApp } from '../context/AppContext';
-import { formatShort, formatCurrency, todayISO } from '../lib/utils';
+import { formatShort, formatCurrency, todayISO, localISO } from '../lib/utils';
 
 function net(txns, fromKey, toKey) {
   const t = txns.filter((x) => x.date >= fromKey && x.date <= toKey);
@@ -12,7 +12,7 @@ function net(txns, fromKey, toKey) {
 function daysAgoKey(n) {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().split('T')[0];
+  return localISO(d);
 }
 
 function noSpendStreak(txns) {

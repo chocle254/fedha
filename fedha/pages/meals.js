@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import FoodLogModal from '../components/FoodLogModal';
 import FoodHub from '../components/FoodHub';
-import { genId, todayISO, formatCurrency } from '../lib/utils';
+import { genId, todayISO, formatCurrency, localISO } from '../lib/utils';
 import { getFoodLogs, saveFoodLog, deleteFoodLog, getSetting, setSetting, getFoodProfile } from '../lib/db';
 import { MEAL_SLOTS, COMMON_FOODS, defaultSlotForHour, rankMealIdeas } from '../lib/foods';
 import { useFloatingCash } from '../lib/floating';
@@ -13,7 +13,7 @@ const WATER_GOAL = 8; // glasses
 function addDays(iso, delta) {
   const d = new Date(iso + 'T00:00:00');
   d.setDate(d.getDate() + delta);
-  return d.toISOString().split('T')[0];
+  return localISO(d); // local date — toISOString() is UTC and was a day off in Kenya
 }
 
 function prettyDate(iso) {

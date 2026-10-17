@@ -30,7 +30,7 @@ export default async function handler(req, res) {
       id,
       title: h.name,
       organization: h.organizer || 'Hackathon',
-      achievement: h.results_place || 'Winner',
+      achievement: h.results_place || 'Participant',
       category: 'Hackathon',
       date_earned: h.results_date || h.deadline || data.created_at,
       description: h.project_name ? `Awarded for ${h.name}, presenting "${h.project_name}".` : `Awarded for participation in ${h.name}.`,

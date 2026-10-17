@@ -1,3 +1,4 @@
+import { requireUser } from '../../lib/require-user';
 // pages/api/planner-generate.js — the "I'm Awake" brain.
 //
 // planner.js's buildTodayBlocks() is a deterministic wish-list-then-fit
@@ -34,6 +35,7 @@ Output ONLY a single JSON object, nothing else — no markdown fences, no commen
 {"blocks": [{"label": "string", "type": "one of: ${VALID_TYPES.join(', ')}", "emoji": "single emoji", "duration_minutes": integer, "note": "one short actionable sentence"}]}`;
 
 export default async function handler(req, res) {
+  if (!(await requireUser(req, res))) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const GROQ_API_KEY = process.env.GROQ_API_KEY;

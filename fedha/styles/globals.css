@@ -557,36 +557,136 @@ select.input option { background: var(--card-2); }
   font-size: 10.5px; color: var(--text-3); margin-top: 2px; letter-spacing: 0.3px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cert-plaque-org {
-  display: none;
-  font-size: 11px; color: var(--text-3); margin-top: 3px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+/* ─── TROPHY ROOM ─────────────────────────────────────────────────────────────
+   A dark gallery wall with warm spotlights. Top results stand on a podium
+   (Hall of Fame); everything else sits on lit glass shelves per category. */
+.trophy-room {
+  position: relative;
+  border-radius: var(--radius);
+  padding: 22px 0 8px;
+  background:
+    radial-gradient(ellipse 60% 40% at 50% 0%, rgba(245, 197, 107, 0.16) 0%, transparent 70%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.012) 0 2px, transparent 2px 46px),
+    linear-gradient(180deg, #0B1020 0%, #070A14 100%);
+  border: 1px solid rgba(245, 197, 107, 0.18);
+  box-shadow: inset 0 0 60px rgba(0,0,0,0.6);
+  overflow: hidden;
 }
 
-/* Phones: two framed certificates side by side are too small to read, so
-   each certificate becomes a row — picture on the left, details on the right. */
-@media (max-width: 559px) {
-  .cert-gallery { padding: 14px 10px; }
-  .cert-gallery-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .cert-slot {
-    flex-direction: row; align-items: center; gap: 12px;
-    padding: 8px;
-    background: var(--card-2);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-  }
-  .cert-frame { width: 46%; flex-shrink: 0; padding: 5px; border-radius: 10px; }
-  .cert-frame img { border-radius: 6px; }
-  .cert-rank-badge { top: 4px; left: 4px; width: 22px; height: 22px; font-size: 12px; }
-  .cert-plaque {
-    flex: 1; min-width: 0;
-    margin-top: 0; padding: 0;
-    text-align: left;
-    background: none; border: none;
-  }
-  .cert-plaque-name { font-size: 13.5px; -webkit-line-clamp: 3; min-height: 0; }
-  .cert-plaque-meta { font-size: 12px; margin-top: 5px; color: var(--gold, #F5C56B); font-weight: 600; }
-  .cert-plaque-org { display: block; }
+/* Hall of fame */
+.hall-of-fame { padding: 0 12px 26px; }
+.hall-title {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  font-size: 11px; font-weight: 800; letter-spacing: 3px;
+  color: var(--gold); margin-bottom: 18px;
+}
+.hall-title-line { flex: 1; max-width: 70px; height: 1px; background: linear-gradient(90deg, transparent, rgba(245,197,107,0.6), transparent); }
+.podium { display: flex; align-items: flex-end; justify-content: center; gap: 8px; }
+.podium-col { flex: 1; max-width: 200px; min-width: 0; display: flex; flex-direction: column; align-items: stretch; }
+.podium-col-1 { flex: 1.25; max-width: 240px; }
+.podium-step {
+  margin-top: 10px;
+  border-radius: 8px 8px 2px 2px;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 6px;
+  font-family: 'DM Mono', monospace; font-weight: 700; font-size: 16px;
+  color: rgba(0,0,0,0.55);
+  box-shadow: 0 10px 24px -8px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.35);
+}
+.podium-col-1 .podium-step { height: 54px; background: linear-gradient(180deg, #F9D88A, #C9952F); }
+.podium-col-2 .podium-step { height: 38px; background: linear-gradient(180deg, #E3E7EE, #9AA3B2); }
+.podium-col-3 .podium-step { height: 26px; background: linear-gradient(180deg, #E0A57A, #9C5E35); }
+
+/* One trophy: spotlight + frame + brass plate */
+.trophy {
+  position: relative;
+  display: flex; flex-direction: column;
+  background: none; border: none; padding: 0; margin: 0;
+  cursor: pointer; text-align: center; font-family: inherit; color: inherit;
+  min-width: 0;
+  transition: transform 0.25s ease;
+}
+.trophy:active { transform: scale(0.97); }
+@media (hover: hover) { .trophy:hover { transform: translateY(-3px); } }
+.trophy-spot {
+  position: absolute; left: 50%; top: -26px;
+  width: 130%; height: 120%;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse 50% 45% at 50% 0%, rgba(255, 228, 160, 0.20) 0%, transparent 75%);
+  pointer-events: none; z-index: 0;
+}
+.trophy .cert-frame { z-index: 1; }
+.trophy-gold .cert-frame {
+  border-color: rgba(245, 197, 107, 0.75);
+  box-shadow: 0 0 0 1px rgba(245,197,107,0.25), 0 0 28px -4px rgba(245,197,107,0.45), 0 20px 45px -20px rgba(0,0,0,0.7);
+}
+.trophy-place-2 .cert-frame { border-color: rgba(199, 205, 216, 0.6); }
+.trophy-place-3 .cert-frame { border-color: rgba(205, 139, 92, 0.6); }
+
+.trophy-plate {
+  position: relative; z-index: 1;
+  margin: 10px auto 0;
+  width: 92%;
+  padding: 6px 8px 5px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #3A2E17 0%, #241C0D 100%);
+  border: 1px solid rgba(245, 197, 107, 0.45);
+  box-shadow: inset 0 1px 0 rgba(255, 230, 170, 0.18), 0 4px 10px rgba(0,0,0,0.5);
+}
+.trophy-plate-name {
+  font-size: 11.5px; font-weight: 700; line-height: 1.3;
+  color: #F8DFA3;
+  text-shadow: 0 1px 0 rgba(0,0,0,0.6);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  min-height: calc(2 * 1.3em);
+}
+.trophy-plate-meta {
+  font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase;
+  color: rgba(245, 197, 107, 0.7); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.podium-col-1 .trophy-plate-name { font-size: 12.5px; }
+
+/* Cabinet shelves */
+.cabinet-shelf { padding: 0 0 22px; }
+.cabinet-shelf + .cabinet-shelf, .hall-of-fame + .cabinet-shelf { border-top: 1px solid rgba(255,255,255,0.04); padding-top: 18px; }
+.cabinet-shelf-title {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 16px; margin-bottom: 14px;
+  font-size: 13px; font-weight: 700; color: var(--text);
+}
+.cabinet-hint { margin-left: auto; font-size: 11px; color: var(--text-3); font-weight: 600; }
+.cabinet-row {
+  display: flex; gap: 14px;
+  padding: 26px 16px 0;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding: 0 16px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.cabinet-row::-webkit-scrollbar { display: none; }
+.cabinet-row > .trophy { flex: 0 0 64%; scroll-snap-align: start; }
+@media (min-width: 560px) {
+  .cabinet-row > .trophy { flex-basis: 40%; }
+  .cabinet-hint { display: none; }
+}
+@media (min-width: 900px) {
+  .cabinet-row { flex-wrap: wrap; overflow: visible; }
+  .cabinet-row > .trophy { flex-basis: calc((100% - 28px) / 3); }
+}
+/* The glass shelf the frames stand on */
+.cabinet-ledge {
+  height: 10px; margin: 2px 10px 0;
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(200, 220, 255, 0.22) 0%, rgba(120, 140, 180, 0.10) 40%, rgba(0,0,0,0.0) 100%);
+  border-top: 1px solid rgba(220, 235, 255, 0.35);
+  box-shadow: 0 12px 18px -8px rgba(0,0,0,0.9);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cert-shine { animation: none; display: none; }
+  .trophy { transition: none; }
 }
 
 /* ─── PROJECT SHOWROOM ────────────────────────────────────────────────────────── */
@@ -676,3 +776,84 @@ select.input option { background: var(--card-2); }
   border: 1px solid rgba(245, 197, 107, 0.4);
   display: flex; align-items: center; justify-content: center;
 }
+
+/* ─── STARTUP MUSE ───────────────────────────────────────────────────────────
+   The startup page's top half: stage-coloured hero with the journey path,
+   north star, weekly commitment, next move and momentum. `--stage` is the
+   current stage's colour, set inline. */
+.muse-hero {
+  position: relative;
+  border-radius: 20px;
+  padding: 18px 16px 16px;
+  background:
+    radial-gradient(ellipse 80% 60% at 100% 0%, color-mix(in srgb, var(--stage) 28%, transparent) 0%, transparent 70%),
+    linear-gradient(160deg, var(--card-2) 0%, var(--bg-2) 100%);
+  border: 1px solid color-mix(in srgb, var(--stage) 40%, var(--border));
+  overflow: hidden;
+}
+.muse-hero-icon {
+  width: 52px; height: 52px; border-radius: 16px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 26px;
+  background: color-mix(in srgb, var(--stage) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--stage) 45%, transparent);
+}
+.muse-hero-pct {
+  font-family: 'DM Mono', monospace; font-size: 22px; font-weight: 700;
+  color: var(--stage);
+}
+.muse-path {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 18px 2px 4px;
+  position: relative;
+}
+.muse-path::before {
+  content: ''; position: absolute; left: 12px; right: 12px; top: 50%;
+  height: 2px; background: var(--border); transform: translateY(-50%);
+}
+.muse-step {
+  position: relative; z-index: 1;
+  width: 30px; height: 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; cursor: pointer; padding: 0;
+  background: var(--bg-2); border: 2px solid var(--border); color: var(--text-3);
+  font-family: inherit;
+}
+.muse-step-done { background: var(--c); border-color: var(--c); color: #000; font-weight: 800; }
+.muse-step-now {
+  width: 38px; height: 38px; font-size: 17px;
+  border-color: var(--c);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 25%, transparent), 0 0 18px color-mix(in srgb, var(--c) 60%, transparent);
+  animation: musePulse 2.4s ease-in-out infinite;
+}
+@keyframes musePulse {
+  0%, 100% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 25%, transparent), 0 0 14px color-mix(in srgb, var(--c) 45%, transparent); }
+  50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--c) 15%, transparent), 0 0 24px color-mix(in srgb, var(--c) 70%, transparent); }
+}
+.muse-northstar { margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.06); }
+.muse-mission {
+  display: block; width: 100%; text-align: left;
+  margin-top: 6px; padding: 0; background: none; border: none; cursor: text;
+  font-family: inherit; font-size: 15px; font-weight: 600; line-height: 1.45; color: var(--text);
+}
+.muse-label { font-size: 10.5px; font-weight: 800; letter-spacing: 1.6px; color: var(--text-2); }
+.muse-card { padding: 16px; }
+.muse-next {
+  display: block; width: 100%; text-align: left; cursor: pointer; font-family: inherit; color: inherit;
+  border-left: 3px solid var(--stage);
+}
+.muse-week { display: flex; gap: 6px; margin: 12px 0; }
+.muse-day {
+  flex: 1; height: 30px; border-radius: 8px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px;
+  font-size: 9px; color: var(--text-3);
+}
+.muse-day.on { background: linear-gradient(180deg, #F59E0B, #EA580C); border-color: transparent; color: rgba(0,0,0,0.65); font-weight: 700; }
+.muse-nudge {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 14px 16px; border-radius: 14px;
+  background: color-mix(in srgb, var(--stage) 10%, var(--card));
+  border: 1px dashed color-mix(in srgb, var(--stage) 45%, transparent);
+  font-size: 13px; line-height: 1.5; color: var(--text-2);
+}
+@media (prefers-reduced-motion: reduce) { .muse-step-now { animation: none; } }

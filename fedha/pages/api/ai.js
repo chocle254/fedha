@@ -1,3 +1,4 @@
+import { requireUser } from '../../lib/require-user';
 // pages/api/ai.js — uses Groq (free, generous, OpenAI-compatible) for most
 // types. Set GROQ_API_KEY.
 //
@@ -23,6 +24,7 @@ const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b'; // free & st
 const SEARCH_GROUNDED_TYPES = new Set(['activities', 'opportunities']);
 
 export default async function handler(req, res) {
+  if (!(await requireUser(req, res))) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup, lesson, transcript } = req.body;

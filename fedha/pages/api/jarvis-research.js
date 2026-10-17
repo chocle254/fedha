@@ -1,3 +1,4 @@
+import { requireUser } from '../../lib/require-user';
 // pages/api/jarvis-research.js — real web-search-backed discovery, callable
 // directly (e.g. from a future rebuilt Discover page) as well as via
 // Jarvis's own research_online_opportunities/research_activities_nearby
@@ -7,6 +8,7 @@
 import { runResearch, summarizeResearchWindow } from '../../lib/jarvis-research-core';
 
 export default async function handler(req, res) {
+  if (!(await requireUser(req, res))) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const { researchType, location, freeMinutes, topic, mode, entryTitle, accumulatedFindings } = req.body;

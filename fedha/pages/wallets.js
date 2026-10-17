@@ -149,7 +149,13 @@ export default function WalletsPage() {
                     ✏️ Edit
                   </button>
                   <div style={{ width: 1, background: 'var(--border)' }} />
-                  <button onClick={() => removeWallet(w.id)} style={{ flex: 1, padding: '10px', background: 'transparent', border: 'none', color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>
+                  <button onClick={() => (() => {
+                    // Transactions point at their wallet; the database refuses to delete a
+                    // wallet that still has any, so say so instead of half-deleting it.
+                    const used = transactions.filter((t) => t.wallet_id === w.id || t.to_wallet_id === w.id).length;
+                    if (used) { window.alert(`"${w.name}" still has ${used} transaction${used === 1 ? '' : 's'}. Delete or move them first, then remove the wallet.`); return; }
+                    if (window.confirm(`Delete wallet "${w.name}"? This can't be undone.`)) removeWallet(w.id);
+                  })()} style={{ flex: 1, padding: '10px', background: 'transparent', border: 'none', color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>
                     🗑 Remove
                   </button>
                 </div>
