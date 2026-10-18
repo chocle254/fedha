@@ -85,6 +85,7 @@ export default function HackathonCoach() {
   // ideas
   const [ownIdea, setOwnIdea] = useState('');
   const [picked, setPicked] = useState({});
+  const [ambition, setAmbition] = useState('mix');
   // plan
   const [hours, setHours] = useState(null);
   const [openTask, setOpenTask] = useState(null);
@@ -218,7 +219,7 @@ export default function HackathonCoach() {
   // ── Ideas ──
   function getIdeas(own) {
     run(own ? 'own' : 'ideas', async () => {
-      const r = await coachAsk('hack_ideas', { hack: hackForAI(cur()), own_idea: own ? ownIdea : '' });
+      const r = await coachAsk('hack_ideas', { hack: hackForAI(cur()), own_idea: own ? ownIdea : '', ambition });
       saveCoach({ ideas: r.ideas, ideas_at: Date.now() });
       setPicked({});
     });
@@ -420,7 +421,7 @@ export default function HackathonCoach() {
             <section className="card muse-card">
               <div className="muse-label">✍️ LOG PROGRESS</div>
               <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>What did you just get done? The mentor tracks your hours against the deadline.</div>
-              <textarea id="hc-log" className="input" rows={2} style={{ marginTop: 10, resize: 'vertical', lineHeight: 1.5 }} placeholder="e.g. Got the M-Pesa sandbox callback working" value={logText} onChange={(e) => setLogText(e.target.value)} />
+              <textarea id="hc-log" className="input" rows={2} style={{ marginTop: 10, resize: 'vertical', lineHeight: 1.5 }} placeholder="e.g. Got the payment webhook working end to end" value={logText} onChange={(e) => setLogText(e.target.value)} />
               <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <div className="muse-suggest" style={{ marginTop: 0, flex: 1 }}>
                   {[30, 60, 120, 240].map((m) => <button key={m} type="button" onClick={() => setLogMin(m)} style={logMin === m ? { borderColor: '#7B61FF', background: 'rgba(123,97,255,0.15)' } : undefined}>{fmtMin(m)}</button>)}
@@ -585,8 +586,14 @@ export default function HackathonCoach() {
 
             <section className="card muse-card">
               <div className="muse-label">💡 {coach.idea ? 'EXPLORE OTHER IDEAS' : coach.app ? 'OR START SOMETHING NEW' : 'FIND AN IDEA THAT WINS THIS'}</div>
-              <div style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '8px 0 12px', lineHeight: 1.5 }}>Ideas aimed at the tracks and judging criteria, sized to the time you have, each with twists that would surprise the judges.</div>
-              <button className="btn-primary muse-send" onClick={() => getIdeas(false)} disabled={!!busy || !brief}>{busy === 'ideas' ? 'Thinking up ideas…' : !brief ? 'Paste the brief first' : coach.ideas?.length ? '✨ New ideas' : '✨ Suggest ideas'}</button>
+              <div style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '8px 0 12px', lineHeight: 1.5 }}>The mentor researches real problems in this hackathon's space and what the host's platform can do, then pitches ideas with a demo moment they won't see coming, each scoped to a slice you can finish in time.</div>
+              <div className="muse-label">HOW AMBITIOUS?</div>
+              <div className="muse-suggest" style={{ marginTop: 6, marginBottom: 12 }}>
+                {[['mix', '🎲 A mix'], ['bold', '🚀 Bold'], ['wild', '🤯 Wild']].map(([k, l]) => (
+                  <button key={k} type="button" onClick={() => setAmbition(k)} style={ambition === k ? { borderColor: '#7B61FF', background: 'rgba(123,97,255,0.15)' } : undefined}>{l}</button>
+                ))}
+              </div>
+              <button className="btn-primary muse-send" onClick={() => getIdeas(false)} disabled={!!busy || !brief}>{busy === 'ideas' ? 'Researching and thinking…' : !brief ? 'Paste the brief first' : coach.ideas?.length ? '✨ New ideas' : '✨ Suggest ideas'}</button>
               <label className="muse-label" htmlFor="hc-own" style={{ display: 'block', marginTop: 16 }}>OR STRESS-TEST YOUR OWN IDEA</label>
               <textarea id="hc-own" className="input" rows={3} style={{ marginTop: 6, resize: 'vertical', lineHeight: 1.5 }} placeholder="Describe your idea: who it helps, what it does, how you'd build it" value={ownIdea} onChange={(e) => setOwnIdea(e.target.value)} />
               <button className="btn-ghost" style={{ marginTop: 8 }} onClick={() => getIdeas(true)} disabled={!!busy || !ownIdea.trim() || !brief}>{busy === 'own' ? 'Testing your idea…' : '🧪 Test my idea'}</button>
@@ -601,8 +608,13 @@ export default function HackathonCoach() {
                     <div style={{ fontSize: 15.5, fontWeight: 800 }}>{idea.title}</div>
                     <span className="muse-chip" style={{ '--c': fitColor, flexShrink: 0 }}>{fitLabel}{idea.hours ? ` · ~${Math.round(idea.hours)}h` : ''}</span>
                   </div>
-                  {idea.track && <div style={{ fontSize: 11.5, color: '#A78BFA', fontWeight: 700, marginTop: 2 }}>🎯 {idea.track}</div>}
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2, fontSize: 11.5, fontWeight: 700 }}>
+                    {idea.ambition && <span style={{ color: { safe: '#10B981', bold: '#F59E0B', wild: '#E64FB4' }[idea.ambition] }}>{{ safe: '🛡 Safe', bold: '🚀 Bold', wild: '🤯 Wild' }[idea.ambition]}</span>}
+                    {idea.track && <span style={{ color: '#A78BFA' }}>🎯 {idea.track}</span>}
+                  </div>
+                  {idea.problem && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 8, lineHeight: 1.5 }}><b style={{ color: 'var(--text)' }}>The problem:</b> {idea.problem}{idea.source && <> <a href={idea.source} target="_blank" rel="noreferrer" style={{ color: '#A78BFA' }}>source ↗</a></>}</div>}
                   <div style={{ fontSize: 13, lineHeight: 1.5, marginTop: 6 }}>{idea.pitch}</div>
+                  {idea.wow && <div className="muse-bubble" style={{ marginTop: 8, borderLeft: '3px solid #E64FB4' }}><div className="muse-bubble-kicker" style={{ color: '#E64FB4' }}>THE MOMENT THEY WON'T EXPECT</div>{idea.wow}</div>}
                   {idea.why_wins && <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.5 }}><b>Why it scores:</b> {idea.why_wins}</div>}
                   {idea.features?.length > 0 && <><div className="muse-label" style={{ marginTop: 10 }}>CORE FEATURES</div><ul className="muse-how">{idea.features.map((f) => <li key={f}>{f}</li>)}</ul></>}
                   {idea.cut?.length > 0 && <><div className="muse-label" style={{ marginTop: 6, color: 'var(--red)' }}>DON'T BUILD</div><ul className="muse-how">{idea.cut.map((f) => <li key={f}>{f}</li>)}</ul></>}

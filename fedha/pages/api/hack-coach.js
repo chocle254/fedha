@@ -14,7 +14,7 @@ const clip = (v, n) => String(v ?? '').slice(0, n);
 const list = (v, n, len = 300) => (Array.isArray(v) ? v : []).filter((x) => x != null && String(x).trim()).slice(0, n).map((x) => clip(x, len));
 const num = (v, lo, hi, d = 0) => Math.max(lo, Math.min(hi, Number.isFinite(Number(v)) ? Number(v) : d));
 
-const BUILDER = 'The builder is a student developer in Kenya, usually working solo with little money and a phone or modest laptop. Prefer free tiers, simple stacks and things one person can finish.';
+const BUILDER = 'The builder usually works solo with little money and a modest laptop, so builds must use free tiers and be finishable by one person. They compete in international hackathons: aim at the hackathon\'s own audience and the global problem space, not at the builder\'s home country, unless the hackathon itself is regional.';
 
 // How submissions must read: like the builder wrote them on a tired night,
 // not like a press release.
@@ -37,6 +37,7 @@ export default async function handler(req, res) {
   try {
     if (b.type === 'hack_brief') return res.status(200).json(await brief(b, GROQ_API_KEY));
     if (b.type === 'hack_chat' && !String(b.question || '').trim()) return res.status(400).json({ error: 'Question required' });
+    if (b.type === 'hack_ideas') b.found = await ideaResearch(b);
     const obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : 0.6);
     const out = shape[b.type](obj, b);
     if (out.error) return res.status(500).json(out);
@@ -102,6 +103,30 @@ function ctx(hack) {
     c.last_judging ? `Last mock judging: ${c.last_judging.overall}/100 — fixes suggested: ${(c.last_judging.fixes || []).join(' | ')}` : '',
   ];
   return lines.filter(Boolean).join('\n');
+}
+
+// Before suggesting ideas: real problems in the hackathon's space, and what
+// the sponsor's platform can do that most entrants never try. Fail-soft.
+async function ideaResearch(b) {
+  const h = b.hack || {};
+  const br = h.coach?.brief || {};
+  const theme = [br.summary, (br.tracks || []).map((t) => t.name).join(', '), h.themes].filter(Boolean).join(' ').slice(0, 160) || h.name || '';
+  const host = br.organizer || h.organizer || '';
+  const tech = (br.sponsor_tech || []).slice(0, 2).join(' ');
+  if (!theme) return null;
+  const queries = [
+    `biggest unsolved problems ${theme} 2026`,
+    `${theme} problem statistics report 2026`,
+    host || tech ? `${tech || host} API platform capabilities advanced features developers rarely use` : `${theme} emerging technology breakthroughs 2026`,
+    `${h.name || br.name || theme} hackathon winning projects`,
+  ];
+  try {
+    const r = await webSearchMulti(queries, { limitEach: 5 });
+    return r.text.slice(0, 9000);
+  } catch (e) {
+    console.warn('[fedha] hack-coach idea research failed:', e.message);
+    return null;
+  }
 }
 
 // The app the builder already made, as the mentor sees it on every request.
@@ -223,15 +248,24 @@ Rules: never claim a feature exists unless the evidence shows it. requirements =
 
   hack_ideas(b) {
     const own = clip(b.own_idea, 1500).trim();
-    return `You are a hackathon mentor who has judged many hackathons. ${own ? 'Stress-test the builder\'s own idea against this hackathon and sharpen it.' : 'Suggest ideas built to win THIS hackathon.'}
+    const mix = { bold: '4 bold ideas', wild: '4 wild ideas', mix: '1 safe, 2 bold and 1 wild idea' }[b.ambition] || '1 safe, 2 bold and 1 wild idea';
+    return `You are a hackathon mentor who has judged and won many international hackathons. ${own ? "Stress-test the builder's own idea against this hackathon and push it to its most impressive version." : `Suggest ${mix} built to win THIS hackathon.`}
 
 ${ctx(b.hack)}
 
 ${BUILDER}
 
-${own ? `THE BUILDER'S IDEA:\n${own}\n\nReturn JSON: {"ideas":[ONE idea object: the builder's idea, sharpened but still theirs]}` : 'Return JSON: {"ideas":[4 idea objects, each aimed at a different track or angle]}'}
-Idea object: {"title":"short catchy name","pitch":"2 sentences: who it helps and what it does","track":"which track/prize it targets","why_wins":"how it scores on each judging criterion, in one or two sentences","features":["3-4 core features that MUST work in the demo"],"cut":["tempting features to NOT build"],"twists":[{"twist":"an add-on that would surprise the judges","why":"which criterion it lifts","hours":0}],"sponsor_use":"how it uses sponsor tools, or empty","risk":"the biggest way this could fail in the time left","hours":0,"fit":"fits|tight|too_big"}
-Rules: ideas must meet every hard requirement. hours = realistic build hours for the core features for this solo builder. fit compares hours with the working time left. Twists: 2-3, cheap (under 4 hours each) and memorable — a live demo moment, a local angle (M-Pesa, Swahili, USSD, offline), a surprising use of a sponsor API, real users tested. Avoid generic "add AI chatbot" ideas unless AI is the theme.${own ? ' If the idea does not fit the hackathon or is too big, say so plainly in risk and set fit honestly.' : ''}`;
+${b.found ? `RESEARCH (real problems in this space and what the host's/sponsors' platforms can do — ground ideas in it):\n${b.found}\n` : 'No web research was available: rely on what you know, and do not invent statistics.\n'}
+WHAT MAKES AN IDEA HERE:
+- Start from a real, painful problem people have worldwide in this hackathon's theme. Who has it, and how big is it? Cite the research when it gives a number, never invent one.
+- The "wow": the hackathon's host or sponsor should watch the demo and think "I didn't know our platform could do that". Use their API/product in an unexpected, ambitious way: chain it with other tools, point it at a problem they never marketed it for, or make it do something live and visible.
+- Ambition levels: "safe" = clearly finishable and solid; "bold" = an ambitious idea with a demo slice one person can finish; "wild" = sounds almost impossible, but a narrow, real, working slice of it can be shown in the demo (no faked results).
+- Every idea still needs a demo slice that one person can build in the time left. Scope the slice, not the dream.
+- Avoid the ideas every other team will submit (generic chatbot, to-do app, "AI summarizer") unless you twist them into something no one expects.
+
+${own ? 'Return JSON: {"ideas":[ONE idea object: the builder\'s idea, sharpened and made bolder, still theirs]}' : 'Return JSON: {"ideas":[idea objects, each aimed at a different track, problem or angle]}'}
+Idea object: {"title":"short memorable name","ambition":"safe|bold|wild","problem":"the real-world problem and who has it, one or two sentences, with a figure only if the research gives one","source":"url from the research backing the problem, or empty","pitch":"2 sentences: what it does","wow":"the demo moment that makes the host say 'our platform can do THAT?'","track":"which track/prize it targets","why_wins":"how it scores on the judging criteria, one or two sentences","features":["3-4 things that MUST work in the demo slice"],"cut":["tempting parts to NOT build"],"twists":[{"twist":"an add-on that would surprise the judges","why":"which criterion it lifts","hours":0}],"sponsor_use":"exactly how it uses the host/sponsor tools, or empty","risk":"the biggest way this could fail in the time left","hours":0,"fit":"fits|tight|too_big"}
+Rules: every idea must meet every hard requirement. hours = realistic build hours for the demo slice for this solo builder; fit compares that with the working time left. Twists: 2-3, under 4 hours each: a live demo moment, a surprising sponsor-API use, real users tested, a striking visual, a measurable result.${own ? ' If the idea does not fit the hackathon or is too big, say so plainly in risk and set fit honestly.' : ''}`;
   },
 
   hack_chat(b) {
@@ -293,7 +327,7 @@ Return JSON: {"overall":0,"verdict":"one sentence the panel would say","judges":
 - scores: exactly these criteria: ${criteria}. score 1-10, note = one sentence why. overall 0-100 = the weighted result.
 - requirements: check every hard requirement from the brief (empty list if none).
 - fixes: the 3 changes that would raise the score most for the time left, most important first, concrete.
-- twists: 3 add-ons or presentation moves that would beat the judges' expectations, each doable in the time left (hours = estimate). Think memorable demo moments, a real user story, a local Kenyan angle, a clever sponsor-API use, a live metric — not more features for their own sake.
+- twists: 3 add-ons or presentation moves that would beat the judges' expectations, each doable in the time left (hours = estimate). Think memorable demo moments, a real user story, using the host's or sponsors' platform in a way they never expected, a live metric — not more features for their own sake.
 - questions: 3 hard questions these judges would ask.
 - Penalise anything that looks invented, unfinished core features, and missing requirements.`;
   },
@@ -332,6 +366,8 @@ const shape = {
   hack_ideas(o) {
     const ideas = (o?.ideas || []).filter((x) => x && x.title).slice(0, 5).map((x) => ({
       title: clip(x.title, 80), pitch: clip(x.pitch, 500), track: clip(x.track, 120), why_wins: clip(x.why_wins, 500),
+      ambition: ['safe', 'bold', 'wild'].includes(x.ambition) ? x.ambition : 'bold', problem: clip(x.problem, 500), wow: clip(x.wow, 400),
+      source: /^https?:\/\//.test(String(x.source || '')) ? clip(x.source, 300) : '',
       features: list(x.features, 5, 200), cut: list(x.cut, 5, 200),
       twists: (x.twists || []).filter((t) => t && (t.twist || t.idea)).slice(0, 3).map((t) => ({ twist: clip(t.twist || t.idea, 200), why: clip(t.why, 200), hours: num(t.hours, 0, 48) })),
       sponsor_use: clip(x.sponsor_use, 300), risk: clip(x.risk, 300), hours: num(x.hours, 0, 500),
