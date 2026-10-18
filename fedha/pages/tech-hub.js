@@ -411,13 +411,26 @@ function DiscoverCard({ item, kind, onAdd }) {
   return (
     <div className="card" style={{ padding: 16, marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 10 }}>
-        <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--card-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{item.emoji || (kind === 'hack' ? '🏆' : '📅')}</div>
-        <div style={{ flex: 1 }}>
+        {item.thumbnail ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={item.thumbnail} alt="" loading="lazy" style={{ width: 44, height: 44, borderRadius: 12, objectFit: 'cover', flexShrink: 0, background: 'var(--card-2)' }} />
+        ) : (
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--card-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{item.emoji || (kind === 'hack' ? '🏆' : '📅')}</div>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 700 }}>{item.name}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{item.organizer}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>
+            {item.organizer}
+            {item.source && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 100, background: item.source === 'Devpost' ? 'rgba(59,130,246,0.15)' : 'rgba(139,92,246,0.15)', color: item.source === 'Devpost' ? '#60A5FA' : '#A78BFA' }}>{item.source}</span>}
+          </div>
+          {(item.dates || item.registrations > 0) && (
+            <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 3 }}>
+              {item.dates}{item.dates && item.registrations > 0 ? ' · ' : ''}{item.registrations > 0 ? `${item.registrations.toLocaleString()} registered` : ''}
+            </div>
+          )}
         </div>
       </div>
-      <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5, marginBottom: 10 }}>{item.description}</div>
+      {item.description && <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5, marginBottom: 10 }}>{item.description}</div>}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
         {kind === 'hack' && item.prize_pool && <span style={{ background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.2)', color: 'var(--green)', fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 100 }}>🏆 {item.prize_pool}</span>}
         {item.mode && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 12, padding: '3px 10px', borderRadius: 100 }}>{item.mode}</span>}
@@ -444,6 +457,12 @@ function DiscoverCard({ item, kind, onAdd }) {
       </div>
       {item.themes && <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>🏷 {item.themes}</div>}
       <div style={{ display: 'flex', gap: 8 }}>
+        {kind === 'hack' && item.url && (
+          <a href={item.url} target="_blank" rel="noreferrer"
+            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', background: 'var(--green)', borderRadius: 10, color: '#04140D', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+            Register ↗
+          </a>
+        )}
         {kind === 'hack' && (
           <button onClick={() => onAdd(item)}
             style={{ flex: 1, padding: '10px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10, color: 'var(--green)', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>
@@ -1007,6 +1026,24 @@ const PROJECT_STATUSES = [
 export function projectStatus(p) { return p.status || (p.id ? 'done' : 'in_progress'); }
 export function projectProgress(p) { return p.progress != null ? p.progress : (projectStatus(p) === 'done' ? 100 : 0); }
 
+// A finished hackathon becomes a Showroom card: the project you built, its
+// image and repo, and which hackathon it was for.
+function showroomFromHack(hack) {
+  const place = hack.results_place && hack.results_place !== 'Participant' ? ` — ${hack.results_place}` : '';
+  return {
+    ...EMPTY_PROJECT,
+    name: hack.project_name || hack.name,
+    description: `Built for ${hack.name}${place}.`,
+    repo_url: hack.repo_url || '',
+    image: hack.project_image || '',
+    status: 'done',
+    progress: 100,
+    notes: [],
+    hackathon_id: hack.id,
+    hackathon_name: hack.name,
+  };
+}
+
 function ProjectModal({ initial, onClose, onSave }) {
   const [form, setForm] = useState({ ...EMPTY_PROJECT, ...initial, notes: initial?.notes ? [...initial.notes] : [] });
   const [imgBusy, setImgBusy] = useState(false);
@@ -1136,7 +1173,7 @@ function ProjectModal({ initial, onClose, onSave }) {
   );
 }
 
-function ShowroomCard({ project, onEdit, onDelete }) {
+function ShowroomCard({ project, onEdit, onDelete, onOpenHack }) {
   const status = projectStatus(project);
   const progress = projectProgress(project);
   const statusMeta = PROJECT_STATUSES.find((s) => s.id === status);
@@ -1154,6 +1191,12 @@ function ShowroomCard({ project, onEdit, onDelete }) {
           <div className="showroom-name" style={{ flex: 1 }}>{project.name}</div>
           <button onClick={onDelete} style={{ background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 13, flexShrink: 0 }} aria-label="Delete">🗑️</button>
         </div>
+        {project.hackathon_id && (
+          <button onClick={() => onOpenHack?.(project.hackathon_id)}
+            style={{ alignSelf: 'flex-start', margin: '2px 0 4px', background: 'var(--gold-dim)', border: '1px solid rgba(245,197,107,0.3)', color: 'var(--gold)', fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 100, cursor: 'pointer', fontFamily: 'Outfit', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            🏁 {project.hackathon_name || 'Hackathon'}
+          </button>
+        )}
         {project.description && <div className="showroom-desc">{project.description}</div>}
         {status !== 'done' && (
           <div style={{ margin: '6px 0' }}>
@@ -1180,7 +1223,7 @@ function ShowroomCard({ project, onEdit, onDelete }) {
   );
 }
 
-function ShowroomSection({ projects, onAdd, onEdit, onDelete }) {
+function ShowroomSection({ projects, onAdd, onEdit, onDelete, onOpenHack }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -1191,7 +1234,7 @@ function ShowroomSection({ projects, onAdd, onEdit, onDelete }) {
         <div className="empty-state"><div className="icon">🗂️</div><h3>No projects yet</h3><p>Add what you&apos;ve built — a link and a couple lines are enough</p></div>
       ) : (
         <div className="showroom-grid">
-          {projects.map((p) => <ShowroomCard key={p.id} project={p} onEdit={() => onEdit(p)} onDelete={() => onDelete(p.id)} />)}
+          {projects.map((p) => <ShowroomCard key={p.id} project={p} onEdit={() => onEdit(p)} onDelete={() => onDelete(p.id)} onOpenHack={onOpenHack} />)}
         </div>
       )}
     </div>
@@ -1622,6 +1665,7 @@ export default function TechHubPage() {
     research: researchRaw, addResearch, updateResearch, removeResearch,
     onlineJobs: onlineJobsRaw,
     clientProjects, addClientProject, updateClientProject, removeClientProject, wallets, addTransaction,
+    loading: appLoading,
   } = useApp();
   // useApp() should always return these as arrays (AppContext.js defaults
   // each to []), but guarding here too means a transient/unexpected
@@ -1819,6 +1863,24 @@ export default function TechHubPage() {
     }, () => setLocStatus('denied'));
   }
 
+  // Real hackathons from Devpost + Devfolio (pages/api/hackathons.js).
+  async function fetchRealHackathons() {
+    setLoadingHacks(true); setAiError(null);
+    try {
+      const res = await fetch('/api/hackathons');
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Could not load hackathons');
+      setDiscHacks(data.results || []);
+    } catch (e) { setAiError(e.message); }
+    finally { setLoadingHacks(false); }
+  }
+  // Load them once when the Hackathons tab is first shown.
+  const hacksLoaded = useRef(false);
+  useEffect(() => {
+    if (tab === 'hackathons' && !hacksLoaded.current) { hacksLoaded.current = true; fetchRealHackathons(); }
+  }, [tab]);
+  const [onlineOnly, setOnlineOnly] = useState(false);
+
   async function fetchAI(type) {
     const setLoading = type === 'hackathons' ? setLoadingHacks : setLoadingEvents;
     setLoading(true); setAiError(null);
@@ -1845,12 +1907,15 @@ export default function TechHubPage() {
 
   // hackathon save
   async function saveHack(form) {
-    if (hackModal?.id) await updateHackathon({ ...hackModal, ...form });
-    else await addHackathon({ ...form, tasks: [] });
+    if (hackModal?.id) {
+      let next = { ...hackModal, ...form };
+      if (hackStatus(next) === 'completed') next = await moveToShowroom(next);
+      await updateHackathon(next);
+    } else await addHackathon({ ...form, tasks: [] });
     setHackModal(null);
   }
   function registerFromDiscover(item) {
-    setHackModal({ name: item.name, prize_pool: item.prize_pool || '', themes: item.themes || '', deadline: item.deadline || '', organizer: item.organizer || '', mode: item.mode || '', project_name: '', repo_url: '', project_image: '', submitted: false, results_date: '', results_time: '', results_tz: 'ET', meeting_link: '' });
+    setHackModal({ name: item.name, prize_pool: item.prize_pool || '', themes: item.themes || '', deadline: item.deadline || '', organizer: item.organizer || '', mode: item.mode || '', url: item.url || '', project_name: '', repo_url: '', project_image: '', submitted: false, results_date: '', results_time: '', results_tz: 'ET', meeting_link: '' });
   }
   // task ops
   function toggleTask(hack, taskId) {
@@ -1870,9 +1935,32 @@ export default function TechHubPage() {
     setStartupName(''); setStartupAcc(''); setShowStartupForm(false);
   }
 
-  function changeHackStatus(hack, status) {
-    updateHackathon({ ...hack, status, submitted: status !== 'active' });
+  // Finishing a hackathon moves its project into the Showroom (once — if you
+  // delete that card later it isn't added back).
+  async function moveToShowroom(hack) {
+    if (hack.showroom_added || projects.some((p) => p.hackathon_id === hack.id)) return hack;
+    await addProject(showroomFromHack(hack));
+    return { ...hack, showroom_added: true };
   }
+  async function changeHackStatus(hack, status) {
+    let next = { ...hack, status, submitted: status !== 'active' };
+    if (status === 'completed') next = await moveToShowroom(next);
+    await updateHackathon(next);
+  }
+  // Hackathons finished before this existed: move them over once data has loaded.
+  const backfilledShowroom = useRef(false);
+  useEffect(() => {
+    if (appLoading || backfilledShowroom.current) return;
+    backfilledShowroom.current = true;
+    (async () => {
+      for (const h of hackathons) {
+        if (hackStatus(h) !== 'completed') continue;
+        const next = await moveToShowroom(h);
+        if (next !== h) await updateHackathon(next);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appLoading]);
 
   async function saveProjectForm(form) {
     if (projModal?.id) await updateProject({ ...projModal, ...form });
@@ -1997,26 +2085,39 @@ export default function TechHubPage() {
                   )}
 
                   {completedHacks.length > 0 && (
-                    <div style={{ marginBottom: 4 }}>
-                      <div className="section-title">Completed</div>
-                      <HackThumbGrid hacks={completedHacks} onOpen={setDetailHackId} completed />
-                    </div>
+                    <button onClick={() => setTab('showroom')}
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', marginBottom: 4, background: 'var(--gold-dim)', border: '1px solid rgba(245,197,107,0.25)', borderRadius: 12, color: 'var(--text)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', textAlign: 'left' }}>
+                      <span style={{ fontSize: 18 }}>🏁</span>
+                      <span style={{ flex: 1 }}>{completedHacks.length} completed hackathon{completedHacks.length > 1 ? 's are' : ' is'} in your Showroom</span>
+                      <span style={{ color: 'var(--gold)', fontWeight: 700 }}>View →</span>
+                    </button>
                   )}
                 </>
               )}
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 12px' }}>
-                <div className="section-title" style={{ marginBottom: 0 }}>Upcoming on Devpost & more</div>
-                <button onClick={() => fetchAI('hackathons')} disabled={loadingHacks}
+                <div className="section-title" style={{ marginBottom: 0 }}>Open on Devpost & Devfolio</div>
+                <button onClick={fetchRealHackathons} disabled={loadingHacks}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 100, color: 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit' }}>
                   🔄 {loadingHacks ? 'Finding…' : discHacks.length ? 'Refresh' : 'Discover'}
                 </button>
               </div>
-              {discHacks.length === 0 && !loadingHacks ? (
-                <div style={{ padding: '12px 14px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 12, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
-                  💡 Tap Discover to find upcoming hackathons you can join — then register the ones you enter.
+              {discHacks.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+                  <button className={`chip ${!onlineOnly ? 'active' : ''}`} onClick={() => setOnlineOnly(false)}>All ({discHacks.length})</button>
+                  <button className={`chip ${onlineOnly ? 'active' : ''}`} onClick={() => setOnlineOnly(true)}>🌍 Online ({discHacks.filter((h) => h.online).length})</button>
                 </div>
-              ) : discHacks.map((h) => <DiscoverCard key={h.id} item={h} kind="hack" onAdd={registerFromDiscover} />)}
+              )}
+              {loadingHacks && discHacks.length === 0 ? (
+                [0, 1, 2].map((i) => <div key={i} className="skeleton" style={{ height: 120, borderRadius: 16, marginBottom: 12 }} />)
+              ) : discHacks.length === 0 ? (
+                <div style={{ padding: '12px 14px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 12, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
+                  💡 Tap Discover to load hackathons that are open for registration right now.
+                </div>
+              ) : discHacks
+                  .filter((h) => !onlineOnly || h.online)
+                  .filter((h) => !hackathons.some((m) => (m.name || '').trim().toLowerCase() === h.name.trim().toLowerCase()))
+                  .map((h) => <DiscoverCard key={h.id} item={h} kind="hack" onAdd={registerFromDiscover} />)}
             </div>
           )}
 
@@ -2044,7 +2145,8 @@ export default function TechHubPage() {
             <ShowroomSection projects={projects}
               onAdd={() => setProjModal({})}
               onEdit={(p) => setProjModal(p)}
-              onDelete={(id) => removeProject(id)} />
+              onDelete={(id) => removeProject(id)}
+              onOpenHack={setDetailHackId} />
           )}
 
           {/* ── EVENTS ─────────────────────────────────────── */}

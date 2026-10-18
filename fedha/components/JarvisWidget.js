@@ -360,10 +360,10 @@ export default function JarvisWidget() {
         aria-label="Talk to Jarvis"
         className="jarvis-fab"
         style={{
-          position: 'fixed', bottom: 84, left: 20, width: 56, height: 56, borderRadius: '50%',
+          position: 'fixed', bottom: 96, left: 0, width: 30, height: 50, borderRadius: '0 25px 25px 0', opacity: 0.9, paddingLeft: 2,
           background: 'linear-gradient(135deg, #6366F1, #8B5CF6)', border: 'none', cursor: 'pointer',
           display: open ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 8px 24px rgba(99,102,241,0.5)', zIndex: 998, fontSize: 24,
+          boxShadow: '0 4px 14px rgba(99,102,241,0.4)', zIndex: 998, fontSize: 16,
         }}
       >
         🤖

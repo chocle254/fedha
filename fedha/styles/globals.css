@@ -145,26 +145,29 @@ select.input option { background: var(--card-2); }
   letter-spacing: 0.3px;
 }
 
-/* FAB */
+/* FAB — a slim tab tucked against the right edge so it doesn't cover content
+   (the Jarvis tab mirrors it on the left). Round button again on PC. */
 .fab {
   position: fixed;
-  bottom: 84px;
-  right: 20px;
-  width: 56px;
-  height: 56px;
+  bottom: 96px;
+  right: 0;
+  width: 30px;
+  height: 50px;
   background: var(--green);
-  border-radius: 50%;
+  border-radius: 25px 0 0 25px;
+  opacity: 0.9;
+  padding-right: 2px;
   border: none;
   color: #000;
-  font-size: 26px;
+  font-size: 22px;
   line-height: 1;
   cursor: pointer;
-  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
   display: flex; align-items: center; justify-content: center;
   transition: transform 0.15s, box-shadow 0.15s;
   z-index: 50;
 }
-.fab:hover { transform: scale(1.05); box-shadow: 0 12px 32px rgba(16, 185, 129, 0.5); }
+.fab:hover { opacity: 1; box-shadow: 0 8px 24px rgba(16, 185, 129, 0.5); }
 .fab:active { transform: scale(0.95); }
 
 /* Bottom nav */
@@ -241,10 +244,9 @@ select.input option { background: var(--card-2); }
   min-height: 100vh;
 }
 .page-header {
+  /* Scrolls away with the page. It used to stick to the top, and pages that
+     put cards in it (Health score, Goals totals, Planner) covered the screen. */
   padding: 56px 20px 20px;
-  position: sticky; top: 0;
-  background: linear-gradient(to bottom, var(--bg) 80%, transparent);
-  z-index: 40;
 }
 
 /* Section */
@@ -867,8 +869,8 @@ select.input option { background: var(--card-2); }
 
   .bottom-nav { display: none; }
   .fab.fab-has-top { display: none; }
-  .jarvis-fab { left: auto !important; right: 28px !important; bottom: 28px !important; }
-  .fab { bottom: 100px; right: 28px; }
+  .jarvis-fab { left: auto !important; right: 28px !important; bottom: 28px !important; width: 56px !important; height: 56px !important; border-radius: 50% !important; font-size: 24px !important; }
+  .fab { bottom: 100px; right: 28px; width: 56px; height: 56px; border-radius: 50%; padding: 0; opacity: 1; font-size: 26px; }
 
   /* Sidebar */
   .desk-sidebar {
