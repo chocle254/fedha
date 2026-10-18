@@ -136,7 +136,8 @@ function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs, clie
     if (daysLeft != null && daysLeft < -1) return; // deadline long gone — nothing to plan
     const open = (h.tasks || []).filter((t) => !t.done);
     const total = (h.tasks || []).length;
-    const remainingHours = total ? open.length * 1.5 : 8;
+    // Coach-planned tasks carry their own minutes (see lib/hack-coach.js).
+    const remainingHours = total ? open.reduce((sum, t) => sum + (Number(t.minutes) > 0 ? Number(t.minutes) / 60 : 1.5), 0) : 8;
     if (total && !open.length) return; // all tasks done — submit it, don't plan more build time
     const perDay = daysLeft != null ? remainingHours / Math.max(0.5, daysLeft) : remainingHours / 7;
     const urgent = isUrgent(h);

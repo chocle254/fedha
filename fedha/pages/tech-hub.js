@@ -10,6 +10,7 @@ import { fetchRepos, sortRepos, REPO_SORTS } from '../lib/github';
 import { getSetting, setSetting } from '../lib/db';
 import { scheduleEventReminder, cancelSchedule } from '../lib/notifications';
 import { eventWindow, isEventEnded, sortEventsByStart, eventTimeLabel, eventDateLabel } from '../lib/events';
+import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, coachTasks } from '../lib/hack-coach';
 
 // ─── HACKATHON STATUS ─────────────────────────────────────────────────────────
 // Backward-compatible with older records that only have the `submitted` boolean:
@@ -403,6 +404,54 @@ function MyHackathonCard({ hack, onEdit, onDelete, onToggleTask, onAddTask, onDe
           <button type="submit" style={{ padding: '0 14px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', color: 'var(--text)', fontSize: 18, cursor: 'pointer' }}>+</button>
         </form>
       </div>
+    </div>
+  );
+}
+
+// ─── HACKATHON COACH (AI mentor per hackathon, pages/hackathon/[id].js) ──────
+function CoachSection({ hackathons, onStart, onOpen }) {
+  const [paste, setPaste] = useState('');
+  const [busy, setBusy] = useState(false);
+  const live = hackathons.filter((h) => hackStatus(h) !== 'completed');
+  async function start() {
+    if (!paste.trim() || busy) return;
+    setBusy(true);
+    try { await onStart(paste.trim()); setPaste(''); } finally { setBusy(false); }
+  }
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div className="section-title">🧭 Hackathon Coach</div>
+      <div className="card" style={{ padding: 16, marginBottom: 12, background: 'linear-gradient(135deg, rgba(10,132,255,0.10), rgba(123,97,255,0.10) 50%, rgba(230,79,180,0.10))', borderColor: 'rgba(123,97,255,0.3)' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10 }}>
+          <div className="muse-orb" style={{ width: 34, height: 34, flexShrink: 0 }} aria-hidden="true" />
+          <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>Paste a hackathon's details. Your mentor researches it, helps you pick an idea, plans the build to fit the deadline, judges it the way its judges would, and drafts the submission with you.</div>
+        </div>
+        <textarea className="input" rows={3} value={paste} onChange={(e) => setPaste(e.target.value)} aria-label="Hackathon details"
+          placeholder="Paste the hackathon page: overview, rules, tracks, prizes, judging criteria, what to submit…" style={{ resize: 'vertical', lineHeight: 1.5, fontSize: 13 }} />
+        <button onClick={start} disabled={!paste.trim() || busy} className="btn-primary muse-send" style={{ marginTop: 8 }}>{busy ? 'Opening your coach…' : '🧭 Start with a mentor'}</button>
+      </div>
+      {live.map((h) => {
+        const phase = PHASES.find((p) => p.id === phaseOf(h)) || PHASES[0];
+        const n = mentorNotice(h);
+        const t = coachTasks(h);
+        const left = hoursLeft(h);
+        return (
+          <button key={h.id} onClick={() => onOpen(h.id)}
+            style={{ width: '100%', display: 'flex', gap: 12, alignItems: 'flex-start', textAlign: 'left', padding: '12px 14px', marginBottom: 8, background: 'var(--card)', border: `1px solid ${n?.tone === 'warn' ? 'rgba(245,158,11,0.35)' : 'var(--border)'}`, borderRadius: 14, color: 'var(--text)', cursor: 'pointer', fontFamily: 'Outfit' }}>
+            <span style={{ fontSize: 22, lineHeight: 1 }}>{phase.emoji}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
+              <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4, fontSize: 11, fontWeight: 700 }}>
+                <span style={{ color: phase.color }}>{h.coach ? phase.label : 'No coach yet'}</span>
+                {left != null && <span style={{ color: left > 0 && left < 24 ? 'var(--red)' : 'var(--text-3)' }}>· {fmtHours(left)}</span>}
+                {t.length > 0 && <span style={{ color: 'var(--text-3)' }}>· {t.filter((x) => x.done).length}/{t.length} tasks</span>}
+              </span>
+              {h.coach && n && <span style={{ display: 'block', fontSize: 12, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.4 }}>{n.text}</span>}
+            </span>
+            <span style={{ color: '#A78BFA', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>{h.coach ? 'Open →' : 'Coach it →'}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -2155,6 +2204,14 @@ export default function TechHubPage() {
                   )}
                 </>
               )}
+
+              <div style={{ marginTop: 24 }}>
+                <CoachSection hackathons={hackathons} onOpen={(hid) => router.push(`/hackathon/${hid}`)}
+                  onStart={async (text) => {
+                    const h = await addHackathon({ ...EMPTY_HACK, name: 'New hackathon', coach: { raw: text } });
+                    router.push(`/hackathon/${h.id}?tab=brief`);
+                  }} />
+              </div>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 12px' }}>
                 <div className="section-title" style={{ marginBottom: 0 }}>Open on Devpost & Devfolio</div>
