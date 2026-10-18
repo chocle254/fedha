@@ -6,6 +6,7 @@ import { genId, todayISO } from '../../lib/utils';
 import { fireConfetti } from '../../lib/confetti';
 import { ScoreBar, scoreColor } from '../../components/startup/museApi';
 import AppConnect from '../../components/hackcoach/AppConnect';
+import { startDateOf } from '../../lib/hack-coach';
 import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, workload, minutesLogged, coachTasks, submissionFields, hackForAI, coachAsk, addDays } from '../../lib/hack-coach';
 
 // The Hackathon Coach: a mentor that reads the hackathon you paste,
@@ -501,8 +502,17 @@ export default function HackathonCoach() {
                   <div style={{ fontSize: 15, fontWeight: 800, marginTop: 6 }}>{brief.name || hack.name}</div>
                   {brief.organizer && <div style={{ fontSize: 12.5, color: 'var(--text-3)' }}>by {brief.organizer}{brief.mode ? ` · ${brief.mode}` : ''}</div>}
                   {brief.summary && <div style={{ fontSize: 13.5, lineHeight: 1.55, marginTop: 8 }}>{brief.summary}</div>}
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+                    <label style={{ flex: '1 1 140px', fontSize: 11.5, fontWeight: 700, color: 'var(--text-2)' }}>OPENED
+                      <input type="date" className="input" style={{ marginTop: 4 }} value={startDateOf(hack)} onChange={(e) => saveCoach({ start_date: e.target.value })} />
+                    </label>
+                    <label style={{ flex: '1 1 140px', fontSize: 11.5, fontWeight: 700, color: 'var(--text-2)' }}>DEADLINE
+                      <input type="date" className="input" style={{ marginTop: 4 }} value={String(hack.deadline || brief.deadline || '').slice(0, 10)} onChange={(e) => save({ deadline: e.target.value })} />
+                    </label>
+                  </div>
+                  {!startDateOf(hack) && <div style={{ fontSize: 11.5, color: 'var(--yellow)', marginTop: 6 }}>The details don't say when it opened. Add the date so the coach can tell whether your app was built during the hackathon.</div>}
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-                    {brief.deadline && <span className="muse-chip muse-chip-plain">📅 {brief.deadline}{brief.timezone ? ` ${brief.timezone}` : ''}</span>}
+                    {brief.timezone && <span className="muse-chip muse-chip-plain">🕒 {brief.timezone}</span>}
                     {brief.prize_total && <span className="muse-chip" style={{ '--c': '#10B981' }}>🏆 {brief.prize_total}</span>}
                   </div>
                   {brief.key_dates?.length > 0 && <ul className="muse-how">{brief.key_dates.map((d) => <li key={d}>{d}</li>)}</ul>}

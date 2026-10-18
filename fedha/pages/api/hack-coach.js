@@ -129,6 +129,16 @@ async function ideaResearch(b) {
   }
 }
 
+// Build dates worked out on the device from GitHub (lib/hack-coach.js
+// timelineOf). These are facts; the AI must not contradict them.
+function timelineFact(t) {
+  if (!t || t.verdict === 'no_repo') return '';
+  if (t.verdict === 'during') return `BUILD TIMELINE (verified from GitHub, treat as fact): the hackathon opened ${t.start}; the repo's first commit was ${t.first_commit} (${t.commit_count} commits total). All of this work was made DURING the hackathon, so it is eligible new work. Do NOT say it was built before the hackathon.`;
+  if (t.verdict === 'before') return `BUILD TIMELINE (verified from GitHub, treat as fact): the hackathon opened ${t.start}; the repo's first commit was ${t.first_commit}, ${t.days_before} days earlier (${t.commit_count} commits total). Work before ${t.start} is pre-existing.`;
+  if (t.verdict === 'no_start') return `BUILD TIMELINE: the hackathon start date is unknown; the repo's first commit was ${t.first_commit || 'unknown'}. Do not assume the work is pre-existing; tell the builder to confirm the start date.`;
+  return 'BUILD TIMELINE: unknown. Do not assume the work is pre-existing.';
+}
+
 // The app the builder already made, as the mentor sees it on every request.
 function appLines(app) {
   if (!app) return '';
@@ -140,7 +150,8 @@ function appLines(app) {
     a.features?.length ? `  Already built: ${a.features.join('; ')}` : '',
     a.fit ? `  Fit with this hackathon: ${a.fit} — ${clip(a.fit_note, 300)}` : '',
     a.gaps?.length ? `  Gaps for this hackathon: ${a.gaps.join('; ')}` : '',
-    a.new_code_risk ? `  Eligibility warning: ${clip(a.new_code_risk, 300)}` : '',
+    app.timeline ? `  ${timelineFact(app.timeline)}` : '',
+    a.new_code_risk && app.timeline?.verdict !== 'during' ? `  Eligibility warning: ${clip(a.new_code_risk, 300)}` : '',
     r?.commits?.length ? `  Recent commits (newest first): ${r.commits.slice(0, 8).map((c) => `${String(c.date || '').slice(0, 10)} ${c.message}`).join(' | ')}` : '',
     app.linked?.text ? `  From the builder's Fedha ${app.linked.kind}: ${clip(app.linked.text, 900)}` : '',
   ].filter(Boolean).join('\n');
@@ -159,7 +170,7 @@ HACKATHON DETAILS:
 ${raw}
 """
 
-Return JSON: {"name":"","organizer":"","deadline":"YYYY-MM-DD or YYYY-MM-DDTHH:MM if a time is given, else empty","timezone":"","mode":"online|in-person|hybrid|","summary":"2 sentences: what it is and what they want built","tracks":[{"name":"","prize":"","description":""}],"prize_total":"","requirements":["every hard rule a submission must meet, e.g. must use X API, video under 3 minutes, public repo, new code only, team size"],"criteria":[{"name":"","weight":0,"description":"what the judges look for"}],"submission_fields":[{"name":"","hint":"","limit":0}],"sponsor_tech":["sponsor tools/APIs mentioned"],"key_dates":["date: what happens"],"judges":["judge names or roles if listed"],"unclear":["important things the details do not say that the builder should check"]}
+Return JSON: {"name":"","organizer":"","start_date":"YYYY-MM-DD when the hackathon or its submission period opened, else empty","deadline":"YYYY-MM-DD or YYYY-MM-DDTHH:MM if a time is given, else empty","timezone":"","mode":"online|in-person|hybrid|","summary":"2 sentences: what it is and what they want built","tracks":[{"name":"","prize":"","description":""}],"prize_total":"","requirements":["every hard rule a submission must meet, e.g. must use X API, video under 3 minutes, public repo, new code only, team size"],"criteria":[{"name":"","weight":0,"description":"what the judges look for"}],"submission_fields":[{"name":"","hint":"","limit":0}],"sponsor_tech":["sponsor tools/APIs mentioned"],"key_dates":["date: what happens"],"judges":["judge names or roles if listed"],"unclear":["important things the details do not say that the builder should check"]}
 weight = percentage if stated, else 0. submission_fields = the fields/questions the submission form asks for, if listed.`, 0.2);
   if (!parsed) return { error: 'Could not read those details. Try pasting the rules and judging section again.' };
 
@@ -194,6 +205,7 @@ Never claim something about this hackathon that is not in the brief or the searc
   return {
     brief: {
       name, organizer: org,
+      start_date: /^\d{4}-\d{2}-\d{2}/.test(String(parsed.start_date || '')) ? String(parsed.start_date).slice(0, 10) : '',
       deadline: /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(String(parsed.deadline || '')) ? parsed.deadline : '',
       timezone: clip(parsed.timezone, 40), mode: clip(parsed.mode, 20), summary: clip(parsed.summary, 600),
       tracks: (parsed.tracks || []).filter((t) => t && t.name).slice(0, 12).map((t) => ({ name: clip(t.name, 100), prize: clip(t.prize, 100), description: clip(t.description, 400) })),
@@ -231,6 +243,7 @@ const prompts = {
       r?.deps?.length ? `Dependencies:\n${r.deps.map((d) => `${d.path}:\n${clip(d.text, 1200)}`).join('\n')}` : '',
       r?.files?.length ? `Files (${r.file_count} total, first ${r.files.length}):\n${r.files.join('\n')}` : '',
       r?.commits?.length ? `Recent commits:\n${r.commits.map((c) => `${String(c.date || '').slice(0, 10)} ${c.message}`).join('\n')}` : '',
+      timelineFact(app.timeline),
     ].filter(Boolean).join('\n\n');
     return `You are a hackathon mentor. The builder wants to enter THIS hackathon with an app they have already started or built. Read what the app really is from the evidence below, and judge how to take it into this hackathon.
 
@@ -242,7 +255,7 @@ ${facts || '(no details)'}
 
 ${BUILDER}
 
-Return JSON: {"name":"","what_it_does":"2 sentences","features":["features that clearly exist, from the README, files and commits"],"stack":["main tools"],"maturity":"idea|prototype|working_mvp|production","fit":"strong|partial|weak","fit_note":"one sentence on how well it matches the theme, tracks and criteria","track":"best track to enter","requirements":[{"rule":"","status":"met|missing|unclear","note":""}],"new_code_risk":"if the rules require new work made during the hackathon, say exactly what this means for an app started before it (e.g. only new features count, disclose prior work); else empty","gaps":["what this hackathon wants that the app lacks"],"upgrades":[{"title":"a hackathon-specific feature or twist to build on top","why":"which criterion it lifts","hours":0}],"demo_path":["3-5 steps of the demo the judges should see"],"idea":{"title":"","pitch":"2 sentences framing the app for this hackathon","features":["3-4 things that must work in the demo, existing or new"],"track":""}}
+Return JSON: {"name":"","what_it_does":"2 sentences","features":["features that clearly exist, from the README, files and commits"],"stack":["main tools"],"maturity":"idea|prototype|working_mvp|production","fit":"strong|partial|weak","fit_note":"one sentence on how well it matches the theme, tracks and criteria","track":"best track to enter","requirements":[{"rule":"","status":"met|missing|unclear","note":""}],"new_code_risk":"ONLY if the BUILD TIMELINE says work started before the hackathon AND the rules require new work: say what that means (e.g. only new features count, disclose prior work). If the timeline says it was built during the hackathon, or the rules allow existing projects, this MUST be empty","gaps":["what this hackathon wants that the app lacks"],"upgrades":[{"title":"a hackathon-specific feature or twist to build on top","why":"which criterion it lifts","hours":0}],"demo_path":["3-5 steps of the demo the judges should see"],"idea":{"title":"","pitch":"2 sentences framing the app for this hackathon","features":["3-4 things that must work in the demo, existing or new"],"track":""}}
 Rules: never claim a feature exists unless the evidence shows it. requirements = every hard requirement from the brief. upgrades: 3-4, each under 6 hours. Be honest if the app is a poor fit.`;
   },
 

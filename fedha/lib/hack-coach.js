@@ -184,6 +184,24 @@ async function gh(path, accept) {
   return accept?.includes('raw') ? res.text() : res.json();
 }
 
+const commitOf = (c) => ({ sha: c.sha?.slice(0, 7), date: c.commit?.author?.date, message: String(c.commit?.message || '').split('\n')[0].slice(0, 140) });
+
+// The repo's very first commit and how many commits it has. GitHub lists
+// commits newest first; with one per page, the "last" page link is the
+// first commit and its page number is the total count.
+async function firstCommit(name) {
+  const res = await fetch(`https://api.github.com/repos/${name}/commits?per_page=1`);
+  if (!res.ok) return null;
+  const newest = await res.json();
+  const last = (res.headers.get('link') || '').match(/[?&]page=(\d+)>;\s*rel="last"/);
+  if (!last) return Array.isArray(newest) && newest[0] ? { first: commitOf(newest[0]), count: 1 } : null;
+  const count = Number(last[1]);
+  const r2 = await fetch(`https://api.github.com/repos/${name}/commits?per_page=1&page=${count}`);
+  if (!r2.ok) return { first: null, count };
+  const oldest = await r2.json();
+  return { first: Array.isArray(oldest) && oldest[0] ? commitOf(oldest[0]) : null, count };
+}
+
 export async function scanRepo(fullName) {
   const name = parseRepo(fullName);
   if (!name) throw new Error('That does not look like a GitHub repo. Use owner/repo or the repo URL.');
@@ -193,11 +211,12 @@ export async function scanRepo(fullName) {
     throw e;
   }
   const branch = repo.default_branch || 'main';
-  const [languages, readme, tree, commits] = await Promise.all([
+  const [languages, readme, tree, commits, history] = await Promise.all([
     gh(`/repos/${name}/languages`).catch(() => ({})),
     gh(`/repos/${name}/readme`, 'application/vnd.github.raw').catch(() => ''),
     gh(`/repos/${name}/git/trees/${encodeURIComponent(branch)}?recursive=1`).catch(() => ({ tree: [] })),
     gh(`/repos/${name}/commits?per_page=20`).catch(() => []),
+    firstCommit(name).catch(() => null),
   ]);
   const paths = (tree.tree || []).filter((t) => t.type === 'blob' && !/(^|\/)(node_modules|\.git|dist|build|\.next|vendor|__pycache__|venv)\//.test(t.path)).map((t) => t.path);
   const manifests = paths.filter((p) => MANIFESTS.includes(p.split('/').pop()) && p.split('/').length <= 3 && !/(^|\/)(examples?|docs|test|tests|fixtures)\//.test(p))
@@ -229,7 +248,9 @@ export async function scanRepo(fullName) {
     file_count: paths.length,
     files: paths.slice(0, 250),
     deps: deps.filter(Boolean),
-    commits: (Array.isArray(commits) ? commits : []).map((c) => ({ sha: c.sha?.slice(0, 7), date: c.commit?.author?.date, message: String(c.commit?.message || '').split('\n')[0].slice(0, 140) })),
+    commits: (Array.isArray(commits) ? commits : []).map(commitOf),
+    first_commit: history?.first || null,
+    commit_count: history?.count || (Array.isArray(commits) ? commits.length : 0),
     scanned_at: Date.now(),
   };
 }
@@ -243,4 +264,37 @@ export function linkedFacts(kind, item) {
     return { kind, id: item.id, name: item.name, text: [item.mission ? `mission: ${item.mission}` : '', ...pick(st.ideation), ...pick(st.prototyping), ...pick(st.mvp), item.pitch?.one_liner ? `one-liner: ${item.pitch.one_liner}` : ''].filter(Boolean).join('\n').slice(0, 5000) };
   }
   return { kind, id: item.id, name: item.name, text: [item.description, item.site_url ? `live: ${item.site_url}` : '', ...(item.notes || []).map((n) => (typeof n === 'string' ? n : n.text)).filter(Boolean)].filter(Boolean).join('\n').slice(0, 5000) };
+}
+
+// When the hackathon opened: your own correction first, then the brief.
+export function startDateOf(hack) {
+  const d = hack?.coach?.start_date || hack?.coach?.brief?.start_date || '';
+  return /^\d{4}-\d{2}-\d{2}/.test(d) ? d.slice(0, 10) : '';
+}
+
+// Was the repo built during the hackathon? Worked out from dates, not
+// guessed by the AI. Dates are compared by calendar day, with one day of
+// grace for time zones.
+export function timelineOf(hack, repo) {
+  const start = startDateOf(hack);
+  const firstIso = repo?.first_commit?.date || '';
+  const first = firstIso.slice(0, 10);
+  const created = String(repo?.created_at || '').slice(0, 10);
+  const out = { start, first_commit: first, repo_created: created, commit_count: repo?.commit_count || 0 };
+  if (!repo) return { ...out, verdict: 'no_repo' };
+  if (!start) return { ...out, verdict: 'no_start' };
+  if (!first) return { ...out, verdict: 'unknown' };
+  const day = 86400000;
+  const gap = (new Date(first + 'T12:00:00') - new Date(start + 'T12:00:00')) / day;
+  return { ...out, verdict: gap >= -1 ? 'during' : 'before', days_before: gap < -1 ? Math.round(-gap) : 0 };
+}
+
+export function timelineText(t) {
+  if (!t) return '';
+  const fmt = (d) => (d ? new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '?');
+  if (t.verdict === 'during') return `Built during the hackathon: first commit ${fmt(t.first_commit)}, the hackathon opened ${fmt(t.start)}.`;
+  if (t.verdict === 'before') return `Started before the hackathon: first commit ${fmt(t.first_commit)}, ${t.days_before} days before it opened on ${fmt(t.start)}.`;
+  if (t.verdict === 'no_start') return 'Add the date the hackathon opened so I can check whether the app was built during it.';
+  if (t.verdict === 'unknown') return "Couldn't read the repo's first commit, so the build dates are unknown.";
+  return '';
 }

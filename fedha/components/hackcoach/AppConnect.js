@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { genId, todayISO } from '../../lib/utils';
 import { getSetting, setSetting } from '../../lib/db';
 import { fetchRepos, sortRepos } from '../../lib/github';
-import { scanRepo, parseRepo, linkedFacts, hackForAI, coachAsk } from '../../lib/hack-coach';
+import { scanRepo, parseRepo, linkedFacts, hackForAI, coachAsk, startDateOf, timelineOf, timelineText } from '../../lib/hack-coach';
 
 // Connect an app you already built (GitHub repo, a Fedha startup or
 // Showroom project, or just a live link) so the coach knows what exists,
@@ -48,8 +48,9 @@ export default function AppConnect({ hack, cur, save, saveCoach, busy, run, onUs
     return item ? { item, facts: linkedFacts(kind, item) } : null;
   }
 
-  async function analyse(appObj) {
+  async function analyse(input) {
     const base = cur();
+    const appObj = { ...input, timeline: timelineOf(base, input.repo) };
     const withApp = { ...base, coach: { ...(base.coach || {}), app: appObj } };
     const analysis = await coachAsk('hack_app', { hack: hackForAI(withApp, { full: true }) });
     saveCoach({ app: { ...appObj, analysis, analysed_at: Date.now() } });
@@ -162,6 +163,10 @@ export default function AppConnect({ hack, cur, save, saveCoach, busy, run, onUs
 
   // ── Connected ──
   const r = app.repo;
+  const start = startDateOf(hack);
+  const tl = timelineOf(hack, r);
+  const tlColor = { during: 'var(--green)', before: 'var(--yellow)' }[tl.verdict] || 'var(--text-2)';
+  const stale = !!a && (app.timeline?.start || '') !== start;
   const [fitLabel, fitColor] = FIT[a?.fit] || FIT.partial;
   return (
     <section className="card muse-card" style={{ borderColor: 'rgba(123,97,255,0.35)' }}>
@@ -185,12 +190,26 @@ export default function AppConnect({ hack, cur, save, saveCoach, busy, run, onUs
         {app.linked && <span style={{ color: 'var(--text-3)' }}>Linked to your Fedha {app.linked.kind}</span>}
       </div>
 
+      {r && (
+        <div className="muse-bubble" style={{ marginTop: 10, fontSize: 12.5, borderLeft: `3px solid ${tlColor}` }}>
+          <div className="muse-bubble-kicker" style={{ color: tlColor }}>{tl.verdict === 'during' ? '✅ BUILT DURING THE HACKATHON' : tl.verdict === 'before' ? '⚠ STARTED BEFORE THE HACKATHON' : '📅 BUILD DATES'}</div>
+          <div>{timelineText(tl)}</div>
+          {r.first_commit && <div style={{ color: 'var(--text-3)', marginTop: 4 }}>First commit: “{r.first_commit.message}” · {tl.commit_count} commits</div>}
+          {!start && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+              <label htmlFor="ac-start" style={{ fontSize: 12, fontWeight: 700 }}>Hackathon opened</label>
+              <input id="ac-start" type="date" className="input" style={{ flex: 1 }} onChange={(e) => e.target.value && saveCoach({ start_date: e.target.value })} />
+            </div>
+          )}
+          {stale && <button className="muse-link" onClick={rescan} disabled={!!busy}>The start date changed since the last check. Rescan to update it →</button>}
+        </div>
+      )}
       {!a && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 10 }}>Not checked against the hackathon yet. Tap Rescan.</div>}
       {a && (
         <>
           <div style={{ fontSize: 13, lineHeight: 1.55, marginTop: 10 }}>{a.what_it_does}</div>
           {a.fit_note && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.5 }}><b style={{ color: fitColor }}>Fit:</b> {a.fit_note}{a.track ? ` Best track: ${a.track}.` : ''}</div>}
-          {a.new_code_risk && <div className="muse-bubble muse-tone-warn" style={{ marginTop: 10, fontSize: 12.5 }}>⚠ {a.new_code_risk}</div>}
+          {a.new_code_risk && tl.verdict !== 'during' && <div className="muse-bubble muse-tone-warn" style={{ marginTop: 10, fontSize: 12.5 }}>⚠ {a.new_code_risk}</div>}
           {compact ? (
             r?.commits?.length > 0 && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>Last commit {ago(r.commits[0].date)}: “{r.commits[0].message}”</div>
           ) : (
