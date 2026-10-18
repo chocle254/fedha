@@ -5,6 +5,15 @@ import { museAsk, startupForAI, ScoreBar, scoreColor } from './museApi';
 
 const EMPTY = { one_liner: '', elevator: '', slides: {} };
 
+function verdictText(v, name) {
+  const L = [`Pitch verdict: ${name} (${v.at})`, `Overall: ${v.overall}/100`, v.verdict];
+  if (v.scores?.length) { L.push('', 'SCORES'); v.scores.forEach((x) => L.push(`- ${x.criterion}: ${x.score}/10. ${x.note}`)); }
+  if (v.strengths?.length) { L.push('', 'WHAT WORKS'); v.strengths.forEach((x) => L.push(`- ${x}`)); }
+  if (v.fixes?.length) { L.push('', 'FIX THESE FIRST'); v.fixes.forEach((x, i) => L.push(`${i + 1}. ${x}`)); }
+  if (v.questions?.length) { L.push('', 'THEY WILL ASK'); v.questions.forEach((x) => L.push(`- ${x}`)); }
+  return L.join('\n');
+}
+
 // Pitch builder (Muse drafts it from your journey), practice mode, and a
 // judging panel that scores it like a demo day.
 export default function PitchTab({ startup, stages, save, onPractice }) {
@@ -12,6 +21,7 @@ export default function PitchTab({ startup, stages, save, onPractice }) {
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
+  const [copied, setCopied] = useState(false);
   const [present, setPresent] = useState(-1); // -1 = editing; 0..n = slide in practice mode
   useEffect(() => { if (!dirty) setP(startup.pitch || EMPTY); }, [startup.pitch]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -128,7 +138,10 @@ export default function PitchTab({ startup, stages, save, onPractice }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <div className="muse-score" style={{ '--c': scoreColor(last.overall) }}>{last.overall}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="muse-label">VERDICT · {last.at}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div className="muse-label">VERDICT · {last.at}</div>
+                <button className="muse-link" style={{ marginTop: 0 }} onClick={async () => { try { await navigator.clipboard.writeText(verdictText(last, startup.name)); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {} }}>{copied ? 'Copied ✓' : '📋 Copy verdict'}</button>
+              </div>
               <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.4, marginTop: 4 }}>{last.verdict}</div>
               {judged[1] && <div style={{ fontSize: 11.5, color: last.overall >= judged[1].overall ? 'var(--green)' : 'var(--red)', marginTop: 4 }}>{last.overall >= judged[1].overall ? '▲' : '▼'} from {judged[1].overall} last time</div>}
             </div>

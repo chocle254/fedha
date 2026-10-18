@@ -62,6 +62,21 @@ function dayLabel(iso, today) {
   if (iso === addDays(today, 1)) return 'Tomorrow';
   return new Date(iso + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 }
+// The judges' verdict as plain text, for pasting into notes or a chat.
+function verdictText(v, hackName) {
+  const L = [];
+  L.push(`Judges' verdict: ${hackName} (${v.date})`, `Overall: ${v.overall}/100`, v.verdict);
+  if (v.prize_odds) L.push(`Prize odds: ${v.prize_odds}`);
+  if (v.judges?.length) { L.push('', 'JUDGES'); v.judges.forEach((j) => L.push(`- ${j.role}: "${j.comment}"`)); }
+  if (v.scores?.length) { L.push('', 'SCORES'); v.scores.forEach((x) => L.push(`- ${x.criterion}${x.weight ? ` (${x.weight}%)` : ''}: ${x.score}/10. ${x.note}`)); }
+  if (v.requirements?.length) { L.push('', 'REQUIREMENTS'); v.requirements.forEach((r) => L.push(`- [${r.status === 'met' ? 'met' : r.status === 'missing' ? 'MISSING' : 'unclear'}] ${r.rule}${r.note ? `. ${r.note}` : ''}`)); }
+  if (v.strengths?.length) { L.push('', 'WHAT WORKS'); v.strengths.forEach((x) => L.push(`- ${x}`)); }
+  if (v.fixes?.length) { L.push('', 'FIX THESE FIRST'); v.fixes.forEach((x, i) => L.push(`${i + 1}. ${x}`)); }
+  if (v.twists?.length) { L.push('', 'BEAT THEIR EXPECTATIONS'); v.twists.forEach((t) => L.push(`- ${t.idea}${t.hours ? ` (~${t.hours}h)` : ''}${t.why ? `. ${t.why}` : ''}`)); }
+  if (v.questions?.length) { L.push('', 'THEY WILL ASK'); v.questions.forEach((x) => L.push(`- ${x}`)); }
+  return L.join('\n');
+}
+
 async function copy(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
@@ -701,7 +716,10 @@ export default function HackathonCoach() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                   <div className="muse-score" style={{ '--c': scoreColor(lastJudge.overall) }}>{lastJudge.overall}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="muse-label">VERDICT · {lastJudge.date}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <div className="muse-label">VERDICT · {lastJudge.date}</div>
+                      <button className="muse-link" style={{ marginTop: 0 }} onClick={async () => { if (await copy(verdictText(lastJudge, hack.name))) { setCopied('verdict'); setTimeout(() => setCopied(''), 1500); } }}>{copied === 'verdict' ? 'Copied ✓' : '📋 Copy verdict'}</button>
+                    </div>
                     <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.4, marginTop: 4 }}>{lastJudge.verdict}</div>
                     {judged[1] && <div style={{ fontSize: 11.5, color: lastJudge.overall >= judged[1].overall ? 'var(--green)' : 'var(--red)', marginTop: 4 }}>{lastJudge.overall >= judged[1].overall ? '▲' : '▼'} from {judged[1].overall} last time</div>}
                   </div>
