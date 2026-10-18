@@ -98,8 +98,9 @@ export function mentorNotice(hack, now = Date.now()) {
   const today = todayISO();
   if (!c.brief) return { tone: 'info', text: 'Paste the hackathon page (rules, tracks, judging criteria, submission requirements) and I will research it and break it down for you.', action: 'brief' };
   if (left != null && left <= 0 && !c.submission?.submitted_at) return { tone: 'warn', text: 'The deadline has passed. If submissions are still open, submit what you have now. A working demo with an honest write-up beats nothing.', action: 'submit' };
+  if (c.app && !c.app.analysis && !c.idea) return { tone: 'info', text: `${c.app.name || 'Your app'} is connected but not checked yet. Let me scan it against this hackathon.`, action: 'ideas' };
   if (!c.idea) {
-    return { tone: left != null && left < 24 ? 'warn' : 'info', text: left != null && left < 24 ? `Only ${fmtHours(left)} and no idea picked yet. Choose the simplest idea that fits a track, right now.` : 'Next: pick an idea. I will suggest ones that fit the tracks and judging criteria, or you can bring your own and I will stress-test it.', action: 'ideas' };
+    return { tone: left != null && left < 24 ? 'warn' : 'info', text: left != null && left < 24 ? `Only ${fmtHours(left)} and no idea picked yet. Choose the simplest idea that fits a track, right now.` : c.app ? `I've checked ${c.app.name} against this hackathon. Use it as your project, or pick another idea.` : 'Next: pick an idea. Already built something for this? Connect your app and I will check how it fits. Otherwise I can suggest ideas or stress-test yours.', action: 'ideas' };
   }
   const tasks = coachTasks(hack);
   if (!tasks.length) return { tone: 'info', text: `Let me turn "${c.idea.title}" into a timed build plan that fits the ${fmtHours(left).replace(' left', '')} you have left.`, action: 'plan' };
@@ -110,7 +111,9 @@ export function mentorNotice(hack, now = Date.now()) {
   const overdue = tasks.filter((t) => !t.done && t.due && t.due < today);
   if (overdue.length) return { tone: 'warn', text: `${overdue.length} task${overdue.length === 1 ? ' is' : 's are'} behind schedule, starting with "${overdue[0].text}". Do it next or cut it.`, action: 'plan' };
   const lastLog = (c.log || [])[0];
-  const quietH = lastLog?.at ? (now - lastLog.at) / 3600000 : null;
+  const lastCommit = c.app?.repo?.commits?.[0]?.date ? new Date(c.app.repo.commits[0].date).getTime() : null;
+  const lastAt = Math.max(lastLog?.at || 0, lastCommit || 0) || null;
+  const quietH = lastAt ? (now - lastAt) / 3600000 : null;
   if (quietH != null && quietH > 24 && (left == null || left > 0)) return { tone: 'warn', text: `No progress logged for ${Math.round(quietH / 24) || 1} day${quietH >= 48 ? 's' : ''}. What did you get done? Even 30 minutes counts.`, action: 'log' };
   const filled = Object.values(c.submission?.fields || {}).filter((v) => String(v || '').trim()).length;
   if (left != null && left < 24 && filled < 3) return { tone: 'warn', text: `${fmtHours(left)}. Start the submission now: draft the write-up and record the demo video while the build is still fresh.`, action: 'submit' };
@@ -121,13 +124,23 @@ export function mentorNotice(hack, now = Date.now()) {
 }
 
 // What the coach endpoint needs — without images or long chat history.
-export function hackForAI(hack) {
+// full: send the whole repo snapshot (only the app check needs it); every
+// other request gets a short summary so prompts stay small.
+export function hackForAI(hack, { full = false } = {}) {
   const { project_image, certificate_image, coach = {}, tasks = [], ...rest } = hack || {};
-  const { chat, judged, raw, ...c } = coach;
+  const { chat, judged, raw, ideas, ...c } = coach;
+  if (c.app) {
+    const r = c.app.repo;
+    c.app = full ? c.app : {
+      ...c.app,
+      linked: c.app.linked ? { ...c.app.linked, text: String(c.app.linked.text || '').slice(0, 900) } : null,
+      repo: r ? { full_name: r.full_name, url: r.url, languages: r.languages, pushed_at: r.pushed_at, file_count: r.file_count, commits: (r.commits || []).slice(0, 8) } : null,
+    };
+  }
   return {
     ...rest,
     tasks: tasks.slice(0, 40).map((t) => ({ text: t.text, done: !!t.done, due: t.due || null, minutes: t.minutes || null })),
-    coach: { ...c, raw: String(raw || '').slice(0, 9000), last_judging: (judged || [])[0] || null, log: (c.log || []).slice(0, 12) },
+    coach: { ...c, last_judging: (judged || [])[0] || null, log: (c.log || []).slice(0, 12) },
     hours_left: hoursLeft(hack),
     minutes_logged: minutesLogged(coach),
   };
@@ -149,4 +162,85 @@ export function addDays(iso, n) {
   const d = new Date(iso + 'T12:00:00');
   d.setDate(d.getDate() + n);
   return localISO(d);
+}
+
+// ── Connecting an app you already built ──
+// Reads a public GitHub repo with the unauthenticated API (60 requests an
+// hour per device; a scan uses about 5) plus raw.githubusercontent.com for
+// manifest files, which is not rate limited.
+export function parseRepo(input) {
+  const s = String(input || '').trim().replace(/\.git$/, '');
+  const m = s.match(/github\.com[/:]([^/\s?#]+)\/([^/\s?#]+)/i) || s.match(/^([\w.-]+)\/([\w.-]+)$/);
+  return m ? `${m[1]}/${m[2]}` : '';
+}
+
+const MANIFESTS = ['package.json', 'requirements.txt', 'pyproject.toml', 'pubspec.yaml', 'go.mod', 'Cargo.toml', 'composer.json', 'Gemfile', 'build.gradle', 'pom.xml'];
+
+async function gh(path, accept) {
+  const res = await fetch(`https://api.github.com${path}`, { headers: accept ? { Accept: accept } : undefined });
+  if (res.status === 404) { const e = new Error('not_found'); e.status = 404; throw e; }
+  if (res.status === 403 || res.status === 429) throw new Error('GitHub is rate limiting this device. Try again in an hour, or paste your README into the project notes.');
+  if (!res.ok) throw new Error('Could not reach GitHub right now.');
+  return accept?.includes('raw') ? res.text() : res.json();
+}
+
+export async function scanRepo(fullName) {
+  const name = parseRepo(fullName);
+  if (!name) throw new Error('That does not look like a GitHub repo. Use owner/repo or the repo URL.');
+  let repo;
+  try { repo = await gh(`/repos/${name}`); } catch (e) {
+    if (e.status === 404) throw new Error(`Can't see ${name}. If it's private, make it public for the hackathon (most require that anyway), or paste the README into your project notes.`);
+    throw e;
+  }
+  const branch = repo.default_branch || 'main';
+  const [languages, readme, tree, commits] = await Promise.all([
+    gh(`/repos/${name}/languages`).catch(() => ({})),
+    gh(`/repos/${name}/readme`, 'application/vnd.github.raw').catch(() => ''),
+    gh(`/repos/${name}/git/trees/${encodeURIComponent(branch)}?recursive=1`).catch(() => ({ tree: [] })),
+    gh(`/repos/${name}/commits?per_page=20`).catch(() => []),
+  ]);
+  const paths = (tree.tree || []).filter((t) => t.type === 'blob' && !/(^|\/)(node_modules|\.git|dist|build|\.next|vendor|__pycache__|venv)\//.test(t.path)).map((t) => t.path);
+  const manifests = paths.filter((p) => MANIFESTS.includes(p.split('/').pop()) && p.split('/').length <= 3 && !/(^|\/)(examples?|docs|test|tests|fixtures)\//.test(p))
+    .sort((x, y) => x.split('/').length - y.split('/').length).slice(0, 4);
+  const deps = await Promise.all(manifests.map(async (p) => {
+    try {
+      const r = await fetch(`https://raw.githubusercontent.com/${name}/${encodeURIComponent(branch)}/${p}`);
+      if (!r.ok) return null;
+      let text = await r.text();
+      if (p.endsWith('package.json')) {
+        try { const j = JSON.parse(text); text = `dependencies: ${Object.keys(j.dependencies || {}).join(', ')}\ndevDependencies: ${Object.keys(j.devDependencies || {}).join(', ')}`; } catch {}
+      }
+      return { path: p, text: text.slice(0, 1500) };
+    } catch { return null; }
+  }));
+  const total = Object.values(languages).reduce((s, n) => s + n, 0) || 1;
+  return {
+    full_name: repo.full_name,
+    url: repo.html_url,
+    description: repo.description || '',
+    homepage: repo.homepage || '',
+    topics: repo.topics || [],
+    branch,
+    created_at: repo.created_at,
+    pushed_at: repo.pushed_at,
+    stars: repo.stargazers_count,
+    languages: Object.entries(languages).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, n]) => `${k} ${Math.round((n / total) * 100)}%`),
+    readme: String(readme || '').slice(0, 7000),
+    file_count: paths.length,
+    files: paths.slice(0, 250),
+    deps: deps.filter(Boolean),
+    commits: (Array.isArray(commits) ? commits : []).map((c) => ({ sha: c.sha?.slice(0, 7), date: c.commit?.author?.date, message: String(c.commit?.message || '').split('\n')[0].slice(0, 140) })),
+    scanned_at: Date.now(),
+  };
+}
+
+// A startup or Showroom project from Fedha, as plain facts for the coach.
+export function linkedFacts(kind, item) {
+  if (!item) return null;
+  if (kind === 'startup') {
+    const st = item.stages || {};
+    const pick = (o) => Object.entries(o || {}).filter(([, v]) => String(v || '').trim()).map(([k, v]) => `${k}: ${String(v).slice(0, 600)}`);
+    return { kind, id: item.id, name: item.name, text: [item.mission ? `mission: ${item.mission}` : '', ...pick(st.ideation), ...pick(st.prototyping), ...pick(st.mvp), item.pitch?.one_liner ? `one-liner: ${item.pitch.one_liner}` : ''].filter(Boolean).join('\n').slice(0, 5000) };
+  }
+  return { kind, id: item.id, name: item.name, text: [item.description, item.site_url ? `live: ${item.site_url}` : '', ...(item.notes || []).map((n) => (typeof n === 'string' ? n : n.text)).filter(Boolean)].filter(Boolean).join('\n').slice(0, 5000) };
 }

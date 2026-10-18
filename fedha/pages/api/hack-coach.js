@@ -9,7 +9,7 @@ import { webSearchMulti } from '../../lib/web-search';
 export const config = { maxDuration: 60 };
 
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
-const TYPES = new Set(['hack_brief', 'hack_ideas', 'hack_chat', 'hack_plan', 'hack_scope', 'hack_judge', 'hack_submission']);
+const TYPES = new Set(['hack_brief', 'hack_app', 'hack_ideas', 'hack_chat', 'hack_plan', 'hack_scope', 'hack_judge', 'hack_submission']);
 const clip = (v, n) => String(v ?? '').slice(0, n);
 const list = (v, n, len = 300) => (Array.isArray(v) ? v : []).filter((x) => x != null && String(x).trim()).slice(0, n).map((x) => clip(x, len));
 const num = (v, lo, hi, d = 0) => Math.max(lo, Math.min(hi, Number.isFinite(Number(v)) ? Number(v) : d));
@@ -92,6 +92,7 @@ function ctx(hack) {
     c.research?.insights?.length ? `Mentor's research on this hackathon:\n${c.research.insights.map((x) => `  - ${clip(x, 300)}`).join('\n')}` : '',
     c.research?.winning_pattern ? `What past winners had in common: ${clip(c.research.winning_pattern, 400)}` : '',
     c.idea ? `Chosen idea: ${c.idea.title} — ${clip(c.idea.pitch, 500)}${c.idea.track ? ` (track: ${c.idea.track})` : ''}\n  Core features: ${(c.idea.features || []).join('; ')}${c.idea.twists?.length ? `\n  Twists added: ${c.idea.twists.join('; ')}` : ''}` : 'No idea chosen yet.',
+    appLines(c.app),
     hack.project_name ? `Project name: ${hack.project_name}` : '',
     hack.repo_url ? `Repo: ${hack.repo_url}` : '',
     hack.tasks?.length ? `Build plan (x = done):\n${hack.tasks.map((t) => `  [${t.done ? 'x' : ' '}] ${t.due || ''} ${clip(t.text, 120)}${t.minutes ? ` (${t.minutes}m)` : ''}`).join('\n')}` : '',
@@ -101,6 +102,23 @@ function ctx(hack) {
     c.last_judging ? `Last mock judging: ${c.last_judging.overall}/100 — fixes suggested: ${(c.last_judging.fixes || []).join(' | ')}` : '',
   ];
   return lines.filter(Boolean).join('\n');
+}
+
+// The app the builder already made, as the mentor sees it on every request.
+function appLines(app) {
+  if (!app) return '';
+  const a = app.analysis || {};
+  const r = app.repo;
+  return [
+    `EXISTING APP the builder connected: ${app.name || r?.full_name || 'their app'}${app.live_url ? ` (live: ${app.live_url})` : ''}${r ? ` — repo ${r.full_name}, ${r.file_count || '?'} files, ${(r.languages || []).join(', ')}` : ''}`,
+    a.what_it_does ? `  What it does: ${clip(a.what_it_does, 500)}` : '',
+    a.features?.length ? `  Already built: ${a.features.join('; ')}` : '',
+    a.fit ? `  Fit with this hackathon: ${a.fit} — ${clip(a.fit_note, 300)}` : '',
+    a.gaps?.length ? `  Gaps for this hackathon: ${a.gaps.join('; ')}` : '',
+    a.new_code_risk ? `  Eligibility warning: ${clip(a.new_code_risk, 300)}` : '',
+    r?.commits?.length ? `  Recent commits (newest first): ${r.commits.slice(0, 8).map((c) => `${String(c.date || '').slice(0, 10)} ${c.message}`).join(' | ')}` : '',
+    app.linked?.text ? `  From the builder's Fedha ${app.linked.kind}: ${clip(app.linked.text, 900)}` : '',
+  ].filter(Boolean).join('\n');
 }
 
 // ── Brief: read the paste, research the hackathon, break it down ──
@@ -176,6 +194,33 @@ Never claim something about this hackathon that is not in the brief or the searc
 }
 
 const prompts = {
+  hack_app(b) {
+    const app = b.hack.coach?.app || {};
+    const r = app.repo;
+    const facts = [
+      app.name ? `Name: ${app.name}` : '',
+      app.live_url ? `Live link: ${app.live_url}` : '',
+      app.linked?.text ? `What the builder wrote about it in Fedha (${app.linked.kind}):\n${clip(app.linked.text, 5000)}` : '',
+      r ? `GitHub repo ${r.full_name}: ${r.description || ''}${r.homepage ? ` (homepage ${r.homepage})` : ''}\nCreated ${String(r.created_at || '').slice(0, 10)}, last push ${String(r.pushed_at || '').slice(0, 10)}. Languages: ${(r.languages || []).join(', ')}. Topics: ${(r.topics || []).join(', ')}` : '',
+      r?.readme ? `README:\n${clip(r.readme, 7000)}` : '',
+      r?.deps?.length ? `Dependencies:\n${r.deps.map((d) => `${d.path}:\n${clip(d.text, 1200)}`).join('\n')}` : '',
+      r?.files?.length ? `Files (${r.file_count} total, first ${r.files.length}):\n${r.files.join('\n')}` : '',
+      r?.commits?.length ? `Recent commits:\n${r.commits.map((c) => `${String(c.date || '').slice(0, 10)} ${c.message}`).join('\n')}` : '',
+    ].filter(Boolean).join('\n\n');
+    return `You are a hackathon mentor. The builder wants to enter THIS hackathon with an app they have already started or built. Read what the app really is from the evidence below, and judge how to take it into this hackathon.
+
+THE HACKATHON:
+${ctx({ ...b.hack, coach: { ...b.hack.coach, app: null, idea: null } })}
+
+THE APP:
+${facts || '(no details)'}
+
+${BUILDER}
+
+Return JSON: {"name":"","what_it_does":"2 sentences","features":["features that clearly exist, from the README, files and commits"],"stack":["main tools"],"maturity":"idea|prototype|working_mvp|production","fit":"strong|partial|weak","fit_note":"one sentence on how well it matches the theme, tracks and criteria","track":"best track to enter","requirements":[{"rule":"","status":"met|missing|unclear","note":""}],"new_code_risk":"if the rules require new work made during the hackathon, say exactly what this means for an app started before it (e.g. only new features count, disclose prior work); else empty","gaps":["what this hackathon wants that the app lacks"],"upgrades":[{"title":"a hackathon-specific feature or twist to build on top","why":"which criterion it lifts","hours":0}],"demo_path":["3-5 steps of the demo the judges should see"],"idea":{"title":"","pitch":"2 sentences framing the app for this hackathon","features":["3-4 things that must work in the demo, existing or new"],"track":""}}
+Rules: never claim a feature exists unless the evidence shows it. requirements = every hard requirement from the brief. upgrades: 3-4, each under 6 hours. Be honest if the app is a poor fit.`;
+  },
+
   hack_ideas(b) {
     const own = clip(b.own_idea, 1500).trim();
     return `You are a hackathon mentor who has judged many hackathons. ${own ? 'Stress-test the builder\'s own idea against this hackathon and sharpen it.' : 'Suggest ideas built to win THIS hackathon.'}
@@ -271,6 +316,19 @@ Return JSON: {"fields":{"<key>":"text"}}`;
 };
 
 const shape = {
+  hack_app(o) {
+    if (!o?.what_it_does) return { error: 'Could not read your app right now. Try again.' };
+    const idea = o.idea || {};
+    return {
+      name: clip(o.name, 80), what_it_does: clip(o.what_it_does, 500), features: list(o.features, 10, 200), stack: list(o.stack, 10, 60),
+      maturity: ['idea', 'prototype', 'working_mvp', 'production'].includes(o.maturity) ? o.maturity : 'prototype',
+      fit: ['strong', 'partial', 'weak'].includes(o.fit) ? o.fit : 'partial', fit_note: clip(o.fit_note, 300), track: clip(o.track, 120),
+      requirements: (o.requirements || []).filter((r) => r && r.rule).slice(0, 15).map((r) => ({ rule: clip(r.rule, 200), status: ['met', 'missing', 'unclear'].includes(r.status) ? r.status : 'unclear', note: clip(r.note, 200) })),
+      new_code_risk: clip(o.new_code_risk, 400), gaps: list(o.gaps, 6), demo_path: list(o.demo_path, 6, 200),
+      upgrades: (o.upgrades || []).filter((u) => u && u.title).slice(0, 4).map((u) => ({ title: clip(u.title, 200), why: clip(u.why, 200), hours: num(u.hours, 0, 48) })),
+      idea: { title: clip(idea.title || o.name, 80), pitch: clip(idea.pitch, 500), features: list(idea.features, 5, 200), track: clip(idea.track || o.track, 120) },
+    };
+  },
   hack_ideas(o) {
     const ideas = (o?.ideas || []).filter((x) => x && x.title).slice(0, 5).map((x) => ({
       title: clip(x.title, 80), pitch: clip(x.pitch, 500), track: clip(x.track, 120), why_wins: clip(x.why_wins, 500),

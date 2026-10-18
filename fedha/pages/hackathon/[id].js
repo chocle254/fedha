@@ -5,6 +5,7 @@ import { useApp } from '../../context/AppContext';
 import { genId, todayISO } from '../../lib/utils';
 import { fireConfetti } from '../../lib/confetti';
 import { ScoreBar, scoreColor } from '../../components/startup/museApi';
+import AppConnect from '../../components/hackcoach/AppConnect';
 import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, workload, minutesLogged, coachTasks, submissionFields, hackForAI, coachAsk, addDays } from '../../lib/hack-coach';
 
 // The Hackathon Coach: a mentor that reads the hackathon you paste,
@@ -230,6 +231,14 @@ export default function HackathonCoach() {
     goTab('plan');
   }
 
+  function useAppIdea(idea) {
+    const extra = !cur().project_name ? { project_name: idea.title } : {};
+    saveCoach({ idea: { ...idea, chosen_at: Date.now() } }, extra);
+    try { fireConfetti({ count: 80 }); } catch {}
+    goTab('plan');
+  }
+  const appProps = { hack, cur, save, saveCoach, busy, run, onUseIdea: useAppIdea };
+
   // ── Plan ──
   function makePlan() {
     if (tasks.some((t) => t.done) || tasks.length) {
@@ -406,6 +415,8 @@ export default function HackathonCoach() {
               )}
             </section>
 
+            {coach.app && <AppConnect {...appProps} compact />}
+
             <section className="card muse-card">
               <div className="muse-label">✍️ LOG PROGRESS</div>
               <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>What did you just get done? The mentor tracks your hours against the deadline.</div>
@@ -559,6 +570,7 @@ export default function HackathonCoach() {
         {/* ── IDEAS ── */}
         {tab === 'ideas' && (
           <div className="muse-grid"><div className="muse-col">
+            <AppConnect {...appProps} />
             {coach.idea && (
               <section className="card muse-card" style={{ borderColor: 'rgba(16,185,129,0.4)' }}>
                 <div className="muse-label" style={{ color: 'var(--green)' }}>✅ YOUR IDEA</div>
@@ -572,7 +584,7 @@ export default function HackathonCoach() {
             )}
 
             <section className="card muse-card">
-              <div className="muse-label">💡 {coach.idea ? 'EXPLORE OTHER IDEAS' : 'FIND AN IDEA THAT WINS THIS'}</div>
+              <div className="muse-label">💡 {coach.idea ? 'EXPLORE OTHER IDEAS' : coach.app ? 'OR START SOMETHING NEW' : 'FIND AN IDEA THAT WINS THIS'}</div>
               <div style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '8px 0 12px', lineHeight: 1.5 }}>Ideas aimed at the tracks and judging criteria, sized to the time you have, each with twists that would surprise the judges.</div>
               <button className="btn-primary muse-send" onClick={() => getIdeas(false)} disabled={!!busy || !brief}>{busy === 'ideas' ? 'Thinking up ideas…' : !brief ? 'Paste the brief first' : coach.ideas?.length ? '✨ New ideas' : '✨ Suggest ideas'}</button>
               <label className="muse-label" htmlFor="hc-own" style={{ display: 'block', marginTop: 16 }}>OR STRESS-TEST YOUR OWN IDEA</label>
