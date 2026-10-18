@@ -6,7 +6,7 @@ import { genId, todayISO } from '../../lib/utils';
 import { fireConfetti } from '../../lib/confetti';
 import { ScoreBar, scoreColor } from '../../components/startup/museApi';
 import AppConnect from '../../components/hackcoach/AppConnect';
-import { startDateOf, gatherEvidence, timelineOf, timelineText } from '../../lib/hack-coach';
+import { startDateOf, gatherEvidence, timelineOf, timelineText, scanRepo, applyFacts, dropDone } from '../../lib/hack-coach';
 import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, workload, minutesLogged, coachTasks, submissionFields, hackForAI, coachAsk, addDays } from '../../lib/hack-coach';
 
 // The Hackathon Coach: a mentor that reads the hackathon you paste,
@@ -69,7 +69,7 @@ function verdictText(v, hackName) {
   if (v.prize_odds) L.push(`Prize odds: ${v.prize_odds}`);
   if (v.judges?.length) { L.push('', 'JUDGES'); v.judges.forEach((j) => L.push(`- ${j.role}: "${j.comment}"`)); }
   if (v.scores?.length) { L.push('', 'SCORES'); v.scores.forEach((x) => L.push(`- ${x.criterion}${x.weight ? ` (${x.weight}%)` : ''}: ${x.score}/10. ${x.note}`)); }
-  if (v.requirements?.length) { L.push('', 'REQUIREMENTS'); v.requirements.forEach((r) => L.push(`- [${r.status === 'met' ? 'met' : r.status === 'missing' ? 'MISSING' : 'unclear'}] ${r.rule}${r.note ? `. ${r.note}` : ''}`)); }
+  if (v.requirements?.length) { L.push('', 'REQUIREMENTS'); v.requirements.forEach((r) => L.push(`- [${r.status === 'met' ? 'met' : r.status === 'missing' ? 'MISSING' : 'unclear'}${r.verified ? ', checked' : ''}] ${r.rule}${r.note ? `. ${r.note}` : ''}`)); }
   if (v.strengths?.length) { L.push('', 'WHAT WORKS'); v.strengths.forEach((x) => L.push(`- ${x}`)); }
   if (v.fixes?.length) { L.push('', 'FIX THESE FIRST'); v.fixes.forEach((x, i) => L.push(`${i + 1}. ${x}`)); }
   if (v.twists?.length) { L.push('', 'BEAT THEIR EXPECTATIONS'); v.twists.forEach((t) => L.push(`- ${t.idea}${t.hours ? ` (~${t.hours}h)` : ''}${t.why ? `. ${t.why}` : ''}`)); }
@@ -291,9 +291,24 @@ export default function HackathonCoach() {
   function judgeNow() {
     run('judge', async () => {
       const subm = Object.entries(cur().coach?.submission?.fields || {}).filter(([, v]) => String(v || '').trim()).map(([k, v]) => `${k}: ${v}`).join('\n');
+      // Rescan first, so the judges see the repo as it is now, not as it was when it was connected.
+      const app = cur().coach?.app;
+      if (app?.repo?.full_name) {
+        try {
+          const fresh = await scanRepo(app.repo.full_name, { folder: app.repo.folder || '' });
+          saveCoach({ app: { ...app, repo: fresh } });
+        } catch { /* rate limited or offline: judge the last scan */ }
+      }
       const sources = await gatherEvidence(cur().coach?.app?.repo);
       setJudgeSeen(sources.map((f) => f.path));
-      const r = await coachAsk('hack_judge', { hack: hackForAI(cur(), { evidence: sources }), pitch: subm });
+      const raw = await coachAsk('hack_judge', { hack: hackForAI(cur(), { evidence: sources }), pitch: subm });
+      // Checked facts beat the AI: requirements are re-marked from GitHub, done things are not suggested again.
+      const r = {
+        ...raw,
+        requirements: applyFacts(raw.requirements, cur()),
+        fixes: dropDone(raw.fixes, cur()),
+        twists: dropDone(raw.twists, cur(), 'idea'),
+      };
       saveCoach({ judged: [{ ...r, at: Date.now(), date: today }, ...(cur().coach?.judged || [])].slice(0, 6) });
       setTimeout(() => document.getElementById('hc-verdict')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
     });
@@ -770,7 +785,7 @@ export default function HackathonCoach() {
                   <>
                     <div className="muse-label" style={{ marginTop: 16 }}>REQUIREMENTS CHECK</div>
                     <ul className="muse-how" style={{ listStyle: 'none', paddingLeft: 0 }}>
-                      {lastJudge.requirements.map((r) => <li key={r.rule}>{r.status === 'met' ? '✅' : r.status === 'missing' ? '❌' : '❔'} {r.rule}{r.note ? <span style={{ color: 'var(--text-3)' }}> · {r.note}</span> : null}</li>)}
+                      {lastJudge.requirements.map((r) => <li key={r.rule}>{r.status === 'met' ? '✅' : r.status === 'missing' ? '❌' : '❔'} {r.rule}{r.verified ? <span style={{ color: 'var(--green)', fontSize: 11, fontWeight: 700 }}> · checked</span> : null}{r.note ? <span style={{ color: 'var(--text-3)' }}> · {r.note}</span> : null}</li>)}
                     </ul>
                   </>
                 )}

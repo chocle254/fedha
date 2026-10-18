@@ -139,6 +139,8 @@ export function hackForAI(hack, { full = false, evidence = null } = {}) {
       linked: c.app.linked ? { ...c.app.linked, text: String(c.app.linked.text || '').slice(0, 900) } : null,
       repo: r ? { full_name: r.full_name, url: r.url, folder: r.folder || '', languages: r.languages, pushed_at: r.pushed_at, file_count: r.file_count, commits: (r.commits || []).slice(0, 8) } : null,
     };
+    // Facts checked in code (build dates, files, license, live URL), for every prompt.
+    c.app.verified = factsText(hack);
     // The judges get the real evidence: README, file list and source files.
     if (evidence && r) c.app.evidence = { readme: r.readme || '', files: (r.files || []).slice(0, 250), deps: r.deps || [], sources: evidence };
   }
@@ -178,6 +180,8 @@ export function parseRepo(input) {
   const m = s.match(/github\.com[/:]([^/\s?#]+)\/([^/\s?#]+)/i) || s.match(/^([\w.-]+)\/([\w.-]+)$/);
   return m ? `${m[1]}/${m[2]}` : '';
 }
+
+const DOCLIKE = /(\.(md|mdx|txt|pdf|html|rst)$)|((^|\/)(license|licence|copying|notice)(\.[a-z]+)?$)/i;
 
 const MANIFESTS = ['package.json', 'requirements.txt', 'pyproject.toml', 'pubspec.yaml', 'go.mod', 'Cargo.toml', 'composer.json', 'Gemfile', 'build.gradle', 'pom.xml'];
 
@@ -277,8 +281,15 @@ export async function scanRepo(fullName, { folder = '' } = {}) {
     gh(`/repos/${name}/commits?per_page=20${folder ? `&path=${encodeURIComponent(folder)}` : ''}`).catch(() => []),
     firstCommit(name, folder).catch(() => null),
   ]);
-  const blobs = (tree.tree || []).filter((t) => t.type === 'blob' && !/(^|\/)(node_modules|\.git|dist|build|\.next|vendor|__pycache__|venv)\//.test(t.path));
-  const allPaths = blobs.map((t) => t.path);
+  // Dot-folders (.claude, .github, .vscode…) and lock files are tooling, not the app:
+  // leaving them out keeps the file list for the judges about the project itself.
+  const blobs = (tree.tree || []).filter((t) => t.type === 'blob'
+    && !/(^|\/)(node_modules|\.git|dist|build|\.next|vendor|__pycache__|venv)\//.test(t.path)
+    && !/(^|\/)\.[^/]+\//.test(t.path)
+    && !/(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|poetry\.lock|Cargo\.lock|composer\.lock|Gemfile\.lock)$/.test(t.path));
+  // Root files first, then documents, then everything else: what a judge opens first.
+  const order = (x) => (x.includes('/') ? (DOCLIKE.test(x) ? 1 : 2) : 0);
+  const allPaths = blobs.map((t) => t.path).sort((x, y) => order(x) - order(y) || x.localeCompare(y));
   const sizeOf = Object.fromEntries(blobs.map((t) => [t.path, t.size || 0]));
   const dirs = [...new Set(allPaths.map((p) => p.split('/')).filter((x) => x.length > 1).flatMap((x) => [x[0], x.length > 2 ? `${x[0]}/${x[1]}` : null]).filter(Boolean))].sort().slice(0, 60);
   const paths = folder ? allPaths.filter((p) => p === folder || p.startsWith(folder + '/')) : allPaths;
@@ -317,6 +328,10 @@ export async function scanRepo(fullName, { folder = '' } = {}) {
     dirs,
     file_count: paths.length,
     files: paths.slice(0, 250),
+    // Every document in the repo (any depth), so required files are found wherever they live.
+    doc_paths: paths.filter((x) => DOCLIKE.test(x)).slice(0, 400),
+    license: repo.license?.spdx_id && repo.license.spdx_id !== 'NOASSERTION' ? repo.license.spdx_id : (repo.license?.name || ''),
+    private: !!repo.private,
     sizes: Object.fromEntries(paths.slice(0, 250).map((p) => [p, sizeOf[p] || 0])),
     deps: deps.filter(Boolean),
     commits: (Array.isArray(commits) ? commits : []).map(commitOf),
@@ -368,4 +383,100 @@ export function timelineText(t) {
   if (t.verdict === 'no_start') return 'Add the date the hackathon opened so I can check whether the app was built during it.';
   if (t.verdict === 'unknown') return "Couldn't read the repo's first commit, so the build dates are unknown.";
   return '';
+}
+
+
+// ── Facts checked in code, so the AI judge cannot get them wrong ──
+// Everything here comes from GitHub or the builder's own entries, never from the AI.
+const VIDEO_HOSTS = /(youtube\.com|youtu\.be|vimeo\.com|loom\.com|drive\.google\.com|dropbox\.com)/i;
+
+export function verifiedFacts(hack) {
+  const app = hack?.coach?.app || {};
+  const repo = app.repo || null;
+  const links = `${hack?.coach?.presentation?.links || ''} ${Object.values(hack?.coach?.submission?.fields || {}).join(' ')}`;
+  const known = [...new Set([...(repo?.doc_paths || []), ...(repo?.files || [])])];
+  return {
+    timeline: repo ? timelineOf(hack, repo) : null,
+    repo: repo ? { name: repo.full_name, url: repo.url, public: !repo.private, scanned_at: repo.scanned_at } : null,
+    license: repo?.license || (known.find((p) => /(^|\/)licen[cs]e(\.[a-z]+)?$/i.test(p)) ? 'LICENSE file' : ''),
+    live_url: app.live_url || repo?.homepage || '',
+    video: (links.match(/https?:\/\/\S+/g) || []).find((u) => VIDEO_HOSTS.test(u)) || '',
+    files: known,
+  };
+}
+
+// Find a file named in a rule (e.g. "scope.md", "README") anywhere in the repo.
+function findFile(files, name) {
+  const n = name.toLowerCase();
+  return files.find((p) => { const b = p.toLowerCase().split('/').pop(); return b === n || b.replace(/\.[a-z]+$/, '') === n; });
+}
+
+// One verdict per rule, or null when code can't settle it (then the AI's answer stands).
+function checkRule(rule, f) {
+  const r = String(rule || '').toLowerCase();
+  const t = f.timeline;
+  if (t && /(empty folder|from scratch|new (code|work|project)|built during|during the (hackathon|event|submission)|pre-?existing|existing (code|project|repo)|start(ed)? (date|after|during)|submission period|original work)/.test(r)) {
+    if (t.verdict === 'during') return { status: 'met', note: `Verified: ${timelineText(t)}` };
+    if (t.verdict === 'before') return { status: 'missing', note: `Verified: ${timelineText(t)}` };
+    return { status: 'unclear', note: timelineText(t) || 'Build dates unknown.' };
+  }
+  const names = [...new Set((rule.match(/[\w.-]+\.(md|mdx|txt|json|ya?ml|pdf|html)\b/gi) || []).concat(/\breadme\b/i.test(rule) ? ['README'] : []))];
+  if (names.length && f.files.length) {
+    const found = names.map((n) => [n, findFile(f.files, n)]);
+    const missing = found.filter(([, p]) => !p).map(([n]) => n);
+    if (!missing.length) return { status: 'met', note: `Verified in the repo: ${found.map(([, p]) => p).join(', ')}` };
+    if (missing.length < names.length || f.repo) return { status: 'missing', note: `Not found anywhere in the repo: ${missing.join(', ')}` };
+  }
+  if (/licen[cs]e/.test(r) && f.repo) return f.license ? { status: 'met', note: `Verified: ${f.license}` } : { status: 'missing', note: 'No license file found in the repo.' };
+  if (/(public|open).{0,20}(repo|repository|github|source)/.test(r) && f.repo) return f.repo.public ? { status: 'met', note: `Verified: ${f.repo.url} is public.` } : { status: 'missing', note: 'The repo is private.' };
+  if (/(video|demo recording|screencast)/.test(r) && f.video) return { status: 'met', note: `Video link: ${f.video}` };
+  if (/(live|deployed|hosted|working) (url|link|demo|app)|deploy/.test(r) && f.live_url) return { status: 'met', note: `Live at ${f.live_url}` };
+  return null;
+}
+
+// Override the AI's requirement statuses with checked facts, and mark which were verified.
+export function applyFacts(requirements, hack) {
+  const f = verifiedFacts(hack);
+  return (requirements || []).map((q) => {
+    const c = checkRule(q.rule, f);
+    return c ? { ...q, ...c, verified: true } : q;
+  });
+}
+
+// Drop suggestions the builder has already done.
+export function dropDone(items, hack, key) {
+  const f = verifiedFacts(hack);
+  return (items || []).filter((x) => {
+    const t = String(key ? x?.[key] : x).toLowerCase();
+    if (f.live_url && /(deploy|host it|put it online|go live|live (url|link|demo))/.test(t)) return false;
+    if (f.license && /add (a |an )?(open[- ]source )?licen[cs]e/.test(t)) return false;
+    return true;
+  });
+}
+
+// The overall score worked out from the criteria, never taken from the AI.
+// Weights count only when they add up to about 100; otherwise every criterion weighs the same.
+export function weightedOverall(scores) {
+  const list = (scores || []).filter((x) => Number.isFinite(Number(x.score)));
+  if (!list.length) return 0;
+  const sum = list.reduce((a, x) => a + (Number(x.weight) || 0), 0);
+  const valid = sum >= 90 && sum <= 110 && list.every((x) => Number(x.weight) > 0);
+  const w = (x) => (valid ? Number(x.weight) : 1);
+  return Math.round((list.reduce((a, x) => a + w(x) * Number(x.score), 0) / list.reduce((a, x) => a + w(x), 0)) * 10);
+}
+
+// A short, factual summary for the AI prompt.
+export function factsText(hack) {
+  const f = verifiedFacts(hack);
+  // Shallow documents first (the project's own README and docs), templates and vendored skill files last.
+  const depth = (p) => p.split('/').length + (/(^|\/)(templates?|references?|skills?|node_modules|vendor)\//i.test(p) ? 10 : 0);
+  const docs = f.files.filter((p) => /\.(md|mdx|txt|pdf)$/i.test(p)).sort((a, b) => depth(a) - depth(b) || a.localeCompare(b)).slice(0, 40);
+  return [
+    f.timeline ? `- Build dates: ${timelineText(f.timeline) || 'unknown'}` : '',
+    f.repo ? `- Repo: ${f.repo.url} (${f.repo.public ? 'public' : 'private'})` : '',
+    f.license ? `- License: ${f.license}` : (f.repo ? '- License: none found' : ''),
+    f.live_url ? `- Live app: ${f.live_url} (already deployed)` : '',
+    f.video ? `- Demo video: ${f.video}` : '',
+    docs.length ? `- Documents in the repo (any folder): ${docs.join(', ')}` : '',
+  ].filter(Boolean).join('\n');
 }

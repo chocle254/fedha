@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { genId, todayISO } from '../../lib/utils';
 import { getSetting, setSetting } from '../../lib/db';
 import { fetchRepos, sortRepos } from '../../lib/github';
-import { scanRepo, parseRepo, linkedFacts, hackForAI, coachAsk, startDateOf, timelineOf, timelineText, gatherEvidence } from '../../lib/hack-coach';
+import { scanRepo, parseRepo, linkedFacts, hackForAI, coachAsk, startDateOf, timelineOf, timelineText, gatherEvidence, applyFacts } from '../../lib/hack-coach';
 
 // Connect an app you already built (GitHub repo, a Fedha startup or
 // Showroom project, or just a live link) so the coach knows what exists,
@@ -54,7 +54,9 @@ export default function AppConnect({ hack, cur, save, saveCoach, busy, run, onUs
     const appObj = { ...input, timeline: timelineOf(base, input.repo) };
     const withApp = { ...base, coach: { ...(base.coach || {}), app: appObj } };
     const sources = await gatherEvidence(input.repo, { maxFiles: 6, perFile: 1500 });
-    const analysis = await coachAsk('hack_app', { hack: hackForAI(withApp, { full: true, evidence: sources }) });
+    const raw = await coachAsk('hack_app', { hack: hackForAI(withApp, { full: true, evidence: sources }) });
+    // Rules that code can check (build dates, files, license, live URL) are re-marked from the facts.
+    const analysis = { ...raw, requirements: applyFacts(raw.requirements, withApp) };
     saveCoach({ app: { ...appObj, analysis, analysed_at: Date.now() } });
   }
 

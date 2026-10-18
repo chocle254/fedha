@@ -5,10 +5,20 @@
 // hackathon, never invented.
 import { requireUser } from '../../lib/require-user';
 import { webSearchMulti } from '../../lib/web-search';
+import { weightedOverall } from '../../lib/hack-coach';
+
+// Criteria weights are real only when every criterion has one and they add up to about 100.
+function validWeights(crit) {
+  const w = (crit || []).map((c) => Number(c.weight) || 0);
+  const sum = w.reduce((a, x) => a + x, 0);
+  return w.length > 0 && w.every((x) => x > 0) && sum >= 90 && sum <= 110;
+}
 
 export const config = { maxDuration: 60 };
 
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+// Judging is the hardest reasoning job here, so it always uses the larger model.
+const JUDGE_MODEL = process.env.GROQ_JUDGE_MODEL || 'openai/gpt-oss-120b';
 const TYPES = new Set(['hack_brief', 'hack_app', 'hack_ideas', 'hack_chat', 'hack_plan', 'hack_scope', 'hack_judge', 'hack_submission']);
 const clip = (v, n) => String(v ?? '').slice(0, n);
 const list = (v, n, len = 300) => (Array.isArray(v) ? v : []).filter((x) => x != null && String(x).trim()).slice(0, n).map((x) => clip(x, len));
@@ -40,7 +50,7 @@ export default async function handler(req, res) {
     if (b.type === 'hack_ideas') b.found = await ideaResearch(b);
     let obj;
     try {
-      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : 0.6);
+      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : b.type === 'hack_judge' ? 0.3 : 0.6, 6000, b.type === 'hack_judge' ? JUDGE_MODEL : GROQ_MODEL);
     } catch (e) {
       // Groq's free tier caps tokens per request/minute. If the code
       // evidence made the prompt too big, try once more with less of it.
@@ -52,7 +62,7 @@ export default async function handler(req, res) {
       ev.files = (ev.files || []).slice(0, 80);
       ev.deps = (ev.deps || []).slice(0, 1);
       if (b.hack.coach.presentation?.text) b.hack.coach.presentation.text = String(b.hack.coach.presentation.text).slice(0, 2500);
-      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), 0.6, 3000);
+      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), 0.6, 3000, b.type === 'hack_judge' ? JUDGE_MODEL : GROQ_MODEL);
     }
     const out = shape[b.type](obj, b);
     if (out.error) return res.status(500).json(out);
@@ -63,12 +73,12 @@ export default async function handler(req, res) {
   }
 }
 
-async function groqJSON(key, prompt, temperature = 0.6, maxTokens = 6000) {
+async function groqJSON(key, prompt, temperature = 0.6, maxTokens = 6000, model = GROQ_MODEL) {
   const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: GROQ_MODEL,
+      model,
       temperature,
       max_tokens: maxTokens,
       response_format: { type: 'json_object' },
@@ -359,13 +369,21 @@ Return JSON: {"verdict":"on_track|overbuilding|overthinking|underbuilding","head
 
   hack_judge(b) {
     const br = b.hack.coach?.brief || {};
-    const criteria = br.criteria?.length ? br.criteria.map((k) => `${k.name}${k.weight ? ` (${k.weight}%)` : ''}`).join(', ') : 'Innovation / originality, Technical difficulty & execution, Impact / usefulness, Design & user experience, Presentation & demo, Fit with theme';
+    const crit = br.criteria || [];
+    const realWeights = validWeights(crit);
+    const criteria = crit.length ? crit.map((k) => `${k.name}${realWeights ? ` (${k.weight}%)` : ''}`).join(', ') : 'Innovation / originality, Technical difficulty & execution, Impact / usefulness, Design & user experience, Presentation & demo, Fit with theme';
+    const verified = clip(b.hack.coach?.app?.verified, 3000);
     return `You are the judging panel of THIS hackathon. Build a panel of 3 judges that fits the event (for example an organizer representative, a sponsor engineer, a domain expert) — describe each by role only, never by a real person's name. Judge exactly as this hackathon's criteria say, as strictly as real judges: most entries score 45-70.
 
 ${ctx(b.hack)}
 
 ${evidenceText(b.hack)}
-
+${verified ? `
+VERIFIED FACTS (checked in code from GitHub and the builder's entries; these are true, never contradict them):
+${verified}
+- Never call a document "missing" if it appears in the document list above, whatever folder it is in.
+- Never suggest doing something these facts show is already done (for example deploying when a live app is listed).
+` : ''}
 THE PRESENTATION / DEMO THE BUILDER WILL SHOW:
 ${clip(b.hack.coach?.presentation?.text, 6000) || '(not provided)'}${b.hack.coach?.presentation?.links ? `\nLinks (deck, video, live demo): ${clip(b.hack.coach.presentation.links, 500)}` : ''}
 
@@ -379,12 +397,14 @@ HOW TO JUDGE FAIRLY — real judges read the code and watch the presentation:
 - If something is not shown in the presentation, say so as advice, not as an accusation.
 
 Return JSON: {"overall":0,"verdict":"one sentence the panel would say","judges":[{"role":"","comment":"2 sentences in this judge's voice"}],"scores":[{"criterion":"","weight":0,"score":0,"note":""}],"requirements":[{"rule":"","status":"met|missing|unclear","note":""}],"strengths":[""],"fixes":[""],"twists":[{"idea":"","why":"","hours":0}],"questions":[""],"prize_odds":"one honest sentence on their chances and which track/prize is most winnable"}
-- scores: exactly these criteria: ${criteria}. score 1-10, note = one sentence why. overall 0-100 = the weighted result.
+- scores: exactly these criteria: ${criteria}. score 1-10, note = one sentence why.${realWeights ? '' : ' The hackathon gives no weights: set weight to 0.'} overall 0-100 = the weighted result (it is recalculated from your scores).
 - requirements: check every hard requirement from the brief (empty list if none).
 - fixes: the 3 changes that would raise the score most for the time left, most important first, concrete.
 - twists: 3 add-ons or presentation moves that would beat the judges' expectations, each doable in the time left (hours = estimate). Think memorable demo moments, a real user story, using the host's or sponsors' platform in a way they never expected, a live metric — not more features for their own sake.
 - questions: 3 hard questions these judges would ask.
-- Penalise anything that looks invented, unfinished core features, and missing requirements.`;
+- Penalise anything that looks invented, unfinished core features, and missing requirements.
+- prize_odds: only what the evidence supports; no invented percentages or rankings.
+- Score each criterion on what that criterion asks. A missing requirement belongs in requirements, not in the design or innovation score.`;
   },
 
   hack_submission(b) {
@@ -456,11 +476,19 @@ const shape = {
       headline: clip(o.headline, 300), keep: list(o.keep, 5), cut: list(o.cut, 6), do_next: list(o.do_next, 3), time_check: clip(o.time_check, 300),
     };
   },
-  hack_judge(o) {
-    const scores = (o?.scores || []).filter((x) => x && x.criterion).slice(0, 10).map((x) => ({ criterion: clip(x.criterion, 80), weight: num(x.weight, 0, 100), score: num(x.score, 0, 10), note: clip(x.note, 300) }));
+  hack_judge(o, b) {
+    // Weights come from the hackathon brief, not the AI, and only when they add up to about 100.
+    const crit = b?.hack?.coach?.brief?.criteria || [];
+    const real = validWeights(crit);
+    const weightOf = (name) => {
+      if (!real) return 0;
+      const k = crit.find((c) => String(c.name).toLowerCase() === String(name).toLowerCase()) || crit.find((c) => String(name).toLowerCase().includes(String(c.name).toLowerCase().split(/[\s/&]/)[0]));
+      return k ? num(k.weight, 0, 100) : 0;
+    };
+    const scores = (o?.scores || []).filter((x) => x && x.criterion).slice(0, 10).map((x) => ({ criterion: clip(x.criterion, 80), weight: weightOf(x.criterion), score: num(x.score, 0, 10), note: clip(x.note, 300) }));
     if (!scores.length) return { error: 'The judges could not score it. Try again.' };
     return {
-      overall: Math.round(num(o.overall, 0, 100)), verdict: clip(o.verdict, 300), prize_odds: clip(o.prize_odds, 300),
+      overall: weightedOverall(scores), verdict: clip(o.verdict, 300), prize_odds: clip(o.prize_odds, 300),
       judges: (o.judges || []).filter((j) => j && j.role).slice(0, 4).map((j) => ({ role: clip(j.role, 80), comment: clip(j.comment, 400) })),
       scores,
       requirements: (o.requirements || []).filter((r) => r && r.rule).slice(0, 15).map((r) => ({ rule: clip(r.rule, 200), status: ['met', 'missing', 'unclear'].includes(r.status) ? r.status : 'unclear', note: clip(r.note, 200) })),
