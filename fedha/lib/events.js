@@ -141,6 +141,7 @@ export function todaysEventBlocks(events, now = new Date()) {
         `Fixed event, ${hhmm(w.start)} – ${hhmm(w.end)}.`,
         where ? `Where: ${where}.` : null,
         e.url_hint ? `Link: ${e.url_hint}` : null,
+        e.how ? `How: ${e.how}` : null,
       ].filter(Boolean).join(' '),
     });
   }

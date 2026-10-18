@@ -35,6 +35,26 @@ export const STAGES = [
     ],
   },
   {
+    id: 'pilot', label: 'Pilot', emoji: '🧪', color: '#A855F7',
+    blurb: 'Run the MVP with a small group of real users and measure what happens.',
+    fields: [
+      { key: 'pilot_group', label: 'Pilot Group', placeholder: 'Who exactly is in the pilot? How many, and how did you find them?' },
+      { key: 'success_metric', label: 'Success Metric', placeholder: 'What number proves the pilot worked? e.g. 6 of 10 use it every week' },
+      { key: 'pilot_timeline', label: 'Pilot Timeline', placeholder: 'Start and end dates, and how often you check in with users' },
+      { key: 'pilot_results', label: 'Pilot Results', placeholder: 'What happened? Usage, quotes, what broke, what surprised you' },
+    ],
+  },
+  {
+    id: 'launch', label: 'Launch', emoji: '📣', color: '#F97316',
+    blurb: 'Ship publicly and win your first wave of users.',
+    fields: [
+      { key: 'launch_date', label: 'Launch Date', placeholder: 'When are you going public? Pick a real date.' },
+      { key: 'launch_message', label: 'Launch Message', placeholder: 'One sentence: who it is for and what it does for them' },
+      { key: 'launch_channels', label: 'Launch Channels', placeholder: 'Where will you announce? WhatsApp groups, X, LinkedIn, Product Hunt, campus…' },
+      { key: 'launch_results', label: 'Launch Results', placeholder: 'Signups, active users, feedback in the first 2 weeks' },
+    ],
+  },
+  {
     id: 'pmf', label: 'Product-Market Fit', emoji: '🎯', color: '#8B5CF6',
     blurb: 'Refine based on user feedback until retention is strong.',
     fields: [
@@ -109,6 +129,8 @@ export const NUDGES = {
   ideation: ['Talk to five people who have this problem before writing more code.', 'Write the problem in one sentence a stranger would understand.', 'Find out what people use today instead — that is your real competitor.'],
   prototyping: ['Cut the prototype to the one feature that proves the idea.', 'Put it in front of one real user this week and watch them use it.', 'Ugly and tested beats beautiful and untested.'],
   mvp: ['Ship to ten users before adding another feature.', 'Pick one number that shows people get value, and check it daily.', 'Launch before you feel ready — you learn faster live.'],
+  pilot: ['Agree the success number with yourself before the pilot starts.', 'Check in with every pilot user this week — silence is data too.', 'Write down every bug and complaint the same day you hear it.'],
+  launch: ['Pick a launch date and tell someone — a date makes it real.', 'Launch where your users already hang out, not where it feels impressive.', 'Reply to every comment and signup on launch day personally.'],
   pmf: ['Ask users how disappointed they would be if it disappeared.', 'Double down on the users who use it most, not the ones who complain loudest.', 'Retention is the truth — fix the leak before pouring in more users.'],
   growth: ['Find the one channel that works and push it hard before trying others.', 'Make it easy for happy users to bring friends.', 'Hire only for the bottleneck that is slowing you down most.'],
   revenue: ['Charge earlier than feels comfortable — payment is the best validation.', 'Know what one customer costs you to win and what they pay you.', 'Raise prices for new customers and see who still says yes.'],
@@ -141,39 +163,77 @@ export function openQuestions(stages = {}, stage) {
   return stage.fields.filter((f) => !stages[stage.id]?.[f.key]?.trim());
 }
 
-const daysBetween = (fromISO, toISO) => Math.round((new Date(toISO + 'T12:00:00') - new Date(fromISO + 'T12:00:00')) / 86400000);
+
+export function addDaysISO(iso, n) {
+  const d = new Date(iso + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  return localISO(d);
+}
+
+// The dated roadmap for the current stage. Older startups kept an undated
+// "plan" — show it as a roadmap with no dates so nothing is lost.
+export function roadmapOf(startup) {
+  if (startup?.roadmap?.tasks) return startup.roadmap;
+  if (startup?.plan?.tasks?.length) {
+    return { stage: startup.plan.stage, stage_label: startup.plan.stage_label, created: startup.plan.created, tasks: startup.plan.tasks.map((t) => ({ ...t, title: t.title || t.text, how: t.how || (t.why ? [t.why] : []), date: t.date || null })) };
+  }
+  return null;
+}
+
+// Tasks to do today: due today or overdue, not done.
+export function dueTasks(roadmap, today = todayISO()) {
+  return (roadmap?.tasks || []).filter((t) => !t.done && t.date && t.date <= today).sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
+}
+
+// Without the AI: spread the stage's playbook steps across its usual length.
+export function fallbackRoadmap(stageId, playbook, startDate = todayISO()) {
+  const p = playbook[stageId];
+  if (!p) return [];
+  const n = p.steps.length;
+  return p.steps.map((st, i) => ({
+    title: st.title,
+    how: st.how,
+    minutes: st.minutes || 60,
+    day: Math.round((i * (p.days - 1)) / Math.max(1, n - 1)),
+  })).map((t) => ({ ...t, date: addDaysISO(startDate, t.day) }));
+}
+
+const daysBetween2 = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000);
 
 // Muse "checks back in": the one thing worth saying about this startup today.
-// Returns { tone, text, action } or null. action is 'log' | 'focus' | 'plan'.
+// Returns { tone, text, action } or null. action is 'log' | 'focus' | 'plan' | 'today'.
 export function museNotice(startup) {
   if (!startup) return null;
   const today = todayISO();
   const name = startup.name || 'your startup';
   const focus = startup.focus;
+  const roadmap = roadmapOf(startup);
+  const { stage } = journeyState(startup.stages || {});
+  const overdue = (roadmap?.tasks || []).filter((t) => !t.done && t.date && t.date < today);
+  const todays = (roadmap?.tasks || []).filter((t) => !t.done && t.date === today);
+  if (overdue.length) {
+    return { tone: 'warn', text: `${overdue.length} roadmap task${overdue.length === 1 ? ' is' : 's are'} overdue, starting with "${overdue[0].title}". Do it today or tap Re-plan to spread the rest out again.`, action: 'today' };
+  }
   if (focus && !focus.done && focus.due && focus.due < today) {
-    const n = daysBetween(focus.due, today);
+    const n = daysBetween2(focus.due, today);
     return { tone: 'warn', text: `Your commitment "${focus.text}" is ${n} day${n === 1 ? '' : 's'} overdue. Finish it today, or reset it to something you can do.`, action: 'focus' };
   }
-  const plan = startup.plan;
-  const { stage } = journeyState(startup.stages || {});
-  if (plan?.tasks?.length && plan.tasks.every((t) => t.done)) {
-    return { tone: 'win', text: `You finished every step of the ${plan.stage_label || ''} plan. Want me to map out the next one?`, action: 'plan' };
+  if (todays.length) {
+    return { tone: 'info', text: `Today on the roadmap: "${todays[0].title}"${todays.length > 1 ? ` and ${todays.length - 1} more` : ''}. It's in your planner with the steps.`, action: 'today' };
   }
-  if (plan?.stage && plan.stage !== stage.id && plan.tasks?.some((t) => !t.done)) {
-    return { tone: 'info', text: `${name} has moved to ${stage.label}. Your old plan is for ${plan.stage_label || plan.stage} — want a fresh one?`, action: 'plan' };
+  if (roadmap?.tasks?.length && roadmap.tasks.every((t) => t.done)) {
+    return { tone: 'win', text: `You finished the whole ${roadmap.stage_label || ''} roadmap. Check the Readiness tab, then let me schedule the next stage.`, action: 'plan' };
+  }
+  if (roadmap?.stage && roadmap.stage !== stage.id && roadmap.tasks?.some((t) => !t.done)) {
+    return { tone: 'info', text: `${name} has moved to ${stage.label}. Your roadmap is still for ${roadmap.stage_label || roadmap.stage} — want a fresh one?`, action: 'plan' };
   }
   const log = startup.log || [];
+  if (log.length) {
+    const gap = daysBetween2(log[0].date, today);
+    if (gap >= 3) return { tone: 'warn', text: `It's been ${gap} days since you moved ${name} forward. What's one small thing you can do today?`, action: 'log' };
+  }
+  if (!roadmap?.tasks?.length) return { tone: 'info', text: `Let me schedule ${stage.label} for you: a step-by-step roadmap with dates, added straight to your planner.`, action: 'plan' };
   if (!log.length) return { tone: 'info', text: `Log one thing you did for ${name} today. Small steps every day beat big pushes once a month.`, action: 'log' };
-  const gap = daysBetween(log[0].date, today);
-  if (gap >= 3) return { tone: 'warn', text: `It's been ${gap} days since you moved ${name} forward. What's one small thing you can do today?`, action: 'log' };
   if (!focus || focus.done) return { tone: 'info', text: `No commitment for this week yet. Pick one thing you'll finish in 7 days.`, action: 'focus' };
-  if (!plan?.tasks?.length) return { tone: 'info', text: `Want me to break ${stage.label} into a step-by-step plan?`, action: 'plan' };
   return null;
-}
-
-// Used when the AI can't be reached: a plan built from the stage's own questions.
-export function fallbackPlan(stages = {}, stage) {
-  const open = openQuestions(stages, stage);
-  const fields = open.length ? open : stage.fields;
-  return fields.map((f) => ({ text: `Work out your ${f.label.toLowerCase()}`, why: f.placeholder }));
 }

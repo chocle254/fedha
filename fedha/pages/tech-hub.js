@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { STAGES, stageProgress, streakOf, journeyState, museNotice } from '../lib/startup';
+import { STAGES, stageProgress, streakOf, journeyState, museNotice, roadmapOf, dueTasks } from '../lib/startup';
 import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
@@ -1664,8 +1664,9 @@ function StartupCard({ s, onDelete }) {
   const { allDone, currentIdx, stage, pct } = journeyState(stages);
   const notice = museNotice(s);
   const streak = streakOf(s.log || []);
-  const plan = s.plan?.tasks?.length ? s.plan : null;
+  const plan = roadmapOf(s);
   const planDone = plan ? plan.tasks.filter((t) => t.done).length : 0;
+  const dueToday = dueTasks(plan).length;
   const r = 22, c = 2 * Math.PI * r;
   return (
     <Link href={`/startup/${s.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
@@ -1704,7 +1705,8 @@ function StartupCard({ s, onDelete }) {
 
         <div className="su-foot">
           <span>{streak ? `🔥 ${streak}-day streak` : 'No streak yet'}</span>
-          {plan && <span>🗺️ Plan ${planDone}/${plan.tasks.length}</span>}
+          {plan?.tasks?.length > 0 && <span>🗺️ {planDone}/{plan.tasks.length}</span>}
+          {dueToday > 0 && <span style={{ color: 'var(--yellow)' }}>📅 {dueToday} today</span>}
           <span style={{ flex: 1 }} />
           <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(); }} className="su-del" aria-label={`Delete ${s.name}`}>🗑️</button>
           <span className="su-open">Open →</span>

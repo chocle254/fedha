@@ -159,12 +159,27 @@ function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs, clie
       : job.name + ' — log tasks in My Jobs as you go.' }, 55, null, 4);
   }
 
-  // A startup with an open weekly commitment ranks higher as its due date
-  // nears, and the block tells you exactly what you promised to finish.
-  (startups || []).slice(0,2).forEach(s => {
+  // Startups: today's (and overdue) roadmap tasks come first, each with the
+  // how-to steps from Muse. Timed ones (interviews, meetings) are fixed events
+  // instead — see startupEvents(). With no roadmap task due, fall back to the
+  // weekly commitment.
+  const today = todayISO();
+  (startups || []).forEach(s => {
+    const due = (s.roadmap?.tasks || []).filter((t) => !t.done && !t.time && t.date && t.date <= today);
+    if (due.length) {
+      due.slice(0, 2).forEach((t) => {
+        const late = t.date < today;
+        const steps = (t.how || []).slice(0, 4).map((h, i) => `${i + 1}) ${h}`).join(' ');
+        add({ emoji: '🚀', label: `Startup — ${s.name}: ${t.title}`,
+          note: (late ? `Overdue since ${t.date}. ` : '') + `${s.roadmap.stage_label || 'Roadmap'} step, about ${t.minutes || 60} min. How: ${steps} Tick it off on the startup page when done.` },
+          late ? 78 : 70, t.date, (t.minutes || 60) / 60);
+      });
+      return;
+    }
     const f = s.focus && !s.focus.done ? s.focus : null;
+    if (!f && !s.roadmap?.tasks?.some((t) => !t.done)) return add({ emoji:'🚀', label:'Startup Work — ' + s.name, note:'Open ' + s.name + ' and let Muse schedule your current stage.' }, 40, null, 2);
     add({ emoji:'🚀', label:'Startup Work — ' + s.name,
-      note: f ? `This week's commitment: ${f.text}.` : 'Move ' + s.name + ' forward — set a weekly commitment on its page.' },
+      note: f ? `This week's commitment: ${f.text}.` : 'Nothing due today on the roadmap — get ahead on the next step for ' + s.name + '.' },
       f ? 55 : 45, f?.due || null, 4);
   });
 
@@ -495,11 +510,32 @@ function hackathonEvents(hackathons) {
     }));
 }
 
+// Startup roadmap tasks with a set time (interviews, pitch meetings) are
+// fixed-time events, with Muse's steps in the note.
+function startupEvents(startups) {
+  const out = [];
+  (startups || []).forEach((s) => (s.roadmap?.tasks || []).forEach((t) => {
+    if (t.done || !t.date || !t.time) return;
+    const [h, m] = t.time.split(':').map(Number);
+    const end = h * 60 + m + (t.minutes || 60);
+    out.push({
+      id: `startup_${s.id}_${t.id}`,
+      name: `${s.name}: ${t.title}`,
+      emoji: '🚀',
+      date: t.date,
+      time: t.time,
+      end_time: `${String(Math.floor(end / 60) % 24).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`,
+      how: (t.how || []).slice(0, 4).map((x, i) => `${i + 1}) ${x}`).join(' '),
+    });
+  }));
+  return out;
+}
+
 // → { blocks, allDay } — timed events become fixed planner blocks; all-day
 // ones (no start time) are listed in a banner instead of being dropped.
-async function loadTodayEvents(hackathons) {
+async function loadTodayEvents(hackathons, startups) {
   try {
-    const live = [...(await pruneEndedEvents()), ...hackathonEvents(hackathons)];
+    const live = [...(await pruneEndedEvents()), ...hackathonEvents(hackathons), ...startupEvents(startups)];
     const now = new Date();
     const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const dayEnd = new Date(dayStart.getTime() + 86400000);
@@ -625,7 +661,7 @@ export default function PlannerPage() {
   const workSignature = JSON.stringify([
     hackathons?.map((h) => [h.id, hackStatus(h), h.deadline, (h.tasks || []).filter((t) => !t.done).length, h.results_date, h.results_time]) || [],
     lowCash,
-    startups?.map((s) => s.id) || [],
+    startups?.map((s) => [s.id, !!(s.focus && !s.focus.done), (s.roadmap?.tasks || []).filter((t) => t.date && t.date <= todayISO()).map((t) => [t.id, t.done, t.time || ''])]) || [],
     projects?.map((p) => [p.id, projectStatus(p)]) || [],
     clientProjects?.map((p) => [p.id, p.status, p.deadline, p.agreed_amount, p.previously_paid, (p.payments || []).length, (p.change_requests || []).length, p.estimated_days]) || [],
     onlineJobs?.map((j) => [j.id, j.status]) || [],
@@ -686,7 +722,7 @@ export default function PlannerPage() {
       // .map() above only ever visits ids that already exist in `generated`.
       const generatedIds = new Set(generated.map((b) => b.id));
       const extraBlocks = Object.values(overrides).filter((o) => o?.id && !generatedIds.has(o.id));
-      const { blocks: eventBlocks, allDay } = await loadTodayEvents(hackathons);
+      const { blocks: eventBlocks, allDay } = await loadTodayEvents(hackathons, startups);
       setAllDayEvents(allDay);
       const merged = applyEventBlocks([...patched, ...extraBlocks].sort((a, b) => t2m(a.time) - t2m(b.time)), eventBlocks);
       // I'm Awake / reset / an edit happened while this was loading — that
@@ -794,7 +830,7 @@ export default function PlannerPage() {
     const fresh = buildTodayBlocks(planCtx, isWeekend);
     setDroppedToday(fresh._droppedToday || []);
     const mealWeekPlan = await getSetting('meal_week_plan', null);
-    const ev = await loadTodayEvents(hackathons);
+    const ev = await loadTodayEvents(hackathons, startups);
     setAllDayEvents(ev.allDay);
     const withEvents = applyEventBlocks(withMealNotes(fresh, mealWeekPlan), ev.blocks);
     setBlocks(withEvents);
@@ -827,7 +863,7 @@ export default function PlannerPage() {
       await setSetting(`planner_overrides_${todayISO()}`, {});
       await setSetting(`planner_ai_blocks_${todayISO()}`, computed);
       await setSetting(`planner_dropped_${todayISO()}`, dropped);
-      const ev = await loadTodayEvents(hackathons);
+      const ev = await loadTodayEvents(hackathons, startups);
       setAllDayEvents(ev.allDay);
       const withEvents = applyEventBlocks(computed, ev.blocks);
       setUsingAI(true);

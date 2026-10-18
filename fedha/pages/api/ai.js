@@ -19,6 +19,11 @@ import { requireUser } from '../../lib/require-user';
 // invents an item that isn't grounded in something Firecrawl actually found.
 import { webSearchMulti } from '../../lib/web-search';
 import { nvidiaChat } from '../../lib/nvidia-client';
+import { PLAYBOOK, PITCH_SLIDES, INVESTORS, JUDGE_CRITERIA, playbookText } from '../../lib/founder-playbook';
+import { STAGES } from '../../lib/startup';
+
+// Muse's roadmap, pitch and readiness answers can take a while to write.
+export const config = { maxDuration: 60 };
 
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b'; // free & strong; or 'llama-3.1-8b-instant' for speed
 const SEARCH_GROUNDED_TYPES = new Set(['activities', 'opportunities']);
@@ -27,7 +32,7 @@ export default async function handler(req, res) {
   if (!(await requireUser(req, res))) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup, lesson, transcript, stage, question, history } = req.body;
+  const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup, lesson, transcript, stage, question, history, stageId, start_date, hours_per_day, pitch, investor, transcript_turns, end_meeting } = req.body;
   const useSearch = SEARCH_GROUNDED_TYPES.has(type);
 
   if (type === 'lesson_notes' && !transcript?.trim()) return res.status(400).json({ error: 'Lesson transcript is required' });
@@ -202,36 +207,11 @@ Provide a comprehensive analysis. Return a JSON object with exactly these fields
 Be specific, data-driven where possible, and constructive. Don't be afraid to point out real issues.`;
   }
 
-  // Muse on the startup page: a step-by-step plan for the current stage, or
-  // a short answer to a question about the startup.
-  if (type === 'startup_plan' || type === 'startup_chat') {
+  // Muse on the startup page (see lib/founder-playbook.js).
+  if (MUSE_TYPES.has(type)) {
     if (!startup) return res.status(400).json({ error: 'Startup data required' });
     if (type === 'startup_chat' && !String(question || '').trim()) return res.status(400).json({ error: 'Question required' });
-    const ctx = startupContext(startup);
-    if (type === 'startup_plan') {
-      prompt = `You are Muse, a practical startup co-founder. Break the founder's CURRENT stage into a short plan.
-
-${ctx}
-
-Current stage: ${stage?.label || 'Ideation'} — ${stage?.blurb || ''}
-Questions this stage must answer: ${(stage?.fields || []).map((f) => f.label).join(', ')}
-
-Return JSON: {"tasks":[{"text":"...","why":"..."}]}
-- 4 to 6 tasks, in the order to do them.
-- Each "text" is one concrete action finishable in 1-2 days, starting with a verb, max 12 words. Make it specific to THIS startup, not generic.
-- Each "why" is one short sentence on what it unlocks.
-- The founder is a student developer in Kenya with little money: prefer free, scrappy, do-it-today actions.`;
-    } else {
-      const past = (Array.isArray(history) ? history : []).slice(-8).map((m) => `${m.role === 'user' ? 'Founder' : 'Muse'}: ${String(m.text || '').slice(0, 600)}`).join('\n');
-      prompt = `You are Muse, a warm, direct startup co-founder who knows this startup well.
-
-${ctx}
-
-${past ? `Conversation so far:\n${past}\n\n` : ''}Founder: ${String(question).slice(0, 1000)}
-
-Reply as Muse. Be specific to this startup, practical and honest. Plain text, no markdown headings, at most 120 words. If you suggest steps, give at most 3 as short lines starting with "• ".
-Return JSON: {"reply":"..."}`;
-    }
+    prompt = musePrompt(type, { startup, stageId, question, history, start_date, hours_per_day, pitch, investor, transcript_turns, end_meeting });
   }
 
   try {
@@ -292,8 +272,8 @@ Return JSON: {"reply":"..."}`;
     const GROQ_API_KEY = process.env.GROQ_API_KEY;
     const body = {
       model: GROQ_MODEL,
-      temperature: type === 'lesson_notes' ? 0.3 : 0.8,
-      max_tokens: type === 'lesson_notes' ? 3000 : 2000,
+      temperature: type === 'lesson_notes' ? 0.3 : MUSE_TYPES.has(type) ? 0.6 : 0.8,
+      max_tokens: type === 'lesson_notes' ? 3000 : MUSE_TYPES.has(type) ? 6000 : 2000,
       ...(type === 'lesson_notes' ? {} : { response_format: { type: 'json_object' } }),
       messages: [
         { role: 'system', content: type === 'lesson_notes' ? 'Produce accurate study notes in clean Markdown. Do not add information that is not in the transcript.' : 'You output only valid JSON. No markdown, no commentary.' },
@@ -317,16 +297,10 @@ Return JSON: {"reply":"..."}`;
 
     if (type === 'lesson_notes') return res.status(200).json({ notes: rawText.trim() });
 
-    if (type === 'startup_plan' || type === 'startup_chat') {
-      const obj = parseObject(rawText);
-      if (type === 'startup_plan') {
-        const tasks = (obj?.tasks || []).filter((t) => t && t.text).slice(0, 6).map((t) => ({ text: String(t.text).slice(0, 140), why: String(t.why || '').slice(0, 200) }));
-        if (!tasks.length) return res.status(500).json({ error: 'Could not make a plan right now' });
-        return res.status(200).json({ tasks });
-      }
-      const reply = String(obj?.reply || '').trim();
-      if (!reply) return res.status(500).json({ error: 'Muse had nothing to say — try again' });
-      return res.status(200).json({ reply });
+    if (MUSE_TYPES.has(type)) {
+      const out = museResult(type, parseObject(rawText), { start_date, transcript_turns, end_meeting });
+      if (out.error) return res.status(500).json(out);
+      return res.status(200).json(out);
     }
 
     // For analysis types, return the full object (not just results)
@@ -410,23 +384,210 @@ function findBalancedJsonEnd(text, start) {
   return -1;
 }
 
+const MUSE_TYPES = new Set(['startup_chat', 'startup_roadmap', 'pitch_draft', 'pitch_judge', 'investor_turn', 'readiness_audit']);
+const FOUNDER = 'The founder is a student developer in Kenya with little money: prefer free, scrappy, do-it-this-week actions, local channels (WhatsApp, campus, chamas, M-Pesa) and honest advice.';
+const clip = (v, n) => String(v || '').slice(0, n);
+
 // Everything the founder has written about the startup, for Muse's prompts.
-function startupContext(startup) {
+function startupContext(startup, stageId) {
   const stagesText = Object.entries(startup.stages || {})
     .map(([id, data]) => {
-      const lines = Object.entries(data || {}).filter(([, v]) => String(v || '').trim()).map(([k, v]) => `  ${k}: ${String(v).slice(0, 400)}`);
+      const lines = Object.entries(data || {}).filter(([, v]) => String(v || '').trim()).map(([k, v]) => `  ${k}: ${clip(v, 400)}`);
       return lines.length ? `${id}:\n${lines.join('\n')}` : null;
     })
     .filter(Boolean).join('\n');
-  const log = (startup.log || []).slice(0, 5).map((l) => `  ${l.date}: ${l.text}`).join('\n');
+  const log = (startup.log || []).slice(0, 6).map((l) => `  ${l.date}: ${clip(l.text, 200)}`).join('\n');
+  const notes = (startup.notebook || []).slice(0, 8).map((n) => `  [${n.date} · ${n.kind || 'note'}] ${clip(n.title, 80)}: ${clip(n.body, 400)}`).join('\n');
+  const gates = startup.gates || {};
+  const stage = STAGES.find((s) => s.id === stageId);
+  const gateLines = stage && PLAYBOOK[stage.id] ? PLAYBOOK[stage.id].gate.map((g, i) => `  [${gates[stage.id]?.[i] ? 'x' : ' '}] ${g}`).join('\n') : '';
+  const pmf = startup.pmf || {};
+  const pmfTotal = Number(pmf.very || 0) + Number(pmf.somewhat || 0) + Number(pmf.not || 0);
+  const roadmap = startup.roadmap?.tasks?.length ? startup.roadmap.tasks.map((t) => `  [${t.done ? 'x' : ' '}] ${t.date || ''} ${clip(t.title, 100)}`).join('\n') : '';
   return [
     `Startup: ${startup.name}`,
     startup.accelerator ? `Accelerator: ${startup.accelerator}` : '',
     startup.mission ? `Mission: ${startup.mission}` : '',
+    stage ? `Current stage: ${stage.label} — ${stage.blurb}` : '',
     startup.focus && !startup.focus.done ? `This week's commitment: ${startup.focus.text} (due ${startup.focus.due})` : '',
     `What they have written so far:\n${stagesText || '  (nothing yet)'}`,
+    gateLines ? `Stage readiness checklist (x = done):\n${gateLines}` : '',
+    roadmap ? `Current roadmap:\n${roadmap}` : '',
+    pmfTotal ? `PMF survey: ${pmf.very || 0} very / ${pmf.somewhat || 0} somewhat / ${pmf.not || 0} not disappointed (${Math.round((Number(pmf.very || 0) / pmfTotal) * 100)}% very).` : '',
+    pmf.ret1 || pmf.ret4 || pmf.ret8 ? `Retention: week1 ${pmf.ret1 || '?'}%, week4 ${pmf.ret4 || '?'}%, week8 ${pmf.ret8 || '?'}%` : '',
+    startup.pitch?.one_liner ? `Pitch one-liner: ${clip(startup.pitch.one_liner, 200)}` : '',
     log ? `Recent progress:\n${log}` : '',
+    notes ? `Founder's notebook (interviews, meetings, ideas):\n${notes}` : '',
   ].filter(Boolean).join('\n');
+}
+
+function musePrompt(type, b) {
+  const st = STAGES.find((s) => s.id === b.stageId) || STAGES[0];
+  const ctx = startupContext(b.startup, st.id);
+  const book = playbookText(st.id);
+
+  if (type === 'startup_chat') {
+    const past = (Array.isArray(b.history) ? b.history : []).slice(-8).map((m) => `${m.role === 'user' ? 'Founder' : 'Muse'}: ${clip(m.text, 600)}`).join('\n');
+    return `You are Muse, an experienced startup coach and co-founder who knows this startup well. You coach using the founder playbook below (it is built on YC Startup School, Paul Graham, The Mom Test, Lean Startup and similar guides).
+
+${ctx}
+
+Playbook for the ${st.label} stage:
+${book}
+
+${FOUNDER}
+
+${past ? `Conversation so far:\n${past}\n\n` : ''}Founder: ${clip(b.question, 1200)}
+
+Reply as Muse: specific to THIS startup and stage, practical and honest — say so if they are skipping a step or fooling themselves. Plain text, no markdown headings, at most 160 words. If you give steps, give at most 4 short lines starting with "• ". If a well-known framework fits (e.g. The Mom Test, Bullseye, Sean Ellis 40% test), name it.
+Return JSON: {"reply":"..."}`;
+  }
+
+  if (type === 'startup_roadmap') {
+    const p = PLAYBOOK[st.id];
+    const hours = Math.min(6, Math.max(0.5, Number(b.hours_per_day) || 2));
+    return `You are Muse, a startup coach. Turn the ${st.label} stage into a dated roadmap the founder can follow day by day. It will be added to their daily planner.
+
+${ctx}
+
+Playbook for ${st.label}:
+${book}
+
+${FOUNDER}
+The founder can give about ${hours} hour(s) a day to the startup. The stage should take about ${p?.days || 14} days.
+
+Return JSON: {"tasks":[{"day":0,"title":"...","how":["...","..."],"minutes":60,"time":null}]}
+Rules:
+- 6 to 12 tasks covering the playbook steps in order, SPECIFIC to this startup (name the users, channels, features). Skip steps the founder has clearly already done.
+- "day" = days after the start (0 = today), spread across about ${p?.days || 14} days, at most 2 tasks on one day, and each day's minutes must fit in ${Math.round(hours * 60)} minutes.
+- "how": 3 to 5 concrete sub-steps — what exactly to do, say, write or build, including example wording for messages or interview questions where useful.
+- "minutes": realistic time, 20 to ${Math.round(hours * 60)}.
+- "time": "HH:MM" (24h) ONLY for things that happen at a set time with other people (interviews, pitch meetings, launch posts); otherwise null. Use evenings (18:00-20:00) or weekend mornings for those.`;
+  }
+
+  if (type === 'pitch_draft') {
+    return `You are a pitch coach who has prepared founders for YC and African accelerator demo days. Draft this startup's pitch.
+
+${ctx}
+
+Return JSON: {"one_liner":"...","elevator":"...","slides":{${PITCH_SLIDES.map((s) => `"${s.key}":"..."`).join(',')}}}
+Rules:
+- one_liner: under 15 words, "X helps Y do Z" style, no buzzwords.
+- elevator: a 30-second spoken pitch (about 75 words) in first person.
+- Each slide: 2 to 4 short lines separated by "\\n", plain words, what to SAY/SHOW. Slide guidance: ${PITCH_SLIDES.map((s) => `${s.title}: ${s.hint}`).join(' | ')}
+- Use ONLY facts from the founder's data. Never invent numbers, users or team members. Where something is missing, write "[ADD: what is needed]" so the founder knows what to find out.`;
+  }
+
+  if (type === 'pitch_judge') {
+    const pt = b.pitch || {};
+    const slides = PITCH_SLIDES.map((s) => `${s.title}: ${clip(pt.slides?.[s.key], 600) || '(empty)'}`).join('\n');
+    return `You are the judging panel at a startup demo day (think YC Demo Day, Africa's Business Heroes, a hackathon final). You are fair but strict; most early pitches score 40-65. Judge this pitch.
+
+Background the panel can see:
+${ctx}
+
+THE PITCH
+One-liner: ${clip(pt.one_liner, 300) || '(empty)'}
+Elevator pitch: ${clip(pt.elevator, 1200) || '(empty)'}
+${slides}
+
+Return JSON: {"overall":0,"verdict":"...","scores":[{"criterion":"...","score":0,"note":"..."}],"strengths":["..."],"fixes":["..."],"questions":["..."]}
+- scores: one per criterion, exactly these: ${JUDGE_CRITERIA.join(', ')}. score 1-10, note = one sentence why.
+- overall 0-100, consistent with the scores. verdict = one sentence a judge would say.
+- strengths: 2-3. fixes: the 3 changes that would raise the score most, most important first, concrete ("Replace X with Y").
+- questions: 3 hard questions judges would ask after this pitch.
+- Penalise invented-sounding claims, missing traction, vague markets and "[ADD:" gaps.`;
+  }
+
+  if (type === 'investor_turn') {
+    const inv = INVESTORS.find((i) => i.id === b.investor) || INVESTORS[0];
+    const turns = (Array.isArray(b.transcript_turns) ? b.transcript_turns : []).slice(-16);
+    const answered = turns.filter((t) => t.role === 'founder').length;
+    const final = b.end_meeting || answered >= 6;
+    const convo = turns.map((t) => `${t.role === 'founder' ? 'Founder' : inv.name}: ${clip(t.text, 800)}`).join('\n');
+    return `You are role-playing ${inv.name}, ${inv.role}. ${inv.style}
+You are in a pitch meeting with this startup's founder. Stay in character; be realistic — real investors probe weak spots and do not hand out money easily.
+
+What you know about the startup (from their deck and data room):
+${ctx}
+
+${convo ? `Meeting so far:\n${convo}\n` : 'The meeting is just starting.'}
+
+${final
+  ? `The meeting is over. Give your decision as this investor would, honestly, based on the answers given.
+Return JSON: {"message":"your closing words to the founder (2-3 sentences)","done":true,"verdict":{"decision":"invest|maybe|pass","score":0,"amount":"what you'd offer and on what terms, or 'none'","reasons":["..."],"concerns":["..."],"to_change_mind":["..."]}}
+score 0-100 = how investable this is to you right now.`
+  : `${convo ? 'React to the founder\'s last answer in one short sentence (push back if it was vague), then ask your next question.' : 'Greet the founder briefly in character and ask your first question.'} Ask ONE question at a time, the one you most need answered next (problem, market, traction, why them, business model, competition, use of funds). Keep it under 60 words.
+Return JSON: {"message":"...","done":false}`}`;
+  }
+
+  // readiness_audit
+  return `You are an investor-readiness and product-market-fit assessor (think YC partner office hours). Assess honestly where this startup really is — do not flatter.
+
+${ctx}
+
+Stage checklists completed:
+${STAGES.filter((s) => PLAYBOOK[s.id]).map((s) => `${s.label}: ${(b.startup.gates?.[s.id] || []).filter(Boolean).length}/${PLAYBOOK[s.id].gate.length}`).join(', ')}
+
+Return JSON: {"score":0,"level":"...","summary":"...","dimensions":[{"name":"...","score":0,"evidence":"...","gap":"..."}],"next_tests":[{"test":"...","how":"...","success":"..."}]}
+- dimensions, exactly these 8: Problem, Solution, Demand evidence, Retention, Willingness to pay, Distribution, Team, Investor readiness. score 0-10 each; evidence = what the data shows (or "No evidence yet"); gap = what is missing.
+- score 0-100 overall market-fit readiness. level: one of "Idea only", "Early signals", "Getting close", "Strong fit".
+- summary: 2 sentences, honest.
+- next_tests: the 3 cheapest experiments that would most raise the score, each with how to run it this week and the number that means success.`;
+}
+
+function museResult(type, obj, b) {
+  if (!obj) return { error: 'Muse could not answer right now — try again' };
+  if (type === 'startup_chat') {
+    const reply = String(obj.reply || '').trim();
+    return reply ? { reply } : { error: 'Muse had nothing to say — try again' };
+  }
+  if (type === 'startup_roadmap') {
+    const start = /^\d{4}-\d{2}-\d{2}$/.test(b.start_date || '') ? b.start_date : new Date().toISOString().slice(0, 10);
+    const tasks = (obj.tasks || []).filter((t) => t && t.title).slice(0, 14).map((t) => {
+      const d = new Date(start + 'T12:00:00');
+      d.setDate(d.getDate() + Math.max(0, Math.min(60, Math.round(Number(t.day) || 0))));
+      const time = /^\d{2}:\d{2}$/.test(String(t.time || '')) ? t.time : null;
+      return {
+        title: clip(t.title, 140),
+        how: (Array.isArray(t.how) ? t.how : [t.how]).filter(Boolean).slice(0, 6).map((h) => clip(h, 300)),
+        minutes: Math.max(15, Math.min(360, Math.round(Number(t.minutes) || 60))),
+        date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+        time,
+      };
+    }).sort((x, y) => (x.date + (x.time || '')).localeCompare(y.date + (y.time || '')));
+    return tasks.length ? { tasks } : { error: 'Could not make a roadmap right now' };
+  }
+  if (type === 'pitch_draft') {
+    const slides = {};
+    PITCH_SLIDES.forEach((s) => { slides[s.key] = clip(obj.slides?.[s.key], 1200); });
+    return { one_liner: clip(obj.one_liner, 200), elevator: clip(obj.elevator, 1500), slides };
+  }
+  if (type === 'pitch_judge') {
+    const scores = (obj.scores || []).filter((x) => x && x.criterion).slice(0, 10).map((x) => ({ criterion: clip(x.criterion, 60), score: Math.max(0, Math.min(10, Number(x.score) || 0)), note: clip(x.note, 300) }));
+    if (!scores.length) return { error: 'The judges could not score this pitch — try again' };
+    const list = (v, n) => (Array.isArray(v) ? v : []).slice(0, n).map((x) => clip(x, 300));
+    return { overall: Math.max(0, Math.min(100, Math.round(Number(obj.overall) || 0))), verdict: clip(obj.verdict, 300), scores, strengths: list(obj.strengths, 4), fixes: list(obj.fixes, 4), questions: list(obj.questions, 4) };
+  }
+  if (type === 'investor_turn') {
+    const message = clip(obj.message, 1200).trim();
+    if (!message) return { error: 'The investor went quiet — try again' };
+    const v = obj.verdict;
+    if (obj.done && v) {
+      const list = (x) => (Array.isArray(x) ? x : []).slice(0, 4).map((y) => clip(y, 300));
+      const decision = ['invest', 'maybe', 'pass'].includes(v.decision) ? v.decision : 'maybe';
+      return { message, done: true, verdict: { decision, score: Math.max(0, Math.min(100, Math.round(Number(v.score) || 0))), amount: clip(v.amount, 200), reasons: list(v.reasons), concerns: list(v.concerns), to_change_mind: list(v.to_change_mind) } };
+    }
+    return { message, done: false };
+  }
+  // readiness_audit
+  const dims = (obj.dimensions || []).filter((x) => x && x.name).slice(0, 8).map((x) => ({ name: clip(x.name, 40), score: Math.max(0, Math.min(10, Number(x.score) || 0)), evidence: clip(x.evidence, 300), gap: clip(x.gap, 300) }));
+  if (!dims.length) return { error: 'Could not assess readiness right now' };
+  return {
+    score: Math.max(0, Math.min(100, Math.round(Number(obj.score) || 0))),
+    level: clip(obj.level, 40), summary: clip(obj.summary, 500), dimensions: dims,
+    next_tests: (obj.next_tests || []).slice(0, 3).map((t) => ({ test: clip(t?.test, 200), how: clip(t?.how, 400), success: clip(t?.success, 200) })),
+  };
 }
 
 function parseObject(rawText) {
