@@ -4,132 +4,36 @@ import { genId, todayISO, localISO } from '../../lib/utils';
 import { useRouter } from 'next/router';
 import Layout from '../../components/Layout';
 import { useApp } from '../../context/AppContext';
+import { STAGES, NUDGES, stageProgress, streakOf, journeyState, openQuestions, museNotice, fallbackPlan } from '../../lib/startup';
 
-// Stage definitions — each stage has fields revealed when you open it.
-const STAGES = [
-  {
-    id: 'ideation', label: 'Ideation', emoji: '💡', color: '#F59E0B',
-    blurb: 'Define the problem and validate that it is worth solving.',
-    fields: [
-      { key: 'problem', label: 'The Problem', placeholder: 'What painful problem are you solving? Who has it?' },
-      { key: 'solution', label: 'The Solution', placeholder: 'How does your idea solve it?' },
-      { key: 'project', label: 'The Project', placeholder: 'What exactly are you building? Scope & name.' },
-      { key: 'validation', label: 'Problem Validation', placeholder: 'Evidence the problem is real — interviews, signups, data…' },
-    ],
-  },
-  {
-    id: 'prototyping', label: 'Prototyping', emoji: '🛠️', color: '#3B82F6',
-    blurb: 'Build something testable and learn fast.',
-    fields: [
-      { key: 'tech_stack', label: 'Tech Stack', placeholder: 'Languages, frameworks, tools' },
-      { key: 'key_features', label: 'Key Features', placeholder: 'Core features the prototype must show' },
-      { key: 'prototype_link', label: 'Prototype / Demo Link', placeholder: 'Figma, repo, or live link' },
-      { key: 'learnings', label: 'Learnings', placeholder: 'What did testing the prototype teach you?' },
-    ],
-  },
-  {
-    id: 'mvp', label: 'MVP', emoji: '🚀', color: '#10B981',
-    blurb: 'Ship the smallest thing real users can use.',
-    fields: [
-      { key: 'launch_status', label: 'Launch Status', placeholder: 'Not launched / Beta / Live' },
-      { key: 'target_users', label: 'Target Users', placeholder: 'Who are the first users?' },
-      { key: 'metrics', label: 'Key Metrics', placeholder: 'Signups, retention, revenue…' },
-      { key: 'next_steps', label: 'Next Steps', placeholder: 'What comes after the MVP?' },
-    ],
-  },
-  {
-    id: 'pmf', label: 'Product-Market Fit', emoji: '🎯', color: '#8B5CF6',
-    blurb: 'Refine based on user feedback until retention is strong.',
-    fields: [
-      { key: 'retention_metrics', label: 'Retention Metrics', placeholder: 'DAU/MAU, churn rate, retention curves' },
-      { key: 'user_feedback', label: 'User Feedback Insights', placeholder: 'Key patterns from user interviews & support' },
-      { key: 'product_changes', label: 'Product Changes', placeholder: 'Major pivots or refinements made' },
-      { key: 'market_fit_signals', label: 'Market Fit Signals', placeholder: 'How do you know you have PMF? (e.g. viral coefficient, NPS score)' },
-    ],
-  },
-  {
-    id: 'growth', label: 'Growth / Scaling', emoji: '📈', color: '#EC4899',
-    blurb: 'Marketing, partnerships, hiring.',
-    fields: [
-      { key: 'marketing_strategy', label: 'Marketing Strategy', placeholder: 'Channels: organic, paid, partnerships, referral…' },
-      { key: 'team_size', label: 'Team Size & Hires', placeholder: 'Who have you hired? What roles still needed?' },
-      { key: 'partnerships', label: 'Key Partnerships', placeholder: 'Strategic alliances or integrations' },
-      { key: 'growth_metrics', label: 'Growth Metrics', placeholder: 'MoM growth rate, CAC, LTV, paid channel ROI' },
-    ],
-  },
-  {
-    id: 'revenue', label: 'Revenue & Monetization', emoji: '💰', color: '#06B6D4',
-    blurb: 'Sustainable business model.',
-    fields: [
-      { key: 'revenue_model', label: 'Revenue Model', placeholder: 'Freemium, subscription, transaction fees, licensing…' },
-      { key: 'pricing_strategy', label: 'Pricing Strategy', placeholder: 'Tiers, pricing, discounts, enterprise deals' },
-      { key: 'current_arr', label: 'Current ARR / Revenue', placeholder: 'Annual Recurring Revenue or MRR' },
-      { key: 'unit_economics', label: 'Unit Economics', placeholder: 'Gross margin, CAC payback period, LTV:CAC ratio' },
-    ],
-  },
-  {
-    id: 'expansion', label: 'Expansion', emoji: '🌍', color: '#14B8A6',
-    blurb: 'New markets, features, or geographies.',
-    fields: [
-      { key: 'new_markets', label: 'New Markets / Geographies', placeholder: 'Target regions: Africa, Asia, Europe…' },
-      { key: 'new_features', label: 'New Product Lines', placeholder: 'Adjacent features or new verticals' },
-      { key: 'localization', label: 'Localization & Adaptation', placeholder: 'Language, culture, compliance, payment methods' },
-      { key: 'expansion_timeline', label: 'Expansion Timeline', placeholder: 'Roadmap: when, where, how?' },
-    ],
-  },
-  {
-    id: 'exit', label: 'Exit / Maturity', emoji: '🏁', color: '#6366F1',
-    blurb: 'Acquisition, IPO, or long-term sustainability.',
-    fields: [
-      { key: 'exit_strategy', label: 'Exit Strategy', placeholder: 'IPO, acquisition, stay private, wind down' },
-      { key: 'acquisition_targets', label: 'Potential Acquirers', placeholder: 'Which companies might buy you?' },
-      { key: 'valuation', label: 'Current Valuation', placeholder: 'Latest valuation / funding round' },
-      { key: 'long_term_vision', label: 'Long-Term Vision', placeholder: 'Where do you see this in 10 years?' },
-    ],
-  },
+// The startup page works like a personal agent ("Muse"): it asks you the next
+// question, breaks your stage into a plan, checks back in when you go quiet,
+// and answers questions about your startup.
+
+function MuseOrb({ size = 40, busy = false }) {
+  return <div className={`muse-orb${busy ? ' busy' : ''}`} style={{ width: size, height: size }} aria-hidden="true" />;
+}
+
+function Ring({ pct, color, size = 64 }) {
+  const r = (size - 8) / 2;
+  const c = 2 * Math.PI * r;
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth="6" strokeLinecap="round"
+          strokeDasharray={c} strokeDashoffset={c * (1 - pct / 100)} style={{ transition: 'stroke-dashoffset 0.6s ease' }} />
+      </svg>
+      <div className="font-num" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size > 56 ? 15 : 12, fontWeight: 700 }}>{pct}%</div>
+    </div>
+  );
+}
+
+const SUGGESTIONS = [
+  'What should I focus on this week?',
+  'How do I get my first 10 users?',
+  "What's the biggest risk in my idea?",
 ];
-
-function stageProgress(stageData, fields) {
-  if (!stageData) return 0;
-  const filled = fields.filter((f) => stageData[f.key]?.trim()).length;
-  return Math.round((filled / fields.length) * 100);
-}
-
-// Count total filled fields across all stages
-function totalProgress(stages, draftStages) {
-  let total = 0, filled = 0;
-  stages.forEach((s) => {
-    s.fields.forEach((f) => {
-      total++;
-      if (draftStages[s.id]?.[f.key]?.trim()) filled++;
-    });
-  });
-  return total > 0 ? Math.round((filled / total) * 100) : 0;
-}
-
-// Short, stage-specific nudges in plain words (not quotes) — one per day.
-const NUDGES = {
-  ideation: ['Talk to five people who have this problem before writing more code.', 'Write the problem in one sentence a stranger would understand.', 'Find out what people use today instead — that is your real competitor.'],
-  prototyping: ['Cut the prototype to the one feature that proves the idea.', 'Put it in front of one real user this week and watch them use it.', 'Ugly and tested beats beautiful and untested.'],
-  mvp: ['Ship to ten users before adding another feature.', 'Pick one number that shows people get value, and check it daily.', 'Launch before you feel ready — you learn faster live.'],
-  pmf: ['Ask users how disappointed they would be if it disappeared.', 'Double down on the users who use it most, not the ones who complain loudest.', 'Retention is the truth — fix the leak before pouring in more users.'],
-  growth: ['Find the one channel that works and push it hard before trying others.', 'Make it easy for happy users to bring friends.', 'Hire only for the bottleneck that is slowing you down most.'],
-  revenue: ['Charge earlier than feels comfortable — payment is the best validation.', 'Know what one customer costs you to win and what they pay you.', 'Raise prices for new customers and see who still says yes.'],
-  expansion: ['Win one new market fully before opening the next.', 'Talk to local users first — every market has its own payment and trust habits.', 'Expand what already works; do not rebuild from scratch.'],
-  exit: ['Build the company you would want to keep, not just sell.', 'Know your numbers cold — buyers and investors will.', 'Write down what success looks like in ten years and check today against it.'],
-};
-
-// Consecutive days (ending today, or yesterday if today isn't logged yet)
-// with at least one progress entry.
-function streakOf(log) {
-  const days = new Set((log || []).map((l) => l.date));
-  const d = new Date();
-  const iso = (x) => localISO(x);
-  if (!days.has(todayISO())) d.setDate(d.getDate() - 1);
-  let n = 0;
-  while (days.has(iso(d))) { n++; d.setDate(d.getDate() - 1); }
-  return n;
-}
 
 export default function StartupDetail() {
   const router = useRouter();
@@ -137,7 +41,7 @@ export default function StartupDetail() {
   const { startups, updateStartup } = useApp();
   const startup = startups.find((s) => s.id === id);
 
-  const [openStage, setOpenStage] = useState('ideation');
+  const [openStage, setOpenStage] = useState(null);
   const [draft, setDraft] = useState({});
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [analysis, setAnalysis] = useState(null);
@@ -147,19 +51,33 @@ export default function StartupDetail() {
   const [logDraft, setLogDraft] = useState('');
   const [editingMission, setEditingMission] = useState(false);
   const [missionDraft, setMissionDraft] = useState('');
+  // Muse
+  const [answer, setAnswer] = useState('');
+  const [skipIdx, setSkipIdx] = useState(0);
+  const [ack, setAck] = useState('');
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planNote, setPlanNote] = useState('');
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatErr, setChatErr] = useState('');
+
   const fieldRefs = useRef({});
-  const didAutoOpen = useRef(false);
+  const logRef = useRef(null);
+  const focusRef = useRef(null);
+  const planRef = useRef(null);
+  const chatEndRef = useRef(null);
+  const latest = useRef(startup);
+  if (startup && latest.current?.id !== startup.id) latest.current = startup;
+  useEffect(() => { if (startup) latest.current = startup; }, [startup]);
 
   // Sync local draft from the persisted startup once it loads.
   useEffect(() => { if (startup) setDraft(startup.stages || {}); }, [startup?.id]);
 
-  // Open the stage you're actually on (first one not finished), once.
+  const chatLen = startup?.chat?.length || 0;
   useEffect(() => {
-    if (!startup || didAutoOpen.current) return;
-    didAutoOpen.current = true;
-    const cur = STAGES.find((st) => stageProgress((startup.stages || {})[st.id], st.fields) < 100);
-    if (cur) setOpenStage(cur.id);
-  }, [startup?.id]);
+    const el = chatEndRef.current;
+    if (el && el.parentElement) el.parentElement.scrollTop = el.parentElement.scrollHeight;
+  }, [chatLen, chatBusy]);
 
   if (!startup) {
     return (
@@ -172,19 +90,24 @@ export default function StartupDetail() {
     );
   }
 
+  // Always build on the newest copy, so two quick saves don't undo each other.
+  const save = (patch) => {
+    const next = { ...(latest.current || startup), ...patch };
+    latest.current = next;
+    return updateStartup(next);
+  };
+
   function setField(stageId, key, value) {
     setDraft((d) => ({ ...d, [stageId]: { ...(d[stageId] || {}), [key]: value } }));
   }
   function saveStage(stageId) {
-    updateStartup({ ...startup, stages: { ...(startup.stages || {}), [stageId]: draft[stageId] || {} } });
+    save({ stages: { ...((latest.current || startup).stages || {}), [stageId]: draft[stageId] || {} } });
   }
 
-  // ── Muse data (stored on the startup record itself) ──
-  const save = (patch) => updateStartup({ ...startup, ...patch });
-  const currentStageIdx = Math.max(0, STAGES.findIndex((st) => stageProgress(draft[st.id], st.fields) < 100));
-  const allDone = STAGES.every((st) => stageProgress(draft[st.id], st.fields) === 100);
-  const stage = STAGES[allDone ? STAGES.length - 1 : currentStageIdx];
-  const nextField = allDone ? null : stage.fields.find((f) => !draft[stage.id]?.[f.key]?.trim());
+  const { allDone, currentIdx: currentStageIdx, stage, pct: totalPct } = journeyState(draft);
+  const questions = allDone ? [] : openQuestions(draft, stage);
+  const question = questions.length ? questions[skipIdx % questions.length] : null;
+  const nextField = questions[0] || null;
   const mission = startup.mission || draft.ideation?.solution || draft.ideation?.problem || '';
   const focus = startup.focus || null;
   const focusDaysLeft = focus?.due ? Math.ceil((new Date(focus.due + 'T23:59:59') - new Date()) / 86400000) : null;
@@ -193,7 +116,99 @@ export default function StartupDetail() {
   const last7 = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); const iso = localISO(d); return { iso, on: log.some((l) => l.date === iso), label: d.toLocaleDateString('en-GB', { weekday: 'narrow' }) }; });
   const nudgeList = NUDGES[stage.id] || NUDGES.ideation;
   const nudge = nudgeList[new Date().getDate() % nudgeList.length];
+  const notice = museNotice({ ...startup, stages: draft });
+  const plan = startup.plan || null;
+  const planDone = plan?.tasks?.filter((t) => t.done).length || 0;
+  const chat = startup.chat || [];
 
+  // ── Muse asks, you answer ──
+  function answerQuestion() {
+    const text = answer.trim();
+    if (!text || !question) return;
+    const next = { ...draft, [stage.id]: { ...(draft[stage.id] || {}), [question.key]: text } };
+    setDraft(next);
+    save({ stages: next });
+    setAnswer('');
+    setSkipIdx(0);
+    const after = journeyState(next);
+    if (after.allDone) {
+      setAck('🏁 That was the last question — every stage is mapped. Get a full analysis below.');
+      try { fireConfetti({ count: 160 }); } catch {}
+    } else if (after.stage.id !== stage.id) {
+      setAck(`🎉 ${stage.label} is fully mapped. On to ${after.stage.label}.`);
+      try { fireConfetti({ count: 120 }); } catch {}
+    } else {
+      const left = openQuestions(next, stage).length;
+      setAck(`Saved to ${stage.label} ✓ — ${left} question${left === 1 ? '' : 's'} left in this stage.`);
+    }
+  }
+
+  // ── Plan ──
+  async function makePlan() {
+    if (planBusy) return;
+    setPlanBusy(true); setPlanNote('');
+    let tasks;
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'startup_plan', startup: { ...startup, chat: undefined, stages: draft }, stage: { label: stage.label, blurb: stage.blurb, fields: stage.fields.map((f) => ({ label: f.label })) } }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.tasks?.length) throw new Error(data.error || 'No plan');
+      tasks = data.tasks;
+    } catch {
+      tasks = fallbackPlan(draft, stage);
+      setPlanNote("Couldn't reach the AI, so this plan is built from the stage's questions. Try again later for a smarter one.");
+    }
+    save({ plan: { stage: stage.id, stage_label: stage.label, created: todayISO(), tasks: tasks.map((t) => ({ id: genId(), text: t.text, why: t.why || '', done: false })) } });
+    setPlanBusy(false);
+    setTimeout(() => planRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+  }
+  function togglePlanTask(t) {
+    const tasks = plan.tasks.map((x) => (x.id === t.id ? { ...x, done: !x.done, done_at: !x.done ? todayISO() : null } : x));
+    const patch = { plan: { ...plan, tasks } };
+    if (!t.done) {
+      patch.log = [{ id: genId(), date: todayISO(), text: `☑️ ${t.text}` }, ...((latest.current || startup).log || [])].slice(0, 200);
+      if (tasks.every((x) => x.done)) { try { fireConfetti({ count: 140 }); } catch {} }
+    }
+    save(patch);
+  }
+
+  // ── Ask Muse ──
+  async function ask(preset) {
+    const text = String(preset ?? chatDraft).trim();
+    if (!text || chatBusy) return;
+    const history = (latest.current || startup).chat || [];
+    const mine = { id: genId(), role: 'user', text, at: Date.now() };
+    save({ chat: [...history, mine].slice(-30) });
+    setChatDraft(''); setChatErr(''); setChatBusy(true);
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'startup_chat', startup: { ...startup, chat: undefined, stages: draft }, question: text, history: history.slice(-8) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.reply) throw new Error(data.error || 'No reply');
+      const cur = (latest.current || startup).chat || [];
+      save({ chat: [...cur, { id: genId(), role: 'muse', text: data.reply, at: Date.now() }].slice(-30) });
+    } catch (e) {
+      setChatErr(`I couldn't think that through right now (${e.message}). Tap send again in a moment.`);
+      setChatDraft(text);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  function runNotice(action) {
+    if (action === 'plan') return makePlan();
+    const el = action === 'log' ? logRef.current : focusRef.current;
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus({ preventScroll: true }); }
+    else if (action === 'focus') document.getElementById('muse-commit')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // ── Commitment & log ──
   function setFocus() {
     if (!focusDraft.trim()) return;
     const due = focusDue || (() => { const d = new Date(); d.setDate(d.getDate() + 7); return localISO(d); })();
@@ -210,31 +225,24 @@ export default function StartupDetail() {
     save({ log: [{ id: genId(), date: todayISO(), text: logDraft.trim() }, ...log].slice(0, 200) });
     setLogDraft('');
   }
-  function goToNextField() {
-    setOpenStage(stage.id);
+  function goToField(st, f) {
+    setOpenStage(st.id);
     setTimeout(() => {
-      const el = fieldRefs.current[`${stage.id}.${nextField.key}`];
+      const el = fieldRefs.current[`${st.id}.${f.key}`];
       if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus({ preventScroll: true }); }
     }, 60);
   }
 
-  // Generate AI analysis and search for similar apps
   async function generateAnalysis() {
     setLoadingAnalysis(true);
     try {
       const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'startup_analysis',
-          startup: {
-            name: startup.name,
-            accelerator: startup.accelerator,
-            stages: draft,
-          },
-        }),
+        body: JSON.stringify({ type: 'startup_analysis', startup: { name: startup.name, accelerator: startup.accelerator, stages: draft } }),
       });
       const data = await res.json();
+      if (!res.ok || !data.analysis) throw new Error(data.error || 'No analysis');
       setAnalysis(data.analysis);
       setShowAnalysis(true);
     } catch (err) {
@@ -245,39 +253,42 @@ export default function StartupDetail() {
     }
   }
 
-  const totalPct = totalProgress(STAGES, draft);
-
   return (
     <Layout fab={false}>
-      <div className="page">
+      <div className="page muse-page">
         <div className="page-top" style={{ padding: '52px 20px 0' }}>
-          <button onClick={() => router.push('/tech-hub')} style={{ background: 'none', border: 'none', color: 'var(--text-3)', fontSize: 14, cursor: 'pointer', padding: 0, marginBottom: 16, fontFamily: 'Outfit' }}>← Tech Hub</button>
+          <button onClick={() => router.push('/tech-hub?tab=startups')} className="muse-back">← Startups</button>
+
+          {/* ── HERO ── */}
           <div className="muse-hero" style={{ '--stage': stage.color }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
               <div className="muse-hero-icon">{stage.emoji}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.15 }}>{startup.name}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 3 }}>
-                  {allDone ? 'Every stage mapped 🏁' : `Stage ${currentStageIdx + 1} of ${STAGES.length} · ${stage.label}`}{startup.accelerator ? ` · 🏛 ${startup.accelerator}` : ''}
+                <div className="muse-title">{startup.name}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                  <span className="muse-chip" style={{ '--c': stage.color }}>{allDone ? '🏁 Fully mapped' : `${stage.label} · ${currentStageIdx + 1}/${STAGES.length}`}</span>
+                  {startup.accelerator && <span className="muse-chip muse-chip-plain">🏛 {startup.accelerator}</span>}
+                  {streak > 0 && <span className="muse-chip muse-chip-plain">🔥 {streak}d</span>}
                 </div>
               </div>
-              <div className="muse-hero-pct">{totalProgress(STAGES, draft)}%</div>
+              <Ring pct={totalPct} color={stage.color} />
             </div>
 
-            {/* The journey as a path of 8 steps */}
             <div className="muse-path" aria-label="Startup journey">
               {STAGES.map((st, i) => {
                 const pct = stageProgress(draft[st.id], st.fields);
                 const state = pct === 100 ? 'done' : i === currentStageIdx && !allDone ? 'now' : 'todo';
                 return (
-                  <button key={st.id} type="button" className={`muse-step muse-step-${state}`} style={{ '--c': st.color }} onClick={() => setOpenStage(st.id)} title={`${st.label} — ${pct}%`}>
+                  <button key={st.id} type="button" className={`muse-step muse-step-${state}`} style={{ '--c': st.color }}
+                    onClick={() => { setOpenStage(st.id); setTimeout(() => document.getElementById(`stage-${st.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); }}
+                    title={`${st.label} — ${pct}%`}>
                     <span>{state === 'done' ? '✓' : st.emoji}</span>
                   </button>
                 );
               })}
             </div>
+            <div className="muse-path-label">{allDone ? 'Every stage done' : stage.blurb}</div>
 
-            {/* North star */}
             <div className="muse-northstar">
               <div className="muse-label">⭐ NORTH STAR</div>
               {editingMission ? (
@@ -287,125 +298,229 @@ export default function StartupDetail() {
                 </div>
               ) : (
                 <button type="button" className="muse-mission" onClick={() => { setMissionDraft(mission); setEditingMission(true); }}>
-                  {mission || 'Tap to write your mission in one sentence — the reason this exists.'}
+                  {mission ? `“${mission}”` : 'Tap to write your mission in one sentence — the reason this exists.'}
                 </button>
               )}
             </div>
           </div>
         </div>
 
-        <div style={{ padding: '16px 20px 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* This week's commitment */}
-          <div className="card muse-card">
-            <div className="muse-label">🎯 THIS WEEK'S COMMITMENT</div>
-            {focus && !focus.done ? (
-              <>
-                <div style={{ fontSize: 16, fontWeight: 700, margin: '8px 0 4px', lineHeight: 1.35 }}>{focus.text}</div>
-                <div style={{ fontSize: 12, color: focusDaysLeft != null && focusDaysLeft <= 1 ? 'var(--red)' : 'var(--text-3)' }}>
-                  {focusDaysLeft == null ? '' : focusDaysLeft < 0 ? `${-focusDaysLeft} day${focusDaysLeft === -1 ? '' : 's'} overdue — finish it or reset it honestly.` : focusDaysLeft === 0 ? 'Due today.' : `${focusDaysLeft} day${focusDaysLeft === 1 ? '' : 's'} left.`}
+        <div className="muse-grid">
+          <div className="muse-col">
+            {/* ── MUSE: check-in + next question ── */}
+            <section className="muse-agent" style={{ '--stage': stage.color }}>
+              <div className="muse-agent-head">
+                <MuseOrb size={38} busy={planBusy || chatBusy} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800 }}>Muse</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>Your co-founder for {startup.name}</div>
                 </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                  <button className="btn-primary" style={{ flex: 1 }} onClick={completeFocus}>✓ I did it</button>
-                  <button className="btn-ghost" style={{ width: 'auto', padding: '0 14px' }} onClick={() => save({ focus: null })}>Change</button>
-                </div>
-              </>
-            ) : (
-              <>
-                {focus?.done && <div style={{ fontSize: 13, color: 'var(--green)', margin: '8px 0 2px' }}>Last one done: {focus.text} 🎉</div>}
-                <div style={{ fontSize: 12, color: 'var(--text-3)', margin: '6px 0 10px' }}>One concrete thing you'll finish in the next 7 days. Small and done beats big and vague.</div>
-                <input className="input" placeholder={nextField ? `e.g. ${nextField.placeholder.split('?')[0].slice(0, 60)}` : 'e.g. Interview 5 potential users'} value={focusDraft} onChange={(e) => setFocusDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && setFocus()} />
-                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                  <input className="input" type="date" value={focusDue} onChange={(e) => setFocusDue(e.target.value)} style={{ flex: 1 }} aria-label="Due date (default 7 days)" />
-                  <button className="btn-primary" style={{ width: 'auto', padding: '0 16px' }} disabled={!focusDraft.trim()} onClick={setFocus}>Commit</button>
-                </div>
-              </>
-            )}
-            {(startup.wins || 0) > 0 && <div style={{ fontSize: 11, color: 'var(--gold)', marginTop: 10 }}>🏆 {startup.wins} commitment{startup.wins === 1 ? '' : 's'} kept so far</div>}
-          </div>
-
-          {/* Next move */}
-          {nextField && (
-            <button type="button" className="card muse-card muse-next" style={{ '--stage': stage.color }} onClick={goToNextField}>
-              <div className="muse-label">👉 YOUR NEXT MOVE</div>
-              <div style={{ fontSize: 15, fontWeight: 700, margin: '8px 0 4px' }}>{stage.label}: {nextField.label}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>{nextField.placeholder}</div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: stage.color, marginTop: 10 }}>Answer it now →</div>
-            </button>
-          )}
-
-          {/* Momentum */}
-          <div className="card muse-card">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div className="muse-label">🔥 MOMENTUM</div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: streak ? 'var(--yellow)' : 'var(--text-3)' }}>{streak ? `${streak}-day streak` : 'No streak yet'}</div>
-            </div>
-            <div className="muse-week">
-              {last7.map((d) => <div key={d.iso} className={`muse-day${d.on ? ' on' : ''}`}><span>{d.label}</span></div>)}
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input className="input" placeholder="What did you move forward today?" value={logDraft} onChange={(e) => setLogDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLog()} style={{ flex: 1 }} />
-              <button className="btn-primary" style={{ width: 'auto', padding: '0 14px' }} disabled={!logDraft.trim()} onClick={addLog}>Log</button>
-            </div>
-            {log.length > 0 && (
-              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {log.slice(0, 4).map((l) => (
-                  <div key={l.id} style={{ display: 'flex', gap: 10, fontSize: 12, lineHeight: 1.45 }}>
-                    <span className="font-num" style={{ color: 'var(--text-3)', flexShrink: 0, width: 44 }}>{l.date.slice(5).split('-').reverse().join('/')}</span>
-                    <span style={{ color: 'var(--text-2)' }}>{l.text}</span>
-                  </div>
-                ))}
+                <span className="muse-status"><i />{planBusy || chatBusy ? 'Thinking…' : allDone ? 'All mapped' : `On ${stage.label}`}</span>
               </div>
-            )}
+
+              {notice && (
+                <div className={`muse-bubble muse-notice muse-tone-${notice.tone}`}>
+                  <div className="muse-bubble-kicker">{notice.tone === 'warn' ? 'CHECKING IN' : notice.tone === 'win' ? 'NICE WORK' : 'A SUGGESTION'}</div>
+                  <div>{notice.text}</div>
+                  <button type="button" className="muse-link" onClick={() => runNotice(notice.action)} disabled={planBusy}>
+                    {notice.action === 'plan' ? (planBusy ? 'Making a plan…' : 'Make the plan →') : notice.action === 'log' ? 'Log progress →' : 'Set a commitment →'}
+                  </button>
+                </div>
+              )}
+
+              {ack && <div className="muse-bubble muse-ack">{ack}</div>}
+
+              {question ? (
+                <div className="muse-bubble">
+                  <div className="muse-bubble-kicker">QUESTION FOR {stage.label.toUpperCase()}{questions.length > 1 ? ` · ${questions.length} LEFT` : ''}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, margin: '2px 0 4px' }}>{question.label}</div>
+                  <div style={{ color: 'var(--text-2)' }}>{question.placeholder}</div>
+                </div>
+              ) : (
+                <div className="muse-bubble">Every stage of the journey is written down. Ask me anything below, or get a full analysis at the bottom.</div>
+              )}
+
+              {question && (
+                <div className="muse-answer">
+                  <textarea className="input" rows={2} placeholder="Type your answer…" value={answer}
+                    onChange={(e) => { setAnswer(e.target.value); if (ack) setAck(''); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) answerQuestion(); }} />
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button className="btn-primary muse-send" style={{ flex: 1 }} disabled={!answer.trim()} onClick={answerQuestion}>Answer ↑</button>
+                    {questions.length > 1 && <button className="btn-ghost" style={{ width: 'auto', padding: '0 14px' }} onClick={() => { setSkipIdx((i) => i + 1); setAnswer(''); setAck(''); }}>Skip</button>}
+                    <button className="btn-ghost" style={{ width: 'auto', padding: '0 14px' }} onClick={() => ask(`Help me answer this for ${startup.name}: ${question.label} — ${question.placeholder}`)} disabled={chatBusy}>Help me</button>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* ── PLAN ── */}
+            <section ref={planRef} className="card muse-card" style={{ '--stage': stage.color }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <div className="muse-label">🗺️ {plan ? `PLAN · ${String(plan.stage_label || '').toUpperCase()}` : 'THE PLAN'}</div>
+                {plan?.tasks?.length > 0 && <div className="font-num" style={{ fontSize: 12, color: 'var(--text-3)' }}>{planDone}/{plan.tasks.length}</div>}
+              </div>
+              {plan?.tasks?.length ? (
+                <>
+                  <div className="muse-bar"><div style={{ width: `${Math.round((planDone / plan.tasks.length) * 100)}%` }} /></div>
+                  <div className="muse-tasks">
+                    {plan.tasks.map((t, i) => (
+                      <button key={t.id} type="button" className={`muse-task${t.done ? ' done' : ''}`} onClick={() => togglePlanTask(t)}>
+                        <span className="muse-check">{t.done ? '✓' : i + 1}</span>
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <span className="muse-task-text">{t.text}</span>
+                          {t.why && <span className="muse-task-why">{t.why}</span>}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <button className="muse-link" style={{ marginTop: 10 }} onClick={makePlan} disabled={planBusy}>{planBusy ? 'Re-planning…' : `↻ New plan for ${stage.label}`}</button>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 13, color: 'var(--text-2)', margin: '8px 0 12px', lineHeight: 1.5 }}>
+                    Muse breaks <b style={{ color: 'var(--text)' }}>{stage.label}</b> into 4–6 small steps you can tick off. Each tick counts toward your streak.
+                  </div>
+                  <button className="btn-primary muse-send" onClick={makePlan} disabled={planBusy}>{planBusy ? 'Thinking…' : '✨ Make my plan'}</button>
+                </>
+              )}
+              {planNote && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 8 }}>{planNote}</div>}
+            </section>
+
+            {/* ── ASK MUSE ── */}
+            <section className="card muse-card">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div className="muse-label">💬 ASK MUSE</div>
+                {chat.length > 0 && <button className="muse-link" style={{ fontSize: 11.5 }} onClick={() => { if (window.confirm('Clear this conversation?')) save({ chat: [] }); }}>Clear</button>}
+              </div>
+              {chat.length > 0 || chatBusy ? (
+                <div className="muse-chat">
+                  {chat.map((m) => (
+                    <div key={m.id} className={`muse-msg ${m.role === 'user' ? 'me' : 'them'}`}>
+                      {m.role !== 'user' && <MuseOrb size={22} />}
+                      <div className="muse-msg-body">{m.text}</div>
+                    </div>
+                  ))}
+                  {chatBusy && <div className="muse-msg them"><MuseOrb size={22} busy /><div className="muse-msg-body muse-typing"><i /><i /><i /></div></div>}
+                  <div ref={chatEndRef} />
+                </div>
+              ) : (
+                <div className="muse-suggest">
+                  {[...SUGGESTIONS, ...(nextField ? [`Help me with my ${nextField.label.toLowerCase()}`] : [])].map((s) => (
+                    <button key={s} type="button" onClick={() => ask(s)}>{s}</button>
+                  ))}
+                </div>
+              )}
+              {chatErr && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 8 }}>{chatErr}</div>}
+              <div className="muse-compose">
+                <input className="input" placeholder={`Ask anything about ${startup.name}…`} value={chatDraft} onChange={(e) => setChatDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && ask()} />
+                <button type="button" className="muse-send-round" disabled={!chatDraft.trim() || chatBusy} onClick={() => ask()} aria-label="Send">↑</button>
+              </div>
+            </section>
           </div>
 
-          {/* Daily nudge */}
-          <div className="muse-nudge" style={{ '--stage': stage.color }}>
-            <span style={{ fontSize: 18 }}>💡</span>
-            <span>{nudge}</span>
+          <div className="muse-col">
+            {/* ── THIS WEEK'S COMMITMENT ── */}
+            <section id="muse-commit" className="card muse-card">
+              <div className="muse-label">🎯 THIS WEEK'S COMMITMENT</div>
+              {focus && !focus.done ? (
+                <>
+                  <div style={{ fontSize: 16, fontWeight: 700, margin: '8px 0 4px', lineHeight: 1.35 }}>{focus.text}</div>
+                  <div style={{ fontSize: 12, color: focusDaysLeft != null && focusDaysLeft <= 1 ? 'var(--red)' : 'var(--text-3)' }}>
+                    {focusDaysLeft == null ? '' : focusDaysLeft < 0 ? `${-focusDaysLeft} day${focusDaysLeft === -1 ? '' : 's'} overdue — finish it or reset it honestly.` : focusDaysLeft === 0 ? 'Due today.' : `${focusDaysLeft} day${focusDaysLeft === 1 ? '' : 's'} left.`}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                    <button className="btn-primary" style={{ flex: 1 }} onClick={completeFocus}>✓ I did it</button>
+                    <button className="btn-ghost" style={{ width: 'auto', padding: '0 14px' }} onClick={() => save({ focus: null })}>Change</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {focus?.done && <div style={{ fontSize: 13, color: 'var(--green)', margin: '8px 0 2px' }}>Last one done: {focus.text} 🎉</div>}
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', margin: '6px 0 10px' }}>One concrete thing you'll finish in the next 7 days. Small and done beats big and vague.</div>
+                  <input ref={focusRef} className="input" placeholder={plan?.tasks?.find((t) => !t.done) ? `e.g. ${plan.tasks.find((t) => !t.done).text}` : 'e.g. Interview 5 potential users'} value={focusDraft} onChange={(e) => setFocusDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && setFocus()} />
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <input className="input" type="date" value={focusDue} onChange={(e) => setFocusDue(e.target.value)} style={{ flex: 1 }} aria-label="Due date (default 7 days)" />
+                    <button className="btn-primary" style={{ width: 'auto', padding: '0 16px' }} disabled={!focusDraft.trim()} onClick={setFocus}>Commit</button>
+                  </div>
+                </>
+              )}
+              {(startup.wins || 0) > 0 && <div style={{ fontSize: 11, color: 'var(--gold)', marginTop: 10 }}>🏆 {startup.wins} commitment{startup.wins === 1 ? '' : 's'} kept so far</div>}
+            </section>
+
+            {/* ── MOMENTUM ── */}
+            <section className="card muse-card">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div className="muse-label">🔥 MOMENTUM</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: streak ? 'var(--yellow)' : 'var(--text-3)' }}>{streak ? `${streak}-day streak` : 'No streak yet'}</div>
+              </div>
+              <div className="muse-week">
+                {last7.map((d) => <div key={d.iso} className={`muse-day${d.on ? ' on' : ''}`}><span>{d.label}</span></div>)}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input ref={logRef} className="input" placeholder="What did you move forward today?" value={logDraft} onChange={(e) => setLogDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLog()} style={{ flex: 1 }} />
+                <button className="btn-primary" style={{ width: 'auto', padding: '0 14px' }} disabled={!logDraft.trim()} onClick={addLog}>Log</button>
+              </div>
+              {log.length > 0 && (
+                <div className="muse-log">
+                  {log.slice(0, 5).map((l) => (
+                    <div key={l.id} className="muse-log-row">
+                      <span className="font-num" style={{ color: 'var(--text-3)', flexShrink: 0, width: 40 }}>{l.date.slice(5).split('-').reverse().join('/')}</span>
+                      <span style={{ color: 'var(--text-2)' }}>{l.text}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <div className="muse-nudge" style={{ '--stage': stage.color }}>
+              <span style={{ fontSize: 18 }}>💡</span>
+              <span>{nudge}</span>
+            </div>
           </div>
         </div>
 
-        <div style={{ padding: '20px' }}>
-          {/* Journey timeline */}
+        {/* ── JOURNEY ── */}
+        <div style={{ padding: '24px 20px 0' }}>
           <div className="section-title" style={{ marginBottom: 12 }}>Startup Journey</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {STAGES.map((stage, idx) => {
-              const open = openStage === stage.id;
-              const pct = stageProgress(draft[stage.id], stage.fields);
+          <div className="muse-stages">
+            {STAGES.map((st, idx) => {
+              const open = openStage === st.id;
+              const pct = stageProgress(draft[st.id], st.fields);
               return (
-                <div key={stage.id} className="card" style={{ padding: 0, overflow: 'hidden', borderColor: open ? stage.color : 'var(--border)' }}>
-                  <button onClick={() => setOpenStage(open ? null : stage.id)}
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: 16, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
-                    <div style={{ width: 42, height: 42, borderRadius: 12, background: `${stage.color}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>{stage.emoji}</div>
-                    <div style={{ flex: 1 }}>
+                <div key={st.id} id={`stage-${st.id}`} className={`muse-stage${open ? ' open' : ''}${pct === 100 ? ' done' : ''}`} style={{ '--c': st.color }}>
+                  <button onClick={() => setOpenStage(open ? null : st.id)} className="muse-stage-head">
+                    <div className="muse-stage-icon">{pct === 100 ? '✓' : st.emoji}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>
-                        <span style={{ color: stage.color }}>{idx + 1}.</span> {stage.label}
+                        <span style={{ color: st.color }}>{idx + 1}.</span> {st.label}
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{stage.blurb}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{st.blurb}</div>
+                      <div className="muse-stage-bar"><div style={{ width: `${pct}%` }} /></div>
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: pct === 100 ? 'var(--green)' : 'var(--text-3)' }}>{pct}%</div>
+                      <div className="font-num" style={{ fontSize: 13, fontWeight: 700, color: pct === 100 ? 'var(--green)' : 'var(--text-3)' }}>{pct}%</div>
                       <div style={{ fontSize: 16, color: 'var(--text-3)', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>›</div>
                     </div>
                   </button>
 
                   {open && (
                     <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      {stage.fields.map((f) => (
+                      {st.fields.map((f) => (
                         <div key={f.key}>
-                          <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>{f.label}</label>
+                          <label style={{ fontSize: 11.5, color: 'var(--text-3)', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>{f.label}</label>
                           <textarea
-                            ref={(el) => { fieldRefs.current[`${stage.id}.${f.key}`] = el; }}
+                            ref={(el) => { fieldRefs.current[`${st.id}.${f.key}`] = el; }}
                             className="input"
                             placeholder={f.placeholder}
-                            value={draft[stage.id]?.[f.key] || ''}
-                            onChange={(e) => setField(stage.id, f.key, e.target.value)}
+                            value={draft[st.id]?.[f.key] || ''}
+                            onChange={(e) => setField(st.id, f.key, e.target.value)}
                             rows={2}
                             style={{ resize: 'vertical', minHeight: 56, lineHeight: 1.5 }}
                           />
                         </div>
                       ))}
-                      <button className="btn-secondary" onClick={() => saveStage(stage.id)} style={{ marginTop: 8 }}>Save Stage</button>
+                      <button className="btn-secondary" onClick={() => saveStage(st.id)} style={{ marginTop: 8 }}>Save Stage</button>
                     </div>
                   )}
                 </div>
@@ -414,45 +529,38 @@ export default function StartupDetail() {
           </div>
         </div>
 
-        {/* Analysis section */}
-        <div style={{ padding: '20px' }}>
+        {/* ── ANALYSIS ── */}
+        <div style={{ padding: '24px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
             <div className="section-title" style={{ marginBottom: 0 }}>Progress & Analysis</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: totalPct === 100 ? 'var(--green)' : 'var(--text-2)' }}>{totalPct}%</div>
+            <div className="font-num" style={{ fontSize: 14, fontWeight: 700, color: totalPct === 100 ? 'var(--green)' : 'var(--text-2)' }}>{totalPct}%</div>
           </div>
 
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ display: 'flex', height: 8, background: 'var(--bg-2)', borderRadius: 999, overflow: 'hidden' }}>
-              <div style={{ width: `${totalPct}%`, background: 'linear-gradient(90deg, #F59E0B, #3B82F6, #10B981, #8B5CF6)', transition: 'width 0.3s' }} />
-            </div>
-
-            <button className="btn-primary" onClick={generateAnalysis} disabled={totalPct < 25 || loadingAnalysis}
-              style={{ width: '100%', background: '#6366F1', cursor: totalPct < 25 ? 'not-allowed' : 'pointer', opacity: totalPct < 25 ? 0.5 : 1 }}>
-              {loadingAnalysis ? '🔄 Analyzing…' : '✨ Get AI Analysis'}
+          <div className="card muse-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="muse-bar muse-bar-rainbow" style={{ margin: 0 }}><div style={{ width: `${totalPct}%` }} /></div>
+            <button className="btn-primary muse-send" onClick={generateAnalysis} disabled={totalPct < 25 || loadingAnalysis}
+              style={{ cursor: totalPct < 25 ? 'not-allowed' : 'pointer', opacity: totalPct < 25 ? 0.5 : 1 }}>
+              {loadingAnalysis ? 'Analyzing…' : '✨ Get AI Analysis'}
             </button>
-
             {totalPct < 25 && (
-              <div style={{ fontSize: 13, color: 'var(--text-3)', textAlign: 'center' }}>Fill at least 25% of the journey to unlock analysis</div>
+              <div style={{ fontSize: 13, color: 'var(--text-3)', textAlign: 'center' }}>
+                Fill at least 25% of the journey to unlock analysis{nextField ? <> — <button className="muse-link" onClick={() => goToField(stage, nextField)}>answer the next question</button></> : null}
+              </div>
             )}
           </div>
 
           {showAnalysis && analysis && (
             <div style={{ marginTop: 20 }}>
-              <button onClick={() => setShowAnalysis(false)} style={{ background: 'none', border: 'none', color: 'var(--text-3)', fontSize: 14, cursor: 'pointer', padding: 0, marginBottom: 12 }}>← Hide Analysis</button>
-              <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {/* Strengths */}
+              <button onClick={() => setShowAnalysis(false)} className="muse-back">← Hide Analysis</button>
+              <div className="card muse-card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--green)', marginBottom: 8 }}>✓ Why This Is a Good Idea</div>
                   <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{analysis.strengths}</div>
                 </div>
-
-                {/* Risks */}
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#EF4444', marginBottom: 8 }}>⚠️ Why This Could Be Risky</div>
                   <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{analysis.risks}</div>
                 </div>
-
-                {/* Competitors */}
                 {analysis.competitors && analysis.competitors.length > 0 && (
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>🏆 Similar Apps & Your Competitive Edge</div>
@@ -467,8 +575,6 @@ export default function StartupDetail() {
                     </div>
                   </div>
                 )}
-
-                {/* Next Actions */}
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>→ Recommended Next Steps</div>
                   <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{analysis.next_steps}</div>

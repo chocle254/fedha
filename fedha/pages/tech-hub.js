@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { STAGES, stageProgress, streakOf, journeyState, museNotice } from '../lib/startup';
 import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
@@ -1656,6 +1657,63 @@ function ResearchSection({ research, onAdd, onEdit, onDelete }) {
 }
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
+// A startup in the list: stage-coloured card with the journey path,
+// progress ring and what Muse would say about it today.
+function StartupCard({ s, onDelete }) {
+  const stages = s.stages || {};
+  const { allDone, currentIdx, stage, pct } = journeyState(stages);
+  const notice = museNotice(s);
+  const streak = streakOf(s.log || []);
+  const plan = s.plan?.tasks?.length ? s.plan : null;
+  const planDone = plan ? plan.tasks.filter((t) => t.done).length : 0;
+  const r = 22, c = 2 * Math.PI * r;
+  return (
+    <Link href={`/startup/${s.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+      <div className="su-card" style={{ '--stage': stage.color }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="su-icon">{stage.emoji}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="su-name">{s.name}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>
+              {allDone ? '🏁 Fully mapped' : `${stage.label} · stage ${currentIdx + 1} of ${STAGES.length}`}{s.accelerator ? ` · 🏛 ${s.accelerator}` : ''}
+            </div>
+          </div>
+          <div style={{ position: 'relative', width: 52, height: 52, flexShrink: 0 }}>
+            <svg width="52" height="52" viewBox="0 0 52 52" style={{ transform: 'rotate(-90deg)' }}>
+              <circle cx="26" cy="26" r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5" />
+              <circle cx="26" cy="26" r={r} fill="none" stroke={stage.color} strokeWidth="5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - pct / 100)} />
+            </svg>
+            <div className="font-num" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11.5, fontWeight: 700 }}>{pct}%</div>
+          </div>
+        </div>
+
+        <div className="su-path">
+          {STAGES.map((st, i) => {
+            const p = stageProgress(stages[st.id], st.fields);
+            return <span key={st.id} title={st.label} className={p === 100 ? 'done' : i === currentIdx && !allDone ? 'now' : ''} style={{ '--c': st.color }} />;
+          })}
+        </div>
+
+        <div className="su-row">
+          {s.focus && !s.focus.done
+            ? <span className="su-pill">🎯 {s.focus.text}</span>
+            : notice
+              ? <span className="su-muse"><span className="muse-orb" style={{ width: 14, height: 14 }} />{notice.text}</span>
+              : <span className="su-muse">All caught up</span>}
+        </div>
+
+        <div className="su-foot">
+          <span>{streak ? `🔥 ${streak}-day streak` : 'No streak yet'}</span>
+          {plan && <span>🗺️ Plan ${planDone}/${plan.tasks.length}</span>}
+          <span style={{ flex: 1 }} />
+          <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(); }} className="su-del" aria-label={`Delete ${s.name}`}>🗑️</button>
+          <span className="su-open">Open →</span>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
 export default function TechHubPage() {
   const {
     hackathons: hackathonsRaw, addHackathon, updateHackathon, removeHackathon,
@@ -1931,8 +1989,9 @@ export default function TechHubPage() {
 
   async function createStartup() {
     if (!startupName.trim()) return;
-    await addStartup({ name: startupName.trim(), accelerator: startupAcc.trim(), stages: {} });
+    const created = await addStartup({ name: startupName.trim(), accelerator: startupAcc.trim(), stages: {} });
     setStartupName(''); setStartupAcc(''); setShowStartupForm(false);
+    if (created?.id) router.push(`/startup/${created.id}`);
   }
 
   // Finishing a hackathon moves its project into the Showroom (once — if you
@@ -2237,23 +2296,17 @@ export default function TechHubPage() {
               )}
 
               {startups.length === 0 ? (
-                <div className="empty-state"><div className="icon">💡</div><h3>No startups yet</h3><p>Add a startup to map its journey from ideation to MVP</p></div>
-              ) : startups.map((s) => (
-                <Link key={s.id} href={`/startup/${s.id}`} style={{ textDecoration: 'none' }}>
-                  <div className="card" style={{ padding: 16, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ width: 46, height: 46, borderRadius: 12, background: 'var(--green-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>💡</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{s.name}</div>
-                      {s.accelerator && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>🏛 {s.accelerator}</div>}
-                      {s.focus && !s.focus.done
-                        ? <div style={{ fontSize: 12, color: 'var(--yellow)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>🎯 {s.focus.text}</div>
-                        : <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>No commitment this week — open to set one</div>}
-                    </div>
-                    <button onClick={(e) => { e.preventDefault(); if (window.confirm(`Delete "${s.name}" and its whole journey? This can't be undone.`)) removeStartup(s.id); }} className="btn-icon" aria-label="Delete">🗑️</button>
-                    <span style={{ color: 'var(--text-3)', fontSize: 18 }}>›</span>
-                  </div>
-                </Link>
-              ))}
+                <div className="su-empty">
+                  <span className="muse-orb" style={{ width: 54, height: 54 }} />
+                  <h3>Start your first startup</h3>
+                  <p>Muse walks you from idea to MVP and beyond: it asks the right questions, makes a step-by-step plan and checks in when you go quiet.</p>
+                  <button className="btn-primary muse-send" style={{ width: 'auto', padding: '0 22px', background: 'linear-gradient(135deg, #0A84FF, #7B61FF, #E64FB4)' }} onClick={() => setShowStartupForm(true)}>+ Add a startup</button>
+                </div>
+              ) : (
+                <div className="su-grid">
+                  {startups.map((s) => <StartupCard key={s.id} s={s} onDelete={() => { if (window.confirm(`Delete "${s.name}" and its whole journey? This can't be undone.`)) removeStartup(s.id); }} />)}
+                </div>
+              )}
             </div>
           )}
 

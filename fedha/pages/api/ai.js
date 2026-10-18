@@ -27,7 +27,7 @@ export default async function handler(req, res) {
   if (!(await requireUser(req, res))) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup, lesson, transcript } = req.body;
+  const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup, lesson, transcript, stage, question, history } = req.body;
   const useSearch = SEARCH_GROUNDED_TYPES.has(type);
 
   if (type === 'lesson_notes' && !transcript?.trim()) return res.status(400).json({ error: 'Lesson transcript is required' });
@@ -202,6 +202,38 @@ Provide a comprehensive analysis. Return a JSON object with exactly these fields
 Be specific, data-driven where possible, and constructive. Don't be afraid to point out real issues.`;
   }
 
+  // Muse on the startup page: a step-by-step plan for the current stage, or
+  // a short answer to a question about the startup.
+  if (type === 'startup_plan' || type === 'startup_chat') {
+    if (!startup) return res.status(400).json({ error: 'Startup data required' });
+    if (type === 'startup_chat' && !String(question || '').trim()) return res.status(400).json({ error: 'Question required' });
+    const ctx = startupContext(startup);
+    if (type === 'startup_plan') {
+      prompt = `You are Muse, a practical startup co-founder. Break the founder's CURRENT stage into a short plan.
+
+${ctx}
+
+Current stage: ${stage?.label || 'Ideation'} — ${stage?.blurb || ''}
+Questions this stage must answer: ${(stage?.fields || []).map((f) => f.label).join(', ')}
+
+Return JSON: {"tasks":[{"text":"...","why":"..."}]}
+- 4 to 6 tasks, in the order to do them.
+- Each "text" is one concrete action finishable in 1-2 days, starting with a verb, max 12 words. Make it specific to THIS startup, not generic.
+- Each "why" is one short sentence on what it unlocks.
+- The founder is a student developer in Kenya with little money: prefer free, scrappy, do-it-today actions.`;
+    } else {
+      const past = (Array.isArray(history) ? history : []).slice(-8).map((m) => `${m.role === 'user' ? 'Founder' : 'Muse'}: ${String(m.text || '').slice(0, 600)}`).join('\n');
+      prompt = `You are Muse, a warm, direct startup co-founder who knows this startup well.
+
+${ctx}
+
+${past ? `Conversation so far:\n${past}\n\n` : ''}Founder: ${String(question).slice(0, 1000)}
+
+Reply as Muse. Be specific to this startup, practical and honest. Plain text, no markdown headings, at most 120 words. If you suggest steps, give at most 3 as short lines starting with "• ".
+Return JSON: {"reply":"..."}`;
+    }
+  }
+
   try {
     if (useSearch) {
       // activities/opportunities: run real web searches first, then have
@@ -285,6 +317,18 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
 
     if (type === 'lesson_notes') return res.status(200).json({ notes: rawText.trim() });
 
+    if (type === 'startup_plan' || type === 'startup_chat') {
+      const obj = parseObject(rawText);
+      if (type === 'startup_plan') {
+        const tasks = (obj?.tasks || []).filter((t) => t && t.text).slice(0, 6).map((t) => ({ text: String(t.text).slice(0, 140), why: String(t.why || '').slice(0, 200) }));
+        if (!tasks.length) return res.status(500).json({ error: 'Could not make a plan right now' });
+        return res.status(200).json({ tasks });
+      }
+      const reply = String(obj?.reply || '').trim();
+      if (!reply) return res.status(500).json({ error: 'Muse had nothing to say — try again' });
+      return res.status(200).json({ reply });
+    }
+
     // For analysis types, return the full object (not just results)
     if (type === 'startup_analysis') {
       try {
@@ -364,4 +408,33 @@ function findBalancedJsonEnd(text, start) {
     }
   }
   return -1;
+}
+
+// Everything the founder has written about the startup, for Muse's prompts.
+function startupContext(startup) {
+  const stagesText = Object.entries(startup.stages || {})
+    .map(([id, data]) => {
+      const lines = Object.entries(data || {}).filter(([, v]) => String(v || '').trim()).map(([k, v]) => `  ${k}: ${String(v).slice(0, 400)}`);
+      return lines.length ? `${id}:\n${lines.join('\n')}` : null;
+    })
+    .filter(Boolean).join('\n');
+  const log = (startup.log || []).slice(0, 5).map((l) => `  ${l.date}: ${l.text}`).join('\n');
+  return [
+    `Startup: ${startup.name}`,
+    startup.accelerator ? `Accelerator: ${startup.accelerator}` : '',
+    startup.mission ? `Mission: ${startup.mission}` : '',
+    startup.focus && !startup.focus.done ? `This week's commitment: ${startup.focus.text} (due ${startup.focus.due})` : '',
+    `What they have written so far:\n${stagesText || '  (nothing yet)'}`,
+    log ? `Recent progress:\n${log}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function parseObject(rawText) {
+  const clean = String(rawText || '').replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  try { return JSON.parse(clean); } catch {}
+  const start = clean.indexOf('{');
+  if (start === -1) return null;
+  const end = findBalancedJsonEnd(clean, start);
+  if (end === -1) return null;
+  try { return JSON.parse(clean.slice(start, end + 1)); } catch { return null; }
 }
