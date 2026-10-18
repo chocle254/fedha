@@ -38,7 +38,22 @@ export default async function handler(req, res) {
     if (b.type === 'hack_brief') return res.status(200).json(await brief(b, GROQ_API_KEY));
     if (b.type === 'hack_chat' && !String(b.question || '').trim()) return res.status(400).json({ error: 'Question required' });
     if (b.type === 'hack_ideas') b.found = await ideaResearch(b);
-    const obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : 0.6);
+    let obj;
+    try {
+      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : 0.6);
+    } catch (e) {
+      // Groq's free tier caps tokens per request/minute. If the code
+      // evidence made the prompt too big, try once more with less of it.
+      const tooBig = e.status === 413 || /too large|reduce|tokens per minute/i.test(e.message || '');
+      const ev = b.hack?.coach?.app?.evidence;
+      if (!tooBig || !ev) throw e;
+      ev.sources = (ev.sources || []).slice(0, 4).map((f) => ({ ...f, text: String(f.text || '').slice(0, 600), outline: (f.outline || []).slice(0, 20), truncated: true }));
+      ev.readme = String(ev.readme || '').slice(0, 2000);
+      ev.files = (ev.files || []).slice(0, 80);
+      ev.deps = (ev.deps || []).slice(0, 1);
+      if (b.hack.coach.presentation?.text) b.hack.coach.presentation.text = String(b.hack.coach.presentation.text).slice(0, 2500);
+      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), 0.6, 3000);
+    }
     const out = shape[b.type](obj, b);
     if (out.error) return res.status(500).json(out);
     return res.status(200).json(out);
@@ -48,14 +63,14 @@ export default async function handler(req, res) {
   }
 }
 
-async function groqJSON(key, prompt, temperature = 0.6) {
+async function groqJSON(key, prompt, temperature = 0.6, maxTokens = 6000) {
   const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
     body: JSON.stringify({
       model: GROQ_MODEL,
       temperature,
-      max_tokens: 6000,
+      max_tokens: maxTokens,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You output only valid JSON. No markdown, no commentary.' },
@@ -133,10 +148,25 @@ async function ideaResearch(b) {
 // timelineOf). These are facts; the AI must not contradict them.
 function timelineFact(t) {
   if (!t || t.verdict === 'no_repo') return '';
-  if (t.verdict === 'during') return `BUILD TIMELINE (verified from GitHub, treat as fact): the hackathon opened ${t.start}; the repo's first commit was ${t.first_commit} (${t.commit_count} commits total). All of this work was made DURING the hackathon, so it is eligible new work. Do NOT say it was built before the hackathon.`;
-  if (t.verdict === 'before') return `BUILD TIMELINE (verified from GitHub, treat as fact): the hackathon opened ${t.start}; the repo's first commit was ${t.first_commit}, ${t.days_before} days earlier (${t.commit_count} commits total). Work before ${t.start} is pre-existing.`;
+  const where = t.folder ? `the project folder ${t.folder}/` : "the repo";
+  if (t.verdict === 'during') return `BUILD TIMELINE (verified from GitHub, treat as fact): the hackathon opened ${t.start}; the first commit to ${where} was ${t.first_commit} (${t.commit_count} commits). All of this work was made DURING the hackathon, so any "new work only" / "built during the event" rule is MET. Do NOT call it pre-existing, and do not use repo or folder creation dates to argue otherwise.`;
+  if (t.verdict === 'before') return `BUILD TIMELINE (verified from GitHub, treat as fact): the hackathon opened ${t.start}; the first commit to ${where} was ${t.first_commit}, ${t.days_before} days earlier (${t.commit_count} commits). Work before ${t.start} is pre-existing.`;
   if (t.verdict === 'no_start') return `BUILD TIMELINE: the hackathon start date is unknown; the repo's first commit was ${t.first_commit || 'unknown'}. Do not assume the work is pre-existing; tell the builder to confirm the start date.`;
   return 'BUILD TIMELINE: unknown. Do not assume the work is pre-existing.';
+}
+
+// What the judges actually look at: README, the file list and excerpts of
+// the main source files (fetched on the device, lib/hack-coach.js).
+function evidenceText(hack) {
+  const ev = hack.coach?.app?.evidence;
+  if (!ev) return hack.coach?.app ? 'CODE: the builder connected an app but no files could be read.' : 'CODE: no repo connected; judge the code only from what the presentation and write-up say.';
+  return [
+    `CODE EVIDENCE${hack.coach.app.repo?.folder ? ` (project folder ${hack.coach.app.repo.folder}/)` : ''}:`,
+    ev.readme ? `README:\n${clip(ev.readme, 5000)}` : 'README: none',
+    ev.files?.length ? `Files (${ev.files.length} shown):\n${ev.files.join('\n')}` : '',
+    ev.deps?.length ? `Dependencies:\n${ev.deps.map((d) => `${d.path}: ${clip(d.text, 600)}`).join('\n')}` : '',
+    ...(ev.sources || []).map((f) => `--- ${f.path}${f.size ? ` (${Math.round(f.size / 100) / 10} KB)` : ''} ---\n${clip(f.text, 1800)}${f.outline?.length ? `\n[outline of the whole file]\n${f.outline.join('\n').slice(0, 2200)}` : ''}`),
+  ].filter(Boolean).join('\n\n');
 }
 
 // The app the builder already made, as the mentor sees it on every request.
@@ -243,6 +273,7 @@ const prompts = {
       r?.deps?.length ? `Dependencies:\n${r.deps.map((d) => `${d.path}:\n${clip(d.text, 1200)}`).join('\n')}` : '',
       r?.files?.length ? `Files (${r.file_count} total, first ${r.files.length}):\n${r.files.join('\n')}` : '',
       r?.commits?.length ? `Recent commits:\n${r.commits.map((c) => `${String(c.date || '').slice(0, 10)} ${c.message}`).join('\n')}` : '',
+      ...(app.evidence?.sources || []).map((f) => `--- ${f.path} ---\n${clip(f.text, 1500)}${f.outline?.length ? `\n[outline]\n${f.outline.join('\n').slice(0, 1500)}` : ''}`),
       timelineFact(app.timeline),
     ].filter(Boolean).join('\n\n');
     return `You are a hackathon mentor. The builder wants to enter THIS hackathon with an app they have already started or built. Read what the app really is from the evidence below, and judge how to take it into this hackathon.
@@ -333,8 +364,19 @@ Return JSON: {"verdict":"on_track|overbuilding|overthinking|underbuilding","head
 
 ${ctx(b.hack)}
 
-WHAT THE BUILDER SUBMITS FOR JUDGING:
-${clip(b.pitch, 3000) || '(no write-up — judge from the idea, plan, progress and notes above)'}
+${evidenceText(b.hack)}
+
+THE PRESENTATION / DEMO THE BUILDER WILL SHOW:
+${clip(b.hack.coach?.presentation?.text, 6000) || '(not provided)'}${b.hack.coach?.presentation?.links ? `\nLinks (deck, video, live demo): ${clip(b.hack.coach.presentation.links, 500)}` : ''}
+
+SUBMISSION WRITE-UP:
+${clip(b.pitch, 4000) || '(not written yet)'}
+
+HOW TO JUDGE FAIRLY — real judges read the code and watch the presentation:
+- Base every score note on the evidence above and name it: a file path, a README section, a slide or a submission field.
+- Only say something is missing if you looked where it would be (presentation, README, files, source excerpts, submission) and it is not there. You only see excerpts of some files: if something might be in code you were not shown, mark it "unclear" and ask about it in questions instead of calling it missing.
+- For any rule about new/original work, start dates or building during the event, use ONLY the BUILD TIMELINE. Ignore folder names and file layout for that rule.
+- If something is not shown in the presentation, say so as advice, not as an accusation.
 
 Return JSON: {"overall":0,"verdict":"one sentence the panel would say","judges":[{"role":"","comment":"2 sentences in this judge's voice"}],"scores":[{"criterion":"","weight":0,"score":0,"note":""}],"requirements":[{"rule":"","status":"met|missing|unclear","note":""}],"strengths":[""],"fixes":[""],"twists":[{"idea":"","why":"","hours":0}],"questions":[""],"prize_odds":"one honest sentence on their chances and which track/prize is most winnable"}
 - scores: exactly these criteria: ${criteria}. score 1-10, note = one sentence why. overall 0-100 = the weighted result.

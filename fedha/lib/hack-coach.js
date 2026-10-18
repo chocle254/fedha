@@ -126,16 +126,21 @@ export function mentorNotice(hack, now = Date.now()) {
 // What the coach endpoint needs — without images or long chat history.
 // full: send the whole repo snapshot (only the app check needs it); every
 // other request gets a short summary so prompts stay small.
-export function hackForAI(hack, { full = false } = {}) {
+export function hackForAI(hack, { full = false, evidence = null } = {}) {
   const { project_image, certificate_image, coach = {}, tasks = [], ...rest } = hack || {};
   const { chat, judged, raw, ideas, ...c } = coach;
   if (c.app) {
     const r = c.app.repo;
-    c.app = full ? c.app : {
+    // Always recompute: the start date may have been set after the scan.
+    const timeline = timelineOf(hack, r);
+    c.app = full ? { ...c.app, timeline } : {
       ...c.app,
+      timeline,
       linked: c.app.linked ? { ...c.app.linked, text: String(c.app.linked.text || '').slice(0, 900) } : null,
-      repo: r ? { full_name: r.full_name, url: r.url, languages: r.languages, pushed_at: r.pushed_at, file_count: r.file_count, commits: (r.commits || []).slice(0, 8) } : null,
+      repo: r ? { full_name: r.full_name, url: r.url, folder: r.folder || '', languages: r.languages, pushed_at: r.pushed_at, file_count: r.file_count, commits: (r.commits || []).slice(0, 8) } : null,
     };
+    // The judges get the real evidence: README, file list and source files.
+    if (evidence && r) c.app.evidence = { readme: r.readme || '', files: (r.files || []).slice(0, 250), deps: r.deps || [], sources: evidence };
   }
   return {
     ...rest,
@@ -184,25 +189,79 @@ async function gh(path, accept) {
   return accept?.includes('raw') ? res.text() : res.json();
 }
 
+const rawUrl = (name, branch, p) => `https://raw.githubusercontent.com/${name}/${encodeURIComponent(branch)}/${p.split('/').map(encodeURIComponent).join('/')}`;
+
+// The source files a judge would open first: entry points, routes, pages
+// and main components, plus any slides or demo script kept in the repo.
+const CODE = /\.(jsx?|tsx?|py|go|rs|dart|java|kt|swift|vue|svelte|rb|php|cs|sol|ipynb)$/i;
+const DOC = /\.(md|txt)$/i;
+const OUTLINE = /^\s{0,4}(export\s|async\s+def\s|def\s|class\s|function\s|(pub\s+)?fn\s|func\s|@(app|router|bp|api)\.(get|post|put|patch|delete|route|websocket)|(app|router)\.(get|post|put|patch|delete|use)\(|const\s+[A-Z]\w*\s*=)/;
+
+export function rankFile(p, size = 0) {
+  const f = p.toLowerCase();
+  const base = f.split('/').pop();
+  if (/(^|\/)(test|tests|__tests__|spec|e2e|fixtures|migrations|alembic|scripts?|seeds?|examples?|public|static|assets)\//.test(f)) return -1;
+  if (/\.(test|spec|config|min|d)\.[a-z]+$/.test(base) || /^(__init__|env|conftest|setup|setuptests|reportwebvitals|serviceworker|next-env|clear_.*|seed.*|manage)\.[a-z]+$/.test(base)) return -1;
+  let r = 0;
+  if (DOC.test(f) && /(pitch|slides?|deck|presentation|demo|submission|devpost)/.test(f)) r += 12;
+  if (!CODE.test(f)) return DOC.test(f) && r ? r : -1;
+  if (size && size < 300) return -1; // re-exports and stubs
+  if (/^(main|app|index|server|api|routes?|router)\.[a-z]+$/.test(base)) r += 4;
+  if (/(^|\/)(routers?|routes|pages|app|screens|views|components|services|agents|api|controllers|handlers|lib|hooks|models)\//.test(f)) r += 3;
+  if (size) r += Math.min(4, Math.log2(size / 1000 + 1)); // substantial files tell judges more
+  r -= f.split('/').length * 0.4;
+  return r;
+}
+export async function gatherEvidence(repo, { maxFiles = 8, perFile = 1800 } = {}) {
+  if (!repo?.full_name) return [];
+  // Best-ranked first, but at most 2 files from any one folder, so the
+  // judges see pages, components and the backend, not eight API helpers.
+  const sizes = repo.sizes || {};
+  const ranked = (repo.files || []).map((p) => [p, rankFile(p, sizes[p])]).filter(([, r]) => r >= 0).sort((a, b) => b[1] - a[1]);
+  const perDir = {};
+  const picks = [];
+  for (const [p] of ranked) {
+    const dir = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '.';
+    if ((perDir[dir] || 0) >= 2) continue;
+    perDir[dir] = (perDir[dir] || 0) + 1;
+    picks.push(p);
+    if (picks.length >= maxFiles) break;
+  }
+  const got = await Promise.all(picks.map(async (p) => {
+    try {
+      const r = await fetch(rawUrl(repo.full_name, repo.branch || 'main', p));
+      if (!r.ok) return null;
+      const text = await r.text();
+      // An outline of the whole file (functions, classes, components, API
+      // routes), so judges see what is in it beyond the first lines.
+      const outline = text.length > perFile ? text.split('\n').filter((l) => OUTLINE.test(l)).map((l) => l.trim().slice(0, 110)).slice(0, 45) : [];
+      return { path: p, text: text.slice(0, outline.length ? Math.round(perFile * 0.55) : perFile), outline, size: text.length, truncated: text.length > perFile };
+    } catch { return null; }
+  }));
+  return got.filter(Boolean);
+}
+
 const commitOf = (c) => ({ sha: c.sha?.slice(0, 7), date: c.commit?.author?.date, message: String(c.commit?.message || '').split('\n')[0].slice(0, 140) });
 
 // The repo's very first commit and how many commits it has. GitHub lists
 // commits newest first; with one per page, the "last" page link is the
 // first commit and its page number is the total count.
-async function firstCommit(name) {
-  const res = await fetch(`https://api.github.com/repos/${name}/commits?per_page=1`);
+async function firstCommit(name, folder = '') {
+  const path = folder ? `&path=${encodeURIComponent(folder)}` : '';
+  const res = await fetch(`https://api.github.com/repos/${name}/commits?per_page=1${path}`);
   if (!res.ok) return null;
   const newest = await res.json();
   const last = (res.headers.get('link') || '').match(/[?&]page=(\d+)>;\s*rel="last"/);
   if (!last) return Array.isArray(newest) && newest[0] ? { first: commitOf(newest[0]), count: 1 } : null;
   const count = Number(last[1]);
-  const r2 = await fetch(`https://api.github.com/repos/${name}/commits?per_page=1&page=${count}`);
+  const r2 = await fetch(`https://api.github.com/repos/${name}/commits?per_page=1&page=${count}${path}`);
   if (!r2.ok) return { first: null, count };
   const oldest = await r2.json();
   return { first: Array.isArray(oldest) && oldest[0] ? commitOf(oldest[0]) : null, count };
 }
 
-export async function scanRepo(fullName) {
+export async function scanRepo(fullName, { folder = '' } = {}) {
+  folder = String(folder || '').replace(/^\/+|\/+$/g, '');
   const name = parseRepo(fullName);
   if (!name) throw new Error('That does not look like a GitHub repo. Use owner/repo or the repo URL.');
   let repo;
@@ -215,15 +274,24 @@ export async function scanRepo(fullName) {
     gh(`/repos/${name}/languages`).catch(() => ({})),
     gh(`/repos/${name}/readme`, 'application/vnd.github.raw').catch(() => ''),
     gh(`/repos/${name}/git/trees/${encodeURIComponent(branch)}?recursive=1`).catch(() => ({ tree: [] })),
-    gh(`/repos/${name}/commits?per_page=20`).catch(() => []),
-    firstCommit(name).catch(() => null),
+    gh(`/repos/${name}/commits?per_page=20${folder ? `&path=${encodeURIComponent(folder)}` : ''}`).catch(() => []),
+    firstCommit(name, folder).catch(() => null),
   ]);
-  const paths = (tree.tree || []).filter((t) => t.type === 'blob' && !/(^|\/)(node_modules|\.git|dist|build|\.next|vendor|__pycache__|venv)\//.test(t.path)).map((t) => t.path);
+  const blobs = (tree.tree || []).filter((t) => t.type === 'blob' && !/(^|\/)(node_modules|\.git|dist|build|\.next|vendor|__pycache__|venv)\//.test(t.path));
+  const allPaths = blobs.map((t) => t.path);
+  const sizeOf = Object.fromEntries(blobs.map((t) => [t.path, t.size || 0]));
+  const dirs = [...new Set(allPaths.map((p) => p.split('/')).filter((x) => x.length > 1).flatMap((x) => [x[0], x.length > 2 ? `${x[0]}/${x[1]}` : null]).filter(Boolean))].sort().slice(0, 60);
+  const paths = folder ? allPaths.filter((p) => p === folder || p.startsWith(folder + '/')) : allPaths;
+  let folderReadme = '';
+  if (folder) {
+    const rp = paths.find((p) => /^readme(\.md)?$/i.test(p.slice(folder.length + 1)));
+    if (rp) { try { const rr = await fetch(rawUrl(name, branch, rp)); if (rr.ok) folderReadme = await rr.text(); } catch {} }
+  }
   const manifests = paths.filter((p) => MANIFESTS.includes(p.split('/').pop()) && p.split('/').length <= 3 && !/(^|\/)(examples?|docs|test|tests|fixtures)\//.test(p))
     .sort((x, y) => x.split('/').length - y.split('/').length).slice(0, 4);
   const deps = await Promise.all(manifests.map(async (p) => {
     try {
-      const r = await fetch(`https://raw.githubusercontent.com/${name}/${encodeURIComponent(branch)}/${p}`);
+      const r = await fetch(rawUrl(name, branch, p));
       if (!r.ok) return null;
       let text = await r.text();
       if (p.endsWith('package.json')) {
@@ -244,9 +312,12 @@ export async function scanRepo(fullName) {
     pushed_at: repo.pushed_at,
     stars: repo.stargazers_count,
     languages: Object.entries(languages).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, n]) => `${k} ${Math.round((n / total) * 100)}%`),
-    readme: String(readme || '').slice(0, 7000),
+    readme: String(folderReadme || readme || '').slice(0, 7000),
+    folder,
+    dirs,
     file_count: paths.length,
     files: paths.slice(0, 250),
+    sizes: Object.fromEntries(paths.slice(0, 250).map((p) => [p, sizeOf[p] || 0])),
     deps: deps.filter(Boolean),
     commits: (Array.isArray(commits) ? commits : []).map(commitOf),
     first_commit: history?.first || null,
@@ -280,7 +351,7 @@ export function timelineOf(hack, repo) {
   const firstIso = repo?.first_commit?.date || '';
   const first = firstIso.slice(0, 10);
   const created = String(repo?.created_at || '').slice(0, 10);
-  const out = { start, first_commit: first, repo_created: created, commit_count: repo?.commit_count || 0 };
+  const out = { start, first_commit: first, repo_created: created, commit_count: repo?.commit_count || 0, folder: repo?.folder || '' };
   if (!repo) return { ...out, verdict: 'no_repo' };
   if (!start) return { ...out, verdict: 'no_start' };
   if (!first) return { ...out, verdict: 'unknown' };
@@ -292,8 +363,8 @@ export function timelineOf(hack, repo) {
 export function timelineText(t) {
   if (!t) return '';
   const fmt = (d) => (d ? new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '?');
-  if (t.verdict === 'during') return `Built during the hackathon: first commit ${fmt(t.first_commit)}, the hackathon opened ${fmt(t.start)}.`;
-  if (t.verdict === 'before') return `Started before the hackathon: first commit ${fmt(t.first_commit)}, ${t.days_before} days before it opened on ${fmt(t.start)}.`;
+  if (t.verdict === 'during') return `Built during the hackathon: first commit${t.folder ? ` in ${t.folder}/` : ''} ${fmt(t.first_commit)}, the hackathon opened ${fmt(t.start)}.`;
+  if (t.verdict === 'before') return `Started before the hackathon: first commit${t.folder ? ` in ${t.folder}/` : ''} ${fmt(t.first_commit)}, ${t.days_before} days before it opened on ${fmt(t.start)}.`;
   if (t.verdict === 'no_start') return 'Add the date the hackathon opened so I can check whether the app was built during it.';
   if (t.verdict === 'unknown') return "Couldn't read the repo's first commit, so the build dates are unknown.";
   return '';

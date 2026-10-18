@@ -6,7 +6,7 @@ import { genId, todayISO } from '../../lib/utils';
 import { fireConfetti } from '../../lib/confetti';
 import { ScoreBar, scoreColor } from '../../components/startup/museApi';
 import AppConnect from '../../components/hackcoach/AppConnect';
-import { startDateOf } from '../../lib/hack-coach';
+import { startDateOf, gatherEvidence, timelineOf, timelineText } from '../../lib/hack-coach';
 import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, workload, minutesLogged, coachTasks, submissionFields, hackForAI, coachAsk, addDays } from '../../lib/hack-coach';
 
 // The Hackathon Coach: a mentor that reads the hackathon you paste,
@@ -106,7 +106,7 @@ export default function HackathonCoach() {
   const [hours, setHours] = useState(null);
   const [openTask, setOpenTask] = useState(null);
   // judges / submit
-  const [judgeText, setJudgeText] = useState('');
+  const [judgeSeen, setJudgeSeen] = useState(null);
   const [fieldDraft, setFieldDraft] = useState({});
   const [copied, setCopied] = useState('');
 
@@ -291,7 +291,9 @@ export default function HackathonCoach() {
   function judgeNow() {
     run('judge', async () => {
       const subm = Object.entries(cur().coach?.submission?.fields || {}).filter(([, v]) => String(v || '').trim()).map(([k, v]) => `${k}: ${v}`).join('\n');
-      const r = await coachAsk('hack_judge', { hack: hackForAI(cur()), pitch: judgeText.trim() || subm });
+      const sources = await gatherEvidence(cur().coach?.app?.repo);
+      setJudgeSeen(sources.map((f) => f.path));
+      const r = await coachAsk('hack_judge', { hack: hackForAI(cur(), { evidence: sources }), pitch: subm });
       saveCoach({ judged: [{ ...r, at: Date.now(), date: today }, ...(cur().coach?.judged || [])].slice(0, 6) });
       setTimeout(() => document.getElementById('hc-verdict')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
     });
@@ -706,7 +708,27 @@ export default function HackathonCoach() {
             <section className="card muse-card muse-agent" style={{ '--stage': '#7B61FF' }}>
               <div className="muse-label">⚖️ THIS HACKATHON'S PANEL</div>
               <div style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '8px 0 10px', lineHeight: 1.5 }}>A panel shaped like this event's judges scores your project on {brief?.criteria?.length ? `its ${brief.criteria.length} criteria` : 'standard hackathon criteria'}, checks every requirement, and suggests twists that would beat their expectations.</div>
-              <textarea className="input" rows={4} style={{ resize: 'vertical', lineHeight: 1.5 }} placeholder="Optional: describe what you'd show the judges right now. If empty, they judge your idea, plan, progress, notes and submission draft." value={judgeText} onChange={(e) => setJudgeText(e.target.value)} />
+              <label className="muse-label" htmlFor="hc-pres" style={{ display: 'block' }}>YOUR PRESENTATION</label>
+              <textarea id="hc-pres" className="input" rows={6} style={{ marginTop: 6, resize: 'vertical', lineHeight: 1.5 }} placeholder="Paste your slides' text, your demo script or pitch notes. Judges score what they see here." defaultValue={coach.presentation?.text || ''} onBlur={(e) => e.target.value !== (coach.presentation?.text || '') && saveCoach({ presentation: { ...(coach.presentation || {}), text: e.target.value } })} />
+              <input className="input" style={{ marginTop: 8 }} aria-label="Presentation links" placeholder="Links: deck, demo video, live app (optional)" defaultValue={coach.presentation?.links || ''} onBlur={(e) => e.target.value !== (coach.presentation?.links || '') && saveCoach({ presentation: { ...(coach.presentation || {}), links: e.target.value } })} />
+              {(() => {
+                const r = coach.app?.repo;
+                const tl = r ? timelineOf(hack, r) : null;
+                const filled = Object.values(coach.submission?.fields || {}).filter((v) => String(v || '').trim()).length;
+                const row = (ok, text) => <li>{ok ? '✅' : '⬜'} {text}</li>;
+                return (
+                  <>
+                    <div className="muse-label" style={{ marginTop: 14 }}>WHAT THE JUDGES WILL READ</div>
+                    <ul className="muse-how" style={{ listStyle: 'none', paddingLeft: 0 }}>
+                      {row(!!coach.presentation?.text?.trim(), coach.presentation?.text?.trim() ? 'Your presentation' : 'Your presentation (paste it above)')}
+                      {row(!!r, r ? `Code from ${r.full_name}${r.folder ? `/${r.folder}` : ''}: README, ${r.file_count} file names and the main source files` : 'Code (connect your app on the Ideas tab)')}
+                      {row(filled > 0, filled ? `Submission draft (${filled} fields)` : 'Submission draft (none yet)')}
+                      {r && <li>{tl.verdict === 'during' ? '✅' : tl.verdict === 'before' ? '⚠️' : '⬜'} {timelineText(tl) || 'Build dates'}</li>}
+                    </ul>
+                    {judgeSeen?.length > 0 && <div style={{ fontSize: 11.5, color: 'var(--text-3)', overflowWrap: 'anywhere' }}>Last run opened: {judgeSeen.join(', ')}</div>}
+                  </>
+                );
+              })()}
               <button className="btn-primary muse-send" style={{ marginTop: 10 }} onClick={judgeNow} disabled={!!busy || !coach.idea}>{busy === 'judge' ? 'The judges are scoring…' : !coach.idea ? 'Pick an idea first' : '⚖️ Judge my project'}</button>
               <ErrLine />
             </section>
