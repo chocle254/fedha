@@ -372,7 +372,7 @@ Return JSON: {"verdict":"on_track|overbuilding|overthinking|underbuilding","head
     const crit = br.criteria || [];
     const realWeights = validWeights(crit);
     const criteria = crit.length ? crit.map((k) => `${k.name}${realWeights ? ` (${k.weight}%)` : ''}`).join(', ') : 'Innovation / originality, Technical difficulty & execution, Impact / usefulness, Design & user experience, Presentation & demo, Fit with theme';
-    const verified = clip(b.hack.coach?.app?.verified, 3000);
+    const verified = clip(b.hack.coach?.facts || b.hack.coach?.app?.verified, 3000);
     return `You are the judging panel of THIS hackathon. Build a panel of 3 judges that fits the event (for example an organizer representative, a sponsor engineer, a domain expert) — describe each by role only, never by a real person's name. Judge exactly as this hackathon's criteria say, as strictly as real judges: most entries score 45-70.
 
 ${ctx(b.hack)}
@@ -383,6 +383,7 @@ VERIFIED FACTS (checked in code from GitHub and the builder's entries; these are
 ${verified}
 - Never call a document "missing" if it appears in the document list above, whatever folder it is in.
 - Never suggest doing something these facts show is already done (for example deploying when a live app is listed).
+- Judge the video only from these facts and THE PRESENTATION below. You cannot watch it: never invent its length, pacing or content.
 ` : ''}
 THE PRESENTATION / DEMO THE BUILDER WILL SHOW:
 ${clip(b.hack.coach?.presentation?.text, 6000) || '(not provided)'}${b.hack.coach?.presentation?.links ? `\nLinks (deck, video, live demo): ${clip(b.hack.coach.presentation.links, 500)}` : ''}

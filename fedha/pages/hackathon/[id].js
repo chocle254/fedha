@@ -6,7 +6,7 @@ import { genId, todayISO } from '../../lib/utils';
 import { fireConfetti } from '../../lib/confetti';
 import { ScoreBar, scoreColor } from '../../components/startup/museApi';
 import AppConnect from '../../components/hackcoach/AppConnect';
-import { startDateOf, gatherEvidence, timelineOf, timelineText, scanRepo, applyFacts, dropDone } from '../../lib/hack-coach';
+import { startDateOf, gatherEvidence, timelineOf, timelineText, scanRepo, applyFacts, dropDone, verifiedFacts, fmtDuration } from '../../lib/hack-coach';
 import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, workload, minutesLogged, coachTasks, submissionFields, hackForAI, coachAsk, addDays } from '../../lib/hack-coach';
 
 // The Hackathon Coach: a mentor that reads the hackathon you paste,
@@ -307,6 +307,7 @@ export default function HackathonCoach() {
         ...raw,
         requirements: applyFacts(raw.requirements, cur()),
         fixes: dropDone(raw.fixes, cur()),
+        questions: dropDone(raw.questions, cur()),
         twists: dropDone(raw.twists, cur(), 'idea'),
       };
       saveCoach({ judged: [{ ...r, at: Date.now(), date: today }, ...(cur().coach?.judged || [])].slice(0, 6) });
@@ -724,8 +725,9 @@ export default function HackathonCoach() {
               <div className="muse-label">⚖️ THIS HACKATHON'S PANEL</div>
               <div style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '8px 0 10px', lineHeight: 1.5 }}>A panel shaped like this event's judges scores your project on {brief?.criteria?.length ? `its ${brief.criteria.length} criteria` : 'standard hackathon criteria'}, checks every requirement, and suggests twists that would beat their expectations.</div>
               <label className="muse-label" htmlFor="hc-pres" style={{ display: 'block' }}>YOUR PRESENTATION</label>
-              <textarea id="hc-pres" className="input" rows={6} style={{ marginTop: 6, resize: 'vertical', lineHeight: 1.5 }} placeholder="Paste your slides' text, your demo script or pitch notes. Judges score what they see here." defaultValue={coach.presentation?.text || ''} onBlur={(e) => e.target.value !== (coach.presentation?.text || '') && saveCoach({ presentation: { ...(coach.presentation || {}), text: e.target.value } })} />
+              <textarea id="hc-pres" className="input" rows={6} style={{ marginTop: 6, resize: 'vertical', lineHeight: 1.5 }} placeholder="Paste your demo video's script (what it says and shows), slides' text or pitch notes. Judges score what they see here." defaultValue={coach.presentation?.text || ''} onBlur={(e) => e.target.value !== (coach.presentation?.text || '') && saveCoach({ presentation: { ...(coach.presentation || {}), text: e.target.value } })} />
               <input className="input" style={{ marginTop: 8 }} aria-label="Presentation links" placeholder="Links: deck, demo video, live app (optional)" defaultValue={coach.presentation?.links || ''} onBlur={(e) => e.target.value !== (coach.presentation?.links || '') && saveCoach({ presentation: { ...(coach.presentation || {}), links: e.target.value } })} />
+              <input className="input" style={{ marginTop: 8 }} aria-label="Demo video length" inputMode="numeric" placeholder="Video length, e.g. 2:47" defaultValue={coach.presentation?.video_length || ''} onBlur={(e) => e.target.value !== (coach.presentation?.video_length || '') && saveCoach({ presentation: { ...(coach.presentation || {}), video_length: e.target.value.trim() } })} />
               {(() => {
                 const r = coach.app?.repo;
                 const tl = r ? timelineOf(hack, r) : null;
@@ -736,6 +738,14 @@ export default function HackathonCoach() {
                     <div className="muse-label" style={{ marginTop: 14 }}>WHAT THE JUDGES WILL READ</div>
                     <ul className="muse-how" style={{ listStyle: 'none', paddingLeft: 0 }}>
                       {row(!!coach.presentation?.text?.trim(), coach.presentation?.text?.trim() ? 'Your presentation' : 'Your presentation (paste it above)')}
+                      {(() => {
+                        const f = verifiedFacts(hack);
+                        const len = f.video_seconds != null ? fmtDuration(f.video_seconds) : '';
+                        const lim = f.video_limit ? `${f.video_limit.min ? `${fmtDuration(f.video_limit.min)}–` : 'up to '}${fmtDuration(f.video_limit.max)}` : '';
+                        if (f.video_ok === false) return <li>⚠️ Video {len} is outside the {lim} limit</li>;
+                        if (len) return row(!!f.video, `Video ${len}${f.video_ok ? `, within ${lim}` : ''}${f.video ? '' : ' (add its link above)'}`);
+                        return row(false, f.video ? 'Video link (add its length so it can be checked)' : 'Demo video (add its link and length above)');
+                      })()}
                       {row(!!r, r ? `Code from ${r.full_name}${r.folder ? `/${r.folder}` : ''}: README, ${r.file_count} file names and the main source files` : 'Code (connect your app on the Ideas tab)')}
                       {row(filled > 0, filled ? `Submission draft (${filled} fields)` : 'Submission draft (none yet)')}
                       {r && <li>{tl.verdict === 'during' ? '✅' : tl.verdict === 'before' ? '⚠️' : '⬜'} {timelineText(tl) || 'Build dates'}</li>}

@@ -144,6 +144,8 @@ export function hackForAI(hack, { full = false, evidence = null } = {}) {
     // The judges get the real evidence: README, file list and source files.
     if (evidence && r) c.app.evidence = { readme: r.readme || '', files: (r.files || []).slice(0, 250), deps: r.deps || [], sources: evidence };
   }
+  // Checked facts go to every prompt, even with no app connected (video length, how judging works).
+  c.facts = factsText(hack);
   return {
     ...rest,
     tasks: tasks.slice(0, 40).map((t) => ({ text: t.text, done: !!t.done, due: t.due || null, minutes: t.minutes || null })),
@@ -390,12 +392,60 @@ export function timelineText(t) {
 // Everything here comes from GitHub or the builder's own entries, never from the AI.
 const VIDEO_HOSTS = /(youtube\.com|youtu\.be|vimeo\.com|loom\.com|drive\.google\.com|dropbox\.com)/i;
 
+// "2:47", "167", "2m 47s", "2 min 47 sec", "3 minutes" → seconds (null if unreadable).
+export function parseDuration(v) {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (!s) return null;
+  let m = s.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+  if (m) return +m[1] * 3600 + +m[2] * 60 + +m[3];
+  m = s.match(/^(\d{1,3}):(\d{1,2})$/);
+  if (m) return +m[1] * 60 + +m[2];
+  if (/^\d+(\.\d+)?$/.test(s)) return Math.round(+s);
+  m = s.match(/^(?:(\d+(?:\.\d+)?)\s*m(?:in(?:ute)?s?)?)?\s*(?:(\d+)\s*s(?:ec(?:ond)?s?)?)?$/);
+  if (m && (m[1] || m[2])) return Math.round((+m[1] || 0) * 60 + (+m[2] || 0));
+  return null;
+}
+export const fmtDuration = (sec) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
+
+// The video length limits in the brief's rules, e.g. "1 to 3 minutes", "under 3 minutes", "max 90 seconds".
+export function videoLimit(rules) {
+  for (const raw of rules || []) {
+    const r = String(raw || '').toLowerCase();
+    if (!/(video|demo|screencast|recording|pitch)/.test(r)) continue;
+    const unit = (u) => (/^s/.test(u) ? 1 : 60);
+    let m = r.match(/(\d+(?:\.\d+)?)\s*(?:to|-|–|—|and)\s*(\d+(?:\.\d+)?)\s*(min|minutes?|mins?|sec|seconds?|s)\b/);
+    if (m) return { min: Math.round(+m[1] * unit(m[3])), max: Math.round(+m[2] * unit(m[3])), rule: raw };
+    m = r.match(/(?:under|max(?:imum)?|up to|no (?:more|longer) than|less than|at most|within|shorter than|not exceed(?:ing)?)\s*(\d+(?:\.\d+)?)\s*(min|minutes?|mins?|sec|seconds?|s)\b/);
+    if (m) return { min: 0, max: Math.round(+m[1] * unit(m[2])), rule: raw };
+    m = r.match(/(\d+(?:\.\d+)?)[-\s]*(min|minutes?|mins?|sec|seconds?)\s*(?:max(?:imum)?|or (?:less|shorter)|long at most)/);
+    if (m) return { min: 0, max: Math.round(+m[1] * unit(m[2])), rule: raw };
+  }
+  return null;
+}
+
+// Is this hackathon judged from a recorded video (online), with no live demo in front of judges?
+export function judgedFromVideo(hack) {
+  const br = hack?.coach?.brief || {};
+  if (/in-person|hybrid/i.test(br.mode || '')) return false;
+  const rules = (br.requirements || []).join(' ').toLowerCase();
+  return /online/i.test(br.mode || '') || /(demo|pitch|submission)?\s*video/.test(rules);
+}
+
 export function verifiedFacts(hack) {
   const app = hack?.coach?.app || {};
   const repo = app.repo || null;
-  const links = `${hack?.coach?.presentation?.links || ''} ${Object.values(hack?.coach?.submission?.fields || {}).join(' ')}`;
+  const pres = hack?.coach?.presentation || {};
+  const links = `${pres.links || ''} ${Object.values(hack?.coach?.submission?.fields || {}).join(' ')}`;
   const known = [...new Set([...(repo?.doc_paths || []), ...(repo?.files || [])])];
+  const seconds = parseDuration(pres.video_length);
+  const limit = videoLimit(hack?.coach?.brief?.requirements);
   return {
+    video_seconds: seconds,
+    video_limit: limit,
+    video_ok: seconds != null && limit ? seconds >= limit.min && seconds <= limit.max : null,
+    video_script: !!String(pres.text || '').trim(),
+    from_video: judgedFromVideo(hack),
+    sponsors: (hack?.coach?.brief?.sponsor_tech || []).filter(Boolean),
     timeline: repo ? timelineOf(hack, repo) : null,
     repo: repo ? { name: repo.full_name, url: repo.url, public: !repo.private, scanned_at: repo.scanned_at } : null,
     license: repo?.license || (known.find((p) => /(^|\/)licen[cs]e(\.[a-z]+)?$/i.test(p)) ? 'LICENSE file' : ''),
@@ -429,7 +479,17 @@ function checkRule(rule, f) {
   }
   if (/licen[cs]e/.test(r) && f.repo) return f.license ? { status: 'met', note: `Verified: ${f.license}` } : { status: 'missing', note: 'No license file found in the repo.' };
   if (/(public|open).{0,20}(repo|repository|github|source)/.test(r) && f.repo) return f.repo.public ? { status: 'met', note: `Verified: ${f.repo.url} is public.` } : { status: 'missing', note: 'The repo is private.' };
-  if (/(video|demo recording|screencast)/.test(r) && f.video) return { status: 'met', note: `Video link: ${f.video}` };
+  if (/(video|demo recording|screencast)/.test(r)) {
+    const len = f.video_seconds != null ? fmtDuration(f.video_seconds) : '';
+    const lim = f.video_limit ? `${f.video_limit.min ? `${fmtDuration(f.video_limit.min)}–` : 'up to '}${fmtDuration(f.video_limit.max)}` : '';
+    if (f.video_ok === false) return { status: 'missing', note: `Verified: the video is ${len}, outside the ${lim} limit.` };
+    if (f.video_ok && f.video) return { status: 'met', note: `Verified: ${len}, within the ${lim} limit. ${f.video}` };
+    if (f.video_ok) return { status: 'unclear', note: `Length ${len} fits the ${lim} limit. Add the video link before submitting.` };
+    if (f.video && len) return { status: 'met', note: `Video ${len}: ${f.video}` };
+    if (f.video) return { status: lim ? 'unclear' : 'met', note: lim ? `Video link added: ${f.video}. Add its length on the Judges tab so the ${lim} limit can be checked.` : `Video link: ${f.video}` };
+    if (len) return { status: 'unclear', note: `Video is ${len}${lim ? ` (limit ${lim})` : ''}. Add the video link before submitting.` };
+    return { status: 'unclear', note: 'No video added yet. Add its link and length on the Judges tab.' };
+  }
   if (/(live|deployed|hosted|working) (url|link|demo|app)|deploy/.test(r) && f.live_url) return { status: 'met', note: `Live at ${f.live_url}` };
   return null;
 }
@@ -450,6 +510,12 @@ export function dropDone(items, hack, key) {
     const t = String(key ? x?.[key] : x).toLowerCase();
     if (f.live_url && /(deploy|host it|put it online|go live|live (url|link|demo))/.test(t)) return false;
     if (f.license && /add (a |an )?(open[- ]source )?licen[cs]e/.test(t)) return false;
+    // The video already fits the limit: no "trim it" advice.
+    if (f.video_ok && /((trim|shorten|cut|tighten)\w*.{0,40}(video|demo)|(video|demo).{0,60}(over|exceeds?|too long|longer than|runs? past|shortened|trimmed|cut down))/.test(t)) return false;
+    // Judged from a recording: no tricks that need judges or an audience in the room.
+    if (f.from_video && /(live[- ]?poll|on[- ]the[- ]spot|on stage|in the room|audience (vote|poll|member|participation)|random (viewer|judge|person)|ask (a|the) judge|hand (the|a) (judge|phone)|live (audience|q&a))/.test(t)) return false;
+    // No sponsor tools in the brief: no "use the sponsor's API/credits".
+    if (!f.sponsors.length && /sponsor[- ]?(provided|api|credit|tool|platform|resource)|free .{0,20}credits?/.test(t)) return false;
     return true;
   });
 }
@@ -465,6 +531,17 @@ export function weightedOverall(scores) {
   return Math.round((list.reduce((a, x) => a + w(x) * Number(x.score), 0) / list.reduce((a, x) => a + w(x), 0)) * 10);
 }
 
+function videoFact(f) {
+  const lim = f.video_limit ? ` The rules allow ${f.video_limit.min ? `${fmtDuration(f.video_limit.min)} to ` : 'up to '}${fmtDuration(f.video_limit.max)}.` : '';
+  if (f.video_seconds != null) {
+    const fits = f.video_ok === true ? ' It is WITHIN the limit; never say it is too long or needs trimming.' : f.video_ok === false ? ' It is OUTSIDE the limit.' : '';
+    const what = f.video_script ? ' What the video says and shows is in THE PRESENTATION below; judge its content only from that.' : '';
+    return `- Demo video: ${fmtDuration(f.video_seconds)} long${f.video ? ` (${f.video})` : ''}.${lim}${fits}${what}`;
+  }
+  if (f.video) return `- Demo video: ${f.video}. Its length was not given: never guess it or say it is too long; at most ask the builder to confirm it.${lim}`;
+  return `- Demo video: not added yet. Never guess its length or what it shows; just say it still has to be added.${lim}`;
+}
+
 // A short, factual summary for the AI prompt.
 export function factsText(hack) {
   const f = verifiedFacts(hack);
@@ -476,7 +553,9 @@ export function factsText(hack) {
     f.repo ? `- Repo: ${f.repo.url} (${f.repo.public ? 'public' : 'private'})` : '',
     f.license ? `- License: ${f.license}` : (f.repo ? '- License: none found' : ''),
     f.live_url ? `- Live app: ${f.live_url} (already deployed)` : '',
-    f.video ? `- Demo video: ${f.video}` : '',
+    videoFact(f),
+    f.from_video ? '- Judging: online, from the recorded demo video and the written submission. There is no live demo in front of judges, so never suggest live polls, audience moments or on-stage tricks.' : '',
+    f.sponsors.length ? `- Sponsor tools named in the rules: ${f.sponsors.join(', ')}` : '- Sponsor tools: none named in the rules. Never suggest sponsor APIs or credits.',
     docs.length ? `- Documents in the repo (any folder): ${docs.join(', ')}` : '',
   ].filter(Boolean).join('\n');
 }
