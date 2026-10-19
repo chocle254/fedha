@@ -305,58 +305,183 @@ export const BREAK_MOTIVATION = [
 ];
 
 // ─── TIMEZONE CONVERSION (→ Kenya / EAT, UTC+3) ─────────────────────────────────
-// Common timezone abbreviations → UTC offset in hours. Kenya (EAT) is +3.
+// A timezone is stored as a short code: a GMT offset ('GMT+3', 'GMT-4',
+// 'GMT+5:30') or a named zone ('ET', 'PT', 'CET', 'EAT'…). Named zones with an
+// `iana` id follow daylight saving for the date in question (ET is -4 in
+// summer, -5 in winter); the rest are fixed.
 export const TZ_ABBREVIATIONS = [
-  { abbr: 'PT',  name: 'US Pacific',        offset: -7 },
-  { abbr: 'PST', name: 'US Pacific (std)',  offset: -8 },
-  { abbr: 'PDT', name: 'US Pacific (DST)',  offset: -7 },
-  { abbr: 'MT',  name: 'US Mountain',       offset: -6 },
-  { abbr: 'CT',  name: 'US Central',        offset: -5 },
-  { abbr: 'CST', name: 'US Central (std)',  offset: -6 },
-  { abbr: 'CDT', name: 'US Central (DST)',  offset: -5 },
-  { abbr: 'ET',  name: 'US Eastern',        offset: -4 },
-  { abbr: 'EST', name: 'US Eastern (std)',  offset: -5 },
-  { abbr: 'EDT', name: 'US Eastern (DST)',  offset: -4 },
-  { abbr: 'BRT', name: 'Brazil',            offset: -3 },
-  { abbr: 'UTC', name: 'UTC',               offset: 0 },
-  { abbr: 'GMT', name: 'GMT (London std)',  offset: 0 },
-  { abbr: 'BST', name: 'London (summer)',   offset: 1 },
-  { abbr: 'WAT', name: 'West Africa',       offset: 1 },
-  { abbr: 'CET', name: 'Central Europe',    offset: 1 },
-  { abbr: 'CEST',name: 'Central Europe DST',offset: 2 },
-  { abbr: 'EAT', name: 'East Africa (Kenya)', offset: 3 },
-  { abbr: 'IST', name: 'India',             offset: 5.5 },
-  { abbr: 'GST', name: 'Gulf (Dubai)',      offset: 4 },
-  { abbr: 'SGT', name: 'Singapore',         offset: 8 },
-  { abbr: 'JST', name: 'Japan',             offset: 9 },
-  { abbr: 'AEST',name: 'Australia East',    offset: 10 },
+  { abbr: 'PT',  name: 'US Pacific (auto DST)',  offset: -7, iana: 'America/Los_Angeles' },
+  { abbr: 'PST', name: 'US Pacific standard',    offset: -8 },
+  { abbr: 'PDT', name: 'US Pacific daylight',    offset: -7 },
+  { abbr: 'MT',  name: 'US Mountain (auto DST)', offset: -6, iana: 'America/Denver' },
+  { abbr: 'CT',  name: 'US Central (auto DST)',  offset: -5, iana: 'America/Chicago' },
+  { abbr: 'CST', name: 'US Central standard',    offset: -6 },
+  { abbr: 'CDT', name: 'US Central daylight',    offset: -5 },
+  { abbr: 'ET',  name: 'US Eastern (auto DST)',  offset: -4, iana: 'America/New_York' },
+  { abbr: 'EST', name: 'US Eastern standard',    offset: -5 },
+  { abbr: 'EDT', name: 'US Eastern daylight',    offset: -4 },
+  { abbr: 'BRT', name: 'Brazil',                 offset: -3 },
+  { abbr: 'UTC', name: 'UTC',                    offset: 0 },
+  { abbr: 'GMT', name: 'GMT',                    offset: 0 },
+  { abbr: 'UK',  name: 'London (auto DST)',      offset: 0, iana: 'Europe/London' },
+  { abbr: 'BST', name: 'London summer',          offset: 1 },
+  { abbr: 'WAT', name: 'West Africa (Lagos)',    offset: 1 },
+  { abbr: 'CET', name: 'Central Europe',         offset: 1 },
+  { abbr: 'CEST',name: 'Central Europe summer',  offset: 2 },
+  { abbr: 'CAT', name: 'Central Africa (Kigali)',offset: 2 },
+  { abbr: 'SAST',name: 'South Africa',           offset: 2 },
+  { abbr: 'EAT', name: 'East Africa (Kenya)',    offset: 3 },
+  { abbr: 'GST', name: 'Gulf (Dubai)',           offset: 4 },
+  { abbr: 'IST', name: 'India',                  offset: 5.5 },
+  { abbr: 'SGT', name: 'Singapore',              offset: 8 },
+  { abbr: 'JST', name: 'Japan',                  offset: 9 },
+  { abbr: 'AEST',name: 'Australia East',         offset: 10 },
 ];
-const NAIROBI_OFFSET = 3;
 
-export function tzOffsetFor(abbr) {
-  const t = TZ_ABBREVIATIONS.find((z) => z.abbr === String(abbr || '').toUpperCase());
-  return t ? t.offset : 0;
+// Every GMT offset in use worldwide, with example places.
+const OFFSET_PLACES = {
+  '-12': 'Baker Island', '-11': 'American Samoa', '-10': 'Hawaii', '-9.5': 'Marquesas',
+  '-9': 'Alaska', '-8': 'Los Angeles (winter)', '-7': 'Los Angeles (summer), Denver (winter)',
+  '-6': 'Chicago (winter), Mexico City', '-5': 'New York (winter), Chicago (summer), Bogotá',
+  '-4': 'New York (summer), Santiago', '-3.5': 'Newfoundland', '-3': 'São Paulo, Buenos Aires',
+  '-2': 'South Georgia', '-1': 'Azores, Cape Verde', '0': 'London (winter), Accra, Dakar',
+  '1': 'Lagos, London (summer), Paris (winter)', '2': 'Cairo, Johannesburg, Kigali, Paris (summer)',
+  '3': 'Nairobi, Kampala, Riyadh, Moscow, Istanbul', '3.5': 'Tehran', '4': 'Dubai, Mauritius',
+  '4.5': 'Kabul', '5': 'Karachi, Tashkent', '5.5': 'India, Sri Lanka', '5.75': 'Nepal',
+  '6': 'Dhaka', '6.5': 'Myanmar', '7': 'Bangkok, Jakarta', '8': 'Singapore, Beijing, Perth',
+  '8.75': 'Eucla', '9': 'Tokyo, Seoul', '9.5': 'Adelaide (winter)', '10': 'Sydney (winter), Brisbane',
+  '10.5': 'Adelaide (summer)', '11': 'Sydney (summer), Solomon Is.', '12': 'Auckland (winter), Fiji',
+  '12.75': 'Chatham Is.', '13': 'Auckland (summer), Tonga', '14': 'Kiribati (Line Is.)',
+};
+
+export function offsetCode(hours) {
+  if (!hours) return 'GMT+0';
+  const sign = hours < 0 ? '-' : '+';
+  const a = Math.abs(hours);
+  const h = Math.floor(a);
+  const m = Math.round((a - h) * 60);
+  return `GMT${sign}${h}${m ? ':' + String(m).padStart(2, '0') : ''}`;
+}
+
+export const GMT_OFFSETS = Object.keys(OFFSET_PLACES).map(Number).sort((a, b) => a - b)
+  .map((o) => ({ abbr: offsetCode(o), name: OFFSET_PLACES[String(o)], offset: o }));
+
+// The phone's own current offset as a code, e.g. 'GMT+3' in Kenya.
+export function deviceTzCode() {
+  try { return offsetCode(-new Date().getTimezoneOffset() / 60); } catch { return 'GMT+3'; }
+}
+
+// Offset (hours) of an IANA zone at a given instant.
+function ianaOffsetAt(iana, ms) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: iana, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(ms));
+    const g = (t) => Number(parts.find((p) => p.type === t)?.value);
+    const asUTC = Date.UTC(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute'));
+    return Math.round((asUTC - Math.floor(ms / 60000) * 60000) / 900000) / 4;
+  } catch { return null; }
+}
+
+// Parses 'GMT+3', 'UTC-04:00', 'GMT +5:30', '+3' and named codes.
+// `atMs` (optional) lets daylight-saving zones pick the right offset.
+export function tzOffsetFor(abbr, atMs) {
+  const raw = String(abbr || '').trim();
+  const up = raw.toUpperCase();
+  const t = TZ_ABBREVIATIONS.find((z) => z.abbr === up);
+  if (t) {
+    if (t.iana && atMs != null) { const o = ianaOffsetAt(t.iana, atMs); if (o != null) return o; }
+    return t.offset;
+  }
+  const m = /^(?:UTC|GMT)?\s*([+\-−])\s*(\d{1,2})(?::?(\d{2}))?$/i.exec(raw);
+  if (m) {
+    const v = Number(m[2]) + (Number(m[3]) || 0) / 60;
+    return m[1] === '+' ? v : -v;
+  }
+  return 0;
+}
+
+// Is this something tzOffsetFor understands (other than falling back to 0)?
+export function isKnownTz(abbr) {
+  const raw = String(abbr || '').trim();
+  return !!TZ_ABBREVIATIONS.find((z) => z.abbr === raw.toUpperCase()) || /^(?:UTC|GMT)?\s*[+\-−]\s*\d{1,2}(?::?\d{2})?$/i.test(raw);
+}
+
+// Pull a timezone code out of free text such as "GMT+3", "UTC−04:00",
+// "11:59 PM ET" or "Eastern Time". Returns '' when nothing is found.
+export function tzFromText(text) {
+  const s = String(text || '');
+  const off = /(?:UTC|GMT)\s*([+\-−])\s*(\d{1,2})(?::?(\d{2}))?/i.exec(s);
+  if (off) return offsetCode((off[1] === '+' ? 1 : -1) * (Number(off[2]) + (Number(off[3]) || 0) / 60));
+  if (/\b(UTC|GMT)\b/.test(s)) return 'GMT+0';
+  const word = [[/pacific/i, 'PT'], [/mountain time/i, 'MT'], [/central time/i, 'CT'], [/eastern time/i, 'ET'], [/east africa|nairobi|kenya/i, 'EAT'], [/india/i, 'IST'], [/london/i, 'UK']].find(([re]) => re.test(s));
+  if (word) return word[1];
+  const ab = s.toUpperCase().match(/\b(PST|PDT|PT|MST|MDT|MT|CST|CDT|CT|EST|EDT|ET|BST|CEST|CET|WAT|CAT|SAST|EAT|GST|IST|SGT|JST|AEST|BRT)\b/);
+  if (ab) return ab[1] === 'MST' ? 'GMT-7' : ab[1] === 'MDT' ? 'GMT-6' : ab[1];
+  return '';
+}
+
+// Human label for a code: 'GMT+3 · Nairobi, Kampala…' or 'ET · US Eastern'.
+export function tzLabel(abbr) {
+  const up = String(abbr || '').toUpperCase();
+  if (!up || up === 'LOCAL') return 'my phone’s time';
+  const t = TZ_ABBREVIATIONS.find((z) => z.abbr === up);
+  if (t) return `${t.abbr} (${t.name})`;
+  return offsetCode(tzOffsetFor(abbr));
+}
+
+// Wall-clock date + time in a zone → the true instant (ms since epoch).
+export function zonedToMs(date, time, tzAbbr) {
+  const [y, mo, d] = String(date).split('-').map(Number);
+  const [h, mi] = String(time || '00:00').split(':').map(Number);
+  if (!y || !mo || !d) return null;
+  const wall = Date.UTC(y, mo - 1, d, h || 0, mi || 0);
+  if (!tzAbbr || String(tzAbbr).toUpperCase() === 'LOCAL') return new Date(y, mo - 1, d, h || 0, mi || 0).getTime();
+  // First guess with the standard offset, then refine for daylight saving.
+  const guess = wall - tzOffsetFor(tzAbbr) * 3600000;
+  return wall - tzOffsetFor(tzAbbr, guess) * 3600000;
+}
+
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+// An instant shown as wall-clock time at a fixed offset: 'Sat 25 Oct, 8:59 PM'.
+export function clockAt(ms, offsetHours) {
+  const k = new Date(ms + offsetHours * 3600000);
+  const hh = k.getUTCHours();
+  const mm = k.getUTCMinutes();
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `${DAYS[k.getUTCDay()]} ${k.getUTCDate()} ${MONTHS[k.getUTCMonth()]}, ${h12}:${mm < 10 ? '0' + mm : mm} ${hh < 12 ? 'AM' : 'PM'}`;
 }
 
 // Convert a wall-clock date+time in a source zone to the true instant (ISO) and a
 // Kenya-time (EAT) display label. date='YYYY-MM-DD', time='HH:MM'.
 export function toNairobi(date, time, tzAbbr) {
   if (!date || !time) return null;
-  const [y, mo, d] = date.split('-').map(Number);
-  const [h, mi] = time.split(':').map(Number);
-  const srcOffset = tzOffsetFor(tzAbbr);
-  // UTC instant = wall-clock treated as UTC, minus the source offset.
-  const utcMs = Date.UTC(y, mo - 1, d, h, mi) - srcOffset * 3600000;
-  const iso = new Date(utcMs).toISOString();
-  // Kenya wall-clock = UTC + 3, read with UTC getters to ignore device tz.
-  const k = new Date(utcMs + NAIROBI_OFFSET * 3600000);
-  let hh = k.getUTCHours();
-  const mm = k.getUTCMinutes();
-  const ampm = hh < 12 ? 'AM' : 'PM';
-  const h12 = hh % 12 === 0 ? 12 : hh % 12;
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const label = `${k.getUTCDate()} ${months[k.getUTCMonth()]}, ${h12}:${mm < 10 ? '0' + mm : mm} ${ampm} EAT`;
-  return { iso, label };
+  const utcMs = zonedToMs(date, time, tzAbbr);
+  if (utcMs == null || !Number.isFinite(utcMs)) return null;
+  return { iso: new Date(utcMs).toISOString(), ms: utcMs, label: `${clockAt(utcMs, 3)} EAT` };
+}
+
+// The hackathon deadline as an instant, for countdowns and sorting. Stores:
+// deadline_date + deadline_time + deadline_tz (what you typed) and `deadline`
+// (the instant as ISO, or a bare date meaning the end of that day).
+export function hackDeadlineISO(date, time, tz) {
+  if (!date) return '';
+  if (!time) return date;
+  const k = toNairobi(date, time, tz);
+  return k ? k.iso : date;
+}
+
+// 'Sat 25 Oct, 11:59 PM GMT-4 → Sun 26 Oct, 6:59 AM in Kenya'
+export function hackDeadlineLabel(h) {
+  if (!h?.deadline) return '';
+  if (h.deadline_time && h.deadline_date) {
+    const ms = zonedToMs(h.deadline_date, h.deadline_time, h.deadline_tz);
+    const src = `${clockAt(ms, tzOffsetFor(h.deadline_tz, ms))} ${String(h.deadline_tz || '').toUpperCase()}`;
+    const ke = `${clockAt(ms, 3)} EAT`;
+    return tzOffsetFor(h.deadline_tz, ms) === 3 ? ke : `${src} → ${ke} in Kenya`;
+  }
+  const s = String(h.deadline);
+  if (/T/.test(s)) { const ms = new Date(s).getTime(); return Number.isFinite(ms) ? `${clockAt(ms, 3)} EAT` : s; }
+  return s;
 }
 
 export function monthRange(offset = 0) {

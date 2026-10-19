@@ -2,13 +2,13 @@
 //
 // An event is stored as { date: 'YYYY-MM-DD', time: 'HH:MM', end_time: 'HH:MM', tz }.
 //  - `tz` is 'LOCAL' (or missing) for "my phone's local time", or an abbreviation
-//    from TZ_ABBREVIATIONS (e.g. 'UTC', 'PT', 'EAT') when the organiser quoted
+//    from TZ_ABBREVIATIONS (e.g. 'GMT+3', 'PT', 'EAT') when the organiser quoted
 //    their own timezone. Everything is converted to a real instant here, so the
 //    countdown, the sort order, the planner slot and the auto-removal all agree
 //    with the clock on the phone.
 //  - No `time` means an all-day event: it lives until the end of that date.
 //  - No `end_time` means a default one-hour slot.
-import { tzOffsetFor } from './utils';
+import { zonedToMs } from './utils';
 import { getSetting, setSetting } from './db';
 
 export const DEFAULT_EVENT_MINUTES = 60;
@@ -24,9 +24,7 @@ function parseHM(t) {
 }
 
 function instantFor(dateStr, hm, tz) {
-  const [y, mo, d] = dateStr.split('-').map(Number);
-  if (!tz || tz === 'LOCAL') return new Date(y, mo - 1, d, hm[0], hm[1], 0, 0);
-  return new Date(Date.UTC(y, mo - 1, d, hm[0], hm[1]) - tzOffsetFor(tz) * 3600000);
+  return new Date(zonedToMs(dateStr, `${hm[0]}:${hm[1]}`, tz));
 }
 
 // → { start: Date, end: Date, allDay: boolean } or null when the event has no usable date.

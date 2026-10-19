@@ -5,7 +5,8 @@ import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
-import { genId, countdownTo, formatCountdown, formatDate, resizeImage, toNairobi, TZ_ABBREVIATIONS, URGENT_MS, todayISO } from '../lib/utils';
+import { genId, countdownTo, formatCountdown, formatDate, resizeImage, toNairobi, URGENT_MS, todayISO, deviceTzCode, hackDeadlineISO, hackDeadlineLabel, tzOffsetFor } from '../lib/utils';
+import TimezoneSelect from '../components/TimezoneSelect';
 import { fetchRepos, sortRepos, REPO_SORTS } from '../lib/github';
 import { getSetting, setSetting } from '../lib/db';
 import { scheduleEventReminder, cancelSchedule } from '../lib/notifications';
@@ -133,10 +134,27 @@ function RepoPicker({ onPick }) {
 }
 
 // ─── HACKATHON MODAL ──────────────────────────────────────────────────────────
-const EMPTY_HACK = { name: '', prize_pool: '', project_name: '', themes: '', deadline: '', repo_url: '', project_image: '', mode: '', organizer: '', status: 'active', submitted: false, certificate_image: '', results_place: '', results_date: '', results_time: '', results_tz: 'ET', meeting_link: '' };
+const EMPTY_HACK = { name: '', prize_pool: '', project_name: '', themes: '', deadline: '', repo_url: '', project_image: '', mode: '', organizer: '', status: 'active', submitted: false, certificate_image: '', results_place: '', results_date: '', results_time: '', results_tz: '', meeting_link: '', deadline_date: '', deadline_time: '', deadline_tz: '' };
 
 function HackathonModal({ initial, onClose, onSave }) {
-  const [form, setForm] = useState({ ...EMPTY_HACK, ...initial });
+  const [form, setForm] = useState(() => {
+    const f = { ...EMPTY_HACK, ...initial };
+    const tz = deviceTzCode();
+    // Older hackathons only stored a date (or an ISO instant) in `deadline`.
+    if (!f.deadline_date && f.deadline) {
+      const d = String(f.deadline);
+      if (/T\d{2}:\d{2}/.test(d)) {
+        const ms = new Date(d).getTime();
+        if (Number.isFinite(ms)) {
+          const at = new Date(ms + tzOffsetFor(tz) * 3600000).toISOString();
+          f.deadline_date = at.slice(0, 10); f.deadline_time = at.slice(11, 16); f.deadline_tz = tz;
+        } else f.deadline_date = d.slice(0, 10);
+      } else f.deadline_date = d.slice(0, 10);
+    }
+    if (!f.deadline_tz) f.deadline_tz = tz;
+    if (!f.results_tz) f.results_tz = tz;
+    return f;
+  });
   const [imgBusy, setImgBusy] = useState(false);
   const [certBusy, setCertBusy] = useState(false);
   const fileRef = useRef(null);
@@ -170,7 +188,18 @@ function HackathonModal({ initial, onClose, onSave }) {
         <div className="modal-body" style={{ overflowY: 'auto' }}>
           <Field label="Hackathon Name"><input className="input" placeholder="e.g. ETHGlobal Nairobi" value={form.name} onChange={set('name')} autoFocus /></Field>
           <Field label="Prize Pool"><input className="input" placeholder="e.g. $50,000" value={form.prize_pool} onChange={set('prize_pool')} /></Field>
-          <Field label="Deadline"><input className="input" type="date" value={form.deadline} onChange={set('deadline')} /></Field>
+          <Field label="Submission deadline">
+            <div style={{ display: 'flex', gap: 10 }}>
+              <input className="input" style={{ flex: 1 }} type="date" value={form.deadline_date} onChange={set('deadline_date')} />
+              <input className="input" style={{ width: 120 }} type="time" value={form.deadline_time} onChange={set('deadline_time')} />
+            </div>
+            <TimezoneSelect style={{ marginTop: 8 }} value={form.deadline_tz} onChange={(v) => setForm((f) => ({ ...f, deadline_tz: v }))} />
+            <div style={{ fontSize: 11.5, marginTop: 6, color: form.deadline_date && form.deadline_time ? 'var(--green)' : 'var(--text-3)', fontWeight: form.deadline_date && form.deadline_time ? 700 : 400 }}>
+              {form.deadline_date && form.deadline_time
+                ? `🇰🇪 ${hackDeadlineLabel({ ...form, deadline: 'x' })}`
+                : 'Pick the time and timezone exactly as the hackathon page shows them (e.g. GMT+3). Fedha converts it to Kenya time. No time = end of that day.'}
+            </div>
+          </Field>
           <Field label="Project Name"><input className="input" placeholder="Your project's name" value={form.project_name} onChange={set('project_name')} /></Field>
           <Field label="Themes / Tracks"><input className="input" placeholder="e.g. AI, DeFi, Climate" value={form.themes} onChange={set('themes')} /></Field>
 
@@ -259,9 +288,7 @@ function HackathonModal({ initial, onClose, onSave }) {
                 <div style={{ width: 110 }}><Field label="Time"><input className="input" type="time" value={form.results_time} onChange={set('results_time')} /></Field></div>
               </div>
               <Field label="Timezone (as announced)">
-                <select className="input" value={form.results_tz} onChange={set('results_tz')}>
-                  {TZ_ABBREVIATIONS.map((z) => <option key={z.abbr} value={z.abbr}>{z.abbr} — {z.name} (UTC{z.offset >= 0 ? '+' : ''}{z.offset})</option>)}
-                </select>
+                <TimezoneSelect value={form.results_tz} onChange={(v) => setForm((f) => ({ ...f, results_tz: v }))} />
               </Field>
               {form.results_date && form.results_time && (() => {
                 const k = toNairobi(form.results_date, form.results_time, form.results_tz);
@@ -271,7 +298,7 @@ function HackathonModal({ initial, onClose, onSave }) {
             </div>
           )}
 
-          <button className="btn-primary" disabled={!form.name.trim()} onClick={() => onSave({ ...form, submitted: form.status !== 'active' })}>
+          <button className="btn-primary" disabled={!form.name.trim()} onClick={() => onSave({ ...form, deadline: hackDeadlineISO(form.deadline_date, form.deadline_time, form.deadline_tz), submitted: form.status !== 'active' })}>
             {initial?.id ? 'Save Changes' : 'Register Hackathon'}
           </button>
         </div>
@@ -362,7 +389,7 @@ function MyHackathonCard({ hack, onEdit, onDelete, onToggleTask, onAddTask, onDe
           {hack.themes && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 12, padding: '3px 10px', borderRadius: 100 }}>{hack.themes}</span>}
         </div>
 
-        {hack.deadline && <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>Deadline: {formatDate(hack.deadline)}</div>}
+        {hack.deadline && <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>Deadline: {hack.deadline_time ? hackDeadlineLabel(hack) : formatDate(hack.deadline)}</div>}
 
         {st === 'completed' && !hack.certificate_image && (
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>🎓 Add your certificate from Edit — it'll be framed in the Certificates Room</div>
@@ -2024,7 +2051,7 @@ export default function TechHubPage() {
     setHackModal(null);
   }
   function registerFromDiscover(item) {
-    setHackModal({ name: item.name, prize_pool: item.prize_pool || '', themes: item.themes || '', deadline: item.deadline || '', organizer: item.organizer || '', mode: item.mode || '', url: item.url || '', project_name: '', repo_url: '', project_image: '', submitted: false, results_date: '', results_time: '', results_tz: 'ET', meeting_link: '' });
+    setHackModal({ name: item.name, prize_pool: item.prize_pool || '', themes: item.themes || '', deadline: item.deadline || '', organizer: item.organizer || '', mode: item.mode || '', url: item.url || '', project_name: '', repo_url: '', project_image: '', submitted: false, results_date: '', results_time: '', results_tz: '', meeting_link: '' });
   }
   // task ops
   function toggleTask(hack, taskId) {
@@ -2300,10 +2327,7 @@ export default function TechHubPage() {
                   </div>
                   <div style={{ height: 12 }} />
                   <Field label="Times are in">
-                    <select className="input" value={eventForm.tz} onChange={(e) => setEventForm((f) => ({ ...f, tz: e.target.value }))}>
-                      <option value="LOCAL">My local time</option>
-                      {TZ_ABBREVIATIONS.map((z) => <option key={z.abbr} value={z.abbr}>{z.abbr} — {z.name}</option>)}
-                    </select>
+                    <TimezoneSelect includeLocal value={eventForm.tz} onChange={(v) => setEventForm((f) => ({ ...f, tz: v }))} />
                   </Field>
                   <div style={{ height: 12 }} />
                   <Field label="Link (optional)"><input className="input" placeholder="e.g. lu.ma/event-slug" value={eventForm.url_hint} onChange={(e) => setEventForm((f) => ({ ...f, url_hint: e.target.value }))} /></Field>

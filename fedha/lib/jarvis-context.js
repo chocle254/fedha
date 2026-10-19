@@ -13,7 +13,7 @@ import {
   getWallets, getTransactions, getBudgets, getLoans, getIncomePlans,
   getGoals, getSetting, getFoodLogs, getHackathons, getProjects, getCertificates, getStartups, getResearch, getClientProjects,
 } from './db';
-import { todayISO, countdownTo, formatShort } from './utils';
+import { todayISO, countdownTo, formatShort, hackDeadlineLabel } from './utils';
 import { eventWindow, isEventEnded, sortEventsByStart, eventDateLabel, eventTimeLabel } from './events';
 import { detectJarvisRole, detectJarvisSituation, getJarvisRoleGuidance } from './jarvis-intelligence';
 
@@ -143,7 +143,7 @@ async function summarizeDeadlines() {
   const hackathons = await getHackathons();
   const upcoming = hackathons
     .filter((h) => h.deadline && !countdownTo(h.deadline)?.past)
-    .map((h) => `${h.name}: deadline ${h.deadline} (${fmtCountdown(h.deadline)})`);
+    .map((h) => `${h.name}: deadline ${hackDeadlineLabel(h)} (${fmtCountdown(h.deadline)})`);
   return upcoming.length ? `Upcoming hackathon/project deadlines:\n- ${upcoming.join('\n- ')}` : null;
 }
 
@@ -216,7 +216,7 @@ async function summarizeCareer(message = '') {
       h.organizer || 'organizer unknown',
       h.status || 'unknown',
       h.submitted ? 'submitted' : null,
-      h.deadline ? 'deadline ' + h.deadline + (fmtCountdown(h.deadline) ? ' (' + fmtCountdown(h.deadline) + ')' : '') : null,
+      h.deadline ? 'deadline ' + hackDeadlineLabel(h) + (fmtCountdown(h.deadline) ? ' (' + fmtCountdown(h.deadline) + ')' : '') : null,
       h.themes ? 'themes: ' + h.themes : null,
     ].filter(Boolean).join(', ');
     return h.name + (h.project_name ? ' — project "' + h.project_name + '"' : '') + ' (' + meta + ')';

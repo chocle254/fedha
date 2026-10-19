@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../../components/Layout';
 import { useApp } from '../../context/AppContext';
-import { genId, todayISO } from '../../lib/utils';
+import { genId, todayISO, deviceTzCode, tzFromText, hackDeadlineISO, hackDeadlineLabel, tzOffsetFor } from '../../lib/utils';
+import TimezoneSelect from '../../components/TimezoneSelect';
 import { fireConfetti } from '../../lib/confetti';
 import { ScoreBar, scoreColor } from '../../components/startup/museApi';
 import AppConnect from '../../components/hackcoach/AppConnect';
@@ -144,6 +145,23 @@ export default function HackathonCoach() {
   const cur = () => latest.current || hack;
   const save = (patch) => { const next = { ...cur(), ...patch }; latest.current = next; return updateHackathon(next); };
   const saveCoach = (patch, extra = {}) => save({ ...extra, coach: { ...(cur().coach || {}), ...patch } });
+  // The deadline as date + time + timezone (older records only have `deadline`).
+  const deadlineParts = (h) => {
+    if (!h) return { date: '', time: '', tz: deviceTzCode() };
+    if (h.deadline_date) return { date: h.deadline_date, time: h.deadline_time || '', tz: h.deadline_tz || deviceTzCode() };
+    const d = String(h.deadline || h.coach?.brief?.deadline || '');
+    const tz = deviceTzCode();
+    if (/T\d{2}:\d{2}/.test(d)) {
+      const ms = new Date(d).getTime();
+      if (Number.isFinite(ms)) { const at = new Date(ms + tzOffsetFor(tz) * 3600000).toISOString(); return { date: at.slice(0, 10), time: at.slice(11, 16), tz }; }
+    }
+    return { date: d.slice(0, 10), time: '', tz };
+  };
+  const dl = deadlineParts(hack);
+  function setDeadline(patch) {
+    const p = { ...deadlineParts(cur()), ...patch };
+    save({ deadline_date: p.date, deadline_time: p.time, deadline_tz: p.tz, deadline: hackDeadlineISO(p.date, p.time, p.tz) });
+  }
 
   function goTab(k) {
     setTab(k); setErr('');
@@ -223,7 +241,12 @@ export default function HackathonCoach() {
       const fill = {};
       if (!base.name?.trim() || base.name === 'New hackathon') fill.name = b.name || base.name;
       if (!base.organizer && b.organizer) fill.organizer = b.organizer;
-      if (!base.deadline && b.deadline) fill.deadline = b.deadline;
+      if (!base.deadline && b.deadline) {
+        // Keep the deadline in the hackathon's own timezone when the page says one.
+        const tz = tzFromText(b.timezone) || tzFromText(text) || deviceTzCode();
+        const [date, time = ''] = String(b.deadline).split('T');
+        Object.assign(fill, { deadline_date: date, deadline_time: time.slice(0, 5), deadline_tz: tz, deadline: hackDeadlineISO(date, time.slice(0, 5), tz) });
+      }
       if (!base.prize_pool && b.prize_total) fill.prize_pool = b.prize_total;
       if (!base.themes && b.tracks?.length) fill.themes = b.tracks.map((t) => t.name).slice(0, 4).join(', ');
       if (!base.mode && b.mode) fill.mode = b.mode;
@@ -524,9 +547,16 @@ export default function HackathonCoach() {
                       <input type="date" className="input" style={{ marginTop: 4 }} value={startDateOf(hack)} onChange={(e) => saveCoach({ start_date: e.target.value })} />
                     </label>
                     <label style={{ flex: '1 1 140px', fontSize: 11.5, fontWeight: 700, color: 'var(--text-2)' }}>DEADLINE
-                      <input type="date" className="input" style={{ marginTop: 4 }} value={String(hack.deadline || brief.deadline || '').slice(0, 10)} onChange={(e) => save({ deadline: e.target.value })} />
+                      <input type="date" className="input" style={{ marginTop: 4 }} value={dl.date} onChange={(e) => setDeadline({ date: e.target.value })} />
+                    </label>
+                    <label style={{ flex: '0 1 120px', fontSize: 11.5, fontWeight: 700, color: 'var(--text-2)' }}>TIME
+                      <input type="time" className="input" style={{ marginTop: 4 }} value={dl.time} onChange={(e) => setDeadline({ time: e.target.value })} />
                     </label>
                   </div>
+                  <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: 'var(--text-2)', marginTop: 10 }}>DEADLINE TIMEZONE (as the page shows it)
+                    <TimezoneSelect style={{ marginTop: 4 }} value={dl.tz} onChange={(v) => setDeadline({ tz: v })} />
+                  </label>
+                  {dl.date && dl.time && <div style={{ fontSize: 12, color: 'var(--green)', fontWeight: 700, marginTop: 6 }}>🇰🇪 {hackDeadlineLabel({ deadline: 'x', deadline_date: dl.date, deadline_time: dl.time, deadline_tz: dl.tz })}</div>}
                   {!startDateOf(hack) && <div style={{ fontSize: 11.5, color: 'var(--yellow)', marginTop: 6 }}>The details don't say when it opened. Add the date so the coach can tell whether your app was built during the hackathon.</div>}
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
                     {brief.timezone && <span className="muse-chip muse-chip-plain">🕒 {brief.timezone}</span>}
