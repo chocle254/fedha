@@ -566,6 +566,30 @@ export function computeSavingsBreakdown(remaining, days) {
   return { days: d, daily, weekly: daily * 7, monthly: daily * (365.25 / 12) };
 }
 
+// Share of every deposit that goes to savings goals automatically.
+export const DEPOSIT_SAVINGS_CUT = 0.3;
+
+// Goals take turns getting deposit cuts. Order is oldest goal first; the goal
+// after the one that got the last cut is up next, wrapping around. Finished
+// goals are skipped. If the last-funded goal was deleted, start from the top.
+export function goalsInTurnOrder(goals, lastGoalId) {
+  const byAge = [...goals].sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')) || String(a.id).localeCompare(String(b.id)));
+  const lastIdx = byAge.findIndex((g) => g.id === lastGoalId);
+  const rotated = lastIdx >= 0 ? [...byAge.slice(lastIdx + 1), ...byAge.slice(0, lastIdx + 1)] : byAge;
+  return rotated.filter((g) => (g.current || 0) < g.target);
+}
+
+// Pour the amount into goals in the given order: the first goal takes what it
+// needs, any extra spills over to the next one.
+export function fillGoalsInOrder(orderedGoals, amount) {
+  let left = Math.max(0, Number(amount) || 0);
+  return orderedGoals.map((g) => {
+    const give = Math.min(left, Math.max(0, g.target - (g.current || 0)));
+    left -= give;
+    return { ...g, allocated: Math.round(give * 100) / 100 };
+  });
+}
+
 // Spreads a contribution across active goals proportionally to how much each
 // still needs, capping every goal at its target and rolling any leftover into
 // the goals that still have room — so nothing overshoots and nothing is lost.

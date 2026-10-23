@@ -1,10 +1,10 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { genId, todayISO, setRates } from '../lib/utils';
+import { genId, todayISO, setRates, goalsInTurnOrder, fillGoalsInOrder, DEPOSIT_SAVINGS_CUT } from '../lib/utils';
 import { fetchRates } from '../lib/exchange';
 import { startSyncEngine, onSyncStatusChange, getPendingCount } from '../lib/sync-engine';
 import {
   getWallets, saveWallet, deleteWallet,
-  getTransactions, saveTransaction, deleteTransaction,
+  getTransactions, saveTransaction, deleteTransaction, getTransaction,
   getBudgets, saveBudget, deleteBudget,
   getLoans, saveLoan, deleteLoan,
   getGoals, saveGoal, deleteGoal,
@@ -14,7 +14,7 @@ import {
   getStartups, saveStartup, deleteStartup,
   getOnlineJobs, saveOnlineJob, deleteOnlineJob,
   getProjects, saveProject, deleteProject,
-  getCertificates, saveCertificate, deleteCertificate, transactionExists,
+  getCertificates, saveCertificate, deleteCertificate,
   getResearch, saveResearch, deleteResearch,
   getClientProjects, saveClientProject, deleteClientProject,
   getSetting, setSetting, seedDefaultData,
@@ -45,20 +45,22 @@ export function AppProvider({ children }) {
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [fxVersion, setFxVersion] = useState(0); // bump to re-render converted amounts
   const [savingsPlanDays, setSavingsPlanDaysState] = useState(null); // chosen timeframe for the goals savings plan
+  const [lastSavedGoalId, setLastSavedGoalIdState] = useState(null); // goal that got the last deposit cut; the next one is up next
 
   const loadAll = useCallback(async () => {
     await seedDefaultData();
-    const [ws, ts, bs, ls, gs, ips, chs, hks, sts, ojs, prs, crts, rsc, cps, crs, cur, cachedRates, spd] = await Promise.all([
+    const [ws, ts, bs, ls, gs, ips, chs, hks, sts, ojs, prs, crts, rsc, cps, crs, cur, cachedRates, spd, lsg] = await Promise.all([
       getWallets(), getTransactions(), getBudgets(), getLoans(),
       getGoals(), getIncomePlans(), getChallenges(),
       getHackathons(), getStartups(), getOnlineJobs(), getProjects(), getCertificates(), getResearch(), getClientProjects(),
       getSetting('courses', []), getSetting('currency', 'KES'), getSetting('fx_rates', null),
-      getSetting('savings_plan_days', null),
+      getSetting('savings_plan_days', null), getSetting('last_saved_goal_id', null),
     ]);
     setWallets(ws); setTransactions(ts); setBudgets(bs); setLoans(ls);
     setGoals(gs); setIncomePlans(ips); setChallenges(chs);
     setHackathons(hks); setStartups(sts); setOnlineJobs(ojs); setProjects(prs); setCertificates(crts); setResearch(rsc); setClientProjects(cps || []); setCourses(Array.isArray(crs) ? crs : []); setCurrencyState(cur);
     setSavingsPlanDaysState(spd);
+    setLastSavedGoalIdState(lsg);
 
     // Use cached rates immediately (offline-first), then refresh from network.
     if (cachedRates) { setRates(cachedRates, BASE_CURRENCY); setFxVersion((v) => v + 1); }
@@ -115,19 +117,73 @@ export function AppProvider({ children }) {
   const removeWallet = useCallback(async (id) => { await deleteWallet(id); setWallets((prev) => prev.filter((x) => x.id !== id)); }, []);
 
   // ─── TRANSACTIONS ──────────────────────────────────────────────────────────
+  // Every deposit sends 30% to savings goals, one goal per deposit in turn
+  // (spilling to the next goal if the current one needs less). The cut is its
+  // own "savings" expense with id <deposit id>_save, so deleting the deposit
+  // can find it and undo it.
+  const saveCutFromDeposit = useCallback(async (deposit) => {
+    const [allGoals, lastId] = await Promise.all([getGoals(), getSetting('last_saved_goal_id', null)]);
+    const queue = goalsInTurnOrder(allGoals, lastId);
+    if (!queue.length) return null;
+    const cut = Math.round(Number(deposit.amount) * DEPOSIT_SAVINGS_CUT * 100) / 100;
+    const fills = fillGoalsInOrder(queue, cut).filter((a) => a.allocated > 0);
+    const total = Math.round(fills.reduce((s, a) => s + a.allocated, 0) * 100) / 100;
+    if (total <= 0) return null;
+
+    const saveTx = await saveTransaction({
+      id: `${deposit.id}_save`,
+      type: 'expense',
+      amount: total,
+      wallet_id: deposit.wallet_id,
+      category: 'savings',
+      description: `30% saved for ${fills.map((a) => a.name).join(', ')}`,
+      date: deposit.date || todayISO(),
+      currency: deposit.currency,
+      created_at: new Date().toISOString(),
+      savings_allocations: fills.map((a) => ({ goal_id: a.id, amount: a.allocated })),
+    });
+    for (const a of fills) {
+      const g = allGoals.find((x) => x.id === a.id);
+      if (g) await saveGoal({ ...g, current: (Number(g.current) || 0) + a.allocated });
+    }
+    // Pass the turn on so the next deposit goes to the next goal.
+    await setSetting('last_saved_goal_id', queue[0].id);
+    setLastSavedGoalIdState(queue[0].id);
+    setGoals(await getGoals());
+    return saveTx;
+  }, []);
+
+  // Undo a savings cut: take each goal's share back off it.
+  const undoSavingsCut = useCallback(async (tx) => {
+    if (!tx?.savings_allocations?.length) return;
+    const allGoals = await getGoals();
+    for (const a of tx.savings_allocations) {
+      const g = allGoals.find((x) => x.id === a.goal_id);
+      if (g) await saveGoal({ ...g, current: Math.max(0, (Number(g.current) || 0) - Number(a.amount)) });
+    }
+    setGoals(await getGoals());
+  }, []);
+
   const addTransaction = useCallback(async (data) => {
-    const tx = await saveTransaction({ id: genId(), date: todayISO(), created_at: new Date().toISOString(), ...data });
-    setTransactions((prev) => [tx, ...prev]);
+    const { skipSavingsCut, ...rest } = data;
+    const tx = await saveTransaction({ id: genId(), date: todayISO(), created_at: new Date().toISOString(), ...rest });
+    const saveTx = tx.type === 'income' && !skipSavingsCut ? await saveCutFromDeposit(tx) : null;
+    setTransactions((prev) => (saveTx ? [saveTx, tx, ...prev] : [tx, ...prev]));
     const [ws, bs] = await Promise.all([getWallets(), getBudgets()]); setWallets(ws); setBudgets(bs); return tx;
-  }, []);
+  }, [saveCutFromDeposit]);
   const removeTransaction = useCallback(async (id) => {
-    // A transaction's fee (id + "_fee") goes with it, so balances stay right.
-    const feeId = `${id}_fee`;
-    await deleteTransaction(id);
-    if (await transactionExists(feeId)) await deleteTransaction(feeId);
-    setTransactions((prev) => prev.filter((x) => x.id !== id && x.id !== feeId));
+    // A transaction's fee (id + "_fee") and savings cut (id + "_save") go with
+    // it, so balances and goals stay right.
+    const ids = [id, `${id}_fee`, `${id}_save`];
+    for (const tid of ids) {
+      const t = await getTransaction(tid);
+      if (!t) continue;
+      await undoSavingsCut(t);
+      await deleteTransaction(tid);
+    }
+    setTransactions((prev) => prev.filter((x) => !ids.includes(x.id)));
     const [ws, bs] = await Promise.all([getWallets(), getBudgets()]); setWallets(ws); setBudgets(bs);
-  }, []);
+  }, [undoSavingsCut]);
 
   // ─── BUDGETS ───────────────────────────────────────────────────────────────
   const addBudget = useCallback(async (data) => { const b = await saveBudget({ id: genId(), spent: 0, created_at: new Date().toISOString(), ...data }); setBudgets((p) => [...p, b]); return b; }, []);
@@ -216,6 +272,7 @@ export function AppProvider({ children }) {
   // ─── SETTINGS ──────────────────────────────────────────────────────────────
   const setCurrency = useCallback(async (cur) => { await setSetting('currency', cur); setCurrencyState(cur); }, []);
   const setSavingsPlanDays = useCallback(async (days) => { await setSetting('savings_plan_days', days); setSavingsPlanDaysState(days); }, []);
+  const setLastSavedGoalId = useCallback(async (id) => { await setSetting('last_saved_goal_id', id); setLastSavedGoalIdState(id); }, []);
 
   // ─── DERIVED ───────────────────────────────────────────────────────────────
   const totalBalance = wallets.reduce((s, w) => s + (Number(w.balance) || 0), 0);
@@ -227,7 +284,7 @@ export function AppProvider({ children }) {
   return (
     <AppContext.Provider value={{
       loading, isOnline, pendingSyncCount, currency, setCurrency, fxVersion,
-      savingsPlanDays, setSavingsPlanDays,
+      savingsPlanDays, setSavingsPlanDays, lastSavedGoalId, setLastSavedGoalId,
       wallets, addWallet, updateWallet, removeWallet,
       transactions, addTransaction, removeTransaction,
       budgets, addBudget, updateBudget, removeBudget,

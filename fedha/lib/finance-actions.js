@@ -74,6 +74,7 @@ export async function settleLoan(loan, { wallets, currency, addTransaction, upda
     description: `Loan settled: ${loan.contact_name}`,
     date: todayISO(),
     currency,
+    skipSavingsCut: true, // getting your own money back isn't new income
   });
   return updateLoan({ ...loan, status: 'settled', settled_txn_id: tx.id });
 }

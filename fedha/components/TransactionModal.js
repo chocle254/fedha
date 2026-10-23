@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { todayISO, INCOME_CATEGORIES, EXPENSE_CATEGORIES, toBaseAmount } from '../lib/utils';
+import { todayISO, INCOME_CATEGORIES, EXPENSE_CATEGORIES, toBaseAmount, goalsInTurnOrder, formatCurrency, DEPOSIT_SAVINGS_CUT } from '../lib/utils';
 import { addTransactionWithFee } from '../lib/finance-actions';
-import SavingsAllocationPrompt from './SavingsAllocationPrompt';
 
 export default function TransactionModal({ onClose }) {
-  const { wallets, goals, addTransaction, updateGoal, currency } = useApp();
+  const { wallets, goals, addTransaction, currency, lastSavedGoalId } = useApp();
   const [type, setType] = useState('expense');
   const [amount, setAmount] = useState('');
   const [fee, setFee] = useState('');
@@ -16,7 +15,6 @@ export default function TransactionModal({ onClose }) {
   const [date, setDate] = useState(todayISO());
   const [isImpulse, setIsImpulse] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [pendingDeposit, setPendingDeposit] = useState(null); // { amount, walletId } — set after an income save, while the savings prompt is open
 
   const cats = (type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).filter((c) => c.id !== 'fees');
   // Never transfer a wallet into itself: if the picked "to" wallet is the same
@@ -25,7 +23,8 @@ export default function TransactionModal({ onClose }) {
   const effectiveTo = otherWallets.some((w) => w.id === toWalletId) ? toWalletId : otherWallets[0]?.id || '';
   const feeNum = Number(fee) || 0;
   const amountNum = Number(amount) || 0;
-  const hasActiveGoals = goals.some((g) => (g.current || 0) < g.target);
+  // Income automatically sends 30% to the goal whose turn it is (see AppContext).
+  const nextGoal = goalsInTurnOrder(goals, lastSavedGoalId)[0];
 
   async function handleSubmit() {
     if (!amountNum || amountNum <= 0 || feeNum < 0) return;
@@ -45,50 +44,10 @@ export default function TransactionModal({ onClose }) {
         is_impulse: isImpulse,
         currency,
       }, toBaseAmount(feeNum, currency));
-      // Just deposited money — if there are unfinished savings goals, offer to
-      // set a portion aside before closing out.
-      if (type === 'income' && hasActiveGoals) {
-        setPendingDeposit({ amount: Number(amount), walletId });
-      } else {
-        onClose();
-      }
+      onClose();
     } finally {
       setSaving(false);
     }
-  }
-
-  async function handleAllocationConfirm(cutAmount, allocations) {
-    if (cutAmount > 0) {
-      // Move the cut portion out of the wallet it just landed in...
-      await addTransaction({
-        type: 'expense',
-        amount: cutAmount,
-        wallet_id: pendingDeposit.walletId,
-        category: 'savings',
-        description: 'Set aside for savings goals',
-        date: todayISO(),
-        currency,
-      });
-      // ...and into each goal, proportional to how much it still needs.
-      for (const a of allocations) {
-        if (a.allocated > 0) {
-          const goal = goals.find((g) => g.id === a.id);
-          if (goal) await updateGoal({ ...goal, current: (goal.current || 0) + a.allocated });
-        }
-      }
-    }
-    setPendingDeposit(null);
-    onClose();
-  }
-
-  if (pendingDeposit) {
-    return (
-      <SavingsAllocationPrompt
-        depositAmount={pendingDeposit.amount}
-        onConfirm={handleAllocationConfirm}
-        onSkip={() => { setPendingDeposit(null); onClose(); }}
-      />
-    );
   }
 
   return (
@@ -126,6 +85,11 @@ export default function TransactionModal({ onClose }) {
                 autoFocus
               />
             </div>
+            {type === 'income' && nextGoal && (
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
+                30%{amountNum > 0 ? ` (${formatCurrency(toBaseAmount(amountNum, currency) * DEPOSIT_SAVINGS_CUT, currency)})` : ''} goes to {nextGoal.icon} {nextGoal.name} automatically
+              </div>
+            )}
           </div>
 
           {/* Source wallet */}
