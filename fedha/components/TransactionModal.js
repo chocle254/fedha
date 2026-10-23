@@ -23,7 +23,7 @@ export default function TransactionModal({ onClose }) {
   const effectiveTo = otherWallets.some((w) => w.id === toWalletId) ? toWalletId : otherWallets[0]?.id || '';
   const feeNum = Number(fee) || 0;
   const amountNum = Number(amount) || 0;
-  // Income automatically sends 30% to the goal whose turn it is (see AppContext).
+  // After income is saved, the user is asked to save 30% for the goal whose turn it is.
   const nextGoal = goalsInTurnOrder(goals, lastSavedGoalId)[0];
 
   async function handleSubmit() {
@@ -87,7 +87,7 @@ export default function TransactionModal({ onClose }) {
             </div>
             {type === 'income' && nextGoal && (
               <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
-                30%{amountNum > 0 ? ` (${formatCurrency(toBaseAmount(amountNum, currency) * DEPOSIT_SAVINGS_CUT, currency)})` : ''} goes to {nextGoal.icon} {nextGoal.name} automatically
+                30%{amountNum > 0 ? ` (${formatCurrency(toBaseAmount(amountNum, currency) * DEPOSIT_SAVINGS_CUT, currency)})` : ''} for {nextGoal.icon} {nextGoal.name}? You'll be asked after saving
               </div>
             )}
           </div>

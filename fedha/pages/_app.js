@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { AppProvider } from '../context/AppContext';
+import SavingsPrompt from '../components/SavingsPrompt';
 import { isSupabaseEnabled, getSession, onAuthChange } from '../lib/supabase';
 import '../styles/globals.css';
 import { installApiAuth } from '../lib/api-auth-client';
@@ -258,6 +259,7 @@ export default function App({ Component, pageProps }) {
     <AppProvider>
       <NotificationScheduler />
       <Component {...pageProps} />
+      <SavingsPrompt />
     </AppProvider>
   );
 }

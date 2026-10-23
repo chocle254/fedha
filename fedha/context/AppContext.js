@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { genId, todayISO, setRates, goalsInTurnOrder, fillGoalsInOrder, DEPOSIT_SAVINGS_CUT } from '../lib/utils';
+import { genId, todayISO, setRates, goalsInTurnOrder, fillGoalsInOrder } from '../lib/utils';
 import { fetchRates } from '../lib/exchange';
 import { startSyncEngine, onSyncStatusChange, getPendingCount } from '../lib/sync-engine';
 import {
@@ -45,6 +45,7 @@ export function AppProvider({ children }) {
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [fxVersion, setFxVersion] = useState(0); // bump to re-render converted amounts
   const [savingsPlanDays, setSavingsPlanDaysState] = useState(null); // chosen timeframe for the goals savings plan
+  const [pendingSavings, setPendingSavings] = useState(null); // deposit waiting on "save 30%?" answer
   const [lastSavedGoalId, setLastSavedGoalIdState] = useState(null); // goal that got the last deposit cut; the next one is up next
 
   const loadAll = useCallback(async () => {
@@ -117,15 +118,15 @@ export function AppProvider({ children }) {
   const removeWallet = useCallback(async (id) => { await deleteWallet(id); setWallets((prev) => prev.filter((x) => x.id !== id)); }, []);
 
   // ─── TRANSACTIONS ──────────────────────────────────────────────────────────
-  // Every deposit sends 30% to savings goals, one goal per deposit in turn
-  // (spilling to the next goal if the current one needs less). The cut is its
-  // own "savings" expense with id <deposit id>_save, so deleting the deposit
-  // can find it and undo it.
-  const saveCutFromDeposit = useCallback(async (deposit) => {
+  // After every deposit the user is asked to save 30% of it (SavingsPrompt).
+  // Goals take turns: one goal per deposit, spilling to the next goal if the
+  // current one needs less. The cut is its own "savings" expense with id
+  // <deposit id>_save, so deleting the deposit can find it and undo it.
+  const saveCutFromDeposit = useCallback(async (deposit, amount) => {
     const [allGoals, lastId] = await Promise.all([getGoals(), getSetting('last_saved_goal_id', null)]);
     const queue = goalsInTurnOrder(allGoals, lastId);
     if (!queue.length) return null;
-    const cut = Math.round(Number(deposit.amount) * DEPOSIT_SAVINGS_CUT * 100) / 100;
+    const cut = Math.round(Math.min(Number(amount), Number(deposit.amount)) * 100) / 100;
     const fills = fillGoalsInOrder(queue, cut).filter((a) => a.allocated > 0);
     const total = Math.round(fills.reduce((s, a) => s + a.allocated, 0) * 100) / 100;
     if (total <= 0) return null;
@@ -136,7 +137,7 @@ export function AppProvider({ children }) {
       amount: total,
       wallet_id: deposit.wallet_id,
       category: 'savings',
-      description: `30% saved for ${fills.map((a) => a.name).join(', ')}`,
+      description: `Saved for ${fills.map((a) => a.name).join(', ')}`,
       date: deposit.date || todayISO(),
       currency: deposit.currency,
       created_at: new Date().toISOString(),
@@ -167,10 +168,22 @@ export function AppProvider({ children }) {
   const addTransaction = useCallback(async (data) => {
     const { skipSavingsCut, ...rest } = data;
     const tx = await saveTransaction({ id: genId(), date: todayISO(), created_at: new Date().toISOString(), ...rest });
-    const saveTx = tx.type === 'income' && !skipSavingsCut ? await saveCutFromDeposit(tx) : null;
-    setTransactions((prev) => (saveTx ? [saveTx, tx, ...prev] : [tx, ...prev]));
+    setTransactions((prev) => [tx, ...prev]);
+    // New income: ask whether to save 30% of it (only if a goal still needs money).
+    if (tx.type === 'income' && !skipSavingsCut && goalsInTurnOrder(await getGoals(), null).length) setPendingSavings(tx);
     const [ws, bs] = await Promise.all([getWallets(), getBudgets()]); setWallets(ws); setBudgets(bs); return tx;
-  }, [saveCutFromDeposit]);
+  }, []);
+
+  // Answers to the savings question.
+  const confirmSavingsCut = useCallback(async (amount) => {
+    const deposit = pendingSavings;
+    setPendingSavings(null);
+    if (!deposit || !(Number(amount) > 0)) return;
+    const saveTx = await saveCutFromDeposit(deposit, amount);
+    if (saveTx) setTransactions((prev) => [saveTx, ...prev]);
+    const [ws, bs] = await Promise.all([getWallets(), getBudgets()]); setWallets(ws); setBudgets(bs);
+  }, [pendingSavings, saveCutFromDeposit]);
+  const skipSavingsCut = useCallback(() => setPendingSavings(null), []);
   const removeTransaction = useCallback(async (id) => {
     // A transaction's fee (id + "_fee") and savings cut (id + "_save") go with
     // it, so balances and goals stay right.
@@ -285,6 +298,7 @@ export function AppProvider({ children }) {
     <AppContext.Provider value={{
       loading, isOnline, pendingSyncCount, currency, setCurrency, fxVersion,
       savingsPlanDays, setSavingsPlanDays, lastSavedGoalId, setLastSavedGoalId,
+      pendingSavings, confirmSavingsCut, skipSavingsCut,
       wallets, addWallet, updateWallet, removeWallet,
       transactions, addTransaction, removeTransaction,
       budgets, addBudget, updateBudget, removeBudget,
