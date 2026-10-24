@@ -10,7 +10,8 @@
 // Every nudge is deduped per day via a settings key (getSetting/setSetting)
 // so re-running this on every app load doesn't repeat the same nudge.
 
-import { getBudgets, getSetting, setSetting, appendJarvisMessage, getFoodLogs } from './db';
+import { getBudgets, getSetting, setSetting, appendJarvisMessage, getFoodLogs, getChallenges } from './db';
+import { getTemplate, challengeStatus, isPaced } from './challenges';
 import { todayISO, formatShort } from './utils';
 import { showNotif, VIBRATE } from './notifications';
 
@@ -97,5 +98,27 @@ export async function checkBudgetNudges() {
     }
   } catch (e) {
     console.warn('[fedha] Jarvis budget nudge check failed:', e?.message);
+  }
+}
+
+// Savings challenges: one evening nudge per challenge when today's save is
+// still waiting, mentioning the streak at stake.
+export async function checkChallengeNudges() {
+  try {
+    if (new Date().getHours() < 18) return;
+    const today = todayISO();
+    for (const c of await getChallenges()) {
+      const tpl = getTemplate(c.template_id);
+      if (!tpl || c.status === 'finished' || !isPaced(tpl) || tpl.auto) continue;
+      const s = challengeStatus(tpl, c, today, null);
+      if (!s.currentDue) continue;
+      const amount = tpl.spin ? null : tpl.amountFor?.(s.current, Number(c.step) || 0);
+      await fireJarvisNudge(
+        `challenge_${c.id}`,
+        `The user's "${c.name}" savings challenge still has this ${tpl.periodLabel}'s save waiting${amount ? ` (${formatShort(amount)})` : tpl.spin ? ' (they have not spun yet)' : ''}.${s.streak > 0 ? ` Their streak is ${s.streak} — it breaks if they skip.` : ''}${s.missed.length ? ` They have also missed ${s.missed.length} and can catch up.` : ''} Encourage them to save it now, briefly and warmly.`
+      );
+    }
+  } catch (e) {
+    console.warn('[fedha] Jarvis challenge nudge check failed:', e?.message);
   }
 }

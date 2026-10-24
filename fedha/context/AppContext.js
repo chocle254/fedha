@@ -175,6 +175,34 @@ export function AppProvider({ children }) {
     const [ws, bs] = await Promise.all([getWallets(), getBudgets()]); setWallets(ws); setBudgets(bs); return tx;
   }, []);
 
+  // Moves money from a wallet into one goal (challenges use this). Same shape
+  // as a deposit's savings cut, so deleting the transaction undoes the goal.
+  const saveToGoal = useCallback(async ({ id, amount, walletId, goalId, description }) => {
+    const amt = Math.round(Number(amount) * 100) / 100;
+    if (!(amt > 0)) throw new Error('Nothing to save.');
+    const [allGoals, allWallets] = await Promise.all([getGoals(), getWallets()]);
+    const goal = allGoals.find((g) => g.id === goalId);
+    const wallet = allWallets.find((w) => w.id === walletId);
+    if (!goal) throw new Error('Pick a goal to save into.');
+    if (!wallet) throw new Error('Pick the account to save from.');
+    const tx = await saveTransaction({
+      id: id || genId(),
+      type: 'expense',
+      amount: amt,
+      wallet_id: wallet.id,
+      category: 'savings',
+      description: description || `Saved for ${goal.name}`,
+      date: todayISO(),
+      currency,
+      created_at: new Date().toISOString(),
+      savings_allocations: [{ goal_id: goal.id, amount: amt }],
+    });
+    await saveGoal({ ...goal, current: (Number(goal.current) || 0) + amt });
+    setTransactions((prev) => [tx, ...prev]);
+    const [ws, gs] = await Promise.all([getWallets(), getGoals()]); setWallets(ws); setGoals(gs);
+    return tx;
+  }, [currency]);
+
   // Answers to the savings question.
   const confirmSavingsCut = useCallback(async (amount) => {
     const deposit = pendingSavings;
@@ -312,7 +340,7 @@ export function AppProvider({ children }) {
     <AppContext.Provider value={{
       loading, isOnline, pendingSyncCount, currency, setCurrency, fxVersion,
       savingsPlanDays, setSavingsPlanDays, lastSavedGoalId, setLastSavedGoalId,
-      pendingSavings, confirmSavingsCut, skipSavingsCut,
+      pendingSavings, confirmSavingsCut, skipSavingsCut, saveToGoal,
       wallets, addWallet, updateWallet, removeWallet,
       transactions, addTransaction, removeTransaction,
       budgets, addBudget, updateBudget, removeBudget,

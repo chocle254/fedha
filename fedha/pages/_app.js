@@ -194,9 +194,10 @@ function NotificationScheduler() {
       if (newlyLoanAlerted.length !== loanAlerted.length) await setSettingSafe(loanAlertedKey, newlyLoanAlerted);
 
       // Budget overspending — the one nudge type not already covered above.
-      const { checkBudgetNudges, checkMealNudges } = await import('../lib/jarvis-nudges');
+      const { checkBudgetNudges, checkMealNudges, checkChallengeNudges } = await import('../lib/jarvis-nudges');
       await checkBudgetNudges();
       await checkMealNudges();
+      await checkChallengeNudges();
     }
 
     async function setSettingSafe(key, value) {
