@@ -4,6 +4,7 @@ import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import SavingsMotivator from '../components/SavingsMotivator';
 import SavingsChallenges from '../components/SavingsChallenges';
+import RewardWheel from '../components/RewardWheel';
 import BalanceHistoryChart from '../components/BalanceHistoryChart';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatShort, formatDate, formatDateRelative, getCategoryById, groupByDay, monthRange } from '../lib/utils';
@@ -164,6 +165,9 @@ export default function Dashboard() {
 
         {/* Savings challenges */}
         <SavingsChallenges />
+
+        {/* Treat Jar + reward wheel */}
+        <RewardWheel />
 
         {/* Balance over time — one line for days, months and the year */}
         <div className="section">
@@ -409,6 +413,9 @@ function DesktopDashboard({ wallets, transactions, goals, currency, netWorth, to
 
           <div className="desk-embed">
             <SavingsChallenges />
+          </div>
+          <div className="desk-embed">
+            <RewardWheel />
           </div>
         </div>
 

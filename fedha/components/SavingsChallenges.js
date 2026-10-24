@@ -7,6 +7,7 @@ import {
   getTemplate, isPaced, amountAt, challengeTarget, challengeStatus, noSpendStatus, impulseTaxStatus,
   spinAmount, milestoneCrossed, earnedBadges, daysOfSpending, levelUpSettings,
 } from '../lib/challenges';
+import { TREAT_SHARE, awardSpin } from '../lib/rewards';
 
 const label = { fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 };
 const isFinished = (c) => c.status === 'finished';
@@ -80,7 +81,11 @@ export default function SavingsChallenges() {
       const tpl = getTemplate(c.template_id);
       if (!tpl?.auto) continue;
       const s = noSpendStatus(tpl, c, transactions, today);
-      if (s.finished) updateChallenge({ ...c, status: 'finished', finished_at: today, result: { clean: s.clean, of: tpl.periods } });
+      if (!s.finished) continue;
+      updateChallenge({ ...c, status: 'finished', finished_at: today, result: { clean: s.clean, of: tpl.periods } });
+      // A perfect run earns a jackpot spin, 70%+ clean days a normal one.
+      if (s.clean === tpl.periods) awardSpin('jackpot', `${c.emoji} Perfect ${c.name}!`);
+      else if (s.clean >= tpl.periods * 0.7) awardSpin('normal', `${c.emoji} ${c.name}: ${s.clean}/${tpl.periods} clean days`);
     }
   }, [challenges, transactions, today]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -96,7 +101,7 @@ export default function SavingsChallenges() {
 
     const tx = await saveToGoal({
       id: `ch_${c.id}_${indices.length === 1 ? indices[0] : 'catchup'}_${Date.now().toString(36)}`,
-      amount, walletId, goalId,
+      amount, walletId, goalId, treatShare: TREAT_SHARE,
       description: `${c.emoji} ${c.name}${indices.length > 1 ? ` (catch-up ×${indices.length})` : ''}`,
     });
 
@@ -108,20 +113,26 @@ export default function SavingsChallenges() {
 
     const after = challengeStatus(tpl, next, today, new Set([...txIds, tx.id]));
     next.best_streak = Math.max(Number(c.best_streak) || 0, after.streak);
-    if (after.allDone) next = { ...next, status: 'finished', finished_at: today, result: { saved: after.savedAmount } };
+    // Each milestone earns its spin once, even if a save is undone and redone.
+    const m = milestoneCrossed(before.pct, after.pct);
+    const newSpin = m && m.pct < 100 && !(c.spun_milestones || []).includes(m.pct);
+    if (newSpin) next.spun_milestones = [...(c.spun_milestones || []), m.pct];
+    const firstFinish = after.allDone && !(c.spun_milestones || []).includes(100);
+    if (after.allDone) next = { ...next, status: 'finished', finished_at: today, result: { saved: after.savedAmount }, spun_milestones: [...(next.spun_milestones || []), 100] };
     await updateChallenge(next);
     setSaveFor(null);
 
     if (after.allDone) {
       fireConfetti({ count: 220 });
       setFinishedFor({ ...next, savedAmount: after.savedAmount });
+      if (firstFinish) awardSpin('jackpot', `${c.emoji} ${c.name} complete!`);
       return;
     }
-    const m = milestoneCrossed(before.pct, after.pct);
+    if (newSpin) awardSpin('normal', `${m.badge} ${m.title} in ${c.name}`);
     const meaning = meaningOf(after.savedAmount, transactions, today);
     if (m) {
       fireConfetti({ count: 120 });
-      toast({ icon: m.badge, title: m.title, line: `${formatShort(after.savedAmount, currency)} in ${goal?.name || 'your goal'}`, sub: meaning });
+      toast({ icon: m.badge, title: m.title, line: `${formatShort(after.savedAmount, currency)} in ${goal?.name || 'your goal'}`, sub: newSpin ? '🎡 You earned a spin on the reward wheel!' : meaning });
     } else if (Math.floor(after.saved.size / FREEZE_EVERY) > Math.floor(before.saved.size / FREEZE_EVERY)) {
       toast({ icon: '❄️', title: 'Streak freeze earned', line: 'Use it to cover a day you miss.', sub: '' });
     } else if (after.streak > 1 && after.streak % 7 === 0) {
@@ -135,7 +146,7 @@ export default function SavingsChallenges() {
   async function payImpulseTax(c, walletId, goalId) {
     const s = impulseTaxStatus(c, transactions);
     if (!(s.owed > 0)) return;
-    await saveToGoal({ id: `ch_${c.id}_tax_${Date.now().toString(36)}`, amount: s.owed, walletId, goalId, description: `🧾 Impulse tax (${s.unpaid.length})` });
+    await saveToGoal({ id: `ch_${c.id}_tax_${Date.now().toString(36)}`, amount: s.owed, walletId, goalId, treatShare: TREAT_SHARE, description: `🧾 Impulse tax (${s.unpaid.length})` });
     await updateChallenge({ ...c, paid: [...(c.paid || []), ...s.unpaid.map((t) => t.id)], wallet_id: walletId, goal_id: goalId });
     setSaveFor(null);
     toast({ icon: '🧾', title: 'Impulse tax paid', line: `${formatCurrency(s.owed, currency)} into your goal`, sub: 'Every impulse buy now grows your savings too.' });
@@ -575,6 +586,11 @@ function SaveSheet({ title, amount, approx, c, wallets, goals, currency, note, f
       <div style={{ textAlign: 'center' }}>
         <div className="font-num" style={{ fontSize: 30, fontWeight: 800, color: 'var(--green)' }}>{approx ? '~' : ''}{formatCurrency(amount, currency)}</div>
         {note && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>{note}</div>}
+        {amount > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 6 }}>
+            {formatShort(amount * (1 - TREAT_SHARE), currency)} to your goal · {formatShort(amount * TREAT_SHARE, currency)} to 🎁 Treat Jar
+          </div>
+        )}
       </div>
       <div>
         <label style={label}>From</label>

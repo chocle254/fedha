@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import { genId, todayISO, setRates, goalsInTurnOrder, fillGoalsInOrder } from '../lib/utils';
 import { fetchRates } from '../lib/exchange';
 import { loanIdFromPaymentTx } from '../lib/finance-actions';
+import { isTreatJar, TREAT_JAR_PREFIX, awardSpin } from '../lib/rewards';
 import { startSyncEngine, onSyncStatusChange, getPendingCount } from '../lib/sync-engine';
 import {
   getWallets, saveWallet, deleteWallet,
@@ -175,9 +176,20 @@ export function AppProvider({ children }) {
     const [ws, bs] = await Promise.all([getWallets(), getBudgets()]); setWallets(ws); setBudgets(bs); return tx;
   }, []);
 
-  // Moves money from a wallet into one goal (challenges use this). Same shape
-  // as a deposit's savings cut, so deleting the transaction undoes the goal.
-  const saveToGoal = useCallback(async ({ id, amount, walletId, goalId, description }) => {
+  // The Treat Jar: a special goal holding reward-wheel money. Made on first use.
+  const ensureTreatJar = useCallback(async () => {
+    const all = await getGoals();
+    const existing = all.filter(isTreatJar).sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)))[0];
+    if (existing) return existing;
+    const jar = await saveGoal({ id: TREAT_JAR_PREFIX + genId(), name: 'Treat Jar', target: 0, current: 0, icon: '🎁', color: '#F59E0B', deadline: null, created_at: new Date().toISOString() });
+    setGoals(await getGoals());
+    return jar;
+  }, []);
+
+  // Moves money from a wallet into one goal (challenges use this), with
+  // `treatShare` of it going to the Treat Jar instead. Same shape as a
+  // deposit's savings cut, so deleting the transaction undoes the goals.
+  const saveToGoal = useCallback(async ({ id, amount, walletId, goalId, description, treatShare = 0 }) => {
     const amt = Math.round(Number(amount) * 100) / 100;
     if (!(amt > 0)) throw new Error('Nothing to save.');
     const [allGoals, allWallets] = await Promise.all([getGoals(), getWallets()]);
@@ -185,6 +197,10 @@ export function AppProvider({ children }) {
     const wallet = allWallets.find((w) => w.id === walletId);
     if (!goal) throw new Error('Pick a goal to save into.');
     if (!wallet) throw new Error('Pick the account to save from.');
+    const jar = treatShare > 0 ? await ensureTreatJar() : null;
+    const jarAmt = jar ? Math.round(amt * treatShare * 100) / 100 : 0;
+    const allocations = [{ goal_id: goal.id, amount: Math.round((amt - jarAmt) * 100) / 100 }];
+    if (jarAmt > 0) allocations.push({ goal_id: jar.id, amount: jarAmt });
     const tx = await saveTransaction({
       id: id || genId(),
       type: 'expense',
@@ -195,13 +211,63 @@ export function AppProvider({ children }) {
       date: todayISO(),
       currency,
       created_at: new Date().toISOString(),
-      savings_allocations: [{ goal_id: goal.id, amount: amt }],
+      savings_allocations: allocations,
     });
-    await saveGoal({ ...goal, current: (Number(goal.current) || 0) + amt });
+    const fresh = await getGoals();
+    for (const a of allocations) {
+      const g = fresh.find((x) => x.id === a.goal_id);
+      if (g) await saveGoal({ ...g, current: (Number(g.current) || 0) + a.amount });
+    }
+    setTransactions((prev) => [tx, ...prev]);
+    const [ws, gs] = await Promise.all([getWallets(), getGoals()]); setWallets(ws); setGoals(gs);
+    return tx;
+  }, [currency, ensureTreatJar]);
+
+  // Takes money out of a goal back into a wallet (reward wheel prizes). The
+  // allocation is negative, so deleting the transaction puts it back.
+  const withdrawFromGoal = useCallback(async ({ id, amount, walletId, goalId, description }) => {
+    const [allGoals, allWallets] = await Promise.all([getGoals(), getWallets()]);
+    const goal = allGoals.find((g) => g.id === goalId);
+    const wallet = allWallets.find((w) => w.id === walletId);
+    if (!goal) throw new Error('That goal no longer exists.');
+    if (!wallet) throw new Error('Pick the account to send it to.');
+    const amt = Math.round(Math.min(Number(amount), Number(goal.current) || 0) * 100) / 100;
+    if (!(amt > 0)) throw new Error('Nothing to take out.');
+    const tx = await saveTransaction({
+      id: id || genId(),
+      type: 'income',
+      amount: amt,
+      wallet_id: wallet.id,
+      category: 'savings',
+      description: description || `From ${goal.name}`,
+      date: todayISO(),
+      currency,
+      created_at: new Date().toISOString(),
+      savings_allocations: [{ goal_id: goal.id, amount: -amt }],
+    });
+    await saveGoal({ ...goal, current: Math.max(0, (Number(goal.current) || 0) - amt) });
     setTransactions((prev) => [tx, ...prev]);
     const [ws, gs] = await Promise.all([getWallets(), getGoals()]); setWallets(ws); setGoals(gs);
     return tx;
   }, [currency]);
+
+  // Reaching a goal earns a jackpot spin (once per goal). Goals already
+  // reached before this existed are recorded without a spin.
+  useEffect(() => {
+    if (loading) return;
+    (async () => {
+      const reached = goals.filter((g) => !isTreatJar(g) && Number(g.target) > 0 && (Number(g.current) || 0) >= Number(g.target)).map((g) => g.id);
+      const awarded = await getSetting('reward_goals_awarded', null);
+      if (awarded === null) { await setSetting('reward_goals_awarded', reached); return; }
+      const fresh = reached.filter((id) => !awarded.includes(id));
+      if (!fresh.length) return;
+      await setSetting('reward_goals_awarded', [...awarded, ...fresh]);
+      for (const id of fresh) {
+        const g = goals.find((x) => x.id === id);
+        await awardSpin('jackpot', `${g.icon || '🎯'} ${g.name} reached!`);
+      }
+    })();
+  }, [goals, loading]);
 
   // Answers to the savings question.
   const confirmSavingsCut = useCallback(async (amount) => {
@@ -331,7 +397,10 @@ export function AppProvider({ children }) {
   const totalBalance = wallets.reduce((s, w) => s + (Number(w.balance) || 0), 0);
   const totalLoaned = loans.filter((l) => l.type === 'lent' && l.status === 'active').reduce((s, l) => s + Number(l.remaining || l.amount), 0);
   const totalBorrowed = loans.filter((l) => l.type === 'borrowed' && l.status === 'active').reduce((s, l) => s + Number(l.remaining || l.amount), 0);
-  const totalGoalSaved = goals.reduce((s, g) => s + (g.current || 0), 0);
+  const totalGoalSaved = goals.reduce((s, g) => s + (g.current || 0), 0); // Treat Jar included: it's still your money
+  // Pages see goals without the Treat Jar; it's shown on its own.
+  const visibleGoals = goals.filter((g) => !isTreatJar(g));
+  const treatJar = goals.find(isTreatJar) || null;
   // Open loans stay out of the total. Settling one adds a transaction that
   // moves the wallet balance, so it counts from then on.
   const netWorth = totalBalance + totalGoalSaved;
@@ -340,12 +409,12 @@ export function AppProvider({ children }) {
     <AppContext.Provider value={{
       loading, isOnline, pendingSyncCount, currency, setCurrency, fxVersion,
       savingsPlanDays, setSavingsPlanDays, lastSavedGoalId, setLastSavedGoalId,
-      pendingSavings, confirmSavingsCut, skipSavingsCut, saveToGoal,
+      pendingSavings, confirmSavingsCut, skipSavingsCut, saveToGoal, withdrawFromGoal, ensureTreatJar,
       wallets, addWallet, updateWallet, removeWallet,
       transactions, addTransaction, removeTransaction,
       budgets, addBudget, updateBudget, removeBudget,
       loans, addLoan, updateLoan, removeLoan,
-      goals, addGoal, updateGoal, removeGoal,
+      goals: visibleGoals, treatJar, addGoal, updateGoal, removeGoal,
       incomePlans, addIncomePlan, updateIncomePlan, removeIncomePlan,
       challenges, addChallenge, updateChallenge, removeChallenge,
       hackathons, addHackathon, updateHackathon, removeHackathon,

@@ -576,7 +576,8 @@ export function goalsInTurnOrder(goals, lastGoalId) {
   const byAge = [...goals].sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')) || String(a.id).localeCompare(String(b.id)));
   const lastIdx = byAge.findIndex((g) => g.id === lastGoalId);
   const rotated = lastIdx >= 0 ? [...byAge.slice(lastIdx + 1), ...byAge.slice(0, lastIdx + 1)] : byAge;
-  return rotated.filter((g) => (g.current || 0) < g.target);
+  // The Treat Jar (reward wheel money) never takes part in the rotation.
+  return rotated.filter((g) => (g.current || 0) < g.target && !String(g.id).startsWith('treatjar_'));
 }
 
 // Pour the amount into goals in the given order: the first goal takes what it

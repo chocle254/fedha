@@ -130,6 +130,7 @@ async function summarizeGoals() {
   const goals = await getGoals();
   if (!goals.length) return 'No goals have been recorded yet.';
   return goals.map((g) => {
+    if (String(g.id).startsWith('treatjar_')) return `Treat Jar (reward-wheel money, not a savings goal): ${Number(g.current || 0)}`;
     const target = Number(g.target);
     const current = Number(g.current || 0);
     const pct = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : null;
