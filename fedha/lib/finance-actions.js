@@ -61,15 +61,17 @@ export async function toggleIncomeReceived(plan, { wallets, currency, addTransac
 }
 
 // Marks a loan settled: borrowed = you paying it back (expense), lent =
-// them paying you back (income). One-directional, same as budgets.js.
-export async function settleLoan(loan, { wallets, currency, addTransaction, updateLoan }) {
+// them paying you back (income). `walletId` is the account the money left
+// or landed in — the user always picks it.
+export async function settleLoan(loan, { walletId, wallets, currency, addTransaction, updateLoan }) {
   if (loan.status === 'settled') return loan;
-  if (!wallets[0]) throw new Error('Add a wallet first so this settlement has somewhere to go.');
+  const wallet = wallets.find((w) => w.id === walletId);
+  if (!wallet) throw new Error('Pick the account this loan was settled in.');
   const amount = Number(loan.remaining || loan.amount);
   const tx = await addTransaction({
     type: loan.type === 'borrowed' ? 'expense' : 'income',
     amount,
-    wallet_id: wallets[0].id,
+    wallet_id: wallet.id,
     category: 'other',
     description: `Loan settled: ${loan.contact_name}`,
     date: todayISO(),

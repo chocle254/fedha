@@ -56,6 +56,50 @@ function BudgetForm({ initial, onSave, onClose }) {
   );
 }
 
+// Asks which account a loan was settled in before any money moves.
+function SettleLoanForm({ loan, wallets, currency, onSettle, onClose }) {
+  const [walletId, setWalletId] = useState(wallets.length === 1 ? wallets[0].id : '');
+  const [busy, setBusy] = useState(false);
+  const borrowed = loan.type === 'borrowed';
+  const amount = Number(loan.remaining || loan.amount);
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-sheet">
+        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+        <div className="modal-header">
+          <span style={{ fontSize: 16, fontWeight: 700 }}>Settle loan with {loan.contact_name}</span>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{ fontSize: 14, color: 'var(--text-2)' }}>
+            {borrowed ? 'You paid back' : 'You received'} <span className="font-num" style={{ fontWeight: 700, color: 'var(--text)' }}>{formatCurrency(amount, currency)}</span>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>
+              {borrowed ? 'Paid from' : 'Received into'}
+            </label>
+            {wallets.length === 0 ? (
+              <div style={{ fontSize: 13, color: 'var(--red)' }}>Add an account first.</div>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {wallets.map((w) => (
+                  <button key={w.id} className={`chip ${walletId === w.id ? 'active' : ''}`} onClick={() => setWalletId(w.id)}>
+                    {w.icon} {w.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button className="btn-primary" disabled={!walletId || busy} onClick={async () => { setBusy(true); await onSettle(walletId); setBusy(false); }}>
+            ✓ Mark Settled
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LoanForm({ initial, onSave, onClose }) {
   const [type, setType] = useState(initial?.type || 'borrowed');
   const [contactName, setContactName] = useState(initial?.contact_name || '');
@@ -210,9 +254,12 @@ export default function BudgetsPage() {
     }
   }
 
-  async function settleLoan(loan) {
+  const [settling, setSettling] = useState(null); // loan waiting for an account pick
+
+  async function settleLoan(loan, walletId) {
     try {
-      await settleLoanShared(loan, { wallets, currency, addTransaction, updateLoan });
+      await settleLoanShared(loan, { walletId, wallets, currency, addTransaction, updateLoan });
+      setSettling(null);
     } catch (e) {
       alert(e.message);
     }
@@ -406,7 +453,7 @@ export default function BudgetsPage() {
                         </>
                       )}
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => settleLoan(l)} style={{ flex: 1, padding: '8px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, color: 'var(--green)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', fontWeight: 600 }}>✓ Mark Settled</button>
+                        <button onClick={() => setSettling(l)} style={{ flex: 1, padding: '8px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, color: 'var(--green)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', fontWeight: 600 }}>✓ Mark Settled</button>
                         <button onClick={() => setEditLoan(l)} style={{ padding: '8px 14px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit' }}>✏️</button>
                         <button onClick={() => window.confirm(`Delete the loan with ${l.contact_name}? This can't be undone.`) && removeLoan(l.id)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑</button>
                       </div>
@@ -430,6 +477,7 @@ export default function BudgetsPage() {
       {(showBudgetForm || editBudget) && <BudgetForm initial={editBudget} onSave={async (d) => { editBudget ? await updateBudget(d) : await addBudget(d); setShowBudgetForm(false); setEditBudget(null); }} onClose={() => { setShowBudgetForm(false); setEditBudget(null); }} />}
       {(showLoanForm || editLoan) && <LoanForm initial={editLoan} onSave={async (d) => { editLoan ? await updateLoan(d) : await addLoan(d); setShowLoanForm(false); setEditLoan(null); }} onClose={() => { setShowLoanForm(false); setEditLoan(null); }} />}
       {(showPlanForm || editPlan) && <IncomePlanForm initial={editPlan} onSave={async (d) => { editPlan ? await updateIncomePlan(d) : await addIncomePlan(d); setShowPlanForm(false); setEditPlan(null); }} onClose={() => { setShowPlanForm(false); setEditPlan(null); }} />}
+      {settling && <SettleLoanForm loan={settling} wallets={wallets} currency={currency} onSettle={(walletId) => settleLoan(settling, walletId)} onClose={() => setSettling(null)} />}
       {showTxn && <TransactionModal onClose={() => setShowTxn(false)} />}
     </Layout>
   );

@@ -46,7 +46,9 @@ export async function executeProposedAction(action, ctx) {
       const loans = await getLoans();
       const loan = findByNameLoose(loans.filter((l) => l.status === 'active'), 'contact_name', args.contact_name);
       if (!loan) throw new Error(`Couldn't find an active loan with "${args.contact_name}".`);
-      return settleLoan(loan, { wallets, currency: ctx.currency, addTransaction: ctx.addTransaction, updateLoan: ctx.updateLoan });
+      const wallet = findByNameLoose(wallets, 'name', args.wallet_name);
+      if (!wallet) throw new Error(`Couldn't find an account named "${args.wallet_name}".`);
+      return settleLoan(loan, { walletId: wallet.id, wallets, currency: ctx.currency, addTransaction: ctx.addTransaction, updateLoan: ctx.updateLoan });
     }
 
     case 'propose_mark_income_received': {
@@ -205,7 +207,7 @@ export function describeProposedAction(action) {
     case 'propose_transaction':
       return `${args.type === 'income' ? 'Add income' : 'Add expense'}: ${args.amount} (${args.category})${args.description ? ` — ${args.description}` : ''}${args.wallet_name ? ` from ${args.wallet_name}` : ''}${Number(args.fee) > 0 ? ` + ${args.fee} fee` : ''}`;
     case 'propose_settle_loan':
-      return `Mark loan with ${args.contact_name} as settled`;
+      return `Mark loan with ${args.contact_name} as settled in ${args.wallet_name}`;
     case 'propose_mark_income_received':
       return `Mark income plan "${args.name}" as received`;
     case 'propose_log_meal':

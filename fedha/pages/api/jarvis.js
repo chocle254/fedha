@@ -87,8 +87,9 @@ const TOOLS = [
         type: 'object',
         properties: {
           contact_name: { type: 'string', description: 'Who the loan is with, matching an existing active loan.' },
+          wallet_name: { type: 'string', description: 'The account the money was paid from or received into. Ask the user if they have not said.' },
         },
-        required: ['contact_name'],
+        required: ['contact_name', 'wallet_name'],
       },
     },
   },
@@ -561,7 +562,8 @@ function validateToolArgs(name, a) {
       if (!positive(a.duration)) return 'How long should it take?';
       return null;
     case 'propose_settle_loan':
-      return text(a.contact_name) ? null : 'Which loan should I settle?';
+      if (!text(a.contact_name)) return 'Which loan should I settle?';
+      return text(a.wallet_name) ? null : 'Which account was it settled in?';
     case 'propose_mark_income_received':
       return text(a.name) ? null : 'Which income plan came in?';
     case 'propose_delete_transaction':
