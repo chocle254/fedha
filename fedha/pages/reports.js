@@ -338,7 +338,7 @@ export default function ReportsPage() {
                   <span style={{ fontSize: 20 }}>📥</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 500 }}>Money Owed to Me</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Active loans out</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Not in total until settled</div>
                   </div>
                   <div className="font-num" style={{ fontSize: 15, fontWeight: 700, color: 'var(--green)' }}>{formatCurrency(totalLent, currency)}</div>
                 </div>
@@ -357,14 +357,14 @@ export default function ReportsPage() {
               {/* Liabilities */}
               {totalBorrowed > 0 && (
                 <>
-                  <div style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginTop: 12, marginBottom: 4 }}>Liabilities</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginTop: 12, marginBottom: 4 }}>Open loans</div>
                   <div className="card-2" style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, borderColor: 'rgba(239,68,68,0.2)' }}>
                     <span style={{ fontSize: 20 }}>📤</span>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 14, fontWeight: 500 }}>Money I Owe</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Active loans in</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Not in total until settled</div>
                     </div>
-                    <div className="font-num" style={{ fontSize: 15, fontWeight: 700, color: 'var(--red)' }}>−{formatCurrency(totalBorrowed, currency)}</div>
+                    <div className="font-num" style={{ fontSize: 15, fontWeight: 700, color: 'var(--red)' }}>{formatCurrency(totalBorrowed, currency)}</div>
                   </div>
                 </>
               )}

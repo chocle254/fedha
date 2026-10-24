@@ -40,9 +40,8 @@ export default function HealthPage() {
   const totalBalance = wallets.reduce((s, w) => s + Number(w.balance || 0), 0);
   const totalBudgeted = budgets.reduce((s, b) => s + Math.max(0, Number(b.allocated || 0) - Number(b.spent || 0)), 0);
   const totalBorrowed = loans.filter(l => l.type === 'borrowed' && l.status === 'active').reduce((s, l) => s + Number(l.remaining || l.amount || 0), 0);
-  const totalLent = loans.filter(l => l.type === 'lent' && l.status === 'active').reduce((s, l) => s + Number(l.remaining || l.amount || 0), 0);
   const floating = Math.max(0, totalBalance - totalBudgeted - totalBorrowed);
-  const netWorth = totalBalance + totalLent - totalBorrowed;
+  const netWorth = totalBalance; // open loans count only once settled
   const savings = monthIncome - monthExpense;
   const savingsRate = monthIncome > 0 ? (savings / monthIncome) * 100 : 0;
   const impulseTotal = monthTxns.filter(t => t.is_impulse).reduce((s, t) => s + Number(t.amount), 0);

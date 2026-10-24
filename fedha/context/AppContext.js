@@ -292,7 +292,9 @@ export function AppProvider({ children }) {
   const totalLoaned = loans.filter((l) => l.type === 'lent' && l.status === 'active').reduce((s, l) => s + Number(l.remaining || l.amount), 0);
   const totalBorrowed = loans.filter((l) => l.type === 'borrowed' && l.status === 'active').reduce((s, l) => s + Number(l.remaining || l.amount), 0);
   const totalGoalSaved = goals.reduce((s, g) => s + (g.current || 0), 0);
-  const netWorth = totalBalance + totalLoaned + totalGoalSaved - totalBorrowed;
+  // Open loans stay out of the total. Settling one adds a transaction that
+  // moves the wallet balance, so it counts from then on.
+  const netWorth = totalBalance + totalGoalSaved;
 
   return (
     <AppContext.Provider value={{
