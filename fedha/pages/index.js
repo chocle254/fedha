@@ -4,6 +4,7 @@ import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import SavingsMotivator from '../components/SavingsMotivator';
 import SavingsChallenges from '../components/SavingsChallenges';
+import RewardWheel from '../components/RewardWheel';
 import BalanceHistoryChart from '../components/BalanceHistoryChart';
 import BinancePortfolioCard from '../components/BinancePortfolioCard';
 import MoneyInCard from '../components/MoneyInCard';
@@ -330,6 +331,9 @@ export default function Dashboard() {
         {/* Savings challenges */}
         <SavingsChallenges />
 
+        {/* Treat Jar + reward wheel */}
+        <RewardWheel />
+
         {/* Alerts */}
         {(overBudget.length > 0 || activeLoans.length > 0) && (
           <div className="section">
@@ -564,6 +568,9 @@ function DesktopDashboard({ wallets, transactions, goals, currency, netWorth, to
 
           <div className="desk-embed">
             <SavingsChallenges />
+          </div>
+          <div className="desk-embed">
+            <RewardWheel />
           </div>
         </div>
 
