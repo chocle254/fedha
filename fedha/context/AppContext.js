@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { genId, todayISO, setRates, goalsInTurnOrder, fillGoalsInOrder } from '../lib/utils';
 import { fetchRates } from '../lib/exchange';
+import { loanIdFromPaymentTx } from '../lib/finance-actions';
 import { startSyncEngine, onSyncStatusChange, getPendingCount } from '../lib/sync-engine';
 import {
   getWallets, saveWallet, deleteWallet,
@@ -188,6 +189,7 @@ export function AppProvider({ children }) {
     // A transaction's fee (id + "_fee") and savings cut (id + "_save") go with
     // it, so balances and goals stay right.
     const ids = [id, `${id}_fee`, `${id}_save`];
+    const main = await getTransaction(id);
     for (const tid of ids) {
       const t = await getTransaction(tid);
       if (!t) continue;
@@ -195,6 +197,16 @@ export function AppProvider({ children }) {
       await deleteTransaction(tid);
     }
     setTransactions((prev) => prev.filter((x) => !ids.includes(x.id)));
+    // Deleting a loan payment puts that amount back on the loan.
+    const loanId = loanIdFromPaymentTx(id);
+    if (main && loanId) {
+      const loan = (await getLoans()).find((l) => l.id === loanId);
+      if (loan) {
+        const remaining = Math.min(Number(loan.amount), Number(loan.remaining || 0) + Number(main.amount));
+        const l = await saveLoan({ ...loan, remaining, status: 'active', settled_txn_id: null });
+        setLoans((p) => p.map((x) => (x.id === l.id ? l : x)));
+      }
+    }
     const [ws, bs] = await Promise.all([getWallets(), getBudgets()]); setWallets(ws); setBudgets(bs);
   }, [undoSavingsCut]);
 

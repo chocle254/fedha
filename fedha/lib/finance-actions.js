@@ -60,23 +60,45 @@ export async function toggleIncomeReceived(plan, { wallets, currency, addTransac
   }
 }
 
-// Marks a loan settled: borrowed = you paying it back (expense), lent =
-// them paying you back (income). `walletId` is the account the money left
-// or landed in — the user always picks it.
-export async function settleLoan(loan, { walletId, wallets, currency, addTransaction, updateLoan }) {
+// What's still owed on a loan (same rule the Loans page shows).
+export const loanBalance = (loan) => Number(loan.remaining || loan.amount) || 0;
+
+// A loan payment's transaction id is "<loan id>_loanpay_<suffix>", so
+// deleting the transaction can find the loan and put the money back on it
+// without needing an extra database column.
+const LOAN_PAY_TAG = '_loanpay_';
+export function loanIdFromPaymentTx(txId) {
+  const i = String(txId || '').indexOf(LOAN_PAY_TAG);
+  return i > 0 ? txId.slice(0, i) : null;
+}
+
+// Records a payment on a loan, whole or part. Borrowed = you paying back
+// (expense), lent = them paying you (income). `walletId` is the account the
+// money left or landed in. Once nothing is left, the loan is settled.
+export async function payLoan(loan, { amount, walletId, wallets, currency, addTransaction, updateLoan }) {
   if (loan.status === 'settled') return loan;
   const wallet = wallets.find((w) => w.id === walletId);
-  if (!wallet) throw new Error('Pick the account this loan was settled in.');
-  const amount = Number(loan.remaining || loan.amount);
+  if (!wallet) throw new Error('Pick the account this payment went through.');
+  const owed = loanBalance(loan);
+  const pay = Math.min(Number(amount) || 0, owed);
+  if (!(pay > 0)) throw new Error('Enter how much was paid.');
+  let remaining = owed - pay;
+  if (remaining < 0.01) remaining = 0; // currency rounding leftovers
   const tx = await addTransaction({
+    id: `${loan.id}${LOAN_PAY_TAG}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
     type: loan.type === 'borrowed' ? 'expense' : 'income',
-    amount,
+    amount: pay,
     wallet_id: wallet.id,
     category: 'other',
-    description: `Loan settled: ${loan.contact_name}`,
+    description: `${remaining > 0 ? 'Loan payment' : 'Loan settled'}: ${loan.contact_name}`,
     date: todayISO(),
     currency,
     skipSavingsCut: true, // getting your own money back isn't new income
   });
-  return updateLoan({ ...loan, status: 'settled', settled_txn_id: tx.id });
+  return updateLoan({
+    ...loan,
+    remaining,
+    status: remaining > 0 ? 'active' : 'settled',
+    settled_txn_id: remaining > 0 ? (loan.settled_txn_id || null) : tx.id,
+  });
 }

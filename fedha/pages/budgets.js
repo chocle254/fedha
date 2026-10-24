@@ -2,8 +2,8 @@ import { useState } from 'react';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
-import { toggleIncomeReceived as toggleIncomeReceivedShared, settleLoan as settleLoanShared } from '../lib/finance-actions';
-import { formatCurrency, formatShort, formatDate, getDaysUntil, isOverdue, EXPENSE_CATEGORIES, getCategoryById, genId, todayISO } from '../lib/utils';
+import { toggleIncomeReceived as toggleIncomeReceivedShared, payLoan, loanBalance } from '../lib/finance-actions';
+import { formatCurrency, formatShort, convertAmount, toBaseAmount, formatDate, getDaysUntil, isOverdue, EXPENSE_CATEGORIES, getCategoryById, genId, todayISO } from '../lib/utils';
 
 function BudgetForm({ initial, onSave, onClose }) {
   const [name, setName] = useState(initial?.name || '');
@@ -56,29 +56,47 @@ function BudgetForm({ initial, onSave, onClose }) {
   );
 }
 
-// Asks which account a loan was settled in before any money moves.
-function SettleLoanForm({ loan, wallets, currency, onSettle, onClose }) {
+// Records a payment on a loan — part of it, or all of it to settle. Asks
+// how much and which account before any money moves.
+function LoanPaymentForm({ loan, wallets, currency, onPay, onClose }) {
+  const owed = loanBalance(loan);
+  const owedShown = Math.round(convertAmount(owed, currency) * 100) / 100;
+  const [amount, setAmount] = useState(String(owedShown));
   const [walletId, setWalletId] = useState(wallets.length === 1 ? wallets[0].id : '');
   const [busy, setBusy] = useState(false);
   const borrowed = loan.type === 'borrowed';
-  const amount = Number(loan.remaining || loan.amount);
+  const typed = Number(amount) || 0;
+  const tooMuch = typed > owedShown + 0.001;
+  const full = typed >= owedShown - 0.001;
+  const left = Math.max(0, owed - toBaseAmount(typed, currency));
+  const label = { fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 };
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-sheet">
         <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
         <div className="modal-header">
-          <span style={{ fontSize: 16, fontWeight: 700 }}>Settle loan with {loan.contact_name}</span>
+          <span style={{ fontSize: 16, fontWeight: 700 }}>{borrowed ? 'Pay back' : 'Payment from'} {loan.contact_name}</span>
           <button className="btn-icon" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
           <div style={{ fontSize: 14, color: 'var(--text-2)' }}>
-            {borrowed ? 'You paid back' : 'You received'} <span className="font-num" style={{ fontWeight: 700, color: 'var(--text)' }}>{formatCurrency(amount, currency)}</span>
+            Still owed: <span className="font-num" style={{ fontWeight: 700, color: 'var(--text)' }}>{formatCurrency(owed, currency)}</span>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>
-              {borrowed ? 'Paid from' : 'Received into'}
-            </label>
+            <label style={label}>{borrowed ? 'Amount you paid' : 'Amount they paid'}</label>
+            <input className="input font-num" type="number" inputMode="decimal" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              {[['All', 1], ['Half', 0.5], ['Quarter', 0.25]].map(([l, f]) => (
+                <button key={l} className="chip" onClick={() => setAmount(String(Math.round(owedShown * f * 100) / 100))}>{l}</button>
+              ))}
+            </div>
+            <div style={{ fontSize: 12, marginTop: 8, color: tooMuch ? 'var(--red)' : 'var(--text-3)' }}>
+              {tooMuch ? `That's more than is owed.` : full ? 'This settles the loan.' : typed > 0 ? `Left after this: ${formatCurrency(left, currency)}` : ''}
+            </div>
+          </div>
+          <div>
+            <label style={label}>{borrowed ? 'Paid from' : 'Received into'}</label>
             {wallets.length === 0 ? (
               <div style={{ fontSize: 13, color: 'var(--red)' }}>Add an account first.</div>
             ) : (
@@ -91,8 +109,9 @@ function SettleLoanForm({ loan, wallets, currency, onSettle, onClose }) {
               </div>
             )}
           </div>
-          <button className="btn-primary" disabled={!walletId || busy} onClick={async () => { setBusy(true); await onSettle(walletId); setBusy(false); }}>
-            ✓ Mark Settled
+          <button className="btn-primary" disabled={!walletId || !(typed > 0) || tooMuch || busy}
+            onClick={async () => { setBusy(true); await onPay(full ? owed : toBaseAmount(typed, currency), walletId); setBusy(false); }}>
+            {full ? '✓ Mark Settled' : 'Record Payment'}
           </button>
         </div>
       </div>
@@ -254,12 +273,12 @@ export default function BudgetsPage() {
     }
   }
 
-  const [settling, setSettling] = useState(null); // loan waiting for an account pick
+  const [paying, setPaying] = useState(null); // loan the payment sheet is open for
 
-  async function settleLoan(loan, walletId) {
+  async function recordLoanPayment(loan, amount, walletId) {
     try {
-      await settleLoanShared(loan, { walletId, wallets, currency, addTransaction, updateLoan });
-      setSettling(null);
+      await payLoan(loan, { amount, walletId, wallets, currency, addTransaction, updateLoan });
+      setPaying(null);
     } catch (e) {
       alert(e.message);
     }
@@ -453,7 +472,7 @@ export default function BudgetsPage() {
                         </>
                       )}
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => setSettling(l)} style={{ flex: 1, padding: '8px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, color: 'var(--green)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', fontWeight: 600 }}>✓ Mark Settled</button>
+                        <button onClick={() => setPaying(l)} style={{ flex: 1, padding: '8px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, color: 'var(--green)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', fontWeight: 600 }}>💸 Pay / Settle</button>
                         <button onClick={() => setEditLoan(l)} style={{ padding: '8px 14px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit' }}>✏️</button>
                         <button onClick={() => window.confirm(`Delete the loan with ${l.contact_name}? This can't be undone.`) && removeLoan(l.id)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑</button>
                       </div>
@@ -477,7 +496,7 @@ export default function BudgetsPage() {
       {(showBudgetForm || editBudget) && <BudgetForm initial={editBudget} onSave={async (d) => { editBudget ? await updateBudget(d) : await addBudget(d); setShowBudgetForm(false); setEditBudget(null); }} onClose={() => { setShowBudgetForm(false); setEditBudget(null); }} />}
       {(showLoanForm || editLoan) && <LoanForm initial={editLoan} onSave={async (d) => { editLoan ? await updateLoan(d) : await addLoan(d); setShowLoanForm(false); setEditLoan(null); }} onClose={() => { setShowLoanForm(false); setEditLoan(null); }} />}
       {(showPlanForm || editPlan) && <IncomePlanForm initial={editPlan} onSave={async (d) => { editPlan ? await updateIncomePlan(d) : await addIncomePlan(d); setShowPlanForm(false); setEditPlan(null); }} onClose={() => { setShowPlanForm(false); setEditPlan(null); }} />}
-      {settling && <SettleLoanForm loan={settling} wallets={wallets} currency={currency} onSettle={(walletId) => settleLoan(settling, walletId)} onClose={() => setSettling(null)} />}
+      {paying && <LoanPaymentForm loan={paying} wallets={wallets} currency={currency} onPay={(amount, walletId) => recordLoanPayment(paying, amount, walletId)} onClose={() => setPaying(null)} />}
       {showTxn && <TransactionModal onClose={() => setShowTxn(false)} />}
     </Layout>
   );

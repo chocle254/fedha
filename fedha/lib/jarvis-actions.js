@@ -7,7 +7,7 @@
 // silently doing nothing or guessing).
 
 import { getWallets, getLoans, getIncomePlans, getSetting, setSetting, getProjects, getHackathons, saveProject, deleteProject, saveHackathon, deleteHackathon, getStartups, saveStartup, deleteStartup, getCertificates, saveCertificate, deleteCertificate, getResearch, saveResearch, deleteResearch, getTransactions } from './db';
-import { toggleIncomeReceived, settleLoan, addTransactionWithFee } from './finance-actions';
+import { toggleIncomeReceived, payLoan, loanBalance, addTransactionWithFee } from './finance-actions';
 import { todayISO } from './utils';
 
 function findByNameLoose(list, field, needle) {
@@ -48,7 +48,8 @@ export async function executeProposedAction(action, ctx) {
       if (!loan) throw new Error(`Couldn't find an active loan with "${args.contact_name}".`);
       const wallet = findByNameLoose(wallets, 'name', args.wallet_name);
       if (!wallet) throw new Error(`Couldn't find an account named "${args.wallet_name}".`);
-      return settleLoan(loan, { walletId: wallet.id, wallets, currency: ctx.currency, addTransaction: ctx.addTransaction, updateLoan: ctx.updateLoan });
+      const amount = Number(args.amount) > 0 ? Number(args.amount) : loanBalance(loan);
+      return payLoan(loan, { amount, walletId: wallet.id, wallets, currency: ctx.currency, addTransaction: ctx.addTransaction, updateLoan: ctx.updateLoan });
     }
 
     case 'propose_mark_income_received': {
@@ -207,7 +208,9 @@ export function describeProposedAction(action) {
     case 'propose_transaction':
       return `${args.type === 'income' ? 'Add income' : 'Add expense'}: ${args.amount} (${args.category})${args.description ? ` — ${args.description}` : ''}${args.wallet_name ? ` from ${args.wallet_name}` : ''}${Number(args.fee) > 0 ? ` + ${args.fee} fee` : ''}`;
     case 'propose_settle_loan':
-      return `Mark loan with ${args.contact_name} as settled in ${args.wallet_name}`;
+      return Number(args.amount) > 0
+        ? `Record ${args.amount} paid on the loan with ${args.contact_name} (${args.wallet_name})`
+        : `Mark loan with ${args.contact_name} as settled in ${args.wallet_name}`;
     case 'propose_mark_income_received':
       return `Mark income plan "${args.name}" as received`;
     case 'propose_log_meal':

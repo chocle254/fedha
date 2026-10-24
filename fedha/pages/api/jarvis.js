@@ -82,12 +82,13 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'propose_settle_loan',
-      description: 'Propose marking an active loan as settled (paid back if borrowed, received if lent). Requires user confirmation.',
+      description: 'Propose recording a payment on an active loan (paid back if borrowed, received if lent) — part of it, or all of it to settle. Requires user confirmation.',
       parameters: {
         type: 'object',
         properties: {
           contact_name: { type: 'string', description: 'Who the loan is with, matching an existing active loan.' },
           wallet_name: { type: 'string', description: 'The account the money was paid from or received into. Ask the user if they have not said.' },
+          amount: { type: 'number', description: 'How much was paid now, for a part payment. Leave out when the whole remaining balance was paid.' },
         },
         required: ['contact_name', 'wallet_name'],
       },
@@ -393,7 +394,7 @@ function selectTools(message) {
   // "What loans do I have?" is a read question, not a request to settle one.
   // Only expose the settle action when the user is actually asking to change
   // a loan's state.
-  if (/\b(settle|pay back|paid back|mark.*settled|mark.*paid|settle.*loan)\b/.test(m)) add('propose_settle_loan');
+  if (/\b(settle|pay back|paid back|mark.*settled|mark.*paid|settle.*loan)\b/.test(m) || /\bloan\b.*\b(paid|pay|payment|instal?ment)\b|\b(paid|pay|payment|instal?ment)\b.*\bloan\b/.test(m)) add('propose_settle_loan');
   if (/\b(income|salary|payment)\b/.test(m) && /\b(received|got|arrived|mark)\b/.test(m)) add('propose_mark_income_received');
   if (/\b(log|add|record|ate|eaten|meal|breakfast|lunch|dinner|snack)\b/.test(m)) add('propose_log_meal');
   if (/\b(planner|schedule|plan|move|reschedule|block)\b/.test(m)) add('propose_planner_block_edit');
@@ -563,7 +564,8 @@ function validateToolArgs(name, a) {
       return null;
     case 'propose_settle_loan':
       if (!text(a.contact_name)) return 'Which loan should I settle?';
-      return text(a.wallet_name) ? null : 'Which account was it settled in?';
+      if (a.amount !== undefined && a.amount !== null && !positive(a.amount)) return 'How much was paid?';
+      return text(a.wallet_name) ? null : 'Which account was it paid through?';
     case 'propose_mark_income_received':
       return text(a.name) ? null : 'Which income plan came in?';
     case 'propose_delete_transaction':
