@@ -34,6 +34,14 @@ export default function TransactionsPage() {
       if (!map[t.date]) map[t.date] = [];
       map[t.date].push(t);
     });
+    // Within each date, show the most recently created transaction first.
+    Object.values(map).forEach((txns) => {
+      txns.sort((a, b) => {
+        const timeA = Date.parse(a.created_at || a.createdAt || a.timestamp || '') || 0;
+        const timeB = Date.parse(b.created_at || b.createdAt || b.timestamp || '') || 0;
+        return timeB - timeA;
+      });
+    });
     return Object.entries(map).sort(([a], [b]) => b.localeCompare(a));
   }, [filtered]);
 
