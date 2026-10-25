@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 
 const BASE = (process.env.NESTLINK_BASE_URL || 'https://automate.nestlink.co.ke/api').replace(/\/$/, '');
-const MIN_SWEEP_PAYOUT_KES = 40;
+const MIN_SWEEP_PAYOUT_KES = 30;
 
 export const isNestLinkConfigured = () => Boolean(
   process.env.NESTLINK_API_KEY &&
@@ -42,7 +42,7 @@ export function calculateNestLinkPayout(availableKes) {
   }
 
   const tiers = [
-    { min: 40, max: 50, fee: 3 },
+    { min: 30, max: 50, fee: 3 },
     { min: 51, max: 100, fee: 6 },
     { min: 101, max: 200, fee: 9 },
     { min: 201, max: 500, fee: 23 },
