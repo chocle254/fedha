@@ -96,6 +96,19 @@ function OpportunityCard({ item, onClaim }) {
           🔐 <strong>Gate:</strong> {item.gate}
         </div>
       )}
+      {(item.payout || item.kenya_ok) && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, fontSize: 11 }}>
+          {item.category && <span style={{ padding: '3px 10px', borderRadius: 100, border: '1px solid var(--border)', color: 'var(--text-2)' }}>{item.category}</span>}
+          {item.kenya_ok && (
+            <span style={{ padding: '3px 10px', borderRadius: 100, fontWeight: 600,
+              color: item.kenya_ok === 'Yes' ? 'var(--green)' : item.kenya_ok === 'No' ? 'var(--red)' : '#F59E0B',
+              border: `1px solid ${item.kenya_ok === 'Yes' ? 'rgba(16,185,129,0.3)' : item.kenya_ok === 'No' ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}` }}>
+              🇰🇪 {item.kenya_ok === 'Yes' ? 'Open to Kenya' : item.kenya_ok === 'No' ? 'Not in Kenya' : 'Check Kenya eligibility'}
+            </span>
+          )}
+          {item.payout && <span style={{ padding: '3px 10px', borderRadius: 100, border: '1px solid var(--border)', color: 'var(--text-2)' }}>💸 {item.payout}</span>}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
         <div style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 10px' }}>
@@ -164,6 +177,7 @@ export default function DiscoverPage() {
   const [error, setError] = useState(null);
   const [activities, setActivities] = useState([]);
   const [opportunities, setOpportunities] = useState([]);
+  const [oppNote, setOppNote] = useState(null);
   const [pending, setPending] = useState([]);
   const [location, setLocation] = useState(null);
   const [locationStatus, setLocationStatus] = useState('idle'); // idle | loading | got | denied
@@ -230,9 +244,17 @@ export default function DiscoverPage() {
     }
   }
 
+  // Platforms already shown recently, so the next search finds new ones.
+  const SEEN_KEY = 'fedha_earn_seen';
+  function readSeen() { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '[]'); } catch { return []; } }
+  function rememberSeen(names) {
+    try { localStorage.setItem(SEEN_KEY, JSON.stringify([...new Set([...names, ...readSeen()])].slice(0, 40))); } catch {}
+  }
+
   async function fetchOpportunities() {
     setLoading(true);
     setError(null);
+    setOppNote(null);
     try {
       const res = await fetch('/api/ai', {
         method: 'POST',
@@ -242,12 +264,18 @@ export default function DiscoverPage() {
           balance: Math.max(0, floating),
           currency,
           currency_symbol: symbol,
-          nonce: Date.now(),
+          exclude: [...readSeen(), ...pending.map((p) => p.platform)].filter(Boolean),
         }),
       });
-      const data = await res.json();
+      // A timed-out request comes back as an HTML error page, not JSON.
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { throw new Error(res.status === 504 ? 'The search took too long. Try again.' : 'Something went wrong on the server. Try again.'); }
       if (data.error) throw new Error(data.error);
-      setOpportunities(data.results || []);
+      const results = data.results || [];
+      setOpportunities(results);
+      if (data.note) setOppNote(data.note);
+      rememberSeen(results.map((r) => r.platform).filter(Boolean));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -450,11 +478,11 @@ export default function DiscoverPage() {
           {tab === 'opportunities' && (
             <div>
               <div style={{ padding: '12px 14px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 12, marginBottom: 16, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
-                💡 AI surfaces lesser-known, higher-value gigs — audit contests, bug bounties, AI data tasks & more — with potential earnings. Tap "I'll do this!" to track it, then enter what you actually made when paid.
+                💡 Hidden gems, not the usual freelance sites: cash esports tournaments, skill competitions, audit contests, bounties, paid expert calls and invite-only AI work. Every tap searches fresh and skips what you've already seen. Tap "I'll do this!" to track one, then enter what you actually made.
               </div>
 
               <button className="btn-primary" onClick={fetchOpportunities} disabled={loading} style={{ marginBottom: 20, background: 'var(--blue)' }}>
-                {loading ? '🔍 Searching opportunities…' : '🔍 Find Online Opportunities'}
+                {loading ? '🔍 Digging for hidden gems… (up to a minute)' : opportunities.length ? '🔄 Find different ones' : '🔍 Find hidden gems'}
               </button>
 
               {error && (
@@ -473,11 +501,13 @@ export default function DiscoverPage() {
                 </div>
               )}
 
+              {oppNote && !error && <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 16 }}>{oppNote}</div>}
+
               {!loading && opportunities.length === 0 && (
                 <div className="empty-state">
                   <div className="icon">💼</div>
                   <h3>Find hidden ways to earn online</h3>
-                  <p>AI surfaces lesser-known, higher-value opportunities — audit contests, bounties & AI tasks — with their earning potential</p>
+                  <p>Esports cash tournaments, Zindi-style competitions, audit contests, bounties and paid expert work, checked for Kenya eligibility and payout method</p>
                 </div>
               )}
 

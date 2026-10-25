@@ -19,6 +19,7 @@ import { requireUser } from '../../lib/require-user';
 // invents an item that isn't grounded in something Firecrawl actually found.
 import { webSearchMulti } from '../../lib/web-search';
 import { nvidiaChat } from '../../lib/nvidia-client';
+import { pickQueries, opportunitiesPrompt, BLOCKED } from '../../lib/opportunities';
 import { PLAYBOOK, PITCH_SLIDES, INVESTORS, JUDGE_CRITERIA, playbookText } from '../../lib/founder-playbook';
 import { STAGES } from '../../lib/startup';
 
@@ -26,11 +27,13 @@ import { STAGES } from '../../lib/startup';
 export const config = { maxDuration: 60 };
 
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b'; // free & strong; or 'llama-3.1-8b-instant' for speed
-const SEARCH_GROUNDED_TYPES = new Set(['activities', 'opportunities']);
+const SEARCH_GROUNDED_TYPES = new Set(['activities']);
 
 export default async function handler(req, res) {
   if (!(await requireUser(req, res))) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  if (req.body?.type === 'opportunities') return findOpportunities(req.body, res);
 
   const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup, lesson, transcript, stage, question, history, stageId, start_date, hours_per_day, pitch, investor, transcript_turns, end_meeting } = req.body;
   const useSearch = SEARCH_GROUNDED_TYPES.has(type);
@@ -95,48 +98,6 @@ Return ONLY a JSON object (no markdown, no commentary): { "results": [ ...6 item
 - estimated_cost (number in ${currency}), category (one of "food","outdoor","entertainment","social","relaxation","adventure"),
 - why_now (short fun reason), is_free (boolean).
 If fewer than 6 results genuinely fit, return fewer items rather than padding with invented ones.`;
-  }
-
-  if (type === 'opportunities') {
-    prompt = (foundText) => `You are Fedha's online-income discovery researcher for a tech-savvy user in Kenya.
-
-The goal is NOT to repeatedly recommend the same famous platforms. Search broadly and surface legitimate, less-obvious, higher-ceiling opportunities where access is gated by assessments, credentials, screening, invitations, language/region requirements, portfolio review, or demonstrated expertise.
-
-The user currently has ${currency_symbol}${balance} available in ${currency}.${varietyStr}
-
-IMPORTANT DISCOVERY RULES:
-1. Use ONLY platforms that appear in the supplied search evidence. Never invent a platform, URL, rating, earnings figure, review count, or eligibility claim.
-2. Strongly prefer diversity. In one result set, do not repeat the same platform or near-identical platform category. Try to mix at least 4 categories when evidence allows: AI expert/evaluation work, expert networks/research panels, security/bug bounties, developer/open-source bounties, UX/user research, language/audio evaluation, specialist freelance/talent networks, and niche marketplaces.
-3. Prefer GATE-KEPT opportunities. Explicitly identify the gate: assessment, interview, credentials, portfolio, invite, qualification test, geographic eligibility, or specialist expertise.
-4. Search community discussions such as Reddit for worker experiences, hidden platforms, actual payout reports and availability. Community posts are supporting evidence only; distinguish them from official claims and do not treat anecdotes as guaranteed facts.
-5. Prefer the official platform domain for site_url. site_verified=true means the official domain was identified in the evidence; it does NOT mean Fedha guarantees legitimacy, earnings, availability, or payment.
-6. Ratings must be sourced. If no defensible current rating is found, use null.
-7. Earnings are POTENTIAL, not guaranteed. Prefer hourly/project rates from evidence, then calculate a transparent daily/weekly potential using realistic hours. Do not present advertised maximums as expected income.
-8. Account for Kenya/region eligibility where evidence exists. If country availability is unclear, say "Check Kenya eligibility".
-9. Avoid repeatedly returning DataAnnotation, Outlier, CrowdGen, TELUS, etc. unless the current evidence specifically makes them unusually relevant. Variety is a core requirement.
-10. Never recommend a platform merely because an SEO article calls it "best". Look for primary-source evidence and/or multiple independent community reports.
-
---- SEARCH RESULTS ---
-${foundText}
-
-Return ONLY a JSON object (no markdown, no commentary): { "results": [ ...6 items ] }. Each item must contain exactly:
-- id, title, emoji, platform,
-- category (one of "AI Expert Work","Research Panel","Bug Bounty","Developer Bounty","UX Research","Language/Audio","Specialist Network","Niche Freelance","Other"),
-- description (2-3 sentences explaining the actual work and how to start),
-- gate (the main acceptance barrier),
-- site_url (full official website URL from evidence),
-- site_verified (boolean),
-- site_verification_note (brief evidence-based note; never say "guaranteed legit"),
-- community_evidence (short summary of what workers/community discussions report, if available; otherwise "No strong community evidence found"),
-- estimated_daily_earnings (potential range in ${currency}),
-- estimated_weekly_earnings (potential range in ${currency}),
-- estimated_amount (number, conservative middle potential estimate in ${currency}, for the existing tracker),
-- working_hours (realistic range),
-- rating (number or null),
-- rating_count (number or null),
-- difficulty (one of "Easy","Medium","Hard"),
-- time_required (concise time/commitment summary).
-If fewer than 6 opportunities meet the evidence requirements, return fewer. Never pad with invented results.`;
   }
 
   if (type === 'hackathons') {
@@ -218,19 +179,10 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
     if (useSearch) {
       // activities/opportunities: run real web searches first, then have
       // NVIDIA NIM write up JSON from only what those searches found.
-      const searchQueries = type === 'activities'
-        ? [
-            location?.city ? `fun things to do in ${location.city}` : 'fun affordable activities',
-            location?.city ? `restaurants activities near ${location.city}` : 'free activities near me',
-          ]
-        : [
-            'gated high paying remote AI expert evaluation platforms official site 2026 Mercor Alignerr Surge Mindrift specialist',
-            'hidden invite screening online work expert networks research panels paid studies platform official site 2026',
-            'bug bounty paid security research platforms official site 2026 HackerOne Bugcrowd YesWeHack Intigriti',
-            'paid open source coding bounties developer bounty platforms official site 2026 Algora Gitcoin',
-            'remote AI training data annotation platforms Africa Kenya screening qualification 2026 official',
-            'community discussion lesser known high paying online work platforms 2026 Reddit WorkOnline AI training annotation',
-          ];
+      const searchQueries = [
+        location?.city ? `fun things to do in ${location.city}` : 'fun affordable activities',
+        location?.city ? `restaurants activities near ${location.city}` : 'free activities near me',
+      ];
 
       let foundText;
       try {
@@ -245,7 +197,7 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
 
       let rawText;
       try {
-        rawText = await nvidiaChat({ prompt: prompt(foundText), temperature: 0.5, maxTokens: type === 'opportunities' ? 4000 : 2500 });
+        rawText = await nvidiaChat({ prompt: prompt(foundText), temperature: 0.5, maxTokens: 2500 });
       } catch (e) {
         console.error('[fedha] NVIDIA NIM failed for', type, ':', e.status, e.message);
         // NVIDIA's own staff confirm the free tier can genuinely run out of
@@ -331,11 +283,11 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
 // falling back to a bare array match. Returns null if nothing parseable
 // was found.
 function parseResultsJson(rawText) {
-  const clean = String(rawText || '').replace(/^\\uFEFF/, '').trim();
+  const clean = String(rawText || '').replace(/^\uFEFF/, '').trim();
   const candidates = [clean];
   const unfenced = clean
-    .replace(/^\\s*\`\`\`(?:json)?\\s*/i, '')
-    .replace(/\\s*\`\`\`\\s*$/i, '')
+    .replace(/^\s*```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
     .trim();
   if (unfenced !== clean) candidates.push(unfenced);
 
@@ -598,4 +550,108 @@ function parseObject(rawText) {
   const end = findBalancedJsonEnd(clean, start);
   if (end === -1) return null;
   try { return JSON.parse(clean.slice(start, end + 1)); } catch { return null; }
+}
+
+// ─── Earn Online ─────────────────────────────────────────────────────────────
+// Search, then write cards. Everything has to finish inside Vercel's 60s
+// limit, otherwise the page gets a timeout page instead of results, so each
+// step has its own time cap: Groq (fast) writes first, NVIDIA is the backup.
+const OPP_BUDGET_MS = 52000;
+
+async function groqJson(prompt, { maxTokens, timeoutMs }) {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      temperature: 0.6,
+      max_tokens: maxTokens,
+      response_format: { type: 'json_object' },
+      ...(GROQ_MODEL.startsWith('openai/gpt-oss') ? { reasoning_effort: 'low' } : {}),
+      messages: [
+        { role: 'system', content: 'You output only valid JSON. No markdown, no commentary.' },
+        { role: 'user', content: prompt },
+      ],
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    const err = new Error(data.error?.message || 'Groq API error');
+    err.status = response.status;
+    throw err;
+  }
+  return data.choices?.[0]?.message?.content || '';
+}
+
+function isBlockedOpportunity(r) {
+  const hay = `${r.platform || ''} ${r.title || ''} ${r.site_url || ''}`.toLowerCase();
+  return BLOCKED.some((b) => hay.includes(b.toLowerCase().replace(/\.com$/, '')));
+}
+
+async function findOpportunities(body, res) {
+  const started = Date.now();
+  const left = () => OPP_BUDGET_MS - (Date.now() - started);
+  const exclude = Array.isArray(body.exclude) ? body.exclude.slice(0, 40).map((x) => String(x).slice(0, 60)) : [];
+
+  let foundText;
+  try {
+    ({ text: foundText } = await webSearchMulti(pickQueries(), { limitEach: 5, timeoutMs: 12000, snippetChars: 220 }));
+  } catch (e) {
+    console.error('[fedha] Earn Online search failed:', e.status, e.message);
+    return res.status(500).json({ error: "Couldn't reach search results right now. Try again in a moment." });
+  }
+
+  const prompt = opportunitiesPrompt({
+    foundText,
+    currency: body.currency || 'KES',
+    currencySymbol: body.currency_symbol || 'KSh',
+    balance: Math.max(0, Number(body.balance) || 0),
+    exclude,
+  });
+
+  let results = null;
+  let lastErr = null;
+  if (process.env.GROQ_API_KEY) {
+    try {
+      results = parseResultsJson(await groqJson(prompt, { maxTokens: 3000, timeoutMs: Math.min(26000, left() - 2000) }));
+    } catch (e) {
+      lastErr = e;
+      console.warn('[fedha] Earn Online: Groq failed, trying NVIDIA:', e.status, e.message);
+    }
+  }
+  if ((!results || !results.length) && process.env.NVIDIA_API_KEY && left() > 8000) {
+    try {
+      results = parseResultsJson(await nvidiaChat({ prompt, temperature: 0.5, maxTokens: 3000, timeoutMs: left() - 1500, maxAttempts: 2 }));
+    } catch (e) {
+      lastErr = e;
+      console.error('[fedha] Earn Online: NVIDIA failed:', e.status, e.message);
+    }
+  }
+
+  if (!results) {
+    const busy = lastErr && [413, 429, 503, 504].includes(lastErr.status);
+    return res.status(500).json({
+      error: busy
+        ? 'The free AI services are busy right now. Give it a minute and try again.'
+        : !process.env.GROQ_API_KEY && !process.env.NVIDIA_API_KEY
+          ? 'No AI key is set (GROQ_API_KEY or NVIDIA_API_KEY).'
+          : "Couldn't write up the results this time. Try again.",
+    });
+  }
+
+  // Safety net on top of the prompt: no blocked names, one card per platform.
+  const seen = new Set();
+  const clean = results.filter((r) => {
+    if (!r || !r.title || isBlockedOpportunity(r)) return false;
+    const key = String(r.platform || r.title).toLowerCase().trim();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).map((r, i) => ({ ...r, id: `opp_${Date.now().toString(36)}_${i}` }));
+
+  return res.status(200).json({
+    results: clean,
+    ...(clean.length ? {} : { note: 'Nothing solid enough turned up this time. Tap again for a different search.' }),
+  });
 }

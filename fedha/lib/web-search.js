@@ -13,7 +13,7 @@
 // firecrawl.dev for a key), it's sent for higher rate limits/credits, but
 // it is never required.
 
-export async function webSearch(query, { limit = 8 } = {}) {
+export async function webSearch(query, { limit = 8, timeoutMs = 0 } = {}) {
   const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY; // optional
 
   const response = await fetch('https://api.firecrawl.dev/v2/search', {
@@ -23,6 +23,7 @@ export async function webSearch(query, { limit = 8 } = {}) {
       ...(FIRECRAWL_API_KEY ? { Authorization: `Bearer ${FIRECRAWL_API_KEY}` } : {}),
     },
     body: JSON.stringify({ query, limit }),
+    ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
   });
 
   const data = await response.json();
@@ -47,8 +48,8 @@ export async function webSearch(query, { limit = 8 } = {}) {
 // what groq/compound used to hand back internally. Queries are run in
 // parallel and a failure on any one of them is dropped rather than failing
 // the whole batch, since partial real results are still better than none.
-export async function webSearchMulti(queries, { limitEach = 6 } = {}) {
-  const settled = await Promise.allSettled(queries.map((q) => webSearch(q, { limit: limitEach })));
+export async function webSearchMulti(queries, { limitEach = 6, timeoutMs = 0, snippetChars = 0 } = {}) {
+  const settled = await Promise.allSettled(queries.map((q) => webSearch(q, { limit: limitEach, timeoutMs })));
 
   const blocks = [];
   const citations = [];
@@ -56,7 +57,8 @@ export async function webSearchMulti(queries, { limitEach = 6 } = {}) {
     if (s.status !== 'fulfilled' || !s.value.length) return;
     const lines = s.value.map((r) => {
       citations.push(r.url);
-      return `- ${r.title}: ${r.snippet} (${r.url})`;
+      const snip = snippetChars && r.snippet.length > snippetChars ? `${r.snippet.slice(0, snippetChars)}…` : r.snippet;
+      return `- ${r.title}: ${snip} (${r.url})`;
     });
     blocks.push(`Search: "${queries[i]}"\n${lines.join('\n')}`);
   });

@@ -12,7 +12,7 @@
 
 const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'nvidia/nemotron-3-super-120b-a12b';
 
-async function callNvidiaOnce({ prompt, temperature, maxTokens }) {
+async function callNvidiaOnce({ prompt, temperature, maxTokens, signal }) {
   const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
   const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
     method: 'POST',
@@ -27,6 +27,7 @@ async function callNvidiaOnce({ prompt, temperature, maxTokens }) {
       messages: [{ role: 'user', content: prompt }],
       chat_template_kwargs: { enable_thinking: false },
     }),
+    signal,
   });
 
   const data = await response.json();
@@ -45,7 +46,9 @@ async function callNvidiaOnce({ prompt, temperature, maxTokens }) {
   return message?.content || '';
 }
 
-export async function nvidiaChat({ prompt, temperature = 0.5, maxTokens = 900 }) {
+// timeoutMs (optional): give up after this long in total, so a caller with a
+// hard deadline (Vercel's function limit) gets an error instead of a timeout.
+export async function nvidiaChat({ prompt, temperature = 0.5, maxTokens = 900, timeoutMs = 0, maxAttempts = 3 }) {
   const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
   if (!NVIDIA_API_KEY) throw new Error('NVIDIA_API_KEY not set in environment variables');
 
@@ -58,18 +61,26 @@ export async function nvidiaChat({ prompt, temperature = 0.5, maxTokens = 900 })
   // fall back to here — so the practical mitigation is a couple of retries
   // with backoff rather than failing on the very first hiccup.
   const RETRYABLE = new Set([429, 500, 502, 503, 504]);
-  const MAX_ATTEMPTS = 3;
+  const MAX_ATTEMPTS = maxAttempts;
+  const deadline = timeoutMs ? Date.now() + timeoutMs : 0;
   let lastErr;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const left = deadline ? deadline - Date.now() : 0;
+    if (deadline && left < 1500) break;
+    const ctrl = deadline ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), left) : null;
     try {
-      return await callNvidiaOnce({ prompt, temperature, maxTokens });
+      return await callNvidiaOnce({ prompt, temperature, maxTokens, signal: ctrl?.signal });
     } catch (e) {
+      if (e.name === 'AbortError') { e = new Error('NVIDIA NIM took too long'); e.status = 504; }
       lastErr = e;
       if (!RETRYABLE.has(e.status) || attempt === MAX_ATTEMPTS) throw e;
       const delayMs = 800 * attempt; // 800ms, then 1600ms
       console.warn(`[fedha] NVIDIA NIM attempt ${attempt} failed (${e.status}), retrying in ${delayMs}ms...`);
       await new Promise((r) => setTimeout(r, delayMs));
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
-  throw lastErr;
+  throw lastErr || Object.assign(new Error('NVIDIA NIM took too long'), { status: 504 });
 }
