@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 const panel={background:'var(--card)',border:'1px solid var(--border)',borderRadius:18,padding:18};
 function kes(v){const n=Number(v);return Number.isFinite(n)?new Intl.NumberFormat('en-KE',{style:'currency',currency:'KES',maximumFractionDigits:2}).format(n):'—';}
