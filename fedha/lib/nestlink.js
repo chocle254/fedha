@@ -132,6 +132,14 @@ export async function getNestLinkBalance() {
 // Sweeping again in that window would double-submit.
 const IN_FLIGHT_STATUSES = ['QUEUED', 'PROCESSING', 'SUBMITTED', 'WAITING_FUNDS', 'MANUAL_REVIEW'];
 
+export async function getNestLinkWithdrawalStatus(reference) {
+  const raw = await nestLinkRequest('GET', `/v1/withdrawals/${encodeURIComponent(reference)}`);
+  const src = raw?.data && typeof raw.data === 'object' && !Array.isArray(raw.data) ? raw.data : raw;
+  const status = String(src?.status || '').toUpperCase();
+  if (!status) throw new Error('NestLink withdrawal response has no status.');
+  return status;
+}
+
 export async function getInFlightWithdrawals() {
   // No query string: the docs only define signing for the bare path.
   const raw = await nestLinkRequest('GET', '/v1/withdrawals');

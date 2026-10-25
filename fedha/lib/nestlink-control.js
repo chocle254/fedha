@@ -32,3 +32,21 @@ export async function recordSweep(summary) {
 export async function requireOwner(req, res) {
   return requireUser(req, res);
 }
+
+// ─── Pending payouts (waiting to be confirmed by NestLink and credited in Fedha) ───
+export async function getPending() {
+  const { data, error } = await (await admin()).from(TABLE).select('pending').eq('id', 1).maybeSingle();
+  if (error) throw new Error(`Pending payouts unavailable: ${error.message}`);
+  return Array.isArray(data?.pending) ? data.pending : [];
+}
+
+export async function savePending(list) {
+  const { error } = await (await admin()).from(TABLE).update({ pending: list }).eq('id', 1);
+  if (error) throw new Error(`Could not save pending payouts: ${error.message}`);
+}
+
+export async function addPending(entry) {
+  const list = await getPending();
+  if (list.some(x => x.reference === entry.reference)) return;
+  await savePending([...list, { status: 'SUBMITTED', at: new Date().toISOString(), ...entry }].slice(-50));
+}

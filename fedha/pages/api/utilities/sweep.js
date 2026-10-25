@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { runNestLinkSweep } from '../../../lib/nestlink';
-import { requireOwner, getAutomation, recordSweep } from '../../../lib/nestlink-control';
+import { requireOwner, getAutomation, recordSweep, addPending } from '../../../lib/nestlink-control';
 
 function cronAuthorized(req) {
   const secret = process.env.CRON_SECRET;
@@ -35,7 +35,12 @@ export default async function handler(req, res) {
     const triggerId = String(req.headers['x-sweep-trigger'] || `cron-${Math.floor(Date.now() / 60000)}`);
     const result = await runNestLinkSweep(triggerId);
     if (result.status === 'submitted') {
-      await recordSweep({ payout: result.payout_amount, fee: result.fee_kes, reference: result.withdrawal?.data?.reference || null });
+      const reference = result.withdrawal?.data?.reference || null;
+      await recordSweep({ payout: result.payout_amount, fee: result.fee_kes, reference });
+      if (reference) {
+        try { await addPending({ reference, payout: result.payout_amount, fee: result.fee_kes }); }
+        catch (e) { console.error('[fedha] Could not queue payout for crediting:', e.message); }
+      }
     }
     if (result.status !== 'below_minimum' && result.status !== 'disabled') {
       console.log('[fedha] NestLink sweep:', JSON.stringify({

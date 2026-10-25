@@ -4,6 +4,7 @@ import { useRouter } from 'next/router';
 import { useApp } from '../context/AppContext';
 import { signOut, getSession } from '../lib/supabase';
 import JarvisWidget from './JarvisWidget';
+import NestLinkCredits from './NestLinkCredits';
 
 const NAV = [
   { href:'/', label:'Home', icon:(a) => (
@@ -223,6 +224,7 @@ export default function Layout({ children, fab, onFab }) {
       )}
 
       <JarvisWidget />
+      <NestLinkCredits />
 
       {/* More menu sheet */}
       {moreOpen && (
