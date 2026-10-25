@@ -91,10 +91,40 @@ export async function nestLinkRequest(method, path, body, idempotencyKey) {
   return data;
 }
 
+// NestLink may wrap the balance (e.g. { data: {...} }) or use camelCase names.
+// Normalize to whole-number *_minor fields; anything missing becomes null.
+export function normalizeNestLinkBalance(raw) {
+  let src = raw && typeof raw === 'object' ? raw : {};
+  for (const wrapper of ['data', 'balance', 'result']) {
+    if (src[wrapper] && typeof src[wrapper] === 'object' && !Array.isArray(src[wrapper])) src = src[wrapper];
+  }
+  const pick = (...keys) => {
+    for (const k of keys) {
+      const v = src[k];
+      if (v !== undefined && v !== null && v !== '' && Number.isFinite(Number(v))) return Number(v);
+    }
+    return null;
+  };
+  return {
+    ...src,
+    available_minor: pick('available_minor', 'availableMinor', 'available_balance_minor', 'availableBalanceMinor'),
+    balance_minor: pick('balance_minor', 'balanceMinor', 'total_minor', 'totalMinor', 'ledger_minor', 'ledgerMinor'),
+    holds_minor: pick('holds_minor', 'holdsMinor', 'hold_minor', 'holdMinor', 'held_minor', 'heldMinor')
+  };
+}
+
 export async function getNestLinkBalance() {
   const account = process.env.NESTLINK_ACCOUNT_NUMBER;
   if (!account) throw new Error('NESTLINK_ACCOUNT_NUMBER is not configured.');
-  return nestLinkRequest('GET', `/v1/balance/${encodeURIComponent(account)}`);
+  const raw = await nestLinkRequest('GET', `/v1/balance/${encodeURIComponent(account)}`);
+  const balance = normalizeNestLinkBalance(raw);
+  if (balance.available_minor === null) {
+    const keys = Object.keys(raw && typeof raw === 'object' ? raw : {}).slice(0, 12).join(', ') || 'none';
+    const e = new Error(`NestLink balance response has no recognizable available amount. Keys received: ${keys}`);
+    e.status = 502;
+    throw e;
+  }
+  return balance;
 }
 
 export async function runNestLinkSweep(triggerId = crypto.randomUUID()) {
