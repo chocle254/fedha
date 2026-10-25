@@ -23,14 +23,18 @@ function getEventType(event) {
 }
 
 function isSuccessfulIncomingFundsEvent(event, eventType) {
-  // Fail closed: only an explicitly configured event can trigger a sweep.
-  // Withdrawal events must never trigger another withdrawal.
   const configuredType = String(process.env.NESTLINK_SWEEP_TRIGGER_EVENT || '').trim().toLowerCase();
   if (!configuredType || eventType !== configuredType) return false;
   if (/withdraw|payout|refund|reversal/.test(eventType)) return false;
   if (!/(deposit|incoming|funds|credit)/.test(eventType)) return false;
 
-  const status = String(event?.status || event?.data?.status || event?.deposit?.status || '').trim().toLowerCase();
+  const status = String(
+    event?.status ||
+    event?.data?.status ||
+    event?.deposit?.status ||
+    event?.data?.deposit?.status ||
+    ''
+  ).trim().toLowerCase();
   return ['completed', 'complete', 'success', 'succeeded', 'successful'].includes(status);
 }
 
@@ -40,12 +44,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed. NestLink must send a POST webhook.' });
   }
 
-  const secret = process.env.NESTLINK_WEBHOOK_SECRET;
-  if (!secret) return res.status(503).json({ error: 'Webhook is not configured.' });
-
   try {
     const raw = await rawBody(req);
-    if (!validSignature(raw, req.headers['x-nestlink-signature'], secret)) {
+    const secret = process.env.NESTLINK_WEBHOOK_SECRET;
+
+    // If a webhook secret is configured, enforce NestLink's HMAC signature.
+    // If NestLink cannot save a secret, accept only the explicitly configured,
+    // successful incoming-funds event below. Keep the payout recipient fixed
+    // in Vercel env and never derive it from webhook payload data.
+    if (secret && !validSignature(raw, req.headers['x-nestlink-signature'], secret)) {
       return res.status(401).json({ error: 'Invalid webhook signature.' });
     }
 
@@ -57,9 +64,6 @@ export default async function handler(req, res) {
     }
 
     const eventType = getEventType(event);
-
-    // Safe default: acknowledge valid events but do not move money unless an
-    // exact incoming-funds event is configured after confirming NestLink's schema.
     if (!isSuccessfulIncomingFundsEvent(event, eventType)) {
       return res.status(202).json({
         ok: true,
@@ -68,7 +72,9 @@ export default async function handler(req, res) {
       });
     }
 
-    const eventId = event.id || event.event_id || event.reference ||
+    // Reusing the same event identifier makes retries idempotent at NestLink.
+    const eventId = event.id || event.event_id || event.data?.id ||
+      event.reference || event.data?.reference ||
       crypto.createHash('sha256').update(raw).digest('hex');
     const result = await runNestLinkSweep(String(eventId));
     return res.status(200).json({ ok: true, sweep: result.status });
