@@ -1,0 +1,9 @@
+-- Fedha NestLink Utilities configuration notes.
+-- Keep all API credentials in deployment server environment variables, never client-side.
+-- Webhook URL: https://YOUR_DOMAIN/api/utilities/webhook
+-- Required: NESTLINK_API_KEY, NESTLINK_CLIENT_SECRET, NESTLINK_ACCOUNT_NUMBER,
+-- NESTLINK_RECIPIENT_PHONE (2547XXXXXXXX), NESTLINK_WITHDRAWAL_FEE_KES,
+-- NESTLINK_WEBHOOK_SECRET, CRON_SECRET.
+-- Set NESTLINK_AUTO_SWEEP_ENABLED=true only after confirming the account, recipient,
+-- provider minimums, and exact NestLink tariff. Current adapter expects a flat fee
+-- in whole KES; amount-dependent tariffs must be implemented before enabling.

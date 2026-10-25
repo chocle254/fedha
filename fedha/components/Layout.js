@@ -32,6 +32,7 @@ const NAV = [
 const MORE = [
   { href:'/goals',    label:'Savings Goals', emoji:'🎯', desc:'What you are saving for' },
   { href:'/wallets',  label:'Wallets',       emoji:'👛', desc:'Accounts & balances' },
+  { href:'/utilities', label:'Utilities', emoji:'⚡', desc:'NestLink payouts & service wallet' },
   { href:'/reports',  label:'Reports',       emoji:'📊', desc:'Spending insights' },
   { href:'/workout',  label:'Workout',       emoji:'💪', desc:'Training log' },
   { href:'/planner',  label:'Planner',       emoji:'📅', desc:'Schedule & tasks' },
@@ -50,6 +51,7 @@ const ICON_PATHS = {
   home: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0h6',
   txns: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 7h6m-6 4h6',
   wallet: 'M3 7a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7zm18 3h-5a2 2 0 000 4h5',
+  utilities: 'M13 2L4 14h7l-1 8 10-13h-7l0-7z',
   budget: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
   goal: 'M12 21a9 9 0 100-18 9 9 0 000 18zm0-4a5 5 0 100-10 5 5 0 000 10zm0-4a1 1 0 100-2 1 1 0 000 2z',
   report: 'M11 3.055A9.001 9.001 0 1020.945 13H11V3.055zM20.488 9H15V3.512A9.025 9.025 0 0120.488 9z',
@@ -76,6 +78,7 @@ const SIDE_GROUPS = [
     { href: '/', label: 'Dashboard', icon: 'home' },
     { href: '/transactions', label: 'Transactions', icon: 'txns' },
     { href: '/wallets', label: 'Wallets', icon: 'wallet' },
+    { href: '/utilities', label: 'Utilities', icon: 'utilities' },
     { href: '/budgets', label: 'Budgets', icon: 'budget' },
     { href: '/goals', label: 'Savings Goals', icon: 'goal' },
     { href: '/reports', label: 'Reports', icon: 'report' },
