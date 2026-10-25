@@ -147,6 +147,10 @@ export default function TransactionsPage() {
                     const cat = getCategoryById(tx.category);
                     const wallet = wallets.find((w) => w.id === tx.wallet_id);
                     const toWallet = wallets.find((w) => w.id === tx.to_wallet_id);
+                    const txTimestamp = tx.created_at || tx.createdAt || tx.timestamp;
+                    const txTime = txTimestamp && !Number.isNaN(Date.parse(txTimestamp))
+                      ? new Date(txTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      : '';
                     return (
                       <div key={tx.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: i < txns.length - 1 ? '1px solid var(--border)' : 'none' }}
                         onClick={() => setConfirmDelete(tx.id)} >
@@ -163,6 +167,7 @@ export default function TransactionsPage() {
                           <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
                             {wallet?.icon} {wallet?.name}
                             {tx.type !== 'transfer' && ` · ${cat.label}`}
+                            {txTime && ` · ${txTime}`}
                           </div>
                         </div>
                         <div className="font-num" style={{ fontSize: 15, fontWeight: 700, color: tx.type === 'income' ? 'var(--green)' : tx.type === 'transfer' ? 'var(--blue)' : 'var(--red)', flexShrink: 0 }}>
