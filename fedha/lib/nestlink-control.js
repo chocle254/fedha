@@ -1,6 +1,8 @@
 // Server-side switch + owner check for the NestLink automatic sweep.
 // Fails closed: if the switch cannot be read, nothing is swept.
+import crypto from 'crypto';
 import { requireUser } from './require-user';
+import { runNestLinkSweep } from './nestlink';
 
 const TABLE = 'nestlink_automation';
 
@@ -49,4 +51,30 @@ export async function addPending(entry) {
   const list = await getPending();
   if (list.some(x => x.reference === entry.reference)) return;
   await savePending([...list, { status: 'SUBMITTED', at: new Date().toISOString(), ...entry }].slice(-50));
+}
+
+// True when the request carries the exact CRON_SECRET (an external timer).
+export function isCronRequest(req) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
+  const given = Buffer.from(String(req.headers.authorization || ''));
+  const want = Buffer.from(`Bearer ${secret}`);
+  return given.length === want.length && crypto.timingSafeEqual(given, want);
+}
+
+// The one place a sweep is allowed to run: honours the Start/Stop switch (fail closed),
+// then records the payout so it can be confirmed, credited and notified.
+export async function sweepIfEnabled(triggerId) {
+  const state = await getAutomation(); // throws if unreadable -> nothing is swept
+  if (!state.enabled) return { status: 'paused' };
+  const result = await runNestLinkSweep(triggerId);
+  if (result.status === 'submitted') {
+    const reference = result.withdrawal?.data?.reference || null;
+    await recordSweep({ payout: result.payout_amount, fee: result.fee_kes, reference });
+    if (reference) {
+      try { await addPending({ reference, payout: result.payout_amount, fee: result.fee_kes }); }
+      catch (e) { console.error('[fedha] Could not queue payout for crediting:', e.message); }
+    }
+  }
+  return result;
 }

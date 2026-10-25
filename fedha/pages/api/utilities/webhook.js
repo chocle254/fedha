@@ -1,5 +1,6 @@
 import crypto from 'crypto';
-import { runNestLinkSweep } from '../../../lib/nestlink';
+import { sweepIfEnabled } from '../../../lib/nestlink-control';
+import { settlePending } from '../../../lib/nestlink-settle';
 
 export const config = { api: { bodyParser: false } };
 
@@ -64,6 +65,15 @@ export default async function handler(req, res) {
     }
 
     const eventType = getEventType(event);
+
+    // A payout we sent changed state: confirm it, notify, and let the app credit mpesa 2.
+    if (/^withdraw/.test(eventType)) {
+      const reference = String(event?.data?.reference || event?.reference || '');
+      console.log('[fedha] NestLink webhook withdrawal event:', JSON.stringify({ event: eventType, status: event?.data?.status || event?.status || null }));
+      try { await settlePending({ reference: reference || null, waitMs: 5000 }); }
+      catch (e) { console.error('[fedha] NestLink settle failed:', e.message); }
+      return res.status(200).json({ ok: true, settled: true });
+    }
     if (!isSuccessfulIncomingFundsEvent(event, eventType)) {
       // Log only the event name and status (no payload, no phone numbers) so the
       // right NESTLINK_SWEEP_TRIGGER_EVENT can be found from Vercel logs.
@@ -83,7 +93,7 @@ export default async function handler(req, res) {
     const eventId = event.id || event.event_id || event.data?.id ||
       event.reference || event.data?.reference ||
       crypto.createHash('sha256').update(raw).digest('hex');
-    const result = await runNestLinkSweep(String(eventId));
+    const result = await sweepIfEnabled(String(eventId));
     return res.status(200).json({ ok: true, sweep: result.status });
   } catch (error) {
     console.error('[fedha] NestLink webhook failed:', error.message);
