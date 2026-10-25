@@ -27,22 +27,8 @@ export async function recordSweep(summary) {
   if (error) console.error('[fedha] Could not record sweep:', error.message);
 }
 
-export function isOwner(user) {
-  const owners = String(process.env.NESTLINK_OWNER_EMAILS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-  if (!owners.length) {
-    console.warn('[fedha] NESTLINK_OWNER_EMAILS is not set; owner-only NestLink routes are locked.');
-    return false;
-  }
-  return Boolean(user?.email) && owners.includes(String(user.email).toLowerCase());
-}
-
-// Returns the owner user, or sends 401/403 and returns null.
+// Fedha is a single-user personal app, so any signed-in user is allowed.
+// (Keep Supabase sign-ups disabled so no one else can create an account.)
 export async function requireOwner(req, res) {
-  const user = await requireUser(req, res);
-  if (!user) return null;
-  if (!isOwner(user)) {
-    res.status(403).json({ error: 'Owner access only.' });
-    return null;
-  }
-  return user;
+  return requireUser(req, res);
 }
