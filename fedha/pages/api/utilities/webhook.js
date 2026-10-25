@@ -1,23 +1,79 @@
 import crypto from 'crypto';
 import { runNestLinkSweep } from '../../../lib/nestlink';
-export const config = { api: { bodyParser:false } };
-async function rawBody(req) { const chunks=[]; for await (const c of req) chunks.push(Buffer.isBuffer(c)?c:Buffer.from(c)); return Buffer.concat(chunks); }
-function valid(raw, header, secret) {
-  if (!header || !secret) return false;
-  const supplied=String(header).replace(/^sha256=/i,'').trim(), expected=crypto.createHmac('sha256',secret).update(raw).digest('hex');
-  const a=Buffer.from(supplied,'hex'), b=Buffer.from(expected,'hex');
-  return a.length===b.length && a.length>0 && crypto.timingSafeEqual(a,b);
+
+export const config = { api: { bodyParser: false } };
+
+async function rawBody(req) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks);
 }
-export default async function handler(req,res) {
-  if (req.method!=='POST') { res.setHeader('Allow','POST'); return res.status(405).end(); }
-  const secret=process.env.NESTLINK_WEBHOOK_SECRET;
-  if (!secret) return res.status(503).json({error:'Webhook is not configured.'});
+
+function validSignature(raw, header, secret) {
+  if (!header || !secret) return false;
+  const supplied = String(header).replace(/^sha256=/i, '').trim();
+  if (!/^[a-f0-9]{64}$/i.test(supplied)) return false;
+  const expected = crypto.createHmac('sha256', secret).update(raw).digest();
+  const actual = Buffer.from(supplied, 'hex');
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
+function getEventType(event) {
+  return String(event?.event_type || event?.type || event?.event || event?.name || '').trim().toLowerCase();
+}
+
+function isSuccessfulIncomingFundsEvent(event, eventType) {
+  // Fail closed: only an explicitly configured event can trigger a sweep.
+  // Withdrawal events must never trigger another withdrawal.
+  const configuredType = String(process.env.NESTLINK_SWEEP_TRIGGER_EVENT || '').trim().toLowerCase();
+  if (!configuredType || eventType !== configuredType) return false;
+  if (/withdraw|payout|refund|reversal/.test(eventType)) return false;
+  if (!/(deposit|incoming|funds|credit)/.test(eventType)) return false;
+
+  const status = String(event?.status || event?.data?.status || event?.deposit?.status || '').trim().toLowerCase();
+  return ['completed', 'complete', 'success', 'succeeded', 'successful'].includes(status);
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json({ error: 'Method not allowed. NestLink must send a POST webhook.' });
+  }
+
+  const secret = process.env.NESTLINK_WEBHOOK_SECRET;
+  if (!secret) return res.status(503).json({ error: 'Webhook is not configured.' });
+
   try {
-    const raw=await rawBody(req);
-    if (!valid(raw,req.headers['x-nestlink-signature'],secret)) return res.status(401).json({error:'Invalid webhook signature.'});
-    let event; try { event=JSON.parse(raw.toString('utf8')); } catch { return res.status(400).json({error:'Invalid JSON payload.'}); }
-    const id=event.id || event.event_id || event.reference || crypto.createHash('sha256').update(raw).digest('hex');
-    const result=await runNestLinkSweep(String(id));
-    return res.status(200).json({ok:true,sweep:result.status});
-  } catch(e) { console.error('[fedha] NestLink webhook failed:',e.message); return res.status(500).json({error:'Webhook processing failed.'}); }
+    const raw = await rawBody(req);
+    if (!validSignature(raw, req.headers['x-nestlink-signature'], secret)) {
+      return res.status(401).json({ error: 'Invalid webhook signature.' });
+    }
+
+    let event;
+    try {
+      event = JSON.parse(raw.toString('utf8'));
+    } catch {
+      return res.status(400).json({ error: 'Invalid JSON payload.' });
+    }
+
+    const eventType = getEventType(event);
+
+    // Safe default: acknowledge valid events but do not move money unless an
+    // exact incoming-funds event is configured after confirming NestLink's schema.
+    if (!isSuccessfulIncomingFundsEvent(event, eventType)) {
+      return res.status(202).json({
+        ok: true,
+        sweep: 'ignored',
+        reason: 'Event is not a configured successful incoming-funds event.'
+      });
+    }
+
+    const eventId = event.id || event.event_id || event.reference ||
+      crypto.createHash('sha256').update(raw).digest('hex');
+    const result = await runNestLinkSweep(String(eventId));
+    return res.status(200).json({ ok: true, sweep: result.status });
+  } catch (error) {
+    console.error('[fedha] NestLink webhook failed:', error.message);
+    return res.status(500).json({ error: 'Webhook processing failed.' });
+  }
 }
