@@ -5,7 +5,7 @@ import { getTransaction } from '../lib/db';
 import { showNotif } from '../lib/notifications';
 import { applyCredits } from '../lib/nestlink-credits';
 
-const POLL_MS = 10000;
+const POLL_MS = 3000;
 
 // Invisible. While Fedha is open it asks the server which NestLink payouts have
 // finished, credits them to the "mpesa 2" wallet and shows a notification.
