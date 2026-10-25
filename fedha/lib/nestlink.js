@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 const BASE = (process.env.NESTLINK_BASE_URL || 'https://automate.nestlink.co.ke/api').replace(/\/$/, '');
 export const isNestLinkConfigured = () => Boolean(process.env.NESTLINK_API_KEY && process.env.NESTLINK_CLIENT_SECRET && process.env.NESTLINK_ACCOUNT_NUMBER);
-export const isSweepEnabled = () => process.env.NESTLINK_AUTO_SWEEP_ENABLED === 'true' && isNestLinkConfigured() && /^2547\d{8}$/.test(process.env.NESTLINK_RECIPIENT_PHONE || '') && Number.isInteger(Number(process.env.NESTLINK_WITHDRAWAL_FEE_KES)) && Number(process.env.NESTLINK_WITHDRAWAL_FEE_KES) >= 0;
+export const isSweepEnabled = () => { const fee = process.env.NESTLINK_WITHDRAWAL_FEE_KES; return process.env.NESTLINK_AUTO_SWEEP_ENABLED === 'true' && isNestLinkConfigured() && /^254[17]\d{8}$/.test(process.env.NESTLINK_RECIPIENT_PHONE || '') && fee !== undefined && fee.trim() !== '' && Number.isInteger(Number(fee)) && Number(fee) >= 0; };
 export async function nestLinkRequest(method, path, body, idempotencyKey) {
   const apiKey = process.env.NESTLINK_API_KEY, secret = process.env.NESTLINK_CLIENT_SECRET;
   if (!apiKey || !secret) throw new Error('NestLink credentials are not configured.');
