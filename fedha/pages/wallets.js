@@ -14,6 +14,7 @@ function WalletForm({ initial, onSave, onClose }) {
   const [color, setColor] = useState(initial?.color || '#10B981');
   const [icon, setIcon] = useState(initial?.icon || '💳');
   const [currency, setCurrency] = useState(initial?.currency || 'KES');
+  const [phoneNumber, setPhoneNumber] = useState(initial?.phone_number || '');
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -49,6 +50,11 @@ function WalletForm({ initial, onSave, onClose }) {
               <option value="other">Other</option>
             </select>
           </div>
+          {type === 'mobile' && <div>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Mobile Money Number</label>
+            <input className="input" type="tel" inputMode="tel" placeholder="07XXXXXXXX or 2547XXXXXXXX" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} required />
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 5 }}>Used for UpesiPay top-ups from this wallet.</div>
+          </div>}
           <div>
             <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Opening Balance</label>
             <input className="input font-num" type="number" inputMode="decimal" placeholder="0.00" value={balance} onChange={(e) => setBalance(e.target.value)} />
@@ -68,7 +74,7 @@ function WalletForm({ initial, onSave, onClose }) {
               ))}
             </div>
           </div>
-          <button className="btn-primary" onClick={() => onSave({ ...initial, name, type, balance: Number(balance), color, icon, currency, id: initial?.id || genId(), created_at: initial?.created_at || todayISO() })}>
+          <button className="btn-primary" onClick={() => onSave({ ...initial, name, type, phone_number: type === 'mobile' ? phoneNumber.trim() : '', balance: Number(balance), color, icon, currency, id: initial?.id || genId(), created_at: initial?.created_at || todayISO() })}>
             {initial ? 'Save Changes' : 'Add Wallet'}
           </button>
         </div>
