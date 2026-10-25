@@ -127,6 +127,27 @@ export async function getNestLinkBalance() {
   return balance;
 }
 
+// Withdrawals that have not reached a final state. NestLink only places the
+// hold on funds at PROCESSING, so a QUEUED payout still shows the full balance.
+// Sweeping again in that window would double-submit.
+const IN_FLIGHT_STATUSES = ['QUEUED', 'PROCESSING', 'SUBMITTED', 'WAITING_FUNDS', 'MANUAL_REVIEW'];
+
+export async function getInFlightWithdrawals() {
+  // No query string: the docs only define signing for the bare path.
+  const raw = await nestLinkRequest('GET', '/v1/withdrawals');
+  const list = Array.isArray(raw?.data) ? raw.data
+    : Array.isArray(raw?.data?.data) ? raw.data.data
+    : Array.isArray(raw?.withdrawals) ? raw.withdrawals
+    : null;
+  if (!list) {
+    const keys = Object.keys(raw && typeof raw === 'object' ? raw : {}).slice(0, 12).join(', ') || 'none';
+    throw new Error(`NestLink withdrawals list has an unrecognized shape. Keys received: ${keys}`);
+  }
+  return list
+    .filter(w => IN_FLIGHT_STATUSES.includes(String(w?.status || '').toUpperCase()))
+    .map(w => ({ reference: w?.reference || null, status: String(w?.status).toUpperCase() }));
+}
+
 export async function runNestLinkSweep(triggerId = crypto.randomUUID()) {
   if (!isSweepEnabled()) return { status:'disabled', message:'Automatic sweep is not fully configured.' };
   const account = process.env.NESTLINK_ACCOUNT_NUMBER, phone = process.env.NESTLINK_RECIPIENT_PHONE;
@@ -140,6 +161,12 @@ export async function runNestLinkSweep(triggerId = crypto.randomUUID()) {
   const payoutPlan = calculateNestLinkPayout(availableKes);
   if (!payoutPlan || payoutPlan.payout < MIN_SWEEP_PAYOUT_KES) {
     return { status:'below_minimum', available_minor:availableMinor, available_kes:availableKes, minimum_payout_kes:MIN_SWEEP_PAYOUT_KES };
+  }
+
+  // Fail closed: if in-flight withdrawals cannot be checked, nothing is sent.
+  const inFlight = await getInFlightWithdrawals();
+  if (inFlight.length) {
+    return { status:'blocked_in_flight', available_kes:availableKes, in_flight:inFlight.slice(0, 5) };
   }
 
   const safe = String(triggerId).replace(/[^a-zA-Z0-9_-]/g, '').slice(0,28) || crypto.randomUUID();
