@@ -65,6 +65,13 @@ export default async function handler(req, res) {
 
     const eventType = getEventType(event);
     if (!isSuccessfulIncomingFundsEvent(event, eventType)) {
+      // Log only the event name and status (no payload, no phone numbers) so the
+      // right NESTLINK_SWEEP_TRIGGER_EVENT can be found from Vercel logs.
+      console.log('[fedha] NestLink webhook ignored:', JSON.stringify({
+        event: eventType || null,
+        status: event?.status || event?.data?.status || event?.deposit?.status || event?.data?.deposit?.status || null,
+        dataKeys: event?.data && typeof event.data === 'object' ? Object.keys(event.data).slice(0, 15) : null
+      }));
       return res.status(202).json({
         ok: true,
         sweep: 'ignored',
