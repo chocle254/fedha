@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Layout from '../../components/Layout';
 import { getSession } from '../../lib/supabase';
+import { useApp } from '../../context/AppContext';
 
 const panel = { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: 18 };
 async function authHeaders() {
@@ -13,9 +14,12 @@ function kes(value) {
 }
 
 export default function UpesiPayUtilitiesPage() {
+  const { wallets: userWallets, addTransaction, currency: appCurrency } = useApp();
+  const mobileWallets = userWallets.filter(item => item.type === 'mobile' && item.phone_number);
+  const [selectedWalletId, setSelectedWalletId] = useState('');
+  const selectedMoneyWallet = mobileWallets.find(item => item.id === selectedWalletId) || null;
   const [wallet, setWallet] = useState({ configured: false, balance: null, loading: true, error: '', updatedAt: null, message: '' });
   const [amount, setAmount] = useState('100');
-  const [phone, setPhone] = useState('');
   const [topupBusy, setTopupBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const requestBusy = useRef(false);
@@ -64,18 +68,33 @@ export default function UpesiPayUtilitiesPage() {
       setNotice({ type: 'error', text: 'Enter a whole-number amount between KES 1 and KES 100,000.' });
       return;
     }
-    if (!window.confirm('Request an M-Pesa STK prompt for KES ' + numericAmount + ' to top up the UpesiPay SERVICE wallet only?')) return;
+    if (!selectedMoneyWallet) {
+      setNotice({ type: 'error', text: 'Choose a saved Mobile Money wallet with a phone number first.' });
+      return;
+    }
+    if (!window.confirm('Request an M-Pesa STK prompt for KES ' + numericAmount + ' using ' + selectedMoneyWallet.name + ' (' + selectedMoneyWallet.phone_number + ')? If UpesiPay accepts the request, Fedha will record this as an expense from that wallet.')) return;
     setTopupBusy(true);
     setNotice(null);
     try {
       const response = await fetch('/api/utilities/upesipay-topup', {
         method: 'POST',
         headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: numericAmount, phone_number: phone })
+        body: JSON.stringify({ amount: numericAmount, phone_number: selectedMoneyWallet.phone_number })
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || ('Server error ' + response.status));
-      setNotice({ type: 'success', text: 'Top-up request ' + (result.status || 'QUEUED') + '. Check your phone and enter your M-Pesa PIN to approve. A queued request is not confirmation that the balance has changed.' + (result.reference ? ' Reference: ' + result.reference : '') });
+      await addTransaction({
+        id: 'upesipay_topup_' + String(result.reference || result.checkoutRequestId || Date.now()).replace(/[^a-zA-Z0-9_-]/g, '_'),
+        type: 'expense',
+        amount: numericAmount,
+        wallet_id: selectedMoneyWallet.id,
+        category: 'utilities',
+        description: 'UpesiPay service wallet top-up' + (result.reference ? ' (' + result.reference + ')' : ''),
+        currency: selectedMoneyWallet.currency || appCurrency || 'KES',
+        date: new Date().toISOString().slice(0, 10),
+        skipSavingsCut: true
+      });
+      setNotice({ type: 'success', text: 'Top-up request ' + (result.status || 'QUEUED') + ' accepted. Fedha recorded KES ' + numericAmount + ' as an expense from ' + selectedMoneyWallet.name + ' and deducted it from that wallet balance. Check your phone and approve the M-Pesa prompt. This records the request; it does not confirm UpesiPay has credited its service wallet.' + (result.reference ? ' Reference: ' + result.reference : '') });
     } catch (error) {
       setNotice({ type: 'error', text: (error.message || 'Top-up request failed.') + ' Check your UpesiPay balance before retrying to avoid duplicate requests.' });
     } finally {
@@ -115,13 +134,13 @@ export default function UpesiPayUtilitiesPage() {
         </section>
         <section style={panel}>
           <h2 style={{ fontSize: 17, fontWeight: 800, margin: 0 }}>Top up service wallet</h2>
-          <p style={{ color: 'var(--text-3)', fontSize: 12, lineHeight: 1.6, marginTop: 5 }}>UpesiPay will send an M-Pesa STK prompt to the number below. The request only targets your service wallet.</p>
+          <p style={{ color: 'var(--text-3)', fontSize: 12, lineHeight: 1.6, marginTop: 5 }}>Choose one of your saved Mobile Money wallets. After UpesiPay accepts the request, Fedha records the amount as an expense from that wallet.</p>
           <form onSubmit={submitTopup} style={{ marginTop: 14, display: 'grid', gap: 12 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
               <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700 }}>Amount (KES)<input type="number" min="1" max="100000" step="1" required value={amount} onChange={event => setAmount(event.target.value)} placeholder="e.g. 100" style={{ width: '100%', padding: '12px 13px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card-2)', color: 'var(--text)', fontSize: 14 }} /></label>
-              <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700 }}>M-Pesa phone number<input type="tel" required value={phone} onChange={event => setPhone(event.target.value)} placeholder="07XXXXXXXX or 2547XXXXXXXX" style={{ width: '100%', padding: '12px 13px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card-2)', color: 'var(--text)', fontSize: 14 }} /></label>
+              <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700 }}>Pay from wallet<select required value={selectedWalletId} onChange={event => setSelectedWalletId(event.target.value)} style={{ width: '100%', padding: '12px 13px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card-2)', color: 'var(--text)', fontSize: 14 }}><option value="">Choose a Mobile Money wallet</option>{mobileWallets.map(item => <option key={item.id} value={item.id}>{item.name} · {item.phone_number} · {kes(item.balance)}</option>)}</select>{mobileWallets.length === 0 && <span style={{ color: 'var(--red)', fontWeight: 500 }}>Add or edit a wallet and set its type to Mobile Money with a phone number first.</span>}</label>
             </div>
-            <button type="submit" disabled={topupBusy || !wallet.configured} style={{ padding: '13px 16px', borderRadius: 11, border: 'none', fontWeight: 800, fontSize: 14, cursor: topupBusy || !wallet.configured ? 'not-allowed' : 'pointer', color: '#fff', background: 'var(--green)', opacity: topupBusy || !wallet.configured ? 0.55 : 1 }}>{topupBusy ? 'Requesting STK prompt…' : '＋ Top Up Service Wallet'}</button>
+            <button type="submit" disabled={topupBusy || !wallet.configured || !selectedMoneyWallet} style={{ padding: '13px 16px', borderRadius: 11, border: 'none', fontWeight: 800, fontSize: 14, cursor: topupBusy || !wallet.configured || !selectedMoneyWallet ? 'not-allowed' : 'pointer', color: '#fff', background: 'var(--green)', opacity: topupBusy || !wallet.configured || !selectedMoneyWallet ? 0.55 : 1 }}>{topupBusy ? 'Requesting STK prompt…' : '＋ Top Up Service Wallet'}</button>
           </form>
           {notice && <div role="status" style={{ marginTop: 12, padding: 12, borderRadius: 10, border: '1px solid ' + (notice.type === 'error' ? 'rgba(239,68,68,.35)' : 'rgba(16,185,129,.35)'), background: notice.type === 'error' ? 'rgba(239,68,68,.07)' : 'rgba(16,185,129,.08)', color: notice.type === 'error' ? 'var(--red)' : 'var(--text)', fontSize: 12, lineHeight: 1.6 }}>{notice.text}</div>}
         </section>
