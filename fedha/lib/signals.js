@@ -21,7 +21,7 @@ function levelsError(side, entry, tps, sl) {
   return null;
 }
 
-export async function createSignal({ userId, source, text }) {
+export async function createSignal({ userId, source, text, externalId = null }) {
   const parsed = parseSignal(text);
   if (!parsed.ok) return { ok: false, error: parsed.error };
   const price = await fetchPrice(parsed.symbol);
@@ -36,6 +36,7 @@ export async function createSignal({ userId, source, text }) {
     user_id: userId,
     source: String(source || 'Unknown').slice(0, 60),
     raw_text: String(text).slice(0, 2000),
+    external_id: externalId ? String(externalId).slice(0, 120) : null,
     symbol: parsed.symbol,
     side: parsed.side,
     entry,
@@ -48,7 +49,10 @@ export async function createSignal({ userId, source, text }) {
     filled_at: needsFill ? null : new Date().toISOString()
   };
   const { data, error } = await supabaseAdmin.from('trade_signals').insert(row).select().single();
-  if (error) return { ok: false, error: 'Could not save the signal.' };
+  if (error) {
+    if (error.code === '23505') return { ok: false, duplicate: true, error: 'Already tracked.' };
+    return { ok: false, error: 'Could not save the signal.' };
+  }
   return { ok: true, signal: data };
 }
 
