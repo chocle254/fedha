@@ -11,3 +11,5 @@ insert into public.nestlink_automation (id) values (1) on conflict (id) do nothi
 alter table public.nestlink_automation enable row level security;
 -- If the table already existed before the payout-credit feature, add the new column:
 alter table public.nestlink_automation add column if not exists pending jsonb not null default '[]'::jsonb;
+-- UpesiPay zero-balance alert state:
+alter table public.nestlink_automation add column if not exists wallet_alert jsonb;

@@ -13,6 +13,7 @@ export async function pushToAll({ title, body, tag, url = '/utilities' }) {
   if (error) throw new Error(`Could not read push subscriptions: ${error.message}`);
 
   let sent = 0;
+  let failed = 0;
   for (const sub of subs || []) {
     try {
       await webpush.sendNotification(
@@ -26,9 +27,10 @@ export async function pushToAll({ title, body, tag, url = '/utilities' }) {
       if (err?.statusCode === 404 || err?.statusCode === 410) {
         await supabaseAdmin.from('push_subscriptions').delete().eq('id', sub.id);
       } else {
+        failed++;
         console.error('[fedha] NestLink push failed:', err?.statusCode || '', err?.message || err);
       }
     }
   }
-  return { sent };
+  return { sent, failed };
 }

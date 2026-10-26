@@ -78,3 +78,15 @@ export async function sweepIfEnabled(triggerId) {
   }
   return result;
 }
+
+// ─── UpesiPay service-wallet alert state (alert once at zero, re-arm after a top-up) ───
+export async function getWalletAlert() {
+  const { data, error } = await (await admin()).from(TABLE).select('wallet_alert').eq('id', 1).maybeSingle();
+  if (error) throw new Error(`Wallet alert state unavailable: ${error.message}`);
+  return { alerted: Boolean(data?.wallet_alert?.alerted), at: data?.wallet_alert?.at || null };
+}
+
+export async function setWalletAlert(state) {
+  const { error } = await (await admin()).from(TABLE).upsert({ id: 1, wallet_alert: state });
+  if (error) throw new Error(`Could not save wallet alert state: ${error.message}`);
+}

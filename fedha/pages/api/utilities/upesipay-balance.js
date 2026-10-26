@@ -1,4 +1,5 @@
 import { requireOwner } from '../../../lib/nestlink-control';
+import { evaluateServiceWalletAlert } from '../../../lib/upesipay-alert';
 
 function getAuthHeader() {
   const username = process.env.UPESIPAY_API_USERNAME;
@@ -27,6 +28,7 @@ export default async function handler(req, res) {
     if (service === undefined || service === null || !Number.isFinite(Number(service))) {
       return res.status(502).json({ error: 'UpesiPay response did not include a valid service wallet balance.' });
     }
+    await evaluateServiceWalletAlert(Number(service)).catch((e) => console.error('[fedha] UpesiPay alert check failed:', e.message));
     return res.status(200).json({ configured: true, serviceWalletBalance: Number(service), checkedAt: new Date().toISOString() });
   } catch (error) {
     console.error('[fedha] UpesiPay balance request failed:', error.message);

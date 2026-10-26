@@ -122,6 +122,7 @@ export default function UpesiPayUtilitiesPage() {
               <div style={{ fontSize: 14, fontWeight: 700, marginTop: 8 }}>Service wallet balance</div>
               <div className="font-num" style={{ fontSize: 34, fontWeight: 800, marginTop: 5, letterSpacing: -1 }}>{wallet.loading && wallet.balance === null ? 'Checking…' : wallet.configured ? kes(wallet.balance) : 'Not connected'}</div>
               <div style={{ color: 'var(--text-3)', fontSize: 12, marginTop: 6 }}>For service charges only. This does not display your payments or disbursement wallet balances.</div>
+              {wallet.configured && wallet.balance !== null && Number(wallet.balance) <= 0 && <div role="alert" style={{ marginTop: 12, padding: 10, borderRadius: 10, border: '1px solid rgba(239,68,68,.35)', background: 'rgba(239,68,68,.07)', color: 'var(--red)', fontSize: 12, fontWeight: 700, lineHeight: 1.5 }}>Service wallet is empty — top up below to keep your services running.</div>}
             </div>
             <div style={{ fontSize: 12, fontWeight: 700, color: wallet.error ? 'var(--red)' : wallet.configured ? 'var(--green)' : 'var(--text-3)', background: 'var(--card)', border: '1px solid var(--border)', padding: '8px 10px', borderRadius: 999 }}>{wallet.error ? '● API error' : wallet.configured ? '● API connected' : '● Setup required'}</div>
           </div>

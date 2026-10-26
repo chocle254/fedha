@@ -5,6 +5,7 @@ import { useApp } from '../context/AppContext';
 import { signOut, getSession } from '../lib/supabase';
 import JarvisWidget from './JarvisWidget';
 import NestLinkCredits from './NestLinkCredits';
+import ServiceWalletWatch from './ServiceWalletWatch';
 
 const NAV = [
   { href:'/', label:'Home', icon:(a) => (
@@ -225,6 +226,7 @@ export default function Layout({ children, fab, onFab }) {
 
       <JarvisWidget />
       <NestLinkCredits />
+      <ServiceWalletWatch />
 
       {/* More menu sheet */}
       {moreOpen && (

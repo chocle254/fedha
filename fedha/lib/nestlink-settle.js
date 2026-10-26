@@ -37,13 +37,14 @@ export async function settlePending({ waitMs = 0, reference = null } = {}) {
     if (!isFinal(item.status) || item.pushed) continue;
     const completed = item.status === 'COMPLETED';
     try {
-      await pushToAll({
+      const delivery = await pushToAll({
         title: completed ? 'Funds withdrawn' : 'Withdrawal failed',
         body: completed
           ? `KES ${item.payout} sent to your M-Pesa. mpesa 2 updates when Fedha is open.`
           : `KES ${item.payout} payout ${item.reference} was ${item.status.toLowerCase()}. The funds stay in NestLink.`,
         tag: `nestlink-${item.reference}`
       });
+      if (delivery.sent === 0 && delivery.failed > 0) continue; // all devices failed: retry on the next check
     } catch (e) {
       console.error('[fedha] NestLink push error:', e.message);
     }
