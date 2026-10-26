@@ -27,7 +27,7 @@ export default function LoginPage() {
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: 20 }}>
       <form onSubmit={handleSubmit} className="card" style={{ width: '100%', maxWidth: 360, padding: 28 }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>✦</div>
+          
           <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>Luxe</div>
           <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>Your money, in good hands.</div>
         </div>
