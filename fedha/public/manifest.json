@@ -1,7 +1,7 @@
 {
   "name": "Luxe — Personal Finance",
   "short_name": "Luxe",
-  "description": "Manage your money, wallets, budgets and daily plans",
+  "description": "Track money, meals, workouts and your daily plan",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0A0D17",
