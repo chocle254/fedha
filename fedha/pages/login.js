@@ -27,9 +27,8 @@ export default function LoginPage() {
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: 20 }}>
       <form onSubmit={handleSubmit} className="card" style={{ width: '100%', maxWidth: 360, padding: 28 }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>🔒</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>Fedha</div>
-          <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>Sign in to continue</div>
+          
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>Luxe</div>
         </div>
 
         <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Email</label>
