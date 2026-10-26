@@ -35,7 +35,20 @@ export default async function handler(req, res) {
 
     if (!accountResponse.ok) {
       const status = accountResponse.status;
-      return json(res, status === 401 || status === 403 ? 502 : 502, {
+      let binanceError = {};
+      try {
+        binanceError = await accountResponse.json();
+      } catch {
+        // Do not log response bodies that could contain unexpected data.
+      }
+      // Log only Binance's numeric error code and HTTP status. Never log credentials,
+      // signatures, request URLs, or account/balance data.
+      console.error('[Binance balances] account request rejected', {
+        httpStatus: status,
+        binanceCode: Number.isFinite(Number(binanceError.code)) ? Number(binanceError.code) : null,
+        binanceMessage: typeof binanceError.msg === 'string' ? binanceError.msg.slice(0, 160) : null
+      });
+      return json(res, 502, {
         configured: true,
         error: 'Binance did not accept the connection. Check the API key permissions, IP restrictions, and system clock.'
       });
@@ -43,7 +56,10 @@ export default async function handler(req, res) {
 
     const account = await accountResponse.json();
     const priceResponse = await fetch('https://api.binance.com/api/v3/ticker/price', { cache: 'no-store' });
-    if (!priceResponse.ok) throw new Error('Unable to retrieve market prices');
+    if (!priceResponse.ok) {
+      console.error('[Binance balances] market price request failed', { httpStatus: priceResponse.status });
+      throw new Error('Unable to retrieve market prices');
+    }
     const prices = await priceResponse.json();
     const priceMap = Object.fromEntries(prices.map((p) => [p.symbol, Number(p.price)]));
 
@@ -74,6 +90,10 @@ export default async function handler(req, res) {
       assets
     });
   } catch (error) {
+    // Log only a generic error name, never the message or request URL.
+    console.error('[Binance balances] request failed', {
+      errorName: error && typeof error.name === 'string' ? error.name : 'Error'
+    });
     return json(res, 502, {
       configured: true,
       error: 'Could not load Binance balances right now. Please try again.'
