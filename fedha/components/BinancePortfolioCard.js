@@ -28,22 +28,41 @@ export default function BinancePortfolioCard() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  const connected = data?.configured;
+  const top = (data?.assets || []).filter((a) => a.usdtValue != null && a.usdtValue >= 0.01).slice(0, 3);
+  const extra = Math.max(0, (data?.assets?.length || 0) - top.length);
+
   return (
-    <div className="card" style={{ padding: '16px', marginBottom: 14, borderColor: 'rgba(217,182,111,.3)' }}>
+    <div className="card" style={{ padding: 16, marginBottom: 14, borderColor: 'rgba(217,182,111,.3)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ width: 42, height: 42, display: 'grid', placeItems: 'center', borderRadius: 13, background: 'rgba(217,182,111,.14)', color: '#D9B66F', fontSize: 22, fontWeight: 800 }}>₿</div>
+        <div style={{ width: 36, height: 36, display: 'grid', placeItems: 'center', borderRadius: 11, background: 'rgba(217,182,111,.14)', color: '#D9B66F', fontSize: 19, fontWeight: 800 }}>₿</div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>Binance Spot</div>
-          <div style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 3 }}>{loading ? 'Refreshing portfolio…' : data?.configured ? `${data.assets?.length || 0} assets · live price estimate` : 'Not connected yet'}</div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Binance</div>
+          <div style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 2 }}>{loading ? 'Refreshing…' : connected ? 'Spot + Earn · USDT estimate' : 'Not connected'}</div>
         </div>
         <button onClick={refresh} disabled={loading} className="btn-ghost" style={{ padding: '6px 9px', fontSize: 12 }}>{loading ? '…' : '↻'}</button>
       </div>
-      <div className="font-num" style={{ fontSize: 22, fontWeight: 800, marginTop: 14 }}>
-        {data?.configured ? `≈ $${number(data.totalUsdt)} USDT` : 'Connect Binance'}
+
+      <div className="font-num" style={{ fontSize: 26, fontWeight: 800, marginTop: 12 }}>
+        {connected ? `$${number(data.totalUsdt)}` : 'Connect Binance'}
       </div>
-      {error && <div style={{ color: 'var(--text-3)', fontSize: 11, lineHeight: 1.5, marginTop: 5 }}>{error}</div>}
-      <Link href="/binance" style={{ display: 'inline-flex', marginTop: 12, color: 'var(--green)', textDecoration: 'none', fontSize: 12, fontWeight: 700 }}>View assets and connection details →</Link>
-      <div style={{ color: 'var(--text-3)', fontSize: 10, lineHeight: 1.4, marginTop: 7 }}>Shown separately from cash wallets to avoid double-counting. USDT estimate, not yet included in cash balance history.</div>
+      {error && <div style={{ color: 'var(--text-3)', fontSize: 11, lineHeight: 1.5, marginTop: 4 }}>{error}</div>}
+
+      {connected && top.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+          {top.map((a) => (
+            <span key={a.asset} className="font-num" style={{ fontSize: 11, padding: '4px 9px', borderRadius: 999, background: 'var(--card-2)', color: 'var(--text-2)' }}>
+              {a.asset} ${number(a.usdtValue)}
+            </span>
+          ))}
+          {extra > 0 && <span style={{ fontSize: 11, padding: '4px 9px', color: 'var(--text-3)' }}>+{extra} more</span>}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 16, marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+        <Link href="/binance" style={{ color: 'var(--green)', textDecoration: 'none', fontSize: 12, fontWeight: 700 }}>Assets →</Link>
+        <Link href="/trading" style={{ color: 'var(--text-2)', textDecoration: 'none', fontSize: 12, fontWeight: 700 }}>Trading →</Link>
+      </div>
     </div>
   );
 }

@@ -69,20 +69,42 @@ export default async function handler(req, res) {
     const prices = await priceResponse.json();
     const priceMap = Object.fromEntries(prices.map((p) => [p.symbol, Number(p.price)]));
 
-    const assets = (account.balances || [])
-      .map((item) => {
-        const free = Number(item.free) || 0;
-        const locked = Number(item.locked) || 0;
-        const total = free + locked;
-        if (total <= 0) return null;
-        const asset = item.asset;
+    // Binance Simple Earn positions show up as LD-prefixed tokens (LDUSDC = USDC in Earn).
+    // They have no USDT pair, so map them to the underlying asset and merge. A token like
+    // LDO (Lido DAO) has its own LDOUSDT pair, so it is left alone.
+    const hasPrice = (a) => a === 'USDT' || priceMap[`${a}USDT`] > 0 || priceMap[`USDT${a}`] > 0;
+    const underlying = (asset) => {
+      if (asset.startsWith('LD') && asset.length > 2 && !hasPrice(asset)) {
+        const base = asset.slice(2);
+        if (hasPrice(base)) return base;
+      }
+      return asset;
+    };
+
+    const merged = {};
+    for (const item of account.balances || []) {
+      const free = Number(item.free) || 0;
+      const locked = Number(item.locked) || 0;
+      const total = free + locked;
+      if (total <= 0) continue;
+      const asset = underlying(item.asset);
+      const isEarn = asset !== item.asset;
+      const row = merged[asset] || (merged[asset] = { asset, free: 0, locked: 0, earn: 0, total: 0 });
+      row.free += isEarn ? 0 : free;
+      row.locked += isEarn ? 0 : locked;
+      row.earn += isEarn ? total : 0;
+      row.total += total;
+    }
+
+    const assets = Object.values(merged)
+      .map((row) => {
+        const { asset, total } = row;
         let usdtValue = null;
         if (asset === 'USDT') usdtValue = total;
         else if (priceMap[`${asset}USDT`]) usdtValue = total * priceMap[`${asset}USDT`];
         else if (priceMap[`USDT${asset}`] && priceMap[`USDT${asset}`] > 0) usdtValue = total / priceMap[`USDT${asset}`];
-        return { asset, free, locked, total, usdtValue };
+        return { ...row, usdtValue };
       })
-      .filter(Boolean)
       .sort((a, b) => (b.usdtValue ?? -1) - (a.usdtValue ?? -1));
 
     const pricedAssets = assets.filter((a) => a.usdtValue != null);

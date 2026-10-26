@@ -170,7 +170,6 @@ export default function Dashboard() {
         <div className="section">
           <div className="section-title">Investments</div>
           <BinancePortfolioCard />
-          <Link href="/trading" className="btn-primary" style={{ display: 'flex', justifyContent: 'center', margin: '0 0 14px', textDecoration: 'none', padding: '12px 16px', borderRadius: 10 }}>📈 Open Trading Workspace →</Link>
           <div className="section-title">Balance Over Time</div>
           <BalanceHistoryChart transactions={transactions} currentBalance={totalBalance} currency={currency} />
         </div>
@@ -381,7 +380,6 @@ function DesktopDashboard({ wallets, transactions, goals, currency, netWorth, to
 
           <Panel title="Investments">
             <BinancePortfolioCard />
-            <Link href="/trading" className="btn-primary" style={{ display: 'flex', justifyContent: 'center', marginTop: 12, textDecoration: 'none', padding: '12px 16px', borderRadius: 10 }}>📈 Open Trading Workspace →</Link>
           </Panel>
 
           <Panel title="Balance over time">
