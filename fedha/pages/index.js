@@ -5,6 +5,7 @@ import TransactionModal from '../components/TransactionModal';
 import SavingsMotivator from '../components/SavingsMotivator';
 import SavingsChallenges from '../components/SavingsChallenges';
 import BalanceHistoryChart from '../components/BalanceHistoryChart';
+import BinancePortfolioCard from '../components/BinancePortfolioCard';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatShort, formatDate, formatDateRelative, getCategoryById, groupByDay, monthRange } from '../lib/utils';
 import { format } from 'date-fns';
@@ -167,6 +168,8 @@ export default function Dashboard() {
 
         {/* Balance over time — one line for days, months and the year */}
         <div className="section">
+          <div className="section-title">Investments</div>
+          <BinancePortfolioCard />
           <div className="section-title">Balance Over Time</div>
           <BalanceHistoryChart transactions={transactions} currentBalance={totalBalance} currency={currency} />
         </div>
