@@ -29,7 +29,6 @@ export default function LoginPage() {
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           
           <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>Luxe</div>
-          <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>Your money, in good hands.</div>
         </div>
 
         <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Email</label>
