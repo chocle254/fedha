@@ -10,8 +10,8 @@ export default function BinancePortfolioCard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError('');
     try {
       const response = await fetch('/api/binance/balances', { cache: 'no-store' });
@@ -26,7 +26,13 @@ export default function BinancePortfolioCard() {
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    refresh();
+    const tick = () => { if (document.visibilityState === 'visible') refresh(true); };
+    const id = setInterval(tick, 60000);
+    document.addEventListener('visibilitychange', tick);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', tick); };
+  }, [refresh]);
 
   const connected = data?.configured;
   const top = (data?.assets || []).filter((a) => a.usdtValue != null && a.usdtValue >= 0.01).slice(0, 3);
@@ -36,15 +42,11 @@ export default function BinancePortfolioCard() {
     <div className="card" style={{ padding: 16, marginBottom: 14, borderColor: 'rgba(217,182,111,.3)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{ width: 36, height: 36, display: 'grid', placeItems: 'center', borderRadius: 11, background: 'rgba(217,182,111,.14)', color: '#D9B66F', fontSize: 19, fontWeight: 800 }}>₿</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>Binance</div>
-          <div style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 2 }}>{loading ? 'Refreshing…' : connected ? 'Spot + Earn · USDT estimate' : 'Not connected'}</div>
-        </div>
-        <button onClick={refresh} disabled={loading} className="btn-ghost" style={{ padding: '6px 9px', fontSize: 12 }}>{loading ? '…' : '↻'}</button>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>Binance</div>
       </div>
 
       <div className="font-num" style={{ fontSize: 26, fontWeight: 800, marginTop: 12 }}>
-        {connected ? `$${number(data.totalUsdt)}` : 'Connect Binance'}
+        {connected ? `$${number(data.totalUsdt)}` : loading ? '—' : 'Connect Binance'}
       </div>
       {error && <div style={{ color: 'var(--text-3)', fontSize: 11, lineHeight: 1.5, marginTop: 4 }}>{error}</div>}
 
