@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { requireUser } from '../../../lib/require-user';
 
 export const config = { runtime: 'nodejs' };
 
@@ -11,6 +12,9 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'GET');
     return json(res, 405, { error: 'Method not allowed' });
   }
+
+  const user = await requireUser(req, res);
+  if (!user) return;
 
   const apiKey = process.env.BINANCE_API_KEY;
   const apiSecret = process.env.BINANCE_API_SECRET;
