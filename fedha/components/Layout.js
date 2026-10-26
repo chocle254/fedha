@@ -126,9 +126,9 @@ function Sidebar({ pathname }) {
   return (
     <aside className="desk-sidebar" aria-label="Main navigation">
       <Link href="/" className="desk-brand">
-        <span className="desk-logo">F</span>
+        <span className="desk-logo">L</span>
         <span>
-          <span className="desk-brand-name">Fedha</span>
+          <span className="desk-brand-name">Luxe</span>
           <span className="desk-brand-tag">Better money. Bigger goals.</span>
         </span>
       </Link>
