@@ -158,7 +158,7 @@ export default function DiscoverPage() {
   const { addTransaction, wallets, budgets, currency } = useApp();
   const { floating, totalBalance, totalBudgeted, totalOwed } = useFloatingCash();
 
-  const [tab, setTab] = useState('activities');
+  const [tab, setTab] = useState('jobs');
   const [dateMode, setDateMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -312,8 +312,8 @@ export default function DiscoverPage() {
         {/* Header */}
         <div className="page-top" style={{ padding: '52px 20px 0' }}>
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Discover ✨</div>
-            <div style={{ fontSize: 13, color: 'var(--text-3)' }}>AI-powered ideas based on your money</div>
+            <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Business 💼</div>
+            <div style={{ fontSize: 13, color: 'var(--text-3)' }}>Trading, jobs, and ways to earn</div>
           </div>
 
           {/* Floating cash card */}
@@ -333,7 +333,6 @@ export default function DiscoverPage() {
 
           {/* Tabs */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
-            <button className={`chip ${tab === 'activities' ? 'active' : ''}`} onClick={() => setTab('activities')}>🎉 Activities</button>
             <button className={`chip ${tab === 'jobs' ? 'active' : ''}`} onClick={() => setTab('jobs')}>💼 My Jobs</button>
             <button className={`chip ${tab === 'opportunities' ? 'active' : ''}`} onClick={() => setTab('opportunities')}>🔍 Earn Online</button>
             {pending.length > 0 && (
