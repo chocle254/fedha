@@ -38,8 +38,11 @@ const MORE = [
   { href:'/reports',  label:'Reports',       emoji:'📊', desc:'Spending insights' },
   { href:'/workout',  label:'Workout',       emoji:'💪', desc:'Training log' },
   { href:'/planner',  label:'Planner',       emoji:'📅', desc:'Schedule & tasks' },
+  { href:'/activities', label:'Activities', emoji:'🎉', desc:'Find things to do' },
   { href:'/learning', label:'Learning',      emoji:'🎓', desc:'Courses & certifications' },
-  { href:'/discover', label:'Discover',      emoji:'🧭', desc:'Tips & explore' },
+  { href:'/discover', label:'Business',      emoji:'💼', desc:'Trading, jobs & earning' },
+  { href:'/binance', label:'Binance Portfolio', emoji:'₿', desc:'Crypto balances' },
+  { href:'/trading', label:'Trading', emoji:'📈', desc:'Binance trading workspace' },
   { href:'/health',   label:'Health',        emoji:'❤️', desc:'Wellness tracking' },
   { href:'/tech-hub', label:'Tech Hub',      emoji:'🚀', desc:'Hackathons & startups' },
 ];
@@ -87,6 +90,7 @@ const SIDE_GROUPS = [
   ]},
   { title: 'Life', items: [
     { href: '/planner', label: 'Planner', icon: 'planner' },
+    { href: '/activities', label: 'Activities', icon: 'planner' },
     { href: '/meals', label: 'Food', icon: 'food' },
     { href: '/workout', label: 'Workout', icon: 'workout' },
     { href: '/health', label: 'Health', icon: 'health' },
@@ -94,7 +98,9 @@ const SIDE_GROUPS = [
   { title: 'Grow', items: [
     { href: '/learning', label: 'Learning', icon: 'learning' },
     { href: '/tech-hub', label: 'Tech Hub', icon: 'tech' },
-    { href: '/discover', label: 'Discover', icon: 'discover' },
+    { href: '/discover', label: 'Business', icon: 'discover' },
+    { href: '/binance', label: 'Binance', icon: 'wallet' },
+    { href: '/trading', label: 'Trading', icon: 'report' },
   ]},
 ];
 

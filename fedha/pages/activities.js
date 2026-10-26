@@ -1,0 +1,550 @@
+import { useState, useEffect } from 'react';
+import Layout from '../components/Layout';
+import TransactionModal from '../components/TransactionModal';
+import OnlineJobs from '../components/OnlineJobs';
+import { useApp } from '../context/AppContext';
+import { formatCurrency, formatShort, genId, todayISO } from '../lib/utils';
+import { useFloatingCash } from '../lib/floating';
+
+// ─── PENDING OPPORTUNITY CARD ─────────────────────────────────────────────────
+function PendingCard({ opp, onMarkDone, onCancel }) {
+  const { currency } = useApp();
+  return (
+    <div style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 14, padding: '14px 16px', marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+        <span style={{ fontSize: 24 }}>{opp.emoji}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{opp.title}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{opp.platform || opp.category}</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div className="font-num" style={{ fontSize: 15, fontWeight: 700, color: 'var(--green)' }}>
+            +{formatShort(opp.estimated_amount, currency)}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--green)', fontWeight: 600, marginTop: 2 }}>PENDING</div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={onMarkDone}
+          style={{ flex: 2, padding: '10px', background: 'var(--green)', border: 'none', borderRadius: 10, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>
+          ✓ Mark as Done & Paid
+        </button>
+        <button onClick={onCancel}
+          style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit' }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── ACTIVITY CARD ────────────────────────────────────────────────────────────
+function ActivityCard({ item, onBook, currency }) {
+  return (
+    <div className="card" style={{ padding: '16px', marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 10 }}>
+        <div style={{ width: 48, height: 48, borderRadius: 14, background: 'var(--card-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>
+          {item.emoji}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>{item.title}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{item.description}</div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <span style={{ background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.2)', color: 'var(--green)', fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 100 }}>
+          {item.is_free ? 'FREE' : `~${formatCurrency(item.estimated_cost, currency)}`}
+        </span>
+        <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 12, padding: '3px 10px', borderRadius: 100 }}>
+          {item.category}
+        </span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>⚡ {item.why_now}</span>
+      </div>
+      <button onClick={() => onBook(item)}
+        style={{ width: '100%', padding: '10px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit' }}>
+        Record this spend →
+      </button>
+    </div>
+  );
+}
+
+// ─── OPPORTUNITY CARD ─────────────────────────────────────────────────────────
+function OpportunityCard({ item, onClaim }) {
+  const diffColor = { Easy: '#10B981', Medium: '#F59E0B', Hard: '#EF4444' };
+  const siteUrl = item.site_url || item.url || '';
+  const safeUrl = siteUrl ? (siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`) : '';
+  return (
+    <div className="card" style={{ padding: '16px', marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 10 }}>
+        <div style={{ width: 48, height: 48, borderRadius: 14, background: 'var(--card-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>
+          {item.emoji}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>{item.title}</div>
+          <div style={{ fontSize: 12, color: 'var(--blue)', fontWeight: 600, marginTop: 2 }}>{item.platform}</div>
+          {item.site_verified && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 5, padding: '3px 8px', borderRadius: 100, background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.2)', color: 'var(--green)', fontSize: 10, fontWeight: 700 }}>
+              ✓ SITE VERIFIED
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 10, lineHeight: 1.5 }}>{item.description}</div>
+      {item.gate && (
+        <div style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.18)', borderRadius: 10, padding: '9px 10px', marginBottom: 10, fontSize: 11, color: 'var(--text-2)' }}>
+          🔐 <strong>Gate:</strong> {item.gate}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+        <div style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 10px' }}>
+          <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: .7 }}>Est. / day</div>
+          <div className="font-num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--green)', marginTop: 3 }}>{item.estimated_daily_earnings || '—'}</div>
+        </div>
+        <div style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 10px' }}>
+          <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: .7 }}>Est. / week</div>
+          <div className="font-num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--green)', marginTop: 3 }}>{item.estimated_weekly_earnings || '—'}</div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <span style={{ background: `${diffColor[item.difficulty] || '#6B7280'}20`, border: `1px solid ${diffColor[item.difficulty] || '#6B7280'}40`, color: diffColor[item.difficulty] || 'var(--text-2)', fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 100 }}>
+          {item.difficulty || 'Unknown'}
+        </span>
+        <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 11, padding: '3px 10px', borderRadius: 100 }}>
+          ⏱ {item.working_hours || item.time_required || 'Varies'}
+        </span>
+        {item.rating != null && (
+          <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-2)', fontSize: 11, padding: '3px 10px', borderRadius: 100 }}>
+            ★ {item.rating}{item.rating_count ? ` · ${item.rating_count} reviews` : ''}
+          </span>
+        )}
+      </div>
+
+      {item.site_verification_note && (
+        <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 7, lineHeight: 1.4 }}>
+          🔎 {item.site_verification_note}
+        </div>
+      )}
+      {item.community_evidence && (
+        <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.4 }}>
+          💬 {item.community_evidence}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        {safeUrl ? (
+          <a href={safeUrl} target="_blank" rel="noreferrer"
+            style={{ flex: 1, padding: '11px', background: 'var(--blue)', border: 'none', borderRadius: 10, color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none', textAlign: 'center' }}>
+            🌐 Visit Site ↗
+          </a>
+        ) : (
+          <div style={{ flex: 1, padding: '11px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-3)', fontSize: 12, textAlign: 'center' }}>
+            Site link unavailable
+          </div>
+        )}
+        <button onClick={() => onClaim(item)}
+          style={{ flex: 1, padding: '11px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10, color: 'var(--green)', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>
+          🙋 I'll do this!
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN PAGE ────────────────────────────────────────────────────────────────
+export default function ActivitiesPage() {
+  const { addTransaction, wallets, budgets, currency } = useApp();
+  const { floating, totalBalance, totalBudgeted, totalOwed } = useFloatingCash();
+
+  const [tab, setTab] = useState('activities');
+  const [dateMode, setDateMode] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [activities, setActivities] = useState([]);
+  const [opportunities, setOpportunities] = useState([]);
+  const [pending, setPending] = useState([]);
+  const [location, setLocation] = useState(null);
+  const [locationStatus, setLocationStatus] = useState('idle'); // idle | loading | got | denied
+  const [showTxn, setShowTxn] = useState(false);
+  const [bookingActivity, setBookingActivity] = useState(null);
+  const [bookingAmount, setBookingAmount] = useState('');
+  const [walletId, setWalletId] = useState(wallets[0]?.id || '');
+  // Earn Online — record actual amount earned when marking done
+  const [payingOpp, setPayingOpp] = useState(null);
+  const [payAmount, setPayAmount] = useState('');
+  const [payWalletId, setPayWalletId] = useState(wallets[0]?.id || '');
+
+  const currencySymbols = { KES: 'KSh', USD: '$', EUR: '€', GBP: '£', UGX: 'USh', TZS: 'TSh' };
+  const symbol = currencySymbols[currency] || currency;
+
+  // Get location
+  function getLocation() {
+    if (!navigator.geolocation) { setLocationStatus('denied'); return; }
+    setLocationStatus('loading');
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        // Reverse geocode using a free API
+        try {
+          const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+          const d = await r.json();
+          const city = d.address?.city || d.address?.town || d.address?.county || d.address?.state || 'your area';
+          setLocation({ lat, lng, city });
+          setLocationStatus('got');
+        } catch {
+          setLocation({ lat, lng, city: 'your area' });
+          setLocationStatus('got');
+        }
+      },
+      () => setLocationStatus('denied')
+    );
+  }
+
+  async function fetchActivities() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'activities',
+          balance: Math.max(0, floating),
+          currency,
+          currency_symbol: symbol,
+          location,
+          dateMode,
+          nonce: Date.now(),
+          budgets: budgets.map((b) => ({ name: b.name, period: b.period })),
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setActivities(data.results || []);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function fetchOpportunities() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'opportunities',
+          balance: Math.max(0, floating),
+          currency,
+          currency_symbol: symbol,
+          nonce: Date.now(),
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setOpportunities(data.results || []);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleFetch() {
+    if (tab === 'activities') fetchActivities();
+    else fetchOpportunities();
+  }
+
+  // Claim opportunity → add to pending list
+  function claimOpportunity(opp) {
+    setPending((prev) => [{ ...opp, claimed_at: new Date().toISOString(), pending_id: genId() }, ...prev]);
+    setOpportunities((prev) => prev.filter((o) => o.id !== opp.id));
+  }
+
+  // Mark pending opp as done → ask for the ACTUAL amount earned, then record it
+  function markDone(pendingOpp) {
+    setPayingOpp(pendingOpp);
+    setPayAmount(pendingOpp.estimated_amount ? String(pendingOpp.estimated_amount) : '');
+    setPayWalletId(wallets[0]?.id || '');
+  }
+
+  // Confirm actual earnings → record income transaction
+  async function confirmEarning() {
+    if (!payingOpp || !payAmount || Number(payAmount) <= 0) return;
+    await addTransaction({
+      type: 'income',
+      amount: Number(payAmount),
+      wallet_id: payWalletId || wallets[0]?.id,
+      category: 'freelance',
+      description: `${payingOpp.title} — ${payingOpp.platform || 'Online'}`,
+      date: todayISO(),
+      currency,
+    });
+    setPending((prev) => prev.filter((p) => p.pending_id !== payingOpp.pending_id));
+    setPayingOpp(null);
+    setPayAmount('');
+  }
+
+  // Book activity spend
+  async function confirmBooking() {
+    if (!bookingActivity || !bookingAmount) return;
+    await addTransaction({
+      type: 'expense',
+      amount: Number(bookingAmount),
+      wallet_id: walletId,
+      category: bookingActivity.category === 'food' ? 'food' : bookingActivity.category === 'outdoor' ? 'entertainment' : 'entertainment',
+      description: bookingActivity.title,
+      date: todayISO(),
+      currency,
+    });
+    setBookingActivity(null);
+    setBookingAmount('');
+  }
+
+  return (
+    <Layout onFab={() => setShowTxn(true)}>
+      <div className="page">
+        {/* Header */}
+        <div className="page-top" style={{ padding: '52px 20px 0' }}>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Activities 🎉</div>
+            <div style={{ fontSize: 13, color: 'var(--text-3)' }}>Find things to do and plan your free time</div>
+          </div>
+
+          {/* Floating cash card */}
+          <div className="hero-card" style={{ padding: '18px 20px', marginBottom: 16 }}>
+            <div style={{ fontSize: 11, color: 'rgba(237,242,255,0.5)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>
+              Floating Cash (Free to Spend)
+            </div>
+            <div className="font-num" style={{ fontSize: 30, fontWeight: 700, color: floating >= 0 ? 'var(--green)' : 'var(--red)', marginBottom: 12 }}>
+              {formatCurrency(Math.max(0, floating), currency)}
+            </div>
+            <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'rgba(237,242,255,0.4)' }}>
+              <span>Total: {formatShort(totalBalance, currency)}</span>
+              <span>Budgeted: −{formatShort(totalBudgeted, currency)}</span>
+              {totalOwed > 0 && <span>Owed: −{formatShort(totalOwed, currency)}</span>}
+            </div>
+          </div>
+
+          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Explore activities near you and track plans from here.</div>
+        </div>
+
+        <div style={{ padding: '16px 20px' }}>
+
+          {/* ── PENDING OPPORTUNITIES ─────────────────────────────────── */}
+          {tab === 'pending' && (
+            <div>
+              <div className="section-title" style={{ marginBottom: 12 }}>Opportunities In Progress</div>
+              {pending.length === 0 ? (
+                <div className="empty-state"><div className="icon">⏳</div><h3>Nothing pending</h3><p>Claim an opportunity to track it here</p></div>
+              ) : pending.map((p) => (
+                <PendingCard key={p.pending_id} opp={p} onMarkDone={() => markDone(p)} onCancel={() => setPending((prev) => prev.filter((x) => x.pending_id !== p.pending_id))} />
+              ))}
+            </div>
+          )}
+
+          {/* ── MY JOBS ───────────────────────────────────────────────── */}
+          {tab === 'jobs' && <OnlineJobs />}
+
+          {/* ── ACTIVITIES ──────────────────────────────��─────────────── */}
+          {tab === 'activities' && (
+            <div>
+              {/* Bae mode toggle */}
+              <button onClick={() => setDateMode(!dateMode)}
+                style={{ width: '100%', padding: '12px 16px', background: dateMode ? 'rgba(236,72,153,0.1)' : 'var(--card-2)', border: `1px solid ${dateMode ? 'rgba(236,72,153,0.4)' : 'var(--border)'}`, borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', marginBottom: 14, textAlign: 'left' }}>
+                <span style={{ fontSize: 24 }}>{dateMode ? '💕' : '🧍'}</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: dateMode ? '#EC4899' : 'var(--text)', fontFamily: 'Outfit' }}>
+                    {dateMode ? 'Bae Mode ON 💕' : 'Solo Mode'}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                    {dateMode ? 'Showing romantic date ideas for two' : 'Tap to switch to date mode when bae is around'}
+                  </div>
+                </div>
+                <div style={{ marginLeft: 'auto', width: 44, height: 26, borderRadius: 13, background: dateMode ? '#EC4899' : 'var(--border)', transition: 'background 0.2s', position: 'relative', flexShrink: 0 }}>
+                  <div style={{ position: 'absolute', top: 3, left: dateMode ? 21 : 3, width: 20, height: 20, borderRadius: 10, background: '#fff', transition: 'left 0.2s' }} />
+                </div>
+              </button>
+
+              {/* Location */}
+              {locationStatus === 'idle' && (
+                <button onClick={getLocation}
+                  style={{ width: '100%', padding: '11px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  📍 Share location for better suggestions (optional)
+                </button>
+              )}
+              {locationStatus === 'loading' && (
+                <div style={{ textAlign: 'center', padding: '10px', fontSize: 13, color: 'var(--text-3)', marginBottom: 12 }}>📍 Getting your location…</div>
+              )}
+              {locationStatus === 'got' && (
+                <div style={{ padding: '10px 14px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--green)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  📍 Location: <strong>{location?.city}</strong>
+                  <button onClick={() => setLocationStatus('idle')} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 12 }}>clear</button>
+                </div>
+              )}
+              {locationStatus === 'denied' && (
+                <div style={{ padding: '10px 14px', background: 'var(--red-dim)', borderRadius: 10, fontSize: 13, color: 'var(--red)', marginBottom: 12 }}>
+                  📍 Location denied — suggestions will be general
+                </div>
+              )}
+
+              {/* Fetch button */}
+              <button className="btn-primary" onClick={fetchActivities} disabled={loading || floating <= 0}
+                style={{ marginBottom: 20, background: dateMode ? '#EC4899' : undefined }}>
+                {loading ? '✨ Finding ideas…' : floating <= 0 ? 'Not enough floating cash' : dateMode ? '💕 Find Date Ideas' : '🎉 Suggest Activities'}
+              </button>
+
+              {error && (
+                <div style={{ background: 'var(--red-dim)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: 'var(--red)', marginBottom: 16 }}>
+                  ⚠ {error}
+                  {error.includes('ANTHROPIC_API_KEY') && <div style={{ marginTop: 6, color: 'var(--text-3)' }}>Add ANTHROPIC_API_KEY to your Vercel environment variables.</div>}
+                </div>
+              )}
+
+              {activities.length > 0 && (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <div className="section-title" style={{ marginBottom: 0 }}>
+                      {dateMode ? '💕 Date Ideas Near You' : '🎉 Activities Near You'}
+                    </div>
+                    <button onClick={fetchActivities} disabled={loading}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 100, color: loading ? 'var(--text-3)' : 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: loading ? 'default' : 'pointer', fontFamily: 'Outfit' }}>
+                      <span style={{ display: 'inline-block', transition: 'transform 0.4s', transform: loading ? 'rotate(360deg)' : 'none' }}>🔄</span>
+                      {loading ? 'Refreshing…' : 'Refresh'}
+                    </button>
+                  </div>
+                  {activities.map((a) => (
+                    <ActivityCard key={a.id} item={a} currency={currency}
+                      onBook={(item) => { setBookingActivity(item); setBookingAmount(item.is_free ? '0' : item.estimated_cost); }} />
+                  ))}
+                </div>
+              )}
+
+              {!loading && activities.length === 0 && (
+                <div className="empty-state">
+                  <div className="icon">{dateMode ? '💕' : '🎉'}</div>
+                  <h3>{dateMode ? 'Plan a date with your budget' : 'Discover what to do today'}</h3>
+                  <p>Tap the button above to get AI-powered suggestions based on your {formatShort(floating, currency)} floating cash</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── EARN ONLINE ───────────────────────────────────────────── */}
+          {tab === 'opportunities' && (
+            <div>
+              <div style={{ padding: '12px 14px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 12, marginBottom: 16, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
+                💡 AI surfaces lesser-known, higher-value gigs — audit contests, bug bounties, AI data tasks & more — with potential earnings. Tap "I'll do this!" to track it, then enter what you actually made when paid.
+              </div>
+
+              <button className="btn-primary" onClick={fetchOpportunities} disabled={loading} style={{ marginBottom: 20, background: 'var(--blue)' }}>
+                {loading ? '🔍 Searching opportunities…' : '🔍 Find Online Opportunities'}
+              </button>
+
+              {error && (
+                <div style={{ background: 'var(--red-dim)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: 'var(--red)', marginBottom: 16 }}>
+                  ⚠ {error}
+                  {error.includes('ANTHROPIC_API_KEY') && <div style={{ marginTop: 6, color: 'var(--text-3)' }}>Add ANTHROPIC_API_KEY to your Vercel environment variables.</div>}
+                </div>
+              )}
+
+              {opportunities.length > 0 && (
+                <div>
+                  <div className="section-title" style={{ marginBottom: 12 }}>💼 Online Opportunities</div>
+                  {opportunities.map((o) => (
+                    <OpportunityCard key={o.id} item={o} onClaim={claimOpportunity} />
+                  ))}
+                </div>
+              )}
+
+              {!loading && opportunities.length === 0 && (
+                <div className="empty-state">
+                  <div className="icon">💼</div>
+                  <h3>Find hidden ways to earn online</h3>
+                  <p>AI surfaces lesser-known, higher-value opportunities — audit contests, bounties & AI tasks — with their earning potential</p>
+                </div>
+              )}
+
+              {/* Pending summary */}
+              {pending.length > 0 && (
+                <div style={{ marginTop: 24 }}>
+                  <div className="section-title" style={{ marginBottom: 12 }}>⏳ Your Pending ({pending.length})</div>
+                  {pending.map((p) => (
+                    <PendingCard key={p.pending_id} opp={p} onMarkDone={() => markDone(p)} onCancel={() => setPending((prev) => prev.filter((x) => x.pending_id !== p.pending_id))} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Book activity modal */}
+      {bookingActivity && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setBookingActivity(null)}>
+          <div className="modal-sheet">
+            <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+            <div className="modal-header">
+              <span style={{ fontSize: 16, fontWeight: 700 }}>{bookingActivity.emoji} Record this Spend</span>
+              <button className="btn-icon" onClick={() => setBookingActivity(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 4 }}>{bookingActivity.title}</div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Amount Spent</label>
+                <input className="input font-num" type="number" inputMode="decimal" placeholder="0.00" value={bookingAmount} onChange={(e) => setBookingAmount(e.target.value)} style={{ fontSize: 22, fontWeight: 600 }} autoFocus />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Pay From</label>
+                <select className="input" value={walletId} onChange={(e) => setWalletId(e.target.value)}>
+                  {wallets.map((w) => <option key={w.id} value={w.id}>{w.icon} {w.name}</option>)}
+                </select>
+              </div>
+              <button className="btn-primary" onClick={confirmBooking} disabled={!bookingAmount}>
+                Record Expense
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Record actual earnings modal */}
+      {payingOpp && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setPayingOpp(null)}>
+          <div className="modal-sheet">
+            <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+            <div className="modal-header">
+              <span style={{ fontSize: 16, fontWeight: 700 }}>{payingOpp.emoji} Record Your Earnings</span>
+              <button className="btn-icon" onClick={() => setPayingOpp(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
+                Nice work on <strong style={{ color: 'var(--text)' }}>{payingOpp.title}</strong>! Enter how much you actually made — this gets added as income.
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Amount Earned</label>
+                <input className="input font-num" type="number" inputMode="decimal" placeholder="0.00" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} style={{ fontSize: 22, fontWeight: 600 }} autoFocus />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Add To Wallet</label>
+                <select className="input" value={payWalletId} onChange={(e) => setPayWalletId(e.target.value)}>
+                  {wallets.map((w) => <option key={w.id} value={w.id}>{w.icon} {w.name}</option>)}
+                </select>
+              </div>
+              <button className="btn-primary" onClick={confirmEarning} disabled={!payAmount || Number(payAmount) <= 0}>
+                ✓ Record {payAmount ? formatCurrency(payAmount, currency) : 'Earnings'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTxn && <TransactionModal onClose={() => setShowTxn(false)} />}
+    </Layout>
+  );
+}
