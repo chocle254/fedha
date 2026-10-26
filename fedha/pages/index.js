@@ -378,6 +378,8 @@ function DesktopDashboard({ wallets, transactions, goals, currency, netWorth, to
             </div>
           </div>
 
+          <Panel title="Investments"><BinancePortfolioCard /></Panel>
+
           <Panel title="Balance over time">
             <BalanceHistoryChart transactions={transactions} currentBalance={totalBalance} currency={currency} />
           </Panel>
