@@ -14,7 +14,12 @@ const watch = (process.env.WATCH_GROUPS || '').split(',').map((s) => s.trim().to
 // Cheap pre-filter so we only send messages that look like signals; the server does the real parsing.
 function looksLikeSignal(t) {
   const up = t.toUpperCase();
-  return /\b(BUY|SELL|LONG|SHORT)\b/.test(up) && /\b(TP\d*|TARGETS?|TAKE[\s-]*PROFIT|SL|STOP)\b/.test(up);
+  if (!/\b(BUY|SELL|LONG|SHORT)\b/.test(up)) return false;
+  if (!/\b(TP\d*|TARGETS?|TAKE[\s-]*PROFIT|SL|STOP)\b/.test(up)) return false;
+  // Result posts ("TP4 HIT", "120 PIPS DONE") are follow-ups, not new signals
+  const followUp = /\b(HIT|DONE|REACHED|ACHIEVED|BOOKED|SMASHED)\b|TPS?\s*\d*\s*HIT|TPHIT|\bPIPS\b/.test(up);
+  if (followUp && !/\b(ENTRY|ENTER|ENTRIES)\b|@/.test(up)) return false;
+  return true;
 }
 
 async function send(payload) {
@@ -38,12 +43,14 @@ async function send(payload) {
 
 const client = new TelegramClient(new StringSession(TG_SESSION), Number(TG_API_ID), TG_API_HASH, { connectionRetries: Infinity, autoReconnect: true });
 await client.connect();
+await client.getDialogs({ limit: 300 }); // loads your chats so channel updates are delivered
 console.log('Connected. Watching', watch.length ? watch.join(', ') : 'all groups and channels');
 
 client.addEventHandler(async (event) => {
   try {
     const msg = event.message;
-    if (!msg || msg.out) return;
+    if (process.env.DEBUG === '1' && msg) console.log('incoming:', 'group=' + event.isGroup, 'channel=' + event.isChannel, 'out=' + msg.out, JSON.stringify((msg.message || '').slice(0, 50)));
+    if (!msg || (msg.out && process.env.ALLOW_OWN !== '1')) return;
     if (!(event.isGroup || event.isChannel)) return;
     const text = msg.message || '';
     if (!looksLikeSignal(text)) return;

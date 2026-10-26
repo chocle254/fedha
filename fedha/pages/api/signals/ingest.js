@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { createSignal } from '../../../lib/signals';
+import { maybeAutoEnter } from '../../../lib/trading';
 
 // Called by the Telegram listener (telegram-listener/). PAPER TRACKING ONLY: no orders are placed.
 const MAX_AGE_MS = 5 * 60 * 1000; // ignore stale messages (for example a backlog replayed after a reconnect)
@@ -23,7 +24,10 @@ export default async function handler(req, res) {
   if (Number.isFinite(sent) && Date.now() - sent > MAX_AGE_MS) return res.status(200).json({ ok: false, skipped: 'stale' });
 
   const result = await createSignal({ userId, source, text, externalId });
-  if (result.ok) return res.status(200).json({ ok: true, symbol: result.signal.symbol, side: result.signal.side });
+  if (result.ok) {
+    const trade = await maybeAutoEnter(userId, result.signal); // paper trade only, if automation is switched on
+    return res.status(200).json({ ok: true, symbol: result.signal.symbol, side: result.signal.side, paperTrade: trade ? (trade.ok ? 'entered' : trade.skipped || trade.error) : null });
+  }
   if (result.duplicate) return res.status(200).json({ ok: false, skipped: 'duplicate' });
   return res.status(200).json({ ok: false, skipped: 'unparsed', error: result.error });
 }

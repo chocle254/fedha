@@ -1,6 +1,6 @@
 import { requireUser } from '../../../lib/require-user';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
-import { createSignal, evaluateSignal } from '../../../lib/signals';
+import { evaluateSignal } from '../../../lib/signals';
 
 // PAPER TRADING ONLY: records and scores signals, never places orders.
 export default async function handler(req, res) {
@@ -26,14 +26,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ signals: data.map((s) => (byId[s.id] ? { ...s, ...byId[s.id] } : s)) });
   }
 
-  if (req.method === 'POST') {
-    const { source, text } = req.body || {};
-    if (!text || String(text).trim().length < 8) return res.status(400).json({ error: 'Paste the signal text first.' });
-    const result = await createSignal({ userId: user.id, source, text });
-    if (!result.ok) return res.status(422).json({ error: result.error });
-    return res.status(200).json({ signal: result.signal });
-  }
-
   if (req.method === 'DELETE') {
     const id = String(req.query.id || '');
     if (!id) return res.status(400).json({ error: 'id is required' });
@@ -41,6 +33,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
-  res.setHeader('Allow', 'GET, POST, DELETE');
+  res.setHeader('Allow', 'GET, DELETE');
   return res.status(405).json({ error: 'Method not allowed' });
 }

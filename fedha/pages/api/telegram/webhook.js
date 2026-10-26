@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { createSignal } from '../../../lib/signals';
+import { maybeAutoEnter } from '../../../lib/trading';
 
 // Forward a signal message from any Telegram group to your own bot and it is tracked here.
 // Paper tracking only: no orders are placed.
@@ -50,6 +51,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
   const result = await createSignal({ userId, source: sourceOf(msg), text });
+  if (result.ok) await maybeAutoEnter(userId, result.signal);
   await reply(msg.chat.id, result.ok
     ? `Tracking ${result.signal.symbol} ${result.signal.side} from ${result.signal.source}`
     : `Could not read that signal: ${result.error}`);
