@@ -22,8 +22,7 @@ export async function applyCredits(payload, { wallets, addTransaction, getTransa
       wallet_id: wallet.id,
       category: 'other',
       description: `NestLink payout ${item.reference}`,
-      currency: wallet.currency || 'KES',
-      skipSavingsCut: true
+      currency: wallet.currency || 'KES'
     });
     applied.push(item);
     acked.push(item.reference);
