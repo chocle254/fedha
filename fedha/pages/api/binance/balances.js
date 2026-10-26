@@ -48,6 +48,12 @@ export default async function handler(req, res) {
         binanceCode: Number.isFinite(Number(binanceError.code)) ? Number(binanceError.code) : null,
         binanceMessage: typeof binanceError.msg === 'string' ? binanceError.msg.slice(0, 160) : null
       });
+      if (status === 451) {
+        return json(res, 502, {
+          configured: true,
+          error: 'Binance blocked this server location. Set a supported Vercel function region in vercel.json.'
+        });
+      }
       return json(res, 502, {
         configured: true,
         error: 'Binance did not accept the connection. Check the API key permissions, IP restrictions, and system clock.'
