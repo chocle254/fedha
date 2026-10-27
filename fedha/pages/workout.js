@@ -20,7 +20,46 @@ export const EXERCISES = {
   calf_raises:      { id:'calf_raises',      name:'Calf Raises',      emoji:'👟', muscle:'Calves · Ankles',               color:'#14B8A6', cameraHint:'Stand sideways. Keep one hip, knee and ankle visible.' },
   situps:           { id:'situps',           name:'Situps',           emoji:'🔥', muscle:'Abs · Core · Hip Flexors',      color:'#F97316', cameraHint:'Lie sideways to phone. Keep one shoulder, hip and knee visible.' },
   mountain_climbers:{ id:'mountain_climbers',name:'Mountain Climbers',emoji:'🏔️', muscle:'Core · Shoulders · Cardio',     color:'#A78BFA', cameraHint:'Phone low and sideways. Keep one shoulder, hip and knee visible.' },
+  plank:            { id:'plank',            name:'Plank (seconds)',  emoji:'🧱', muscle:'Core · Shoulders',              color:'#64748B', manual:true, unit:'sec' },
+  wall_sit:         { id:'wall_sit',         name:'Wall Sit (seconds)',emoji:'🧍', muscle:'Quads · Glutes',               color:'#0EA5E9', manual:true, unit:'sec' },
 };
+
+// ─── SMALL-SPACE PLAN ────────────────────────────────────────────────────────
+// One ~10 minute session a day that fits a strip the length of a bed (about 2 × 1 m):
+// no jumping, no equipment, nothing that needs walking room. It starts tiny on purpose
+// (1 set each) and adds a set for every full week of streak, up to 3, so the habit forms
+// before the effort grows.
+const MICRO_DAYS = [
+  { focus: 'Push 💪', theme: '#3B82F6', moves: [['pushups', 10], ['pike_pushups', 6], ['plank', 20]] },
+  { focus: 'Legs 🦵', theme: '#10B981', moves: [['squats', 15], ['glute_bridges', 15], ['calf_raises', 20]] },
+  { focus: 'Core 🔥', theme: '#F97316', moves: [['situps', 12], ['mountain_climbers', 16], ['plank', 25]] },
+  { focus: 'Push 💎', theme: '#8B5CF6', moves: [['wide_pushups', 10], ['diamond_pushups', 6], ['pushups', 8]] },
+  { focus: 'Legs 🍑', theme: '#EF4444', moves: [['lunges', 10], ['wall_sit', 30], ['glute_bridges', 15]] },
+  { focus: 'Full body ⚡', theme: '#14B8A6', moves: [['squats', 12], ['pushups', 10], ['mountain_climbers', 16], ['plank', 20]] },
+  { focus: 'Rest & stretch 🧘', theme: '#A78BFA', moves: [], rest: true },
+];
+export function microLevel(streak = 0) { return Math.min(3, 1 + Math.floor((Number(streak) || 0) / 7)); }
+export function microDay(dayIdx, streak = 0) {
+  const d = MICRO_DAYS[dayIdx];
+  const sets = microLevel(streak);
+  const exercises = d.moves.map(([id, reps]) => ({ ...EXERCISES[id], sets, reps }));
+  return {
+    day: WEEKLY_PLAN_DAYS[dayIdx], focus: d.focus, theme: d.theme,
+    morning: { title: `10-minute session · level ${sets}`, exercises, isRest: !!d.rest },
+    evening: { title: 'Rest', exercises: [], isRest: true },
+  };
+}
+// Minutes for a small-space session: ~1 min per set incl. rest, + 3 min warm-up.
+export function microMinutes(dayIdx, streak = 0) {
+  const d = MICRO_DAYS[dayIdx];
+  if (d.rest) return 0;
+  return d.moves.length * microLevel(streak) + 3;
+}
+// The plan the Planner and this page use for a day, depending on the chosen mode.
+export function planForDay(dayIdx, mode = 'small', streak = 0) {
+  return mode === 'full' ? WEEKLY_PLAN[dayIdx] : microDay(dayIdx, streak);
+}
+const WEEKLY_PLAN_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 // ─── WEEKLY PLAN ─────────────────────────────────────────────────────────────
 // Each day: morning (strength) + evening (pump/tone)
@@ -193,7 +232,7 @@ export function exerciseSummary(exercises = []) {
 }
 
 // ─── EXERCISE CARD ────────────────────────────────────────────────────────────
-function ExerciseCard({ ex, sessionKey, completedSets, onStartSet }) {
+function ExerciseCard({ ex, sessionKey, completedSets, onStartSet, onManualSet }) {
   const doneSets = completedSets[`${sessionKey}_${ex.id}`] || 0;
   const isComplete = doneSets >= ex.sets;
   const totalReps = ex.sets * ex.reps;
@@ -210,14 +249,20 @@ function ExerciseCard({ ex, sessionKey, completedSets, onStartSet }) {
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 1 }}>{ex.muscle}</div>
           <div style={{ fontSize: 12, color: ex.color, fontWeight: 600, marginTop: 2 }}>
-            {ex.sets} sets × {ex.reps} reps = {totalReps} total
+            {ex.sets} set{ex.sets > 1 ? 's' : ''} × {ex.reps} {ex.unit === 'sec' ? 'seconds' : 'reps'}{ex.unit === 'sec' ? '' : ` = ${totalReps} total`}
           </div>
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
           <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 4 }}>
             {doneSets}/{ex.sets} sets
           </div>
-          {!isComplete ? (
+          {!isComplete && (ex.manual || onManualSet) && (
+            <button onClick={() => onManualSet(ex, doneSets + 1)}
+              style={{ padding: '8px 12px', background: ex.manual ? ex.color : 'transparent', border: `1px solid ${ex.color}`, borderRadius: 10, color: ex.manual ? '#000' : ex.color, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit', marginRight: ex.manual ? 0 : 6, marginBottom: ex.manual ? 0 : 6 }}>
+              {ex.manual ? `Done set ${doneSets + 1} ✓` : '✓ Done'}
+            </button>
+          )}
+          {!isComplete ? (ex.manual ? null :
             <button
               onClick={() => onStartSet(ex, doneSets + 1)}
               style={{ padding: '8px 14px', background: ex.color, border: 'none', borderRadius: 10, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>
@@ -249,9 +294,11 @@ export default function WorkoutPage() {
   const [completedSets, setCompletedSets] = useState({});
   const [streak, setStreak] = useState(0);
   const [camera, setCamera] = useState(null); // { ex, set }
+  const [mode, setMode] = useState('small'); // 'small' = 10-minute small-space plan, 'full' = the original plan
 
-  const plan = WEEKLY_PLAN[activeDay];
-  const sessionData = plan[session];
+  const plan = planForDay(activeDay, mode, streak);
+  const sessionData = plan[mode === 'small' ? 'morning' : session];
+  const weekPlans = WEEKLY_PLAN.map((_, i) => planForDay(i, mode, streak));
 
   useEffect(() => {
     async function load() {
@@ -259,18 +306,26 @@ export default function WorkoutPage() {
       if (done) setCompletedSets(done);
       const s = await getSetting('workout_streak', 0);
       setStreak(s || 0);
+      setMode((await getSetting('workout_mode', 'small')) || 'small');
     }
     load();
   }, []);
 
+  async function changeMode(m) {
+    setMode(m);
+    setSession('morning');
+    await setSetting('workout_mode', m);
+  }
+
   async function handleSetComplete(ex, setNum) {
-    const key = `${session}_${ex.id}`;
+    const key = `${mode === 'small' ? 'morning' : session}_${ex.id}`;
     const updated = { ...completedSets, [key]: setNum };
     setCompletedSets(updated);
     await setSetting(`workout_${todayISO()}`, updated);
 
     // Check if full session complete for streak
-    const allDone = sessionData.exercises.every(e => (updated[`${session}_${e.id}`] || 0) >= e.sets);
+    const sk = mode === 'small' ? 'morning' : session;
+    const allDone = sessionData.exercises.every(e => (updated[`${sk}_${e.id}`] || 0) >= e.sets);
     if (allDone) {
       const newStreak = streak + 1;
       setStreak(newStreak);
@@ -304,9 +359,23 @@ export default function WorkoutPage() {
             {format(new Date(), 'EEEE, d MMMM')}
           </div>
 
+          {/* Mode */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <button className={`chip ${mode === 'small' ? 'active' : ''}`} onClick={() => changeMode('small')}>🏠 Small space · 10 min</button>
+            <button className={`chip ${mode === 'full' ? 'active' : ''}`} onClick={() => changeMode('full')}>Full plan</button>
+          </div>
+          {mode === 'small' && (
+            <div className="card" style={{ padding: '12px 14px', marginBottom: 12, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>
+              <b style={{ color: 'var(--text)' }}>Needs a strip the length of your bed (about 2 × 1 m).</b> Lay down a towel or mat. No jumping, no equipment, and quiet enough for a shared house.
+              <div style={{ marginTop: 6, color: 'var(--text-3)', fontSize: 12 }}>
+                Level {microLevel(streak)}: {microLevel(streak)} set{microLevel(streak) > 1 ? 's' : ''} of each move. {microLevel(streak) < 3 ? `Every 7-day streak adds a set (${7 - (streak % 7)} more session${7 - (streak % 7) === 1 ? '' : 's'} to the next level).` : 'Top level, so keep the streak alive.'} Showing up beats doing a lot.
+              </div>
+            </div>
+          )}
+
           {/* Day selector */}
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, marginBottom: 12 }}>
-            {WEEKLY_PLAN.map((p, i) => (
+            {weekPlans.map((p, i) => (
               <button key={p.day} className={`chip ${activeDay === i ? 'active' : ''}`} onClick={() => setActiveDay(i)} style={{ flexShrink: 0,
                 ...(activeDay === i ? { background: `${p.theme}20`, borderColor: p.theme, color: p.theme } : {}) }}>
                 {p.day.slice(0, 3)}
@@ -321,7 +390,7 @@ export default function WorkoutPage() {
           </div>
 
           {/* Morning / Evening toggle */}
-          <div style={{ display: 'flex', gap: 8 }}>
+          {mode === 'full' && <div style={{ display: 'flex', gap: 8 }}>
             {['morning', 'evening'].map(s => {
               const sd = plan[s];
               const sdSets = sd.exercises.reduce((t, e) => t + e.sets, 0);
@@ -335,7 +404,7 @@ export default function WorkoutPage() {
                 </button>
               );
             })}
-          </div>
+          </div>}
         </div>
 
         <div style={{ padding: '0 20px' }}>
@@ -370,9 +439,10 @@ export default function WorkoutPage() {
                 <ExerciseCard
                   key={ex.id}
                   ex={ex}
-                  sessionKey={session}
+                  sessionKey={mode === 'small' ? 'morning' : session}
                   completedSets={completedSets}
                   onStartSet={startSet}
+                  onManualSet={handleSetComplete}
                 />
               ))}
             </div>
@@ -398,7 +468,7 @@ export default function WorkoutPage() {
           <div style={{ marginBottom: 24 }}>
             <div className="section-title" style={{ marginBottom: 10 }}>WEEK OVERVIEW</div>
             <div className="card" style={{ overflow: 'hidden' }}>
-              {WEEKLY_PLAN.map((p, i) => {
+              {weekPlans.map((p, i) => {
                 const isToday = i === todayIdx;
                 const isActive = i === activeDay;
                 return (
@@ -409,7 +479,7 @@ export default function WorkoutPage() {
                     </div>
                     <div style={{ flex: 1, fontSize: 13, color: isActive ? p.theme : 'var(--text-2)', fontWeight: isActive ? 600 : 400 }}>{p.focus}</div>
                     <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
-                      {p.morning.exercises.length + p.evening.exercises.filter(e => !p.evening.isRest).length} exercises
+                      {p.morning.isRest ? 'Rest' : `${p.morning.exercises.length + p.evening.exercises.filter(() => !p.evening.isRest).length} exercises`}
                     </div>
                   </div>
                 );

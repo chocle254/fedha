@@ -26,13 +26,13 @@ import { STAGES } from '../../lib/startup';
 export const config = { maxDuration: 60 };
 
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b'; // free & strong; or 'llama-3.1-8b-instant' for speed
-const SEARCH_GROUNDED_TYPES = new Set(['activities', 'opportunities']);
+const SEARCH_GROUNDED_TYPES = new Set(['activities', 'opportunities', 'startup_programs', 'startup_ideas']);
 
 export default async function handler(req, res) {
   if (!(await requireUser(req, res))) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup, lesson, transcript, stage, question, history, stageId, start_date, hours_per_day, pitch, investor, transcript_turns, end_meeting } = req.body;
+  const { interests, region, type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup, lesson, transcript, stage, question, history, stageId, start_date, hours_per_day, pitch, investor, transcript_turns, end_meeting } = req.body;
   const useSearch = SEARCH_GROUNDED_TYPES.has(type);
 
   if (type === 'lesson_notes' && !transcript?.trim()) return res.status(400).json({ error: 'Lesson transcript is required' });
@@ -95,6 +95,41 @@ Return ONLY a JSON object (no markdown, no commentary): { "results": [ ...6 item
 - estimated_cost (number in ${currency}), category (one of "food","outdoor","entertainment","social","relaxation","adventure"),
 - why_now (short fun reason), is_free (boolean).
 If fewer than 6 results genuinely fit, return fewer items rather than padding with invented ones.`;
+  }
+
+  if (type === 'startup_programs') {
+    const where = region && region !== 'All' ? `The user wants programs in or open to: ${region}.` : 'Worldwide, including remote-friendly ones.';
+    prompt = (foundText) => `You are a startup programs scout. ${where} The founder is a solo technical founder in Kenya (can travel for in-person programs if funded).
+
+Below are real, current web search results. Using ONLY programs that appear in these results — never invent a program, date or URL — list up to 10 accelerators, incubators, fellowships, grants or founder communities whose applications are OPEN NOW or opening soon.
+
+--- SEARCH RESULTS ---
+${foundText}
+
+Return ONLY JSON: { "results": [ ...items ] }. Each item has exactly:
+- name, type (one of "Accelerator","Incubator","Fellowship","Grant","Competition","Community"),
+- region (e.g. "Africa","Global / Remote","Europe","Americas","Asia","Middle East"),
+- deadline (YYYY-MM-DD if the results state one, else ""), status ("Open" | "Opening soon" | "Rolling"),
+- funding (short string, e.g. "$500k for 7%", "$5,000 grant, no equity", "" if not stated),
+- why_fit (1 sentence on why it suits a solo technical founder), url (an official URL that appears in the results).
+Sort by deadline (soonest first), rolling programs last. Return fewer items rather than inventing any.`;
+  }
+
+  if (type === 'startup_ideas') {
+    const about = String(interests || '').slice(0, 400) || 'fintech, trading tools, AI, developer tools, African markets';
+    prompt = (foundText) => `You are a sharp startup idea researcher. The founder is a solo developer in Kenya who builds web apps (Next.js, Supabase, AI APIs), trades crypto, runs a small liquid-soap side business with family, and has little capital. Interests: ${about}.${varietyStr}
+
+Below are real, current web search results about trends, problems people complain about, and fast-growing markets. Ground every idea in something from these results.
+
+--- SEARCH RESULTS ---
+${foundText}
+
+Suggest 6 startup ideas this founder could realistically start alone with under $100. Return ONLY JSON: { "results": [ ...6 items ] }. Each item has exactly:
+- title, emoji, problem (1 sentence: who hurts and how), solution (1-2 sentences),
+- customer (who pays), revenue (pricing model with a number), why_now (the trend or signal from the results, name it),
+- mvp (what to build in 2 weeks), first_10_customers (exactly where to find them), competitors (short comma list of real ones, or "none obvious"),
+- difficulty (1-5), fit (1-10 score for THIS founder), source (one URL from the results that backs the why_now).
+Order by fit, highest first. Be specific and honest; no generic "AI for X" ideas without a real wedge.`;
   }
 
   if (type === 'opportunities') {
@@ -218,7 +253,22 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
     if (useSearch) {
       // activities/opportunities: run real web searches first, then have
       // NVIDIA NIM write up JSON from only what those searches found.
-      const searchQueries = type === 'activities'
+      const year = new Date().getFullYear();
+      const searchQueries = type === 'startup_programs'
+        ? [
+            `startup accelerator applications open ${year} ${region && region !== 'All' ? region : 'global remote'}`,
+            `Africa startup accelerator call for applications ${year} deadline`,
+            `pre-seed accelerator apply now ${year} solo founder equity-free grant`,
+            `startup fellowship grant founders apply ${year} deadline`,
+          ]
+        : type === 'startup_ideas'
+        ? [
+            `fastest growing startup categories ${year} problems people want solved`,
+            `Kenya Africa startup opportunities underserved market ${year}`,
+            `reddit "I would pay for" tool ${String(interests || 'small business').slice(0, 60)}`,
+            `${String(interests || 'fintech AI').slice(0, 80)} startup trend ${year}`,
+          ]
+        : type === 'activities'
         ? [
             location?.city ? `fun things to do in ${location.city}` : 'fun affordable activities',
             location?.city ? `restaurants activities near ${location.city}` : 'free activities near me',
@@ -245,7 +295,7 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
 
       let rawText;
       try {
-        rawText = await nvidiaChat({ prompt: prompt(foundText), temperature: 0.5, maxTokens: type === 'opportunities' ? 4000 : 2500 });
+        rawText = await nvidiaChat({ prompt: prompt(foundText), temperature: 0.5, maxTokens: ['opportunities', 'startup_ideas', 'startup_programs'].includes(type) ? 4000 : 2500 });
       } catch (e) {
         console.error('[fedha] NVIDIA NIM failed for', type, ':', e.status, e.message);
         // NVIDIA's own staff confirm the free tier can genuinely run out of

@@ -30,24 +30,48 @@ const NAV = [
   )},
 ];
 
-// Secondary pages surfaced through the "More" menu
-const MORE = [
-  { href:'/goals',    label:'Savings Goals', emoji:'🎯', desc:'What you are saving for' },
-  { href:'/wallets',  label:'Wallets',       emoji:'👛', desc:'Accounts & balances' },
-  { href:'/utilities', label:'Utilities', emoji:'⚡', desc:'NestLink payouts & service wallet' },
-  { href:'/reports',  label:'Reports',       emoji:'📊', desc:'Spending insights' },
-  { href:'/workout',  label:'Workout',       emoji:'💪', desc:'Training log' },
-  { href:'/planner',  label:'Planner',       emoji:'📅', desc:'Schedule & tasks' },
-  { href:'/activities', label:'Activities', emoji:'🎉', desc:'Find things to do' },
-  { href:'/learning', label:'Learning',      emoji:'🎓', desc:'Courses & certifications' },
-  { href:'/discover', label:'Business',      emoji:'💼', desc:'Trading, jobs & earning' },
-  { href:'/binance', label:'Binance Portfolio', emoji:'₿', desc:'Crypto balances' },
-  { href:'/trading', label:'Trading', emoji:'📈', desc:'Binance trading workspace' },
-  { href:'/health',   label:'Health',        emoji:'❤️', desc:'Wellness tracking' },
-  { href:'/tech-hub', label:'Tech Hub',      emoji:'🚀', desc:'Hackathons & startups' },
+// Secondary pages surfaced through the "More" menu, grouped. Related pages are merged into one tile;
+// inside them a tab bar (HUBS) switches between the merged pages.
+const MORE_GROUPS = [
+  { title: 'Money', items: [
+    { href:'/goals', label:'Savings Goals', emoji:'🎯', desc:'What you are saving for' },
+    { href:'/wallets', label:'Wallets', emoji:'👛', desc:'Balances, utilities & payouts' },
+    { href:'/reports', label:'Reports', emoji:'📊', desc:'Spending insights' },
+  ]},
+  { title: 'Life', items: [
+    { href:'/planner', label:'Planner', emoji:'📅', desc:'Schedule, tasks & activities' },
+    { href:'/health', label:'Health & Fitness', emoji:'❤️', desc:'Wellness & workouts' },
+  ]},
+  { title: 'Grow & earn', items: [
+    { href:'/trading', label:'Trading', emoji:'📈', desc:'Charts, paper trades & Binance wallet' },
+    { href:'/discover', label:'Business', emoji:'💼', desc:'Jobs & earning' },
+    { href:'/learning', label:'Learning', emoji:'🎓', desc:'Courses, hackathons & startups' },
+  ]},
 ];
+const HUBS = [
+  [{ href:'/wallets', label:'Wallets' }, { href:'/utilities', label:'Utilities' }],
+  [{ href:'/planner', label:'Planner' }, { href:'/activities', label:'Activities' }],
+  [{ href:'/health', label:'Health' }, { href:'/workout', label:'Workout' }],
+  [{ href:'/learning', label:'Learning' }, { href:'/tech-hub', label:'Tech Hub' }],
+];
+const MORE = MORE_GROUPS.flatMap((g) => g.items);
+const MORE_HREFS = [...MORE.map((m) => m.href), ...HUBS.flat().map((h) => h.href), '/binance'];
+const hubFor = (path) => HUBS.find((h) => h.some((x) => x.href === path));
 
-const MORE_HREFS = MORE.map((m) => m.href);
+function HubTabs({ pathname }) {
+  const hub = hubFor(pathname);
+  if (!hub) return null;
+  return (
+    <div style={{ display: 'flex', gap: 4, padding: 4, margin: '12px 16px 0', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, width: 'fit-content', maxWidth: 'calc(100% - 32px)' }}>
+      {hub.map((h) => {
+        const on = h.href === pathname;
+        return (
+          <Link key={h.href} href={h.href} style={{ padding: '7px 16px', borderRadius: 9, fontSize: 13, fontWeight: 600, textDecoration: 'none', background: on ? 'var(--green-dim)' : 'transparent', color: on ? 'var(--green)' : 'var(--text-2)' }}>{h.label}</Link>
+        );
+      })}
+    </div>
+  );
+}
 
 
 // ─── DESKTOP SIDEBAR (≥960px) ─────────────────────────────────────────────
@@ -99,7 +123,6 @@ const SIDE_GROUPS = [
     { href: '/learning', label: 'Learning', icon: 'learning' },
     { href: '/tech-hub', label: 'Tech Hub', icon: 'tech' },
     { href: '/discover', label: 'Business', icon: 'discover' },
-    { href: '/binance', label: 'Binance', icon: 'wallet' },
     { href: '/trading', label: 'Trading', icon: 'report' },
   ]},
 ];
@@ -223,6 +246,7 @@ export default function Layout({ children, fab, onFab }) {
 
       <main className="app-main">
         <TopBar name={name} isOnline={isOnline} onFab={onFab} fab={fab} />
+        <HubTabs pathname={router.pathname} />
         {children}
       </main>
 
@@ -243,21 +267,29 @@ export default function Layout({ children, fab, onFab }) {
               <span style={{ fontSize: 16, fontWeight: 700 }}>More</span>
               <button className="btn-icon" onClick={() => setMoreOpen(false)} aria-label="Close">✕</button>
             </div>
-            <div style={{ padding: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              {MORE.map((m) => {
-                const active = router.pathname === m.href;
-                return (
-                  <Link key={m.href} href={m.href} onClick={() => setMoreOpen(false)} style={{ textDecoration: 'none' }}>
-                    <div className="card-2" style={{ padding: '14px 14px', display: 'flex', flexDirection: 'column', gap: 8, borderColor: active ? 'var(--green)' : 'var(--border)' }}>
-                      <span style={{ fontSize: 26 }}>{m.emoji}</span>
-                      <div>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: active ? 'var(--green)' : 'var(--text)' }}>{m.label}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{m.desc}</div>
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
+            <div style={{ padding: '4px 16px 8px' }}>
+              {MORE_GROUPS.map((g) => (
+                <div key={g.title} style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-3)', margin: '0 2px 8px' }}>{g.title}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
+                    {g.items.map((m) => {
+                      const hub = hubFor(m.href);
+                      const active = router.pathname === m.href || (hub && hub.some((h) => h.href === router.pathname)) || (m.href === '/trading' && router.pathname === '/binance');
+                      return (
+                        <Link key={m.href} href={m.href} onClick={() => setMoreOpen(false)} style={{ textDecoration: 'none' }}>
+                          <div className="card-2" style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, borderColor: active ? 'var(--green)' : 'var(--border)', height: '100%' }}>
+                            <span style={{ fontSize: 22 }}>{m.emoji}</span>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: active ? 'var(--green)' : 'var(--text)' }}>{m.label}</div>
+                              <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 2, lineHeight: 1.3 }}>{m.desc}</div>
+                            </div>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
             <div style={{ padding: '0 16px 16px' }}>
               <button

@@ -5,7 +5,8 @@ import { getSetting, setSetting, getFoodLogs } from '../lib/db';
 import { useFloatingCash } from '../lib/floating';
 import { todayISO, computeJobProgress } from '../lib/utils';
 import { hackStatus, isUrgent, projectStatus } from './tech-hub';
-import { WEEKLY_PLAN, weekdayPlanIndex, estimateWorkoutMinutes, exerciseSummary } from './workout';
+import { weekdayPlanIndex, estimateWorkoutMinutes, exerciseSummary, planForDay, microMinutes } from './workout';
+import { planAnchors, getDayPrefs, getHomeLocation, askDeviceLocation, getTodayWeather, searchPlace, saveHomeLocation, setSoapBatches, weatherLabel } from '../lib/day-anchors';
 import { showNotif, VIBRATE } from '../lib/notifications';
 import { pruneEndedEvents, todaysEventBlocks, eventWindow } from '../lib/events';
 import { format } from 'date-fns';
@@ -234,9 +235,11 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
   const workItems = getWorkPriorityItems(ctx);
   const researchItem = getOpenResearchItem(ctx.research);
   const dayIdx = weekdayPlanIndex(new Date());
-  const dayPlan = WEEKLY_PLAN[dayIdx];
-  const morningWorkoutMin = estimateWorkoutMinutes(dayPlan.morning.exercises);
-  const eveningWorkoutMin = dayPlan.evening.isRest ? 0 : estimateWorkoutMinutes(dayPlan.evening.exercises);
+  const small = (ctx.workoutMode || 'full') === 'small';
+  const dayPlan = planForDay(dayIdx, ctx.workoutMode || 'full', ctx.workoutStreak);
+  // Small-space mode: the 10-minute session is pinned right before the bath by lib/day-anchors.js.
+  const morningWorkoutMin = small ? 0 : estimateWorkoutMinutes(dayPlan.morning.exercises);
+  const eveningWorkoutMin = small || dayPlan.evening.isRest ? 0 : estimateWorkoutMinutes(dayPlan.evening.exercises);
 
   // The normal wake time is still what the NEXT morning's sleep is measured to;
   // `startAt` only moves where today's clock begins.
@@ -274,7 +277,7 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
   if (morningWorkoutMin > 0 && !lateMorning) {
     want('am', 'workout1', `Workout — ${dayPlan.focus}`, 'workout', '🏋️', `${dayPlan.morning.title}: ${exerciseSummary(dayPlan.morning.exercises)}`, PRIORITY.essential, morningWorkoutMin, morningWorkoutMin);
   }
-  if (!lateMorning) want('am', 'bath', 'Bath & Freshen Up', 'health', '🛁', 'Wash off the workout and reset before the day starts.', PRIORITY.essential, 15, 25);
+  if (!lateMorning && !ctx.anchorBath) want('am', 'bath', 'Bath & Freshen Up', 'health', '🛁', 'Wash off the workout and reset before the day starts.', PRIORITY.essential, 15, 25);
   if (!pastBreakfast) {
     want('am', 'bfast_prep', 'Prepare Breakfast', 'meal', '🍳', "Start cooking now. Check Meals tab for today's breakfast.", PRIORITY.essential, 15, isWeekend ? 25 : 20);
     want('am', 'breakfast', 'Eat Breakfast', 'meal', '🍽️', 'Sit down and eat. No phone while eating.', PRIORITY.essential, 15, isWeekend ? 30 : 20);
@@ -322,7 +325,7 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
   }
 
   // EVENING — wind down to bed.
-  if (dayPlan.evening.isRest) want('eve', 'recovery', 'Active Recovery — Stretch', 'workout', '🧘', 'Rest day evening — light stretching, no heavy sets.', PRIORITY.essential, 10, 15);
+  if (dayPlan.evening.isRest && (!small || dayPlan.morning.isRest)) want('eve', 'recovery', 'Active Recovery — Stretch', 'workout', '🧘', 'Rest day evening — light stretching, no heavy sets.', PRIORITY.essential, 10, 15);
   want('eve', 'bae', 'Bae Time 💕', 'personal', '💕', 'Protected time. Phone down. Be fully present.', PRIORITY.social, 30, isWeekend ? 120 : 90);
   if (isWeekend) want('eve', 'week_plan', 'Plan Next Week', 'routine', '📋', 'What do you want to achieve? Any big purchases? Check Tech Hub deadlines.', PRIORITY.chores, 10, 20);
   want('eve', 'gaming', 'Gaming 🎮', 'gaming', '🎮', 'Earned screen time — enjoy it guilt-free.', PRIORITY.leisure, 0, 60);
@@ -633,7 +636,14 @@ export default function PlannerPage() {
   const { floating } = useFloatingCash();
   // Wait for wallets to load — before that the balance reads as 0.
   const lowCash = (wallets || []).length > 0 && floating < LOW_CASH;
-  const planCtx = { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, lowCash };
+  const [prefs, setPrefs] = useState(null);
+  const [weather, setWeather] = useState(null);
+  const [homeLoc, setHomeLoc] = useState(null);
+  const [anchorWarnings, setAnchorWarnings] = useState([]);
+  const [placeQuery, setPlaceQuery] = useState('');
+  const [placeResults, setPlaceResults] = useState([]);
+  const [showLocEdit, setShowLocEdit] = useState(false);
+  const planCtx = { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, lowCash, workoutMode: prefs?.workoutMode, workoutStreak: prefs?.workoutStreak, anchorBath: true };
   const [allDayEvents, setAllDayEvents] = useState([]);
   const isWeekend = [0,6].includes(new Date().getDay());
   const [blocks, setBlocks] = useState([]);
@@ -668,7 +678,65 @@ export default function PlannerPage() {
     onlineJobs?.map((j) => [j.id, j.status]) || [],
     research?.map((r) => [r.id, r.status, (r.entries || []).length]) || [],
     courses?.map((c) => [c.id, c.status, c.priority, c.deadline, c.estimated_hours, c.weekly_hours, c.completed_minutes]) || [],
+    prefs ? [prefs.soapCount, prefs.soapStart, prefs.bathMinTemp, prefs.walk, prefs.workoutMode, prefs.workoutStreak] : null,
+    weather ? [weather.date, weather.fetchedAt] : null,
   ]);
+
+  // Location is asked for once (then remembered); weather refreshes every 2 hours.
+  useEffect(() => {
+    (async () => {
+      setPrefs(await getDayPrefs());
+      let loc = await getHomeLocation();
+      if (!loc && !(await getSetting('home_location_refused', false))) loc = await askDeviceLocation();
+      setHomeLoc(loc);
+      if (!loc) setShowLocEdit(true);
+      if (loc) setWeather(await getTodayWeather(loc));
+    })();
+  }, []);
+
+  // Soap batches, bath, small-space workout and walk get pinned on the clock; flexible blocks move around them.
+  function pinAnchors(dayBlocks, evBlocks, overrides = {}) {
+    const withEvents = applyEventBlocks(dayBlocks, evBlocks);
+    if (!prefs) return withEvents;
+    const dayIdx = weekdayPlanIndex(new Date());
+    const small = prefs.workoutMode === 'small';
+    const wPlan = planForDay(dayIdx, prefs.workoutMode, prefs.workoutStreak);
+    const anchors = planAnchors({
+      blocks: withEvents,
+      weather,
+      prefs,
+      wake: withEvents.length ? t2m(withEvents[0].time) : 8 * 60,
+      workoutMinutes: small && !wPlan.morning.isRest && !completedIds.includes('anchor_workout') ? microMinutes(dayIdx, prefs.workoutStreak) : 0,
+      workoutNote: `${wPlan.focus}: ${exerciseSummary(wPlan.morning.exercises)}.`,
+    });
+    setAnchorWarnings(anchors.warnings || []);
+    const edited = anchors.map((a) => (overrides[a.id] ? { ...a, ...overrides[a.id], pinned: true } : a));
+    return applyEventBlocks(dayBlocks, [...evBlocks, ...edited]);
+  }
+
+  async function changeSoap(n) {
+    await setSoapBatches(n);
+    setPrefs((p) => ({ ...p, soapCount: Math.max(0, Math.min(6, n)) }));
+  }
+  async function changePref(key, settingKey, value) {
+    await setSetting(settingKey, value);
+    setPrefs((p) => ({ ...p, [key]: value }));
+  }
+  async function useGps() {
+    const loc = await askDeviceLocation();
+    if (!loc) { setShowLocEdit(true); return; }
+    setHomeLoc(loc); setShowLocEdit(false);
+    setWeather(await getTodayWeather(loc, { force: true }));
+  }
+  async function findPlace() {
+    if (!placeQuery.trim()) return;
+    try { setPlaceResults(await searchPlace(placeQuery.trim())); } catch { setPlaceResults([]); }
+  }
+  async function pickPlace(p) {
+    const loc = await saveHomeLocation(p);
+    setHomeLoc(loc); setShowLocEdit(false); setPlaceResults([]); setPlaceQuery('');
+    setWeather(await getTodayWeather(loc, { force: true }));
+  }
 
   // The single exit point for every plan change (first load, I'm Awake, edit,
   // reset, notifications switched on). It saves the plan together with the day
@@ -701,6 +769,7 @@ export default function PlannerPage() {
   // changes, then layer any per-day manual edits on top.
   useEffect(() => {
     async function load() {
+      if (!prefs) return; // wait for soap / workout / walk settings
       const rev = planRevision;
       // "Anchored" = built from the moment I'm Awake was pressed (stored under
       // the same key the AI version used, so an existing plan keeps loading).
@@ -722,10 +791,11 @@ export default function PlannerPage() {
       // those entries sit in settings forever but never render, since the
       // .map() above only ever visits ids that already exist in `generated`.
       const generatedIds = new Set(generated.map((b) => b.id));
-      const extraBlocks = Object.values(overrides).filter((o) => o?.id && !generatedIds.has(o.id));
+      const isAnchor = (id) => /^(anchor_|soap_)/.test(String(id));
+      const extraBlocks = Object.values(overrides).filter((o) => o?.id && !generatedIds.has(o.id) && !isAnchor(o.id));
       const { blocks: eventBlocks, allDay } = await loadTodayEvents(hackathons, startups);
       setAllDayEvents(allDay);
-      const merged = applyEventBlocks([...patched, ...extraBlocks].sort((a, b) => t2m(a.time) - t2m(b.time)), eventBlocks);
+      const merged = pinAnchors([...patched, ...extraBlocks].sort((a, b) => t2m(a.time) - t2m(b.time)), eventBlocks, overrides);
       // I'm Awake / reset / an edit happened while this was loading — that
       // newer plan wins; don't overwrite it (or its reminders) with this one.
       if (rev !== planRevision) return;
@@ -791,7 +861,7 @@ export default function PlannerPage() {
       nextBlocks = blocks.map((b, i) => {
         if (i < idx) return b;
         if (i === idx) return { ...b, ...updated };
-        if (b.type === 'event') return b; // events are fixed on the clock
+        if (b.type === 'event' || b.pinned) return b; // events, soap, bath and walk are fixed on the clock
         return { ...b, time: m2t(t2m(b.time) + deltaMin) };
       });
     } else {
@@ -833,7 +903,7 @@ export default function PlannerPage() {
     const mealWeekPlan = await getSetting('meal_week_plan', null);
     const ev = await loadTodayEvents(hackathons, startups);
     setAllDayEvents(ev.allDay);
-    const withEvents = applyEventBlocks(withMealNotes(fresh, mealWeekPlan), ev.blocks);
+    const withEvents = pinAnchors(withMealNotes(fresh, mealWeekPlan), ev.blocks);
     setBlocks(withEvents);
     await syncPlannerBlocksSetting(withEvents);
   }
@@ -866,7 +936,7 @@ export default function PlannerPage() {
       await setSetting(`planner_dropped_${todayISO()}`, dropped);
       const ev = await loadTodayEvents(hackathons, startups);
       setAllDayEvents(ev.allDay);
-      const withEvents = applyEventBlocks(computed, ev.blocks);
+      const withEvents = pinAnchors(computed, ev.blocks);
       setUsingAI(true);
       setDroppedToday(dropped);
       setBlocks(withEvents);
@@ -879,6 +949,7 @@ export default function PlannerPage() {
   }
 
   const nowMins = now.getHours()*60+now.getMinutes();
+  function nowMinsForCard() { return Math.floor(nowMins / 60) * 60; }
   const wakeMins = blocks.length ? t2m(blocks[0].time) : 0;
   const sleepBlock = blocks.find((b) => b.type === 'sleep');
   const currentBlock = (sleepBlock && nowMins < wakeMins)
@@ -968,6 +1039,60 @@ export default function PlannerPage() {
               ⚠️ Not enough time left for everything today, so this was left out: {droppedToday.map((d) => d.label).join(', ')}.
             </div>
           )}
+
+          {/* Your real day: weather, soap batches, bath & walk */}
+          <div className="card" style={{ padding:'14px 16px', marginBottom:14 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:14, fontWeight:700 }}>
+                  {weather?.now ? `${weatherLabel(weather.now.code)} · ${Math.round(weather.now.temp)}°C` : homeLoc ? 'Loading weather…' : 'Weather'}
+                </div>
+                <div style={{ fontSize:12, color:'var(--text-3)', marginTop:2 }}>
+                  {homeLoc ? homeLoc.name : 'No location yet'}
+                  {weather?.max != null ? ` · ${Math.round(weather.min)}–${Math.round(weather.max)}°C` : ''}
+                  {weather?.hours?.length ? ` · rain ${Math.max(...weather.hours.filter((h) => h.m >= nowMinsForCard()).map((h) => h.rain), 0)}% max` : ''}
+                  {weather?.sunset ? ` · sunset ${fmt12(weather.sunset)}` : ''}
+                </div>
+              </div>
+              <button className="btn-ghost" style={{ fontSize:12, padding:'6px 10px' }} onClick={() => setShowLocEdit((v) => !v)}>📍 {homeLoc ? 'Change' : 'Set'}</button>
+            </div>
+            {showLocEdit && (
+              <div style={{ marginTop:10 }}>
+                <button className="btn-ghost" style={{ fontSize:12, marginBottom:8 }} onClick={useGps}>Use my phone&apos;s location</button>
+                <div style={{ display:'flex', gap:8 }}>
+                  <input className="input" placeholder="…or type your town / city" value={placeQuery} onChange={(e) => setPlaceQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && findPlace()} />
+                  <button className="btn-ghost" onClick={findPlace}>Search</button>
+                </div>
+                {placeResults.map((p) => (
+                  <button key={`${p.lat},${p.lon}`} onClick={() => pickPlace(p)} style={{ display:'block', width:'100%', textAlign:'left', padding:'8px 4px', background:'none', border:0, borderBottom:'1px solid var(--border)', color:'var(--text)', fontSize:13, cursor:'pointer' }}>{p.name}</button>
+                ))}
+                <div style={{ fontSize:11, color:'var(--text-3)', marginTop:6 }}>Saved once and reused. Used for weather only.</div>
+              </div>
+            )}
+
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:12, paddingTop:12, borderTop:'1px solid var(--border)' }}>
+              <span style={{ fontSize:20 }}>🧴</span>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:13, fontWeight:600 }}>Liquid soap today</div>
+                <div style={{ fontSize:11, color:'var(--text-3)' }}>{prefs?.soapCount ? `${prefs.soapCount} × 1.5 h = ${(prefs.soapCount * 1.5).toString()} h, from ${fmt12(prefs.soapStart)}` : 'No batches. Tap + when Mum needs some.'}</div>
+              </div>
+              <button className="btn-icon" onClick={() => changeSoap((prefs?.soapCount || 0) - 1)} disabled={!prefs?.soapCount} aria-label="Fewer batches">−</button>
+              <span className="font-num" style={{ fontSize:18, fontWeight:800, minWidth:18, textAlign:'center' }}>{prefs?.soapCount || 0}</span>
+              <button className="btn-icon" onClick={() => changeSoap((prefs?.soapCount || 0) + 1)} aria-label="More batches">+</button>
+            </div>
+            <div style={{ display:'flex', gap:10, marginTop:10, flexWrap:'wrap', alignItems:'center', fontSize:12, color:'var(--text-3)' }}>
+              <label style={{ display:'flex', alignItems:'center', gap:6 }}>Soap starts
+                <input type="time" className="input" style={{ width:'auto', padding:'4px 8px', fontSize:12 }} value={prefs?.soapStart || '14:00'} onChange={(e) => changePref('soapStart', 'soap_start', e.target.value)} />
+              </label>
+              <label style={{ display:'flex', alignItems:'center', gap:6 }}>Bath when it feels ≥
+                <input type="number" className="input font-num" style={{ width:56, padding:'4px 8px', fontSize:12 }} value={prefs?.bathMinTemp ?? 20} onChange={(e) => changePref('bathMinTemp', 'bath_min_temp', Number(e.target.value) || 20)} />°C
+              </label>
+              <label style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <input type="checkbox" checked={prefs?.walk !== false} onChange={(e) => changePref('walk', 'walk_daily', e.target.checked)} /> Daily walk
+              </label>
+            </div>
+            {anchorWarnings.map((w) => <div key={w} style={{ fontSize:12, color:'#FCD34D', marginTop:8 }}>⚠️ {w}</div>)}
+          </div>
 
           <div style={{ display:'flex', gap:8 }}>
             <button className={`chip ${tab==='today'?'active':''}`} onClick={() => setTab('today')}>Today</button>

@@ -5,6 +5,7 @@ import OnlineJobs from '../components/OnlineJobs';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatShort, genId, todayISO } from '../lib/utils';
 import { useFloatingCash } from '../lib/floating';
+import { getSetting, setSetting } from '../lib/db';
 
 // ─── PENDING OPPORTUNITY CARD ─────────────────────────────────────────────────
 function PendingCard({ opp, onMarkDone, onCancel }) {
@@ -176,6 +177,16 @@ export default function ActivitiesPage() {
   const [payAmount, setPayAmount] = useState('');
   const [payWalletId, setPayWalletId] = useState(wallets[0]?.id || '');
 
+  // Reuse the location the Planner already saved (asked once), and the last suggestions.
+  useEffect(() => {
+    (async () => {
+      const home = await getSetting('home_location', null);
+      if (home) { setLocation({ lat: home.lat, lng: home.lon, city: String(home.name).split(',')[0] }); setLocationStatus('got'); }
+      const last = await getSetting('activities_last', []);
+      if (last?.length) setActivities(last);
+    })();
+  }, []);
+
   const currencySymbols = { KES: 'KSh', USD: '$', EUR: '€', GBP: '£', UGX: 'USh', TZS: 'TSh' };
   const symbol = currencySymbols[currency] || currency;
 
@@ -193,6 +204,7 @@ export default function ActivitiesPage() {
           const city = d.address?.city || d.address?.town || d.address?.county || d.address?.state || 'your area';
           setLocation({ lat, lng, city });
           setLocationStatus('got');
+          if (!(await getSetting('home_location', null))) await setSetting('home_location', { lat: +lat.toFixed(3), lon: +lng.toFixed(3), name: city, at: new Date().toISOString() });
         } catch {
           setLocation({ lat, lng, city: 'your area' });
           setLocationStatus('got');
@@ -223,6 +235,7 @@ export default function ActivitiesPage() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setActivities(data.results || []);
+      if (!dateMode) await setSetting('activities_last', data.results || []); // the Planner picks walk destinations from these
     } catch (e) {
       setError(e.message);
     } finally {

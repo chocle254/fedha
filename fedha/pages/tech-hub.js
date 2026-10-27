@@ -7,6 +7,7 @@ import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
 import { genId, countdownTo, formatCountdown, formatDate, resizeImage, toNairobi, URGENT_MS, todayISO, deviceTzCode, hackDeadlineISO, hackDeadlineLabel, tzOffsetFor } from '../lib/utils';
 import TimezoneSelect from '../components/TimezoneSelect';
+import Launchpad from '../components/startup/Launchpad';
 import { fetchRepos, sortRepos, REPO_SORTS } from '../lib/github';
 import { getSetting, setSetting } from '../lib/db';
 import { scheduleEventReminder, cancelSchedule } from '../lib/notifications';
@@ -2065,6 +2066,12 @@ export default function TechHubPage() {
     updateHackathon({ ...hack, tasks: (hack.tasks || []).filter((t) => t.id !== taskId) });
   }
 
+  // "Start this" on a researched idea: creates the startup with Ideation already filled in.
+  async function startFromIdea(idea) {
+    const created = await addStartup({ name: idea.title, accelerator: '', stages: { ideation: { problem: idea.problem || '', solution: idea.solution || '', project: idea.mvp || '', validation: [idea.why_now, idea.first_10_customers ? `First customers: ${idea.first_10_customers}` : ''].filter(Boolean).join('\n') } } });
+    if (created?.id) router.push(`/startup/${created.id}`);
+  }
+
   async function createStartup() {
     if (!startupName.trim()) return;
     const created = await addStartup({ name: startupName.trim(), accelerator: startupAcc.trim(), stages: {} });
@@ -2390,6 +2397,8 @@ export default function TechHubPage() {
                   {startups.map((s) => <StartupCard key={s.id} s={s} onDelete={() => { if (window.confirm(`Delete "${s.name}" and its whole journey? This can't be undone.`)) removeStartup(s.id); }} />)}
                 </div>
               )}
+
+              <Launchpad onStartIdea={startFromIdea} />
             </div>
           )}
 
