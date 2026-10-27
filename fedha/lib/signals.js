@@ -1,6 +1,6 @@
 // Signal tracking (PAPER ONLY — nothing here places an order).
 import { supabaseAdmin } from './supabaseAdmin';
-import { parseSignal } from './signal-parser';
+import { parseSignal, rebaseToMarket } from './signal-parser';
 
 const BINANCE = 'https://api.binance.com/api/v3';
 const FILL_TOLERANCE = 0.003; // entry within 0.3% of market counts as a market entry
@@ -27,8 +27,14 @@ export async function createSignal({ userId, source, text, externalId = null }) 
   const price = await fetchPrice(parsed.symbol);
   if (!price) return { ok: false, error: `${parsed.symbol} is not a Binance Spot pair.` };
 
-  const entry = parsed.entryLow != null ? (parsed.entryLow + parsed.entryHigh) / 2 : price;
-  const bad = levelsError(parsed.side, entry, parsed.takeProfits, parsed.stopLoss);
+  let { entryLow, entryHigh, takeProfits, stopLoss } = parsed;
+  let entry = parsed.entryLow != null ? (parsed.entryLow + parsed.entryHigh) / 2 : price;
+  if (parsed.proxyOf) {
+    const rb = rebaseToMarket(parsed, price);
+    if (rb.error) return { ok: false, error: rb.error };
+    ({ entry, entryLow, entryHigh, takeProfits, stopLoss } = rb);
+  }
+  const bad = levelsError(parsed.side, entry, takeProfits, stopLoss);
   if (bad) return { ok: false, error: bad };
 
   const needsFill = Math.abs(entry - price) / price > FILL_TOLERANCE;
@@ -40,10 +46,10 @@ export async function createSignal({ userId, source, text, externalId = null }) 
     symbol: parsed.symbol,
     side: parsed.side,
     entry,
-    entry_low: parsed.entryLow,
-    entry_high: parsed.entryHigh,
-    take_profits: parsed.takeProfits,
-    stop_loss: parsed.stopLoss,
+    entry_low: entryLow,
+    entry_high: entryHigh,
+    take_profits: takeProfits,
+    stop_loss: stopLoss,
     market_price: price,
     status: needsFill ? 'pending' : 'open',
     filled_at: needsFill ? null : new Date().toISOString()

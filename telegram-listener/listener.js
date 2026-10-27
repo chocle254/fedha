@@ -41,10 +41,9 @@ async function send(payload) {
   return null;
 }
 
-const client = new TelegramClient(new StringSession(TG_SESSION), Number(TG_API_ID), TG_API_HASH, { connectionRetries: Infinity, autoReconnect: true });
-client.session.setDC(client.session.dcId, client.session.serverAddress, Number(process.env.TG_PORT || 443));
+const client = new TelegramClient(new StringSession(TG_SESSION), Number(TG_API_ID), TG_API_HASH, { connectionRetries: Infinity, autoReconnect: true, useWSS: true });
 await client.connect();
-await client.getDialogs({ limit: 300 }); // loads your chats so channel updates are delivered
+client.getDialogs({ limit: 300 }).then(() => console.log('Chats loaded')).catch((e) => console.warn('Could not load chats yet: ' + e.message)); // runs in the background so a slow connection cannot block startup
 console.log('Connected. Watching', watch.length ? watch.join(', ') : 'all groups and channels');
 
 client.addEventHandler(async (event) => {
