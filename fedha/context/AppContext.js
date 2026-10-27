@@ -192,6 +192,34 @@ export function AppProvider({ children }) {
   }, [pendingSavings, saveCutFromDeposit]);
   const skipSavingsCut = useCallback(() => setSavingsQueue((q) => q.slice(1)), []);
 
+  // Binance wallet = the live Binance portfolio total (read-only API), refreshed every 5 minutes while the
+  // app is open. The latest breakdown is kept in settings for the wallet card.
+  useEffect(() => {
+    if (loading) return undefined;
+    let stopped = false;
+    const sync = async () => {
+      if (document.visibilityState !== 'visible') return;
+      const w = walletsRef.current.find((x) => x.type === 'crypto' && /binance/i.test(x.name || ''));
+      if (!w) return;
+      try {
+        const r = await fetch('/api/binance/balances', { cache: 'no-store' });
+        const j = await r.json();
+        if (stopped || !r.ok || !j.configured || !(Number(j.totalUsdt) >= 0)) return;
+        const total = Math.round(Number(j.totalUsdt) * 100) / 100;
+        const top = (j.assets || []).filter((a) => a.usdtValue > 0).slice(0, 3).map((a) => ({ asset: a.asset, pct: total ? (a.usdtValue / total) * 100 : 0 }));
+        await setSetting('binance_snapshot', { at: new Date().toISOString(), total, top });
+        if (Math.abs(total - Number(w.balance || 0)) >= 0.01 || w.currency !== 'USD') {
+          const saved = await saveWallet({ ...w, balance: total, currency: 'USD' });
+          setWallets((prev) => prev.map((x) => (x.id === saved.id ? saved : x)));
+        }
+      } catch { /* offline: keep the last balance */ }
+    };
+    sync();
+    const id = setInterval(sync, 5 * 60e3);
+    document.addEventListener('visibilitychange', sync);
+    return () => { stopped = true; clearInterval(id); document.removeEventListener('visibilitychange', sync); };
+  }, [loading]);
+
   // Ziidi unlocks: once the 72 hours are up, move the money from Ziidi Locked to Ziidi.
   const walletsRef = useRef(wallets);
   walletsRef.current = wallets;

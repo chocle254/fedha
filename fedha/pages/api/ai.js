@@ -26,13 +26,13 @@ import { STAGES } from '../../lib/startup';
 export const config = { maxDuration: 60 };
 
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b'; // free & strong; or 'llama-3.1-8b-instant' for speed
-const SEARCH_GROUNDED_TYPES = new Set(['activities', 'opportunities', 'startup_programs', 'startup_ideas', 'local_hackathons']);
+const SEARCH_GROUNDED_TYPES = new Set(['activities', 'opportunities', 'startup_programs', 'startup_ideas', 'local_hackathons', 'fun_plan']);
 
 export default async function handler(req, res) {
   if (!(await requireUser(req, res))) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { interests, region, type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup, lesson, transcript, stage, question, history, stageId, start_date, hours_per_day, pitch, investor, transcript_turns, end_meeting } = req.body;
+  const { windows, weatherText, budget, dayName, interests, region, type, balance, currency, location, dateMode, budgets, currency_symbol, nonce, startup, lesson, transcript, stage, question, history, stageId, start_date, hours_per_day, pitch, investor, transcript_turns, end_meeting } = req.body;
   const useSearch = SEARCH_GROUNDED_TYPES.has(type);
 
   if (type === 'lesson_notes' && !transcript?.trim()) return res.status(400).json({ error: 'Lesson transcript is required' });
@@ -95,6 +95,35 @@ Return ONLY a JSON object (no markdown, no commentary): { "results": [ ...6 item
 - estimated_cost (number in ${currency}), category (one of "food","outdoor","entertainment","social","relaxation","adventure"),
 - why_now (short fun reason), is_free (boolean).
 If fewer than 6 results genuinely fit, return fewer items rather than padding with invented ones.`;
+  }
+
+  if (type === 'fun_plan') {
+    const city = location?.city || 'the user\'s town';
+    const winText = (Array.isArray(windows) ? windows : []).slice(0, 6).map((w) => `- ${w.start}–${w.end} (${w.minutes} min)${w.weather ? `: ${w.weather}` : ''}`).join('\n') || '- this evening';
+    prompt = (foundText) => `You plan genuinely fun things to do TODAY (${dayName || 'today'}) for one person in ${city}${location?.lat ? ` (GPS ${location.lat}, ${location.lng})` : ''}.
+
+About them: early-20s tech enthusiast and solo developer, an introvert who still wants to get out of the house, meet people gently and stop doom-scrolling. Likes walks, tech, gaming, good food on a budget. Helps family make liquid soap most afternoons.
+
+Their FREE time today (only schedule inside these windows):
+${winText}
+
+Weather today: ${weatherText || 'unknown'}
+Money: they can spend about ${currency_symbol}${Math.max(0, Number(budget) || 0)} on fun today${Number(budget) < 200 ? ' (that is tight, so favour FREE options)' : ''}.${varietyStr}
+
+Below are real, current web search results about places and events in/near ${city}. Use real venues/events from these results where you can (never invent a venue name). You may also suggest free, place-independent ideas (e.g. a sunset walk to a named viewpoint from the results, a home project) when results are thin, but say so honestly.
+
+--- SEARCH RESULTS ---
+${foundText}
+
+Pick 6 varied activities: mix outdoor/indoor, solo/low-key social, free/cheap. Rain chance ≥ 50% in a window means indoor there. Fit each one inside a free window, with travel time included. Nothing may cost more than the budget.
+
+Return ONLY JSON: { "results": [ ...6 items ] }. Each item has exactly:
+- title (fun, specific), emoji, place (real name or "Home"/"Your neighbourhood"), area (part of town or nearby town),
+- category (one of "outdoor","food","social","learning","creative","chill","tech","active"),
+- indoor (boolean), vibe ("solo" | "low-key social" | "social"),
+- start ("HH:MM", inside a free window), duration (minutes, including travel), cost (number in ${currency}, 0 if free),
+- why (1 lively sentence on why it fits today: weather, money, energy), tip (1 practical tip, e.g. what to bring or how to start a conversation there),
+- url (from the results, or "" if none).`;
   }
 
   if (type === 'local_hackathons') {
@@ -273,7 +302,16 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
       // activities/opportunities: run real web searches first, then have
       // NVIDIA NIM write up JSON from only what those searches found.
       const year = new Date().getFullYear();
-      const searchQueries = type === 'local_hackathons'
+      const funCity = location?.city || 'Nairobi';
+      const searchQueries = type === 'fun_plan'
+        ? [
+            `things to do in ${funCity} Kenya`,
+            `${funCity} events this week ${dayName || ''}`.trim(),
+            `${funCity} cafe restaurant hangout spots`,
+            `${funCity} nature walk hike viewpoint park`,
+            `${funCity} gaming lounge OR cinema OR pool OR bowling OR library`,
+          ]
+        : type === 'local_hackathons'
         ? [
             `hackathon ${location?.city || 'Nairobi'} Kenya ${year} register`,
             `Kenya hackathon ${year} call for applications prize`,
@@ -320,7 +358,7 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
 
       let rawText;
       try {
-        rawText = await nvidiaChat({ prompt: prompt(foundText), temperature: 0.5, maxTokens: ['opportunities', 'startup_ideas', 'startup_programs', 'local_hackathons'].includes(type) ? 4000 : 2500 });
+        rawText = await nvidiaChat({ prompt: prompt(foundText), temperature: 0.5, maxTokens: ['opportunities', 'startup_ideas', 'startup_programs', 'local_hackathons', 'fun_plan'].includes(type) ? 4000 : 2500 });
       } catch (e) {
         console.error('[fedha] NVIDIA NIM failed for', type, ':', e.status, e.message);
         // NVIDIA's own staff confirm the free tier can genuinely run out of

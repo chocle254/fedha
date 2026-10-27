@@ -123,7 +123,7 @@ export function planAnchors({ blocks, weather, prefs, wake, workoutMinutes = 0, 
   const out = [];
   const warnings = [];
   const startOf = (b) => t2m(b.time);
-  const hard = blocks.filter((b) => ['meal', 'event'].includes(b.type) || b.id === 'sleep').map((b) => [startOf(b), b.id === 'sleep' ? 24 * 60 : startOf(b) + b.duration]);
+  const hard = blocks.filter((b) => ['meal', 'event'].includes(b.type) || b.id === 'sleep' || b.fun).map((b) => [startOf(b), b.id === 'sleep' ? 24 * 60 : startOf(b) + b.duration]);
   const soft = blocks.filter((b) => b.type === 'routine').map((b) => [startOf(b), startOf(b) + b.duration]);
   const busy = [...hard];
   const dayStart = Math.max(wake, 6 * 60);

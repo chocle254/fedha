@@ -2,7 +2,7 @@ import { useState } from 'react';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
-import { toggleIncomeReceived as toggleIncomeReceivedShared, payLoan, loanBalance } from '../lib/finance-actions';
+import { toggleIncomeReceived as toggleIncomeReceivedShared, payLoan, loanBalance, addToLoan } from '../lib/finance-actions';
 import { formatCurrency, formatShort, convertAmount, toBaseAmount, formatDate, getDaysUntil, isOverdue, EXPENSE_CATEGORIES, getCategoryById, genId, todayISO } from '../lib/utils';
 
 function BudgetForm({ initial, onSave, onClose }) {
@@ -113,6 +113,58 @@ function LoanPaymentForm({ loan, wallets, currency, onPay, onClose }) {
             onClick={async () => { setBusy(true); await onPay(full ? owed : toBaseAmount(typed, currency), walletId); setBusy(false); }}>
             {full ? '✓ Mark Settled' : 'Record Payment'}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Same person, more money: add on top of the loan instead of opening a new one.
+function LoanTopUpForm({ loan, wallets, currency, onSave, onClose }) {
+  const [amount, setAmount] = useState('');
+  const [walletId, setWalletId] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const borrowed = loan.type === 'borrowed';
+  const owed = loanBalance(loan);
+  const typed = Number(amount) || 0;
+  const label = { fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 };
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-sheet">
+        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+        <div className="modal-header">
+          <span style={{ fontSize: 16, fontWeight: 700 }}>{borrowed ? `Borrowed more from ${loan.contact_name}` : `${loan.contact_name} borrowed more`}</span>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{ fontSize: 14, color: 'var(--text-2)' }}>
+            Owed now: <b className="font-num" style={{ color: 'var(--text)' }}>{formatCurrency(owed, currency)}</b>
+            {typed > 0 && <> → <b className="font-num" style={{ color: borrowed ? 'var(--red)' : 'var(--green)' }}>{formatCurrency(owed + toBaseAmount(typed, currency), currency)}</b></>}
+          </div>
+          <div>
+            <label style={label}>How much more</label>
+            <input className="input font-num" type="number" inputMode="decimal" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
+          </div>
+          <div>
+            <label style={label}>{borrowed ? 'Money came into' : 'Money went out of'} (optional)</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <button className={`chip ${!walletId ? 'active' : ''}`} onClick={() => setWalletId('')}>Don&apos;t record in a wallet</button>
+              {wallets.filter((w) => !w.pocket).map((w) => (
+                <button key={w.id} className={`chip ${walletId === w.id ? 'active' : ''}`} onClick={() => setWalletId(w.id)}>{w.icon} {w.name}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label style={label}>Note (optional)</label>
+            <input className="input" placeholder="e.g. fare, rent help" value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
+          {err && <div style={{ color: 'var(--red)', fontSize: 13 }}>{err}</div>}
+          <button className="btn-primary" disabled={!(typed > 0) || busy} onClick={async () => {
+            setBusy(true); setErr('');
+            try { await onSave(toBaseAmount(typed, currency), walletId, note.trim()); } catch (e) { setErr(e.message); setBusy(false); }
+          }}>Add {typed > 0 ? formatCurrency(toBaseAmount(typed, currency), currency) : ''} to the loan</button>
         </div>
       </div>
     </div>
@@ -274,6 +326,7 @@ export default function BudgetsPage() {
   }
 
   const [paying, setPaying] = useState(null); // loan the payment sheet is open for
+  const [toppingUp, setToppingUp] = useState(null); // loan the "borrowed more" sheet is open for
 
   async function recordLoanPayment(loan, amount, walletId) {
     try {
@@ -472,6 +525,7 @@ export default function BudgetsPage() {
                         </>
                       )}
                       <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => setToppingUp(l)} style={{ flex: 1, padding: '8px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', fontWeight: 600 }}>➕ {l.type === 'borrowed' ? 'Borrowed more' : 'Lent more'}</button>
                         <button onClick={() => setPaying(l)} style={{ flex: 1, padding: '8px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, color: 'var(--green)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', fontWeight: 600 }}>💸 Pay / Settle</button>
                         <button onClick={() => setEditLoan(l)} style={{ padding: '8px 14px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit' }}>✏️</button>
                         <button onClick={() => window.confirm(`Delete the loan with ${l.contact_name}? This can't be undone.`) && removeLoan(l.id)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑</button>
@@ -496,6 +550,8 @@ export default function BudgetsPage() {
       {(showBudgetForm || editBudget) && <BudgetForm initial={editBudget} onSave={async (d) => { editBudget ? await updateBudget(d) : await addBudget(d); setShowBudgetForm(false); setEditBudget(null); }} onClose={() => { setShowBudgetForm(false); setEditBudget(null); }} />}
       {(showLoanForm || editLoan) && <LoanForm initial={editLoan} onSave={async (d) => { editLoan ? await updateLoan(d) : await addLoan(d); setShowLoanForm(false); setEditLoan(null); }} onClose={() => { setShowLoanForm(false); setEditLoan(null); }} />}
       {(showPlanForm || editPlan) && <IncomePlanForm initial={editPlan} onSave={async (d) => { editPlan ? await updateIncomePlan(d) : await addIncomePlan(d); setShowPlanForm(false); setEditPlan(null); }} onClose={() => { setShowPlanForm(false); setEditPlan(null); }} />}
+      {toppingUp && <LoanTopUpForm loan={toppingUp} wallets={wallets} currency={currency} onClose={() => setToppingUp(null)}
+        onSave={async (amount, walletId, note) => { await addToLoan(toppingUp, { amount, walletId, wallets, currency, addTransaction, updateLoan, note }); setToppingUp(null); }} />}
       {paying && <LoanPaymentForm loan={paying} wallets={wallets} currency={currency} onPay={(amount, walletId) => recordLoanPayment(paying, amount, walletId)} onClose={() => setPaying(null)} />}
       {showTxn && <TransactionModal onClose={() => setShowTxn(false)} />}
     </Layout>

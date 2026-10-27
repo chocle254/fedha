@@ -373,6 +373,21 @@ export default function WorkoutPage() {
             </div>
           )}
 
+          {/* Beginner explainer */}
+          <details className="card" style={{ padding: '12px 14px', marginBottom: 12 }} open={streak < 3}>
+            <summary style={{ fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>New to this? What reps and sets mean</summary>
+            <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.65, marginTop: 10 }}>
+              <div><b style={{ color: 'var(--text)' }}>Rep</b> (repetition) = doing the move once. One pushup down and back up is 1 rep.</div>
+              <div style={{ marginTop: 6 }}><b style={{ color: 'var(--text)' }}>Set</b> = a group of reps done in a row without stopping. &quot;1 set × 10 reps&quot; means do 10 pushups, then stop.</div>
+              <div style={{ marginTop: 6 }}><b style={{ color: 'var(--text)' }}>Rest</b> = the break between sets. Rest 45–90 seconds (until your breathing calms), then do the next set. &quot;3 sets × 10&quot; = 10 reps, rest, 10 reps, rest, 10 reps.</div>
+              <div style={{ marginTop: 6 }}><b style={{ color: 'var(--text)' }}>Seconds</b> moves (plank, wall sit): hold the position for that many seconds. That counts as 1 set.</div>
+              <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--card-2)', borderRadius: 8 }}>
+                <b style={{ color: 'var(--text)' }}>How a session goes:</b> 2 minutes of warm-up (march on the spot, swing your arms) → do every move&apos;s set in order → rest in between → tap <b>✓ Done</b> after each set. Can&apos;t finish all the reps? Do as many as you can with good form; that still counts. Slow and controlled beats fast and sloppy.
+              </div>
+              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-3)' }}>Sharp pain (not just burning muscles) means stop. A bit of soreness the next day is normal.</div>
+            </div>
+          </details>
+
           {/* Day selector */}
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, marginBottom: 12 }}>
             {weekPlans.map((p, i) => (

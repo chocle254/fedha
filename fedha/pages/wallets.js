@@ -4,6 +4,7 @@ import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatDate, getCategoryById, genId, todayISO } from '../lib/utils';
+import { getSetting } from '../lib/db';
 
 const WALLET_COLORS = ['#10B981','#3B82F6','#F59E0B','#EF4444','#8B5CF6','#EC4899','#06B6D4','#14B8A6'];
 const WALLET_ICONS = ['💳','📱','🏦','💵','📲','🏧','💰','🪙'];
@@ -295,6 +296,10 @@ export default function WalletsPage() {
     setEditing(null);
   }
   useEffect(() => { getUnlocks().then(setUnlocks); }, [wallets]);
+  const [binance, setBinance] = useState(null); // live snapshot kept by AppContext
+  useEffect(() => { getSetting('binance_snapshot', null).then(setBinance); }, [wallets]);
+  const isBinance = (w) => w.type === 'crypto' && /binance/i.test(w.name || '');
+  const agoText = (iso) => { const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`; };
 
   const pocketWallet = (w, which) => (which === 'mpesa' ? w : pocketsOf(wallets, w.id)[which === 'locked' ? 'locked' : 'ziidi']);
   function availableFor(w, kind) {
@@ -373,7 +378,12 @@ export default function WalletsPage() {
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{w.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-3)', textTransform: 'capitalize' }}>{w.type}{pockets.ziidi ? ` · with Ziidi · total ${formatCurrency(Number(w.balance) + Number(pockets.ziidi.balance || 0) + Number(pockets.locked?.balance || 0), w.currency || currency)}` : ''}</div>
+                    {isBinance(w) && binance ? (
+                      <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2, lineHeight: 1.5 }}>
+                        <span style={{ color: 'var(--green)' }}>● Live</span> · {agoText(binance.at)}
+                        {binance.top?.length > 0 && <div className="font-num" style={{ fontSize: 11 }}>{binance.top.map((a) => `${a.asset} ${a.pct.toFixed(0)}%`).join(' · ')}</div>}
+                      </div>
+                    ) : <div style={{ fontSize: 12, color: 'var(--text-3)', textTransform: 'capitalize' }}>{w.type}{pockets.ziidi ? ` · with Ziidi · total ${formatCurrency(Number(w.balance) + Number(pockets.ziidi.balance || 0) + Number(pockets.locked?.balance || 0), w.currency || currency)}` : ''}</div>}
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="font-num" style={{ fontSize: 20, fontWeight: 700, color: Number(w.balance) >= 0 ? w.color : 'var(--red)' }}>

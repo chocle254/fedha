@@ -160,16 +160,8 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Savings motivation */}
-        <SavingsMotivator />
-
-        {/* Savings challenges */}
-        <SavingsChallenges />
-
-        {/* Balance over time — one line for days, months and the year */}
+        {/* Balance over time — right under this month's income and expenses */}
         <div className="section">
-          <div className="section-title">Investments</div>
-          <BinancePortfolioCard />
           <div className="section-title">Balance Over Time</div>
           <BalanceHistoryChart transactions={transactions} currentBalance={totalBalance} currency={currency} />
         </div>
@@ -188,6 +180,18 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
+
+        {/* Investments */}
+        <div className="section">
+          <div className="section-title">Investments</div>
+          <BinancePortfolioCard />
+        </div>
+
+        {/* Savings motivation */}
+        <SavingsMotivator />
+
+        {/* Savings challenges */}
+        <SavingsChallenges />
 
         {/* Alerts */}
         {(overBudget.length > 0 || activeLoans.length > 0) && (

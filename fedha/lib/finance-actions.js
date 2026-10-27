@@ -72,6 +72,37 @@ export function loanIdFromPaymentTx(txId) {
   return i > 0 ? txId.slice(0, i) : null;
 }
 
+// The same person borrows again (or you borrow again from them): add on top of the existing loan.
+// Optionally records the money moving through a wallet (borrowed = money in, lent = money out).
+export async function addToLoan(loan, { amount, walletId, wallets, currency, addTransaction, updateLoan, note }) {
+  const extra = Math.round((Number(amount) || 0) * 100) / 100;
+  if (!(extra > 0)) throw new Error('Enter how much more.');
+  if (walletId) {
+    const wallet = wallets.find((w) => w.id === walletId);
+    if (!wallet) throw new Error('Pick the account the money went through.');
+    await addTransaction({
+      id: `${loan.id}_loanadd_${Date.now().toString(36)}`,
+      type: loan.type === 'borrowed' ? 'income' : 'expense',
+      amount: extra,
+      wallet_id: wallet.id,
+      category: 'other',
+      description: `${loan.type === 'borrowed' ? 'Borrowed more from' : 'Lent more to'} ${loan.contact_name}`,
+      date: todayISO(),
+      currency,
+      skipSavingsCut: true, // borrowed money isn't income to save from
+    });
+  }
+  const stamp = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const line = `+${extra.toLocaleString()} on ${stamp}${note ? ` (${note})` : ''}`;
+  return updateLoan({
+    ...loan,
+    amount: (Number(loan.amount) || 0) + extra,
+    remaining: loanBalance(loan) + extra,
+    status: 'active',
+    notes: [loan.notes, line].filter(Boolean).join(' · '),
+  });
+}
+
 // Records a payment on a loan, whole or part. Borrowed = you paying back
 // (expense), lent = them paying you (income). `walletId` is the account the
 // money left or landed in. Once nothing is left, the loan is settled.

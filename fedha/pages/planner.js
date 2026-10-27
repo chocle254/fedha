@@ -10,6 +10,7 @@ import { planAnchors, getDayPrefs, getHomeLocation, askDeviceLocation, getTodayW
 import { showNotif, VIBRATE } from '../lib/notifications';
 import { pruneEndedEvents, todaysEventBlocks, eventWindow } from '../lib/events';
 import { format } from 'date-fns';
+import FunPicks from '../components/FunPicks';
 
 // ─── DAY ANCHORS ───────────────────────────────────────────────────────────
 // Bedtime is a protected window, not a "whatever's left after everything
@@ -632,7 +633,7 @@ function EditModal({ block, onSave, onClose }) {
 }
 
 export default function PlannerPage() {
-  const { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, wallets } = useApp();
+  const { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, wallets, currency } = useApp();
   const { floating } = useFloatingCash();
   // Wait for wallets to load — before that the balance reads as 0.
   const lowCash = (wallets || []).length > 0 && floating < LOW_CASH;
@@ -643,6 +644,23 @@ export default function PlannerPage() {
   const [placeQuery, setPlaceQuery] = useState('');
   const [placeResults, setPlaceResults] = useState([]);
   const [showLocEdit, setShowLocEdit] = useState(false);
+  const [funBlocks, setFunBlocks] = useState([]); // fun picks added to today (pinned like events)
+  useEffect(() => { getSetting(`planner_fun_${todayISO()}`, []).then((v) => setFunBlocks(Array.isArray(v) ? v : [])); }, []);
+  async function addFun(p) {
+    const block = {
+      id: `fun_${Date.now()}`, fun: true, pinned: true, type: 'personal', emoji: p.emoji || '🎉',
+      time: p.start, duration: Math.max(20, Number(p.duration) || 60), label: p.title,
+      note: [p.place && `📍 ${p.place}${p.area ? `, ${p.area}` : ''}`, Number(p.cost) ? `~${currency} ${Number(p.cost).toLocaleString()}` : 'Free', p.tip].filter(Boolean).join(' · '),
+    };
+    const next = [...funBlocks, block];
+    setFunBlocks(next);
+    await setSetting(`planner_fun_${todayISO()}`, next);
+  }
+  async function removeFun(id) {
+    const next = funBlocks.filter((b) => b.id !== id);
+    setFunBlocks(next);
+    await setSetting(`planner_fun_${todayISO()}`, next);
+  }
   const planCtx = { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, lowCash, workoutMode: prefs?.workoutMode, workoutStreak: prefs?.workoutStreak, anchorBath: true };
   const [allDayEvents, setAllDayEvents] = useState([]);
   const isWeekend = [0,6].includes(new Date().getDay());
@@ -680,6 +698,7 @@ export default function PlannerPage() {
     courses?.map((c) => [c.id, c.status, c.priority, c.deadline, c.estimated_hours, c.weekly_hours, c.completed_minutes]) || [],
     prefs ? [prefs.soapCount, prefs.soapStart, prefs.bathMinTemp, prefs.walk, prefs.workoutMode, prefs.workoutStreak] : null,
     weather ? [weather.date, weather.fetchedAt] : null,
+    funBlocks.map((b) => [b.id, b.time, b.duration]),
   ]);
 
   // Location is asked for once (then remembered); weather refreshes every 2 hours.
@@ -696,6 +715,7 @@ export default function PlannerPage() {
 
   // Soap batches, bath, small-space workout and walk get pinned on the clock; flexible blocks move around them.
   function pinAnchors(dayBlocks, evBlocks, overrides = {}) {
+    evBlocks = [...evBlocks, ...funBlocks]; // fun picks are fixed on the clock, like events
     const withEvents = applyEventBlocks(dayBlocks, evBlocks);
     if (!prefs) return withEvents;
     const dayIdx = weekdayPlanIndex(new Date());
@@ -791,7 +811,7 @@ export default function PlannerPage() {
       // those entries sit in settings forever but never render, since the
       // .map() above only ever visits ids that already exist in `generated`.
       const generatedIds = new Set(generated.map((b) => b.id));
-      const isAnchor = (id) => /^(anchor_|soap_)/.test(String(id));
+      const isAnchor = (id) => /^(anchor_|soap_|fun_)/.test(String(id));
       const extraBlocks = Object.values(overrides).filter((o) => o?.id && !generatedIds.has(o.id) && !isAnchor(o.id));
       const { blocks: eventBlocks, allDay } = await loadTodayEvents(hackathons, startups);
       setAllDayEvents(allDay);
@@ -1042,20 +1062,28 @@ export default function PlannerPage() {
 
           {/* Your real day: weather, soap batches, bath & walk */}
           <div className="card" style={{ padding:'14px 16px', marginBottom:14 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+              <div style={{ fontSize:34, lineHeight:1 }}>{weather?.now ? weatherLabel(weather.now.code).split(' ')[0] : '🌡'}</div>
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:14, fontWeight:700 }}>
-                  {weather?.now ? `${weatherLabel(weather.now.code)} · ${Math.round(weather.now.temp)}°C` : homeLoc ? 'Loading weather…' : 'Weather'}
+                <div style={{ display:'flex', alignItems:'baseline', gap:8, flexWrap:'wrap' }}>
+                  <span className="font-num" style={{ fontSize:24, fontWeight:800 }}>{weather?.now ? `${Math.round(weather.now.temp)}°C` : '—'}</span>
+                  <span style={{ fontSize:13, color:'var(--text-2)' }}>{weather?.now ? weatherLabel(weather.now.code).split(' ').slice(1).join(' ') : homeLoc ? 'Loading weather…' : 'Set your location'}</span>
                 </div>
-                <div style={{ fontSize:12, color:'var(--text-3)', marginTop:2 }}>
-                  {homeLoc ? homeLoc.name : 'No location yet'}
-                  {weather?.max != null ? ` · ${Math.round(weather.min)}–${Math.round(weather.max)}°C` : ''}
-                  {weather?.hours?.length ? ` · rain ${Math.max(...weather.hours.filter((h) => h.m >= nowMinsForCard()).map((h) => h.rain), 0)}% max` : ''}
-                  {weather?.sunset ? ` · sunset ${fmt12(weather.sunset)}` : ''}
-                </div>
+                <div style={{ fontSize:12, color:'var(--text-3)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>📍 {homeLoc ? String(homeLoc.name).split(',')[0] : 'No location yet'}</div>
               </div>
-              <button className="btn-ghost" style={{ fontSize:12, padding:'6px 10px' }} onClick={() => setShowLocEdit((v) => !v)}>📍 {homeLoc ? 'Change' : 'Set'}</button>
+              <button onClick={() => setShowLocEdit((v) => !v)} style={{ width:'auto', flexShrink:0, padding:'6px 12px', background:'var(--card-2)', border:'1px solid var(--border)', borderRadius:100, color:'var(--text-2)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Outfit' }}>{homeLoc ? 'Change' : 'Set'}</button>
             </div>
+            {weather?.max != null && (
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginTop:10 }}>
+                {[
+                  `🌡 ${Math.round(weather.min)}–${Math.round(weather.max)}°C`,
+                  weather.hours?.length ? `☔ ${Math.max(0, ...weather.hours.filter((h) => h.m >= nowMinsForCard()).map((h) => h.rain))}% rain` : null,
+                  weather.sunset ? `🌇 ${fmt12(weather.sunset)}` : null,
+                ].filter(Boolean).map((t) => (
+                  <span key={t} className="font-num" style={{ fontSize:11.5, padding:'4px 10px', borderRadius:100, background:'var(--card-2)', color:'var(--text-2)', whiteSpace:'nowrap' }}>{t}</span>
+                ))}
+              </div>
+            )}
             {showLocEdit && (
               <div style={{ marginTop:10 }}>
                 <button className="btn-ghost" style={{ fontSize:12, marginBottom:8 }} onClick={useGps}>Use my phone&apos;s location</button>
@@ -1080,7 +1108,7 @@ export default function PlannerPage() {
               <span className="font-num" style={{ fontSize:18, fontWeight:800, minWidth:18, textAlign:'center' }}>{prefs?.soapCount || 0}</span>
               <button className="btn-icon" onClick={() => changeSoap((prefs?.soapCount || 0) + 1)} aria-label="More batches">+</button>
             </div>
-            <div style={{ display:'flex', gap:10, marginTop:10, flexWrap:'wrap', alignItems:'center', fontSize:12, color:'var(--text-3)' }}>
+            <div style={{ display:'flex', gap:'8px 14px', marginTop:10, flexWrap:'wrap', alignItems:'center', fontSize:12, color:'var(--text-3)' }}>
               <label style={{ display:'flex', alignItems:'center', gap:6 }}>Soap starts
                 <input type="time" className="input" style={{ width:'auto', padding:'4px 8px', fontSize:12 }} value={prefs?.soapStart || '14:00'} onChange={(e) => changePref('soapStart', 'soap_start', e.target.value)} />
               </label>
@@ -1093,6 +1121,8 @@ export default function PlannerPage() {
             </div>
             {anchorWarnings.map((w) => <div key={w} style={{ fontSize:12, color:'#FCD34D', marginTop:8 }}>⚠️ {w}</div>)}
           </div>
+
+          <FunPicks blocks={blocks} weather={weather} homeLoc={homeLoc} floating={floating} currency={currency} nowMin={nowMins} added={funBlocks} onAdd={addFun} onRemove={removeFun} />
 
           <div style={{ display:'flex', gap:8 }}>
             <button className={`chip ${tab==='today'?'active':''}`} onClick={() => setTab('today')}>Today</button>
