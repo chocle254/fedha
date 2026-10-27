@@ -1,378 +1,275 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/router';
+import Head from 'next/head';
 import Layout from '../components/Layout';
+import TradeChart from '../components/trading/TradeChart';
+import OrderBook from '../components/trading/OrderBook';
+import OrderForm from '../components/trading/OrderForm';
+import PairPicker from '../components/trading/PairPicker';
+import WalletPanel from '../components/trading/WalletPanel';
+import { ensurePushSubscription } from '../lib/push';
+import { C, base, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST } from '../components/trading/util';
 
-const SIGNAL_STATUS = {
-  pending: { label: 'Waiting for entry', color: '#F59E0B' },
-  open: { label: 'Live', color: '#60A5FA' },
-  won: { label: 'Hit TP', color: '#22C55E' },
-  lost: { label: 'Hit SL', color: '#EF4444' },
-  expired: { label: 'Expired', color: '#9CA3AF' }
+// PAPER TRADING TERMINAL. Real Binance prices, simulated orders. Nothing here places a real order.
+const LIVE = ['pending', 'open'];
+const OUTCOME = {
+  traded: { label: 'Auto-traded', color: C.up },
+  tracked: { label: 'Signal added', color: C.blue },
+  unparsed: { label: 'Skipped', color: C.gold },
+  follow_up: { label: 'Result post', color: '#848E9C' },
+  stale: { label: 'Too late', color: '#848E9C' },
+  duplicate: { label: 'Duplicate', color: '#848E9C' }
 };
-const TRADE_STATUS = {
-  pending: { label: 'Waiting for entry', color: '#F59E0B' },
-  open: { label: 'Open', color: '#60A5FA' },
-  won: { label: 'Won', color: '#22C55E' },
-  lost: { label: 'Lost', color: '#EF4444' },
-  expired: { label: 'Expired', color: '#9CA3AF' }
-};
-const INTERVALS = ['1m', '5m', '15m', '1h', '4h'];
+const SIGNAL_STATUS = { pending: ['Waiting for entry', C.gold], open: ['Live', C.blue], won: ['Hit TP', C.up], lost: ['Hit SL', C.down], expired: ['Expired', '#848E9C'] };
+const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } } };
 
-function price(v) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return '—';
-  return n >= 100 ? n.toLocaleString('en-US', { maximumFractionDigits: 2 }) : n.toPrecision(5).replace(/\.?0+$/, '');
-}
-function usd(v) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return '—';
-  return `${n < 0 ? '−' : n > 0 ? '+' : ''}$${Math.abs(n).toFixed(2)}`;
-}
-const base = (symbol) => symbol.replace(/USDT$|USDC$|FDUSD$/, '');
-const pill = (on) => ({ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 700, border: '1px solid var(--border)', background: on ? 'var(--green)' : 'transparent', color: on ? '#04130A' : 'var(--text-2)', cursor: 'pointer' });
-
-// Open-trade profit marked at a live price, before exit fees. Accounts for take-profits already hit.
-function livePnl(t, p) {
-  if (!t || !Number.isFinite(p)) return null;
-  const dir = t.side === 'BUY' ? 1 : -1;
-  const entry = Number(t.entry);
-  const qty = Number(t.qty);
-  const tps = (t.take_profits || []).map(Number);
-  const n = tps.length;
-  const share = n ? qty / n : 0;
-  const hit = Math.min(t.tp_hit || 0, n);
-  let realized = 0;
-  for (let i = 0; i < hit; i++) realized += dir * (tps[i] - entry) * share;
-  return realized + dir * (p - entry) * (n ? qty - share * hit : qty);
-}
-
-// Live candlestick chart: history from our API, then Binance's public WebSocket updates the last candle in real time.
-function CandleChart({ symbol, levels, trade, onClose }) {
-  const [interval, setIntervalValue] = useState('15m');
-  const [last, setLast] = useState(null);
-  const [status, setStatus] = useState('loading');
-  const [ready, setReady] = useState(false);
-  const boxRef = useRef(null);
-  const seriesRef = useRef(null);
-  const linesRef = useRef([]);
-
-  useEffect(() => {
-    let disposed = false;
-    let chart = null;
-    let ws = null;
-    let retry = null;
-    let poll = null;
-    let fails = 0;
-    let observer = null;
-    const tz = -new Date().getTimezoneOffset() * 60; // show candles in your local time
-    const bar = (c) => ({ time: Math.floor(c.t / 1000) + tz, open: c.o, high: c.h, low: c.l, close: c.c });
-
-    const fetchCandles = async () => {
-      const r = await fetch(`/api/trading/chart?symbol=${symbol}&interval=${interval}`, { cache: 'no-store' });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'Could not load the chart.');
-      return j.candles || [];
-    };
-
-    const startPolling = () => {
-      if (poll || disposed) return;
-      setStatus('polling');
-      poll = setInterval(async () => {
-        try {
-          const candles = await fetchCandles();
-          if (disposed || !seriesRef.current || !candles.length) return;
-          seriesRef.current.setData(candles.map(bar));
-          setLast(candles[candles.length - 1].c);
-        } catch { /* try again on the next tick */ }
-      }, 5000);
-    };
-
-    const connect = () => {
-      if (disposed) return;
-      try {
-        ws = new WebSocket(`wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${interval}`);
-      } catch { startPolling(); return; }
-      ws.onopen = () => { fails = 0; setStatus('live'); };
-      ws.onmessage = (e) => {
-        try {
-          const k = JSON.parse(e.data).k;
-          if (!k || !seriesRef.current) return;
-          seriesRef.current.update(bar({ t: k.t, o: Number(k.o), h: Number(k.h), l: Number(k.l), c: Number(k.c) }));
-          setLast(Number(k.c));
-        } catch { /* ignore a bad frame */ }
-      };
-      ws.onclose = () => {
-        if (disposed) return;
-        fails += 1;
-        if (fails >= 3) startPolling();
-        retry = setTimeout(connect, 3000);
-      };
-      ws.onerror = () => { try { ws.close(); } catch { /* already closed */ } };
-    };
-
-    (async () => {
-      try {
-        const [{ createChart, CrosshairMode }, candles] = await Promise.all([import('lightweight-charts'), fetchCandles()]);
-        if (disposed || !boxRef.current) return;
-        chart = createChart(boxRef.current, {
-          autoSize: true,
-          height: 340,
-          layout: { background: { color: 'transparent' }, textColor: '#9CA3AF', fontSize: 11 },
-          grid: { vertLines: { color: 'rgba(55,65,81,.3)' }, horzLines: { color: 'rgba(55,65,81,.3)' } },
-          rightPriceScale: { borderColor: '#374151' },
-          timeScale: { borderColor: '#374151', timeVisible: true, secondsVisible: false, rightOffset: 4 },
-          crosshair: { mode: CrosshairMode.Normal }
-        });
-        const series = chart.addCandlestickSeries({ upColor: '#22C55E', downColor: '#EF4444', borderVisible: false, wickUpColor: '#22C55E', wickDownColor: '#EF4444' });
-        series.setData(candles.map(bar));
-        chart.timeScale().fitContent();
-        seriesRef.current = series;
-        if (candles.length) setLast(candles[candles.length - 1].c);
-        setReady(true);
-        connect();
-      } catch (e) {
-        if (!disposed) setStatus(e.message || 'error');
-      }
-    })();
-
-    return () => {
-      disposed = true;
-      clearTimeout(retry);
-      clearInterval(poll);
-      if (ws) { ws.onclose = null; try { ws.close(); } catch { /* already closed */ } }
-      if (observer) observer.disconnect();
-      linesRef.current = [];
-      seriesRef.current = null;
-      setReady(false);
-      if (chart) chart.remove();
-    };
-  }, [symbol, interval]);
-
-  // Entry / stop / target lines, redrawn when the levels change.
-  const levelsKey = levels ? JSON.stringify(levels) : '';
-  useEffect(() => {
-    const series = seriesRef.current;
-    if (!ready || !series) return;
-    linesRef.current.forEach((l) => { try { series.removePriceLine(l); } catch { /* chart was rebuilt */ } });
-    linesRef.current = [];
-    if (!levels) return;
-    const add = (price, color, title) => {
-      if (!Number.isFinite(price)) return;
-      linesRef.current.push(series.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title }));
-    };
-    add(Number(levels.entry), '#60A5FA', 'Entry');
-    if (levels.sl != null) add(Number(levels.sl), '#EF4444', 'SL');
-    (levels.tps || []).forEach((tp, i) => add(Number(tp), '#22C55E', `TP${i + 1}`));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, levelsKey]);
-
-  const pnl = trade && trade.status === 'open' ? livePnl(trade, last) : null;
-  return (
-    <div className="card" style={{ padding: 14, marginTop: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-        <b>{base(symbol)}/USDT</b>
-        <span className="font-num" style={{ fontSize: 14, fontWeight: 700 }}>{last != null ? price(last) : ''}</span>
-        <span style={{ fontSize: 10, fontWeight: 800, color: status === 'live' ? '#22C55E' : status === 'polling' ? '#F59E0B' : 'var(--text-3)' }}>{status === 'live' ? '● LIVE' : status === 'polling' ? '● refreshing' : status === 'loading' ? 'loading…' : ''}</span>
-        {pnl != null && <span className="font-num" style={{ fontSize: 12, fontWeight: 800, color: pnl >= 0 ? '#22C55E' : '#EF4444' }}>Trade {usd(pnl)}</span>}
-        <span style={{ flex: 1 }} />
-        {INTERVALS.map((i) => <button key={i} onClick={() => { setStatus('loading'); setIntervalValue(i); }} style={pill(i === interval)}>{i}</button>)}
-        <button onClick={onClose} className="btn-ghost" style={{ padding: '2px 8px' }} aria-label="Close chart">✕</button>
-      </div>
-      {status !== 'live' && status !== 'polling' && status !== 'loading' && <div style={{ color: '#EF4444', fontSize: 12, marginBottom: 6 }}>{status}</div>}
-      <div ref={boxRef} style={{ width: '100%', height: 340 }} />
-      {!levels && <div style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 6 }}>No active signal or trade on this pair, so no entry, stop or target lines are drawn.</div>}
-    </div>
-  );
+function Side({ side }) {
+  const buy = side === 'BUY';
+  return <span className="tx-badge" style={{ color: buy ? C.up : C.down, background: buy ? C.upDim : C.downDim }}>{buy ? 'Long' : 'Short'}</span>;
 }
 
 export default function TradingPage() {
+  const [symbol, setSymbol] = useState('BTCUSDT');
+  const [interval, setIntervalValue] = useState('15m');
+  const [picker, setPicker] = useState(false);
+  const [picked, setPicked] = useState(null);
+  const [tab, setTab] = useState('positions');
   const [signals, setSignals] = useState([]);
   const [trades, setTrades] = useState([]);
-  const [quotes, setQuotes] = useState([]);
-  const [settings, setSettings] = useState({ auto_enabled: false, mode: 'paper', risk_usdt: 10, min_rr: 0, paper_balance: 1000, risk_mode: 'percent', risk_pct: 1 });
-  const [equity, setEquity] = useState(1000);
+  const [settings, setSettings] = useState(null);
+  const [account, setAccount] = useState(null);
   const [riskNow, setRiskNow] = useState(10);
-  const [balanceInput, setBalanceInput] = useState('1000');
-  const [riskMode, setRiskMode] = useState('percent');
-  const [pctInput, setPctInput] = useState('1');
-  const [fixedInput, setFixedInput] = useState('10');
-  const [rrInput, setRrInput] = useState('0');
-  const [entryRisk, setEntryRisk] = useState({});
-  const inited = useRef(false);
+  const [inbox, setInbox] = useState({ inbox: [], listener: null, needsMigration: false });
+  const [tickers, setTickers] = useState({});
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState('');
+  const [toast, setToast] = useState(null);
   const [busyId, setBusyId] = useState('');
-  const [chartSymbol, setChartSymbol] = useState('');
-  const [showClosed, setShowClosed] = useState(false);
-  const [showClosedTrades, setShowClosedTrades] = useState(false);
+  const [entryRisk, setEntryRisk] = useState({});
+  const [showClosedSignals, setShowClosedSignals] = useState(false);
+  const [form, setForm] = useState(null);
+  const [alerts, setAlerts] = useState('unknown');
+  const router = useRouter();
+  const prevTrades = useRef(null);
+  const lastLoad = useRef(0);
+
+  const flash = (text, err = false) => { setToast({ text, err }); setTimeout(() => setToast(null), 4000); };
+
+  useEffect(() => {
+    if (router.query.tab) setTab(String(router.query.tab));
+  }, [router.query.tab]);
+  useEffect(() => {
+    try { setAlerts(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission); } catch { setAlerts('unsupported'); }
+  }, []);
+  async function enableAlerts() {
+    try {
+      const p = await Notification.requestPermission();
+      setAlerts(p);
+      if (p !== 'granted') { flash('Notifications are blocked. Allow them in your browser settings.', true); return; }
+      const sub = await ensurePushSubscription();
+      flash(sub ? 'Alerts on: you will be notified when trades open, hit TPs or close.' : 'Allowed, but push could not be set up on this device.', !sub);
+    } catch { flash('This browser cannot show notifications.', true); }
+  }
+  useEffect(() => {
+    const s = store.get('tx-symbol');
+    const i = store.get('tx-interval');
+    if (s) setSymbol(s);
+    if (i) setIntervalValue(i);
+  }, []);
+  const pickSymbol = useCallback((s) => { setSymbol(s); store.set('tx-symbol', s); }, []);
+  const pickInterval = useCallback((i) => { setIntervalValue(i); store.set('tx-interval', i); }, []);
+  const closePicker = useCallback(() => setPicker(false), []);
+  const pickPrice = useCallback((price) => setPicked({ price, n: Date.now() }), []);
 
   const load = useCallback(async () => {
+    lastLoad.current = Date.now();
     try {
-      const [s, t, c] = await Promise.all([fetch('/api/signals', { cache: 'no-store' }), fetch('/api/trading/trades', { cache: 'no-store' }), fetch('/api/trading/settings', { cache: 'no-store' })]);
-      const sj = await s.json();
-      const tj = await t.json();
-      const cj = await c.json();
+      const [s, t, c, ib] = await Promise.all(['/api/signals', '/api/trading/trades', '/api/trading/settings', '/api/signals/inbox'].map((u) => fetch(u, { cache: 'no-store' })));
+      const [sj, tj, cj, ibj] = await Promise.all([s.json(), t.json(), c.json(), ib.json().catch(() => ({}))]);
+      if (s.ok) setSignals(sj.signals || []);
+      if (t.ok) {
+        const list = tj.trades || [];
+        const before = prevTrades.current;
+        if (before) {
+          for (const x of list) {
+            const o = before[x.id];
+            if (!o) continue;
+            const name = `${base(x.symbol)} ${x.side === 'BUY' ? 'long' : 'short'}`;
+            if (o.status === 'pending' && x.status === 'open') flash(`📥 ${name} filled at ${fmtPrice(x.entry)}`);
+            else if (['won', 'lost'].includes(x.status) && LIVE.includes(o.status)) flash(`${x.status === 'won' ? '✅' : '🛑'} ${name} closed ${fmtUsd(x.pnl_usdt)}`, x.status === 'lost');
+            else if ((x.tp_hit || 0) > (o.tp_hit || 0)) flash(`🎯 ${name} TP${x.tp_hit} hit`);
+          }
+        }
+        prevTrades.current = Object.fromEntries(list.map((x) => [x.id, x]));
+        setTrades(list);
+      }
       if (c.ok) {
         setSettings(cj.settings);
-        setEquity(cj.equity);
+        setAccount(cj.account || { equity: cj.equity, available: cj.equity, locked: 0, realized: 0 });
         setRiskNow(cj.riskNow);
-        if (!inited.current) {
-          inited.current = true;
-          setBalanceInput(String(cj.settings.paper_balance));
-          setRiskMode(cj.settings.risk_mode);
-          setPctInput(String(cj.settings.risk_pct));
-          setFixedInput(String(cj.settings.risk_usdt));
-          setRrInput(String(cj.settings.min_rr));
-        }
+        setForm((f) => f || { balance: String(cj.settings.paper_balance), riskMode: cj.settings.risk_mode, pct: String(cj.settings.risk_pct), fixed: String(cj.settings.risk_usdt), rr: String(cj.settings.min_rr) });
       }
-      if (s.ok) setSignals(sj.signals || []); else setMessage(sj.error || 'Could not load signals.');
-      if (t.ok) setTrades(tj.trades || []); else if (tj.error) setMessage(tj.error);
+      if (ib.ok) setInbox({ inbox: ibj.inbox || [], listener: ibj.listener, needsMigration: ibj.needsMigration });
+      if (!s.ok || !t.ok) flash(sj.error || tj.error || 'Could not load your trades.', true);
     } catch {
-      setMessage('Could not load data.');
+      flash('Could not load data.', true);
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const hasLive = trades.some((t) => LIVE.includes(t.status));
   useEffect(() => {
     load();
-    const id = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60000);
+    const id = setInterval(() => { if (document.visibilityState === 'visible') load(); }, hasLive ? 10000 : 30000);
     return () => clearInterval(id);
-  }, [load]);
+  }, [load, hasLive]);
 
-  const activeSignals = useMemo(() => signals.filter((s) => s.status === 'pending' || s.status === 'open'), [signals]);
-  const closedSignals = useMemo(() => signals.filter((s) => !(s.status === 'pending' || s.status === 'open')), [signals]);
-  const activeTrades = useMemo(() => trades.filter((t) => t.status === 'pending' || t.status === 'open'), [trades]);
-  const closedTrades = useMemo(() => trades.filter((t) => !(t.status === 'pending' || t.status === 'open')), [trades]);
+  const positions = useMemo(() => trades.filter((t) => t.status === 'open'), [trades]);
+  const orders = useMemo(() => trades.filter((t) => t.status === 'pending'), [trades]);
+  const history = useMemo(() => trades.filter((t) => !LIVE.includes(t.status)), [trades]);
+  const activeSignals = useMemo(() => signals.filter((s) => LIVE.includes(s.status)), [signals]);
+  const closedSignals = useMemo(() => signals.filter((s) => !LIVE.includes(s.status)), [signals]);
   const tradedSignalIds = useMemo(() => new Set(trades.map((t) => t.signal_id).filter(Boolean)), [trades]);
 
-  const symbolList = useMemo(() => [...new Set([...activeTrades.map((t) => t.symbol), ...activeSignals.map((s) => s.symbol)])], [activeTrades, activeSignals]);
-  const symbolKey = symbolList.join(',');
+  // One live ticker stream for the open pair plus every pair you hold or have a signal on.
+  const watch = useMemo(() => [...new Set([symbol, ...positions.map((t) => t.symbol), ...orders.map((t) => t.symbol), ...activeSignals.map((s) => s.symbol)])].sort(), [symbol, positions, orders, activeSignals]);
+  const watchKey = watch.join(',');
   useEffect(() => {
-    if (!symbolKey) { setQuotes([]); return undefined; }
-    let live = true;
-    const loadQuotes = async () => {
+    let buf = {};
+    const stop = openStream(watchKey.split(',').map((s) => `${s.toLowerCase()}@miniTicker`), (_s, d) => { buf[d.s] = { c: +d.c, o: +d.o, h: +d.h, l: +d.l, q: +d.q }; });
+    let lastMsg = Date.now();
+    const syms = watchKey.split(',');
+    const tick = setInterval(() => { if (Object.keys(buf).length) { lastMsg = Date.now(); const b = buf; buf = {}; setTickers((p) => ({ ...p, ...b })); } }, 500);
+    // Socket quiet for 5 s (blocked network, phone woke up): poll prices instead until it comes back.
+    const poll = setInterval(async () => {
+      if (Date.now() - lastMsg < 5000 || document.visibilityState !== 'visible') return;
       try {
-        const r = await fetch(`/api/trading/quotes?symbols=${symbolKey}`, { cache: 'no-store' });
-        const j = await r.json();
-        if (live && r.ok) setQuotes(j.quotes || []);
-      } catch { /* keep the previous quotes */ }
-    };
-    loadQuotes();
-    const id = setInterval(() => { if (document.visibilityState === 'visible') loadQuotes(); }, 15000);
-    return () => { live = false; clearInterval(id); };
-  }, [symbolKey]);
+        const r = await fetch(`${REST}/ticker/24hr?type=MINI&symbols=${encodeURIComponent(JSON.stringify(syms))}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        for (const d of await r.json()) buf[d.symbol] = { c: +d.lastPrice, o: +d.openPrice, h: +d.highPrice, l: +d.lowPrice, q: +d.quoteVolume };
+      } catch { /* next tick */ }
+    }, 2500);
+    return () => { stop(); clearInterval(tick); clearInterval(poll); };
+  }, [watchKey]);
 
+  const tk = tickers[symbol];
+  const last = tk?.c;
+  const change = tk && tk.o ? ((tk.c - tk.o) / tk.o) * 100 : null;
+  useEffect(() => { document.title = last ? `${fmtPrice(last)} | ${base(symbol)}/USDT · Fedha` : 'Trading · Fedha'; }, [last, symbol]);
+
+  const unrealized = positions.reduce((a, t) => a + openPnl(t, tickers[t.symbol]?.c), 0);
+  const equityLive = account ? account.equity + unrealized : null;
+
+  // Price just crossed a TP, a stop or a limit price: ask the server to settle it now instead of waiting for the next poll.
   useEffect(() => {
-    if (!symbolKey) return undefined;
-    let ws = null;
-    let retry = null;
-    let closed = false;
-    const url = `wss://stream.binance.com:9443/stream?streams=${symbolKey.split(',').map((x) => `${x.toLowerCase()}@miniTicker`).join('/')}`;
-    const connect = () => {
-      if (closed) return;
-      try { ws = new WebSocket(url); } catch { return; }
-      ws.onmessage = (e) => {
-        try {
-          const d = JSON.parse(e.data).data;
-          if (!d) return;
-          const p = Number(d.c);
-          const o = Number(d.o);
-          setQuotes((prev) => {
-            const i = prev.findIndex((q) => q.symbol === d.s);
-            const next = { ...(i >= 0 ? prev[i] : { symbol: d.s }), price: p, change: o > 0 ? ((p - o) / o) * 100 : 0 };
-            if (i < 0) return [...prev, next];
-            const copy = [...prev];
-            copy[i] = next;
-            return copy;
-          });
-        } catch { /* ignore a bad frame */ }
-      };
-      ws.onclose = () => { if (!closed) retry = setTimeout(connect, 3000); };
-      ws.onerror = () => { try { ws.close(); } catch { /* already closed */ } };
-    };
-    connect();
-    return () => { closed = true; clearTimeout(retry); if (ws) { ws.onclose = null; try { ws.close(); } catch { /* already closed */ } } };
-  }, [symbolKey]);
+    if (Date.now() - lastLoad.current < 8000) return;
+    const crossed = trades.some((t) => {
+      const p = tickers[t.symbol]?.c;
+      if (!p) return false;
+      const buy = t.side === 'BUY';
+      if (t.status === 'pending') return buy ? p <= Number(t.entry) : p >= Number(t.entry);
+      if (t.status !== 'open') return false;
+      const next = (t.take_profits || [])[t.tp_hit || 0];
+      if (next != null && (buy ? p >= Number(next) : p <= Number(next))) return true;
+      return t.stop_loss != null && (buy ? p <= Number(t.stop_loss) : p >= Number(t.stop_loss));
+    });
+    if (crossed) load();
+  }, [tickers, trades, load]);
+  const stats = useMemo(() => {
+    const won = history.filter((t) => t.status === 'won').length;
+    const lost = history.filter((t) => t.status === 'lost').length;
+    const realized = history.reduce((a, t) => a + (Number(t.pnl_usdt) || 0), 0);
+    const worstR = trades.reduce((a, t) => Math.max(a, Number(t.max_drawdown_r) || 0), 0);
+    return { won, lost, realized, worstR, rate: won + lost ? Math.round((won / (won + lost)) * 100) : null };
+  }, [history, trades]);
 
-  const levelsFor = (symbol) => {
-    const t = activeTrades.find((x) => x.symbol === symbol);
-    if (t) return { entry: Number(t.entry), sl: t.stop_loss, tps: t.take_profits };
-    const s = activeSignals.find((x) => x.symbol === symbol);
-    return s ? { entry: Number(s.entry), sl: s.stop_loss, tps: s.take_profits } : null;
-  };
+  // Lines and markers on the chart for this pair.
+  const { lines, markers } = useMemo(() => {
+    const L = [];
+    const M = [];
+    for (const t of trades.filter((x) => x.symbol === symbol)) {
+      const buy = t.side === 'BUY';
+      if (t.status === 'open') {
+        L.push({ price: t.entry, color: C.blue, title: `${buy ? 'Long' : 'Short'} ${fmtQty(t.qty)}`, dashed: false, width: 2 });
+        if (t.stop_loss != null) L.push({ price: t.stop_loss, color: C.down, title: 'SL' });
+        (t.take_profits || []).forEach((p, i) => { if (i >= (t.tp_hit || 0)) L.push({ price: p, color: C.up, title: `TP${i + 1}` }); });
+      }
+      if (t.status === 'pending') L.push({ price: t.entry, color: C.gold, title: `Limit ${buy ? 'buy' : 'sell'} ${fmtQty(t.qty)}` });
+      const filled = t.filled_at || (t.status !== 'pending' && t.created_at);
+      if (filled) M.push({ t: new Date(filled).getTime(), position: buy ? 'belowBar' : 'aboveBar', color: buy ? C.up : C.down, shape: buy ? 'arrowUp' : 'arrowDown', text: buy ? 'B' : 'S' });
+      if (['won', 'lost'].includes(t.status) && t.closed_at) M.push({ t: new Date(t.closed_at).getTime(), position: buy ? 'aboveBar' : 'belowBar', color: t.status === 'won' ? C.up : C.down, shape: 'circle', text: t.status === 'won' ? 'TP' : 'SL' });
+    }
+    for (const s of activeSignals.filter((x) => x.symbol === symbol && !tradedSignalIds.has(x.id))) {
+      L.push({ price: s.entry, color: '#B98CFF', title: `Signal ${s.side === 'BUY' ? 'buy' : 'sell'}` });
+      if (s.stop_loss != null) L.push({ price: s.stop_loss, color: 'rgba(246,70,93,.6)', title: 'Sig SL' });
+      (s.take_profits || []).slice(0, 3).forEach((p, i) => L.push({ price: p, color: 'rgba(14,203,129,.6)', title: `Sig TP${i + 1}` }));
+      M.push({ t: new Date(s.created_at).getTime(), position: s.side === 'BUY' ? 'belowBar' : 'aboveBar', color: '#B98CFF', shape: 'circle', text: 'Signal' });
+    }
+    return { lines: L, markers: M };
+  }, [trades, activeSignals, tradedSignalIds, symbol]);
 
-  async function saveSettings(patch = {}) {
-    const body = {
-      auto_enabled: settings.auto_enabled,
-      mode: 'paper',
-      paper_balance: Number(balanceInput),
-      risk_mode: riskMode,
-      risk_pct: Number(pctInput),
-      risk_usdt: Number(fixedInput),
-      min_rr: Number(rrInput),
-      ...patch
-    };
-    setMessage('');
+  async function closeTrade(t) {
+    const pending = t.status === 'pending';
+    if (!pending && !window.confirm(`Close ${base(t.symbol)} ${t.side === 'BUY' ? 'long' : 'short'} at market?`)) return;
+    setBusyId(t.id);
     try {
-      const r = await fetch('/api/trading/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const r = await fetch('/api/trading/trades', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: t.id }) });
       const j = await r.json();
-      if (!r.ok) { setMessage(j.error || 'Could not save settings.'); return; }
-      setSettings(j.settings);
-      setEquity(j.equity);
-      setRiskNow(j.riskNow);
-      setMessage('Saved.');
-    } catch { setMessage('Could not save settings.'); }
+      if (!r.ok) flash(j.error || 'Could not close.', true);
+      else flash(pending ? 'Order cancelled.' : `Closed: ${fmtUsd(j.trade.pnl_usdt)}`, !pending && Number(j.trade.pnl_usdt) < 0);
+      await load();
+    } finally { setBusyId(''); }
   }
-
-  async function useBinanceBalance() {
-    setMessage('');
-    try {
-      const r = await fetch('/api/binance/balances', { cache: 'no-store' });
-      const j = await r.json();
-      if (!r.ok || !j.configured || !(Number(j.totalUsdt) > 0)) { setMessage(j.error || 'Could not read your Binance balance.'); return; }
-      setBalanceInput(String(Math.floor(Number(j.totalUsdt) * 100) / 100));
-      setMessage('Balance filled from Binance. Tap Save to use it.');
-    } catch { setMessage('Could not read your Binance balance.'); }
-  }
-
-  async function enter(signal) {
-    setBusyId(signal.id);
-    setMessage('');
-    try {
-      const r = await fetch('/api/trading/trades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signalId: signal.id, riskUsdt: Number(entryRisk[signal.id]) > 0 ? Number(entryRisk[signal.id]) : undefined }) });
-      const j = await r.json();
-      if (!r.ok) setMessage(j.error || 'Could not enter the trade.');
-      else await load();
-    } catch { setMessage('Could not enter the trade.'); }
-    finally { setBusyId(''); }
-  }
-
-  async function removeTrade(id) {
-    if (!window.confirm('Delete this paper trade?')) return;
+  async function deleteTrade(id) {
+    if (!window.confirm('Remove this trade from history?')) return;
     await fetch(`/api/trading/trades?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
     load();
   }
-  async function removeSignal(id) {
+  async function enterSignal(s) {
+    setBusyId(s.id);
+    try {
+      const r = await fetch('/api/trading/trades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signalId: s.id, riskUsdt: Number(entryRisk[s.id]) > 0 ? Number(entryRisk[s.id]) : undefined }) });
+      const j = await r.json();
+      if (!r.ok) flash(j.error || 'Could not enter the trade.', true);
+      else { flash(`Entered ${base(s.symbol)} ${s.side === 'BUY' ? 'long' : 'short'}.`); pickSymbol(s.symbol); }
+      await load();
+    } finally { setBusyId(''); }
+  }
+  async function deleteSignal(id) {
     if (!window.confirm('Delete this signal?')) return;
     await fetch(`/api/signals?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
     load();
   }
+  async function saveSettings(patch = {}) {
+    if (!settings || !form) return;
+    const body = { auto_enabled: settings.auto_enabled, mode: 'paper', paper_balance: Number(form.balance), risk_mode: form.riskMode, risk_pct: Number(form.pct), risk_usdt: Number(form.fixed), min_rr: Number(form.rr), ...patch };
+    const r = await fetch('/api/trading/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!r.ok) { flash(j.error || 'Could not save settings.', true); return; }
+    setSettings(j.settings);
+    setAccount(j.account);
+    setRiskNow(j.riskNow);
+    flash('Settings saved.');
+  }
+  async function useBinanceBalance() {
+    try {
+      const r = await fetch('/api/binance/balances', { cache: 'no-store' });
+      const j = await r.json();
+      if (!r.ok || !j.configured || !(Number(j.totalUsdt) > 0)) { flash(j.error || 'Could not read your Binance balance.', true); return; }
+      setForm((f) => ({ ...f, balance: String(Math.floor(Number(j.totalUsdt) * 100) / 100) }));
+      flash('Balance filled from Binance. Tap Save to use it.');
+    } catch { flash('Could not read your Binance balance.', true); }
+  }
 
-  const stats = useMemo(() => {
-    const won = closedTrades.filter((t) => t.status === 'won').length;
-    const lost = closedTrades.filter((t) => t.status === 'lost').length;
-    const realized = closedTrades.reduce((a, t) => a + (Number(t.pnl_usdt) || 0), 0);
-    const open = activeTrades.reduce((a, t) => a + (Number(t.pnl_usdt) || 0), 0);
-    const worstR = trades.reduce((a, t) => Math.max(a, Number(t.max_drawdown_r) || 0), 0);
-    return { won, lost, realized, open, worstR, rate: won + lost ? Math.round((won / (won + lost)) * 100) : null };
-  }, [closedTrades, activeTrades, trades]);
+  const listenerAge = inbox.listener?.seenAt ? Date.now() - new Date(inbox.listener.seenAt).getTime() : null;
+  const listenerOn = listenerAge != null && listenerAge < 8 * 60e3;
+  const skippedCount = inbox.inbox.filter((m) => m.outcome === 'unparsed').length;
 
   const bySymbol = useMemo(() => {
     const map = {};
     for (const s of activeSignals) (map[s.symbol] = map[s.symbol] || []).push(s);
-    return Object.entries(map).map(([symbol, list]) => ({ symbol, list, conflict: new Set(list.map((s) => s.side)).size > 1, count: list.length })).filter((g) => g.count > 1 || g.conflict);
+    return Object.entries(map).map(([sym, list]) => ({ sym, list, conflict: new Set(list.map((s) => s.side)).size > 1 })).filter((g) => g.list.length > 1);
   }, [activeSignals]);
-
   const board = useMemo(() => {
     const map = {};
     for (const s of signals) {
@@ -384,211 +281,511 @@ export default function TradingPage() {
     return Object.values(map).map((b) => ({ ...b, total: b.won + b.lost, rate: Math.round((b.won / (b.won + b.lost)) * 100), avg: b.sum / (b.won + b.lost) })).sort((a, b) => b.avg - a.avg);
   }, [signals]);
 
-  const tradeRow = (t) => {
-    const st = TRADE_STATUS[t.status] || TRADE_STATUS.open;
-    const pnl = Number(t.pnl_usdt);
-    const dd = Number(t.max_drawdown_usdt);
-    const closed = t.status === 'won' || t.status === 'lost' || t.status === 'expired';
-    const lq = t.status === 'open' ? quotes.find((q) => q.symbol === t.symbol) : null;
-    const live = lq ? livePnl(t, lq.price) : null;
+  const signalRow = (s, canEnter) => {
+    const [label, color] = SIGNAL_STATUS[s.status] || SIGNAL_STATUS.open;
+    const tps = s.take_profits || [];
+    const entered = tradedSignalIds.has(s.id);
+    const rr = s.stop_loss != null && tps.length ? Math.abs(tps[0] - s.entry) / Math.abs(s.entry - s.stop_loss) : null;
     return (
-      <div key={t.id} style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontWeight: 800 }}>{base(t.symbol)}</span>
-          <span style={{ fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: t.side === 'BUY' ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.15)', color: t.side === 'BUY' ? '#22C55E' : '#EF4444' }}>{t.side === 'BUY' ? 'LONG' : 'SHORT*'}</span>
-          <span style={{ fontSize: 11, color: st.color, fontWeight: 700 }}>{st.label}{t.status === 'open' && t.tp_hit > 0 ? ` · TP${t.tp_hit} ✓` : ''}{t.auto ? ' · auto' : ''}</span>
+      <div key={s.id} className="tx-row">
+        <div className="tx-row-top">
+          <button className="tx-sym" onClick={() => pickSymbol(s.symbol)}>{base(s.symbol)}<i>/USDT</i></button>
+          <Side side={s.side} />
+          <span className="tx-st" style={{ color }}>{label}{s.status === 'open' && s.tp_hit > 0 ? ` · TP${s.tp_hit} ✓` : ''}</span>
           <span style={{ flex: 1 }} />
-          {live != null
-            ? <span className="font-num" title="Live, before exit fees" style={{ fontWeight: 800, fontSize: 13, color: live >= 0 ? '#22C55E' : '#EF4444' }}>{usd(live)}</span>
-            : Number.isFinite(pnl) && t.pnl_usdt != null && <span className="font-num" style={{ fontWeight: 800, fontSize: 13, color: pnl >= 0 ? '#22C55E' : '#EF4444' }}>{usd(pnl)}</span>}
-          <button onClick={() => setChartSymbol(t.symbol)} className="btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} aria-label="Open chart">📈</button>
-          <button onClick={() => removeTrade(t.id)} className="btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} aria-label="Delete trade">✕</button>
+          {s.result_pct != null && <b className="font-num" style={{ color: Number(s.result_pct) >= 0 ? C.up : C.down }}>{Number(s.result_pct) >= 0 ? '+' : ''}{s.result_pct}%</b>}
+          <button className="tx-x" onClick={() => deleteSignal(s.id)} aria-label="Delete signal">✕</button>
         </div>
-        <div className="font-num" style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 5, lineHeight: 1.6 }}>
-          {t.source} · entry {price(t.entry)} · SL {price(t.stop_loss)} · TP {(t.take_profits || []).map(price).join(' / ')}
-          <br />size {t.qty} ({t.symbol.replace(/USDT$/, '')}) · ${Number(t.notional).toFixed(2)} · risk ${Number(t.actual_risk_usdt ?? t.risk_usdt).toFixed(2)}
-          {t.spread_pct != null && <span> · spread {Number(t.spread_pct).toFixed(3)}%</span>}
-          {t.min_forced && <span style={{ color: '#F59E0B' }}> · ⚠ Binance minimum size forced (planned ${Number(t.risk_usdt).toFixed(2)})</span>}
+        <div className="tx-row-grid font-num">
+          <div><span>Source</span><b>{s.source}</b></div>
+          <div><span>Entry</span><b>{fmtPrice(s.entry)}</b></div>
+          <div><span>TP</span><b style={{ color: C.up }}>{tps.length ? tps.map((p) => fmtPrice(p)).join(' / ') : '—'}</b></div>
+          <div><span>SL</span><b style={{ color: C.down }}>{s.stop_loss != null ? fmtPrice(s.stop_loss) : '—'}</b></div>
+          <div><span>R:R</span><b>{rr ? `1:${rr.toFixed(2)}` : '—'}</b></div>
+          <div><span>Received</span><b>{ago(s.created_at)}</b></div>
         </div>
-        {t.max_drawdown_usdt != null && (
-          <div style={{ fontSize: 11, marginTop: 4, color: dd > 0 ? '#F59E0B' : 'var(--text-3)' }}>
-            {dd > 0 ? `Went ${usd(-dd)}${t.max_drawdown_r != null ? ` (${Number(t.max_drawdown_r).toFixed(2)}R)` : ''} against you${closed ? (t.status === 'won' ? ' before it won' : '') : ' so far'}` : 'Never went against you'}
-            {t.max_adverse_price != null && dd > 0 ? ` · low point ${price(t.max_adverse_price)}` : ''}
+        {canEnter && (
+          <div className="tx-row-actions">
+            {entered ? <span className="tx-muted">In a trade</span> : s.stop_loss == null ? <span className="tx-muted">No stop-loss, can&apos;t size risk</span> : (
+              <>
+                <input className="font-num" inputMode="decimal" placeholder={`risk $${riskNow.toFixed(2)}`} value={entryRisk[s.id] ?? ''} onChange={(e) => setEntryRisk((m) => ({ ...m, [s.id]: e.target.value }))} />
+                <button className={`tx-btn ${s.side === 'BUY' ? 'buy' : 'sell'}`} disabled={busyId === s.id} onClick={() => enterSignal(s)}>{busyId === s.id ? '…' : `Enter ${s.side === 'BUY' ? 'long' : 'short'}`}</button>
+              </>
+            )}
           </div>
         )}
       </div>
     );
   };
 
-  const signalRow = (s, canEnter) => {
-    const st = SIGNAL_STATUS[s.status] || SIGNAL_STATUS.open;
-    const tps = s.take_profits || [];
-    const entered = tradedSignalIds.has(s.id);
+  const positionRow = (t) => {
+    const mark = tickers[t.symbol]?.c;
+    const pnl = livePnl(t, mark) ?? Number(t.pnl_usdt);
+    const pct = Number(t.notional) ? (pnl / Number(t.notional)) * 100 : 0;
     return (
-      <div key={s.id} style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 800 }}>{base(s.symbol)}</span>
-          <span style={{ fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: s.side === 'BUY' ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.15)', color: s.side === 'BUY' ? '#22C55E' : '#EF4444' }}>{s.side}</span>
-          <span style={{ fontSize: 11, color: st.color, fontWeight: 700 }}>{st.label}{s.status === 'open' && s.tp_hit > 0 ? ` · TP${s.tp_hit} ✓` : ''}</span>
+      <div key={t.id} className="tx-row">
+        <div className="tx-row-top">
+          <button className="tx-sym" onClick={() => pickSymbol(t.symbol)}>{base(t.symbol)}<i>/USDT</i></button>
+          <Side side={t.side} />
+          <span className="tx-st">{t.source === 'Manual' ? 'Manual' : t.auto ? `Auto · ${t.source}` : t.source}{t.tp_hit > 0 ? ` · TP${t.tp_hit} ✓` : ''}</span>
           <span style={{ flex: 1 }} />
-          {s.result_pct != null && <span className="font-num" style={{ fontWeight: 800, fontSize: 13, color: Number(s.result_pct) >= 0 ? '#22C55E' : '#EF4444' }}>{Number(s.result_pct) >= 0 ? '+' : ''}{s.result_pct}%</span>}
-          {canEnter && (entered
-            ? <span style={{ fontSize: 11, color: 'var(--text-3)' }}>In a trade</span>
-            : s.stop_loss == null
-              ? <span style={{ fontSize: 11, color: 'var(--text-3)' }}>No SL</span>
-              : <>
-                  <input type="number" inputMode="decimal" min="0" step="any" placeholder={`$${riskNow.toFixed(2)}`} title="Risk for this trade in USDT (blank = your default)" value={entryRisk[s.id] ?? ''} onChange={(e) => setEntryRisk((m) => ({ ...m, [s.id]: e.target.value }))} style={{ width: 70, padding: '4px 6px', fontSize: 12 }} />
-                  <button onClick={() => enter(s)} disabled={busyId === s.id} className="btn-primary" style={{ padding: '5px 10px', borderRadius: 8, fontSize: 12 }}>{busyId === s.id ? '…' : 'Enter paper'}</button>
-                </>)}
-          <button onClick={() => setChartSymbol(s.symbol)} className="btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} aria-label="Open chart">📈</button>
-          <button onClick={() => removeSignal(s.id)} className="btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} aria-label="Delete signal">✕</button>
+          <b className="font-num" style={{ color: pnl >= 0 ? C.up : C.down }}>{fmtUsd(pnl)} <small>({pct >= 0 ? '+' : ''}{pct.toFixed(2)}%)</small></b>
         </div>
-        <div className="font-num" style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 5, lineHeight: 1.6 }}>
-          {s.source} · entry {price(s.entry)}{tps.length ? ` · TP ${tps.map(price).join(' / ')}` : ''}{s.stop_loss != null ? ` · SL ${price(s.stop_loss)}` : ''}
+        <div className="tx-row-grid font-num">
+          <div><span>Size</span><b>{fmtQty(t.qty)} {base(t.symbol)}</b></div>
+          <div><span>Value</span><b>{fmtUsd(t.notional, false)}</b></div>
+          <div><span>Entry</span><b>{fmtPrice(t.entry)}</b></div>
+          <div><span>Mark</span><b>{mark ? fmtPrice(mark) : '—'}</b></div>
+          <div><span>SL</span><b style={{ color: C.down }}>{t.stop_loss != null ? fmtPrice(t.stop_loss) : '—'}</b></div>
+          <div><span>Banked</span><b style={{ color: C.up }}>{t.tp_hit > 0 ? fmtUsd(livePnl(t, Number(t.entry))) : '—'}</b></div>
+        </div>
+        {(t.take_profits || []).length > 0 && (
+          <div className="tx-ladder font-num">
+            {t.take_profits.map((p, i) => {
+              const hit = i < (t.tp_hit || 0);
+              const next = i === (t.tp_hit || 0);
+              const dist = mark ? ((Number(p) - mark) / mark) * 100 : null;
+              return (
+                <span key={i} className={hit ? 'hit' : next ? 'next' : ''}>
+                  {hit ? '✓ ' : ''}TP{i + 1} {fmtPrice(p)}
+                  {!hit && dist != null && <small> {dist >= 0 ? '+' : ''}{dist.toFixed(2)}%</small>}
+                  <small> · {fmtQty(Number(t.qty) / t.take_profits.length)}</small>
+                </span>
+              );
+            })}
+          </div>
+        )}
+        {(t.min_forced || (t.actual_risk_usdt != null && Number(t.actual_risk_usdt) < Number(t.risk_usdt) * 0.95) || Number(t.max_drawdown_usdt) > 0) && (
+          <div className="tx-row-note">
+            {t.min_forced && <span style={{ color: C.gold }}>⚠ Raised to Binance minimum size (more risk than planned). </span>}
+            {!t.min_forced && t.actual_risk_usdt != null && Number(t.actual_risk_usdt) < Number(t.risk_usdt) * 0.95 && <span style={{ color: C.gold }}>Size capped by free balance: risking {fmtUsd(t.actual_risk_usdt, false)} instead of {fmtUsd(t.risk_usdt, false)}. </span>}
+            {Number(t.max_drawdown_usdt) > 0 && <span>Worst so far {fmtUsd(-t.max_drawdown_usdt)}{t.max_drawdown_r != null ? ` (${Number(t.max_drawdown_r).toFixed(2)}R)` : ''}.</span>}
+          </div>
+        )}
+        <div className="tx-row-actions">
+          <span className="tx-muted">opened {ago(t.filled_at || t.created_at)}</span>
+          <span style={{ flex: 1 }} />
+          <button className="tx-btn ghost" disabled={busyId === t.id} onClick={() => closeTrade(t)}>{busyId === t.id ? '…' : 'Close at market'}</button>
         </div>
       </div>
     );
   };
 
-  const quoteFor = (sym) => quotes.find((q) => q.symbol === sym);
+  const orderRow = (t) => (
+    <div key={t.id} className="tx-row">
+      <div className="tx-row-top">
+        <button className="tx-sym" onClick={() => pickSymbol(t.symbol)}>{base(t.symbol)}<i>/USDT</i></button>
+        <span className="tx-badge" style={{ color: t.side === 'BUY' ? C.up : C.down, background: t.side === 'BUY' ? C.upDim : C.downDim }}>Limit {t.side === 'BUY' ? 'Buy' : 'Sell'}</span>
+        <span className="tx-st">{t.source === 'Manual' ? 'Manual' : t.source}</span>
+        <span style={{ flex: 1 }} />
+        <button className="tx-btn ghost" disabled={busyId === t.id} onClick={() => closeTrade(t)}>{busyId === t.id ? '…' : 'Cancel'}</button>
+      </div>
+      <div className="tx-row-grid font-num">
+        <div><span>Price</span><b>{fmtPrice(t.entry)}</b></div>
+        <div><span>Amount</span><b>{fmtQty(t.qty)}</b></div>
+        <div><span>Value</span><b>{fmtUsd(t.notional, false)}</b></div>
+        <div><span>Filled</span><b>0%</b></div>
+        <div><span>TP / SL</span><b>{(t.take_profits || [])[0] ? fmtPrice(t.take_profits[0]) : '—'} / {t.stop_loss != null ? fmtPrice(t.stop_loss) : '—'}</b></div>
+        <div><span>Placed</span><b>{ago(t.created_at)}</b></div>
+      </div>
+    </div>
+  );
+
+  const historyRow = (t) => {
+    const pnl = Number(t.pnl_usdt);
+    const cancelled = t.status === 'expired' && t.pnl_usdt == null;
+    const label = cancelled ? (t.filled_at ? 'Expired' : 'Cancelled') : t.status === 'won' ? 'Won' : t.status === 'lost' ? 'Lost' : 'Expired';
+    return (
+      <div key={t.id} className="tx-row">
+        <div className="tx-row-top">
+          <button className="tx-sym" onClick={() => pickSymbol(t.symbol)}>{base(t.symbol)}<i>/USDT</i></button>
+          <Side side={t.side} />
+          <span className="tx-st" style={{ color: t.status === 'won' ? C.up : t.status === 'lost' ? C.down : '#848E9C' }}>{label}</span>
+          <span style={{ flex: 1 }} />
+          {!cancelled && Number.isFinite(pnl) && <b className="font-num" style={{ color: pnl >= 0 ? C.up : C.down }}>{fmtUsd(pnl)}</b>}
+          <button className="tx-x" onClick={() => deleteTrade(t.id)} aria-label="Delete">✕</button>
+        </div>
+        <div className="tx-row-grid font-num">
+          <div><span>Entry</span><b>{fmtPrice(t.entry)}</b></div>
+          <div><span>Exit</span><b>{cancelled ? '—' : fmtPrice(t.last_price)}</b></div>
+          <div><span>Size</span><b>{fmtQty(t.qty)}</b></div>
+          <div><span>Source</span><b>{t.source}</b></div>
+          <div><span>TP hit</span><b>{t.tp_hit || 0}/{(t.take_profits || []).length}</b></div>
+          <div><span>Closed</span><b>{t.closed_at ? new Date(t.closed_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</b></div>
+        </div>
+      </div>
+    );
+  };
+
+  const TABS = [
+    ['positions', `Positions (${positions.length})`],
+    ['orders', `Open orders (${orders.length})`],
+    ['history', 'History'],
+    ['signals', `Signals (${activeSignals.length})`],
+    ['telegram', 'Telegram'],
+    ['wallet', 'Binance wallet'],
+    ['settings', 'Settings']
+  ];
 
   return (
     <Layout fab={false}>
-      <div className="page" style={{ padding: '24px 20px 100px', maxWidth: 900, margin: '0 auto' }}>
-        <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 6 }}>BUSINESS · BINANCE</div>
-        <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0 }}>Trading</h1>
-        <div className="card" style={{ padding: 12, marginTop: 14, borderColor: 'rgba(245,158,11,.3)', fontSize: 12, color: 'var(--text-2)', lineHeight: 1.6 }}>
-          <b>Paper mode.</b> Signals arrive automatically from Telegram. Trades here are simulated against real Binance prices, sized by your risk and Binance&apos;s minimum lot rules. <b>No real orders are placed.</b>
+      <Head><title>Trading · Fedha</title></Head>
+      <div className="tx-root">
+        {/* Pair header */}
+        <div className="tx-head">
+          <button className="tx-pair" onClick={() => setPicker(true)}>
+            <b>{base(symbol)}/USDT</b><span>▾</span>
+          </button>
+          <div className="tx-last font-num" style={{ color: change == null ? 'inherit' : change >= 0 ? C.up : C.down }}>
+            {last ? fmtPrice(last) : '—'}
+            <small>{change != null ? `${change >= 0 ? '+' : ''}${change.toFixed(2)}%` : ''}</small>
+          </div>
+          <div className="tx-stats font-num">
+            <div><span>24h High</span><b>{tk ? fmtPrice(tk.h) : '—'}</b></div>
+            <div><span>24h Low</span><b>{tk ? fmtPrice(tk.l) : '—'}</b></div>
+            <div><span>24h Vol(USDT)</span><b>{tk ? fmtCompact(tk.q) : '—'}</b></div>
+          </div>
+          <span style={{ flex: 1 }} />
+          <button className={`tx-live ${listenerOn ? 'on' : ''}`} onClick={() => setTab('telegram')} title="Telegram listener">
+            <i />{listenerOn ? 'Telegram live' : inbox.listener?.seenAt ? 'Telegram offline' : 'Telegram'}
+          </button>
+          {alerts !== 'granted' && alerts !== 'unsupported' && <button className="tx-bell" onClick={enableAlerts}>🔔 Enable alerts</button>}
+          <span className="tx-paper">PAPER</span>
         </div>
 
-        <div className="card" style={{ padding: 14, marginTop: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>Auto-enter new signals</div>
-              <div style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 3 }}>{settings.auto_enabled ? 'On: every new signal with a stop-loss opens a paper trade.' : 'Off: enter signals manually with the button.'}</div>
-            </div>
-            <button onClick={() => saveSettings({ auto_enabled: !settings.auto_enabled })} style={pill(settings.auto_enabled)}>{settings.auto_enabled ? 'ON' : 'OFF'}</button>
+        {/* Account strip */}
+        <div className="tx-acct font-num">
+          <div><span>Equity (live)</span><b style={{ color: equityLive == null ? 'inherit' : equityLive >= Number(settings?.paper_balance) ? C.up : C.down }}>{equityLive != null ? fmtUsd(equityLive, false) : '—'}</b></div>
+          <div><span>Wallet balance</span><b>{account ? fmtUsd(account.equity, false) : '—'}</b></div>
+          <div><span>Available</span><b>{account ? fmtUsd(account.available, false) : '—'}</b></div>
+          <div><span>In orders</span><b>{account ? fmtUsd(account.locked, false) : '—'}</b></div>
+          <div><span>Unrealized</span><b style={{ color: unrealized >= 0 ? C.up : C.down }}>{fmtUsd(unrealized)}</b></div>
+          <div><span>Realized</span><b style={{ color: (account?.realized ?? stats.realized) >= 0 ? C.up : C.down }}>{fmtUsd(account?.realized ?? stats.realized)}</b></div>
+          <div><span>Win rate</span><b>{stats.rate == null ? '—' : `${stats.rate}%`}</b></div>
+          <div className="tx-auto">
+            <span>Auto-trade signals</span>
+            <button className={`tx-switch ${settings?.auto_enabled ? 'on' : ''}`} onClick={() => saveSettings({ auto_enabled: !settings?.auto_enabled })} aria-label="Auto-trade signals"><i /></button>
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Mode</span>
-            <button style={pill(true)}>Paper</button>
-            <button disabled style={{ ...pill(false), opacity: 0.45, cursor: 'not-allowed' }} title="Real execution is not built yet">Live 🔒</button>
-          </div>
-          <div className="font-num" style={{ marginTop: 12, fontSize: 12, color: 'var(--text-2)' }}>Paper equity <b style={{ color: equity >= Number(settings.paper_balance) ? '#22C55E' : '#EF4444' }}>${equity.toLocaleString('en-US', { maximumFractionDigits: 2 })}</b> · next trade risks <b>${riskNow.toFixed(2)}</b></div>
-          <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <label style={{ fontSize: 12, color: 'var(--text-3)', flex: '1 1 150px' }}>Starting paper balance (USDT)
-              <input type="number" inputMode="decimal" min="0" step="any" value={balanceInput} onChange={(e) => setBalanceInput(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
-            </label>
-            <button onClick={useBinanceBalance} className="btn-ghost" style={{ padding: '9px 12px', fontSize: 12 }}>Use my Binance balance</button>
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Risk per trade</span>
-            <button onClick={() => setRiskMode('percent')} style={pill(riskMode === 'percent')}>% of balance</button>
-            <button onClick={() => setRiskMode('fixed')} style={pill(riskMode === 'fixed')}>Fixed $</button>
-          </div>
-          <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-            {riskMode === 'percent'
-              ? <label style={{ fontSize: 12, color: 'var(--text-3)', flex: '1 1 140px' }}>Risk (% of paper equity)
-                  <input type="number" inputMode="decimal" min="0" step="any" value={pctInput} onChange={(e) => setPctInput(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
-                </label>
-              : <label style={{ fontSize: 12, color: 'var(--text-3)', flex: '1 1 140px' }}>Risk (USDT per trade)
-                  <input type="number" inputMode="decimal" min="0" step="any" value={fixedInput} onChange={(e) => setFixedInput(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
-                </label>}
-            <label style={{ fontSize: 12, color: 'var(--text-3)', flex: '1 1 140px' }}>Minimum reward:risk (0 = off)
-              <input type="number" inputMode="decimal" min="0" step="any" value={rrInput} onChange={(e) => setRrInput(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
-            </label>
-          </div>
-          <button onClick={() => saveSettings({})} className="btn-primary" style={{ marginTop: 10, padding: '9px 16px', borderRadius: 10 }}>Save settings</button>
-          {message && <div style={{ color: message === 'Saved.' ? '#22C55E' : '#EF4444', fontSize: 12, marginTop: 8 }}>{message}</div>}
         </div>
 
-        <div className="section-title" style={{ margin: '22px 0 10px' }}>Quotes</div>
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          {symbolList.length === 0 ? <div style={{ padding: 16, color: 'var(--text-2)', fontSize: 13 }}>Pairs from your active signals and trades appear here. Tap one to open its chart.</div> : symbolList.map((sym) => {
-            const q = quoteFor(sym);
-            return (
-              <button key={sym} onClick={() => setChartSymbol(chartSymbol === sym ? '' : sym)} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '12px 14px', background: chartSymbol === sym ? 'var(--card-2)' : 'transparent', border: 0, borderBottom: '1px solid var(--border)', color: 'inherit', cursor: 'pointer' }}>
-                <span style={{ fontWeight: 800, flex: 1 }}>{base(sym)}/USDT</span>
-                {q && q.spreadPct != null && <span className="font-num" style={{ fontSize: 10, color: 'var(--text-3)' }} title="Gap between best buy and sell price">spread {q.spreadPct.toFixed(3)}%</span>}
-                <span className="font-num">{q ? price(q.price) : '—'}</span>
-                <span className="font-num" style={{ fontSize: 12, minWidth: 56, textAlign: 'right', color: q && q.change >= 0 ? '#22C55E' : '#EF4444' }}>{q ? `${q.change >= 0 ? '+' : ''}${q.change.toFixed(2)}%` : ''}</span>
-                <span>📈</span>
-              </button>
-            );
-          })}
+        <div className="tx-grid">
+          <div className="tx-main">
+            <TradeChart symbol={symbol} interval={interval} onInterval={pickInterval} lines={lines} markers={markers} onPickPrice={pickPrice} />
+          </div>
+          <div className="tx-side-col">
+            <OrderForm symbol={symbol} livePrice={last} account={account} riskNow={riskNow} picked={picked} onPlaced={load} />
+            <OrderBook symbol={symbol} onPickPrice={pickPrice} />
+          </div>
         </div>
-        {chartSymbol && <CandleChart key={chartSymbol} symbol={chartSymbol} levels={levelsFor(chartSymbol)} trade={activeTrades.find((t) => t.symbol === chartSymbol)} onClose={() => setChartSymbol('')} />}
 
-        <div className="section-title" style={{ margin: '22px 0 10px' }}>Paper trades</div>
-        <div className="card" style={{ padding: 14, display: 'flex', flexWrap: 'wrap', gap: 18 }}>
-          <div><div style={{ color: 'var(--text-3)', fontSize: 11 }}>Closed P&amp;L</div><div className="font-num" style={{ fontWeight: 800, fontSize: 18, color: stats.realized >= 0 ? '#22C55E' : '#EF4444' }}>{usd(stats.realized)}</div></div>
-          <div><div style={{ color: 'var(--text-3)', fontSize: 11 }}>Open P&amp;L</div><div className="font-num" style={{ fontWeight: 800, fontSize: 18, color: stats.open >= 0 ? '#22C55E' : '#EF4444' }}>{usd(stats.open)}</div></div>
-          <div><div style={{ color: 'var(--text-3)', fontSize: 11 }}>Win rate</div><div className="font-num" style={{ fontWeight: 800, fontSize: 18 }}>{stats.rate == null ? '—' : `${stats.rate}%`}</div></div>
-          <div><div style={{ color: 'var(--text-3)', fontSize: 11 }}>Worst dip</div><div className="font-num" style={{ fontWeight: 800, fontSize: 18 }}>{stats.worstR ? `${stats.worstR.toFixed(2)}R` : '—'}</div></div>
-        </div>
-        <div className="card" style={{ padding: 0, marginTop: 10, overflow: 'hidden' }}>
-          {loading ? <div style={{ padding: 16, color: 'var(--text-2)' }}>Loading…</div> : activeTrades.length ? activeTrades.map(tradeRow) : <div style={{ padding: 16, color: 'var(--text-2)', fontSize: 13 }}>No open paper trades. Turn on auto-enter, or tap Enter paper on a signal below.</div>}
-        </div>
-        {closedTrades.length > 0 && (
-          <>
-            <button onClick={() => setShowClosedTrades((v) => !v)} className="btn-ghost" style={{ marginTop: 12, fontSize: 12 }}>{showClosedTrades ? 'Hide closed trades' : `Show ${closedTrades.length} closed trade${closedTrades.length > 1 ? 's' : ''}`}</button>
-            {showClosedTrades && <div className="card" style={{ padding: 0, marginTop: 10, overflow: 'hidden' }}>{closedTrades.map(tradeRow)}</div>}
-          </>
-        )}
-        <p style={{ color: 'var(--text-3)', fontSize: 11, lineHeight: 1.6, marginTop: 10 }}>
-          Size = risk ÷ (distance to stop + spread), rounded down to Binance&apos;s step size. Market entries fill at the ask (longs) or bid (shorts) and stop-losses fill across the spread; take-profits fill at their price. If that falls below Binance&apos;s minimum quantity or minimum order value, the size is raised to the minimum and flagged, so your real risk is higher than planned. Fees of 0.1% per side are included. The position scales out equally across the take-profits and the stop stays put. *Spot cannot short: shorts here are simulated only.
-        </p>
+        {/* Bottom panel */}
+        <div className="tx-panel tx-bottom">
+          <div className="tx-tabs">
+            {TABS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}{k === 'telegram' && skippedCount > 0 ? <em>{skippedCount}</em> : null}</button>)}
+          </div>
 
-        {bySymbol.length > 0 && (
-          <>
-            <div className="section-title" style={{ margin: '22px 0 10px' }}>Signal check</div>
-            <div className="card" style={{ padding: 0 }}>
-              {bySymbol.map((g) => (
-                <div key={g.symbol} style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-                  <b>{g.symbol}</b> {g.conflict ? <span style={{ color: '#F59E0B' }}>⚠ conflicting</span> : <span style={{ color: '#22C55E' }}>✓ agreement</span>}
-                  <div style={{ color: 'var(--text-3)', fontSize: 12, marginTop: 4, lineHeight: 1.6 }}>{g.list.map((s) => `${s.source}: ${s.side}`).join(' · ')}</div>
+          {tab === 'positions' && (loading ? <div className="tx-empty">Loading…</div> : positions.length ? positions.map(positionRow) : <div className="tx-empty">No open positions. Place an order above, or turn on auto-trade to follow Telegram signals.</div>)}
+          {tab === 'orders' && (orders.length ? orders.map(orderRow) : <div className="tx-empty">No open orders. Limit orders wait here until price reaches them.</div>)}
+          {tab === 'history' && (
+            <>
+              <div className="tx-summary font-num">
+                <div><span>Closed P&amp;L</span><b style={{ color: stats.realized >= 0 ? C.up : C.down }}>{fmtUsd(stats.realized)}</b></div>
+                <div><span>Won / lost</span><b>{stats.won} / {stats.lost}</b></div>
+                <div><span>Win rate</span><b>{stats.rate == null ? '—' : `${stats.rate}%`}</b></div>
+                <div><span>Worst dip</span><b>{stats.worstR ? `${stats.worstR.toFixed(2)}R` : '—'}</b></div>
+              </div>
+              {history.length ? history.map(historyRow) : <div className="tx-empty">Closed trades show up here.</div>}
+            </>
+          )}
+          {tab === 'signals' && (
+            <>
+              {bySymbol.length > 0 && bySymbol.map((g) => (
+                <div key={g.sym} className="tx-row-note" style={{ padding: '10px 14px', borderBottom: '1px solid var(--tx-line)' }}>
+                  <b>{base(g.sym)}</b> {g.conflict ? <span style={{ color: C.gold }}>⚠ groups disagree</span> : <span style={{ color: C.up }}>✓ groups agree</span>}: {g.list.map((s) => `${s.source} ${s.side}`).join(' · ')}
                 </div>
               ))}
-            </div>
-          </>
-        )}
-
-        <div className="section-title" style={{ margin: '22px 0 10px' }}>Signals received ({activeSignals.length})</div>
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          {loading ? <div style={{ padding: 16, color: 'var(--text-2)' }}>Loading…</div> : activeSignals.length ? activeSignals.map((s) => signalRow(s, true)) : <div style={{ padding: 16, color: 'var(--text-2)', fontSize: 13 }}>No active signals yet. They appear here as soon as the Telegram listener picks them up.</div>}
-        </div>
-
-        {board.length > 0 && (
-          <>
-            <div className="section-title" style={{ margin: '22px 0 10px' }}>Scoreboard by group</div>
-            <div className="card" style={{ padding: 0 }}>
-              {board.map((b) => (
-                <div key={b.source} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13 }}>{b.source}</div>
-                    <div style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 3 }}>{b.won} hit TP · {b.lost} hit SL · {b.total} closed</div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div className="font-num" style={{ fontWeight: 800, color: b.avg >= 0 ? '#22C55E' : '#EF4444' }}>{b.avg >= 0 ? '+' : ''}{b.avg.toFixed(2)}%</div>
-                    <div style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 3 }}>{b.rate}% hit TP · avg per signal</div>
-                  </div>
+              {activeSignals.length ? activeSignals.map((s) => signalRow(s, true)) : (
+                <div className="tx-empty">No active signals. New ones appear here the moment the Telegram listener forwards them. Check the Telegram tab to see every message that came in and why any were skipped.</div>
+              )}
+              {board.length > 0 && (
+                <div className="tx-board">
+                  <div className="tx-sub">Scoreboard by group</div>
+                  {board.map((b) => (
+                    <div key={b.source} className="tx-board-row font-num">
+                      <span>{b.source}</span>
+                      <span className="tx-muted">{b.won} TP · {b.lost} SL</span>
+                      <b style={{ color: b.avg >= 0 ? C.up : C.down }}>{b.avg >= 0 ? '+' : ''}{b.avg.toFixed(2)}% avg</b>
+                      <b>{b.rate}%</b>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+              {closedSignals.length > 0 && <button className="tx-link" style={{ margin: 14 }} onClick={() => setShowClosedSignals((v) => !v)}>{showClosedSignals ? 'Hide' : 'Show'} {closedSignals.length} closed signals</button>}
+              {showClosedSignals && closedSignals.map((s) => signalRow(s, false))}
+            </>
+          )}
+          {tab === 'telegram' && (
+            <>
+              <div className="tx-tg-status">
+                <span className={`tx-live ${listenerOn ? 'on' : ''}`}><i />{listenerOn ? 'Listener connected' : 'Listener not reporting'}</span>
+                <span className="tx-muted">
+                  {inbox.listener?.seenAt ? `last heartbeat ${ago(inbox.listener.seenAt)}` : 'no heartbeat yet'}
+                  {inbox.listener?.stats ? ` · ${inbox.listener.stats.seen} messages seen · ${inbox.listener.stats.forwarded} forwarded` : ''}
+                  {inbox.listener?.stats?.watching?.length ? ` · watching ${inbox.listener.stats.watching.join(', ')}` : ''}
+                </span>
+              </div>
+              {inbox.needsMigration && (
+                <div className="tx-row-note" style={{ padding: '10px 14px', color: C.gold }}>
+                  Run <code>supabase-migration-signal-inbox.sql</code> in the Supabase SQL editor to turn on this inbox and the listener status.
+                </div>
+              )}
+              <div className="tx-row-note" style={{ padding: '6px 14px 10px' }}>
+                &quot;Forwarded&quot; in the listener log means the message was sent here. Each one is listed below with what happened to it. Only messages with a pair, a direction and a TP or SL become signals.
+              </div>
+              {inbox.inbox.length ? inbox.inbox.map((m) => {
+                const o = OUTCOME[m.outcome] || { label: m.outcome, color: '#848E9C' };
+                return (
+                  <details key={m.id} className="tx-inbox">
+                    <summary>
+                      <span className="tx-badge" style={{ color: o.color, background: 'rgba(132,142,156,.12)' }}>{o.label}</span>
+                      <b>{m.source}</b>
+                      <span className="tx-muted">{ago(m.created_at)}</span>
+                      <span className="tx-inbox-detail">{m.detail || (m.text || '').normalize('NFKC').slice(0, 80)}</span>
+                    </summary>
+                    <pre>{(m.text || '').normalize('NFKC')}</pre>
+                  </details>
+                );
+              }) : !inbox.needsMigration && <div className="tx-empty">No messages forwarded yet.</div>}
+            </>
+          )}
+          {tab === 'wallet' && <WalletPanel onTrade={(sym) => { pickSymbol(sym); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />}
+          {tab === 'settings' && form && settings && (
+            <div className="tx-settings">
+              <div className="tx-set-row">
+                <div><b>Auto-trade Telegram signals</b><span>{settings.auto_enabled ? 'On: every new signal with a stop-loss opens a paper trade, sized by your risk.' : 'Off: signals are listed and you enter them yourself.'}</span></div>
+                <button className={`tx-switch ${settings.auto_enabled ? 'on' : ''}`} onClick={() => saveSettings({ auto_enabled: !settings.auto_enabled })} aria-label="Auto-trade"><i /></button>
+              </div>
+              <label className="tx-field"><span>Starting balance</span><input className="font-num" inputMode="decimal" value={form.balance} onChange={(e) => setForm({ ...form, balance: e.target.value })} /><em>USDT</em></label>
+              <button className="tx-link" onClick={useBinanceBalance}>Use my real Binance balance</button>
+              <div className="tx-tabs small" style={{ margin: '10px 0' }}>
+                <button className={form.riskMode === 'percent' ? 'on' : ''} onClick={() => setForm({ ...form, riskMode: 'percent' })}>Risk % of equity</button>
+                <button className={form.riskMode === 'fixed' ? 'on' : ''} onClick={() => setForm({ ...form, riskMode: 'fixed' })}>Fixed $ risk</button>
+              </div>
+              {form.riskMode === 'percent'
+                ? <label className="tx-field"><span>Risk per trade</span><input className="font-num" inputMode="decimal" value={form.pct} onChange={(e) => setForm({ ...form, pct: e.target.value })} /><em>%</em></label>
+                : <label className="tx-field"><span>Risk per trade</span><input className="font-num" inputMode="decimal" value={form.fixed} onChange={(e) => setForm({ ...form, fixed: e.target.value })} /><em>USDT</em></label>}
+              <label className="tx-field"><span>Min reward:risk</span><input className="font-num" inputMode="decimal" value={form.rr} onChange={(e) => setForm({ ...form, rr: e.target.value })} /><em>0 = off</em></label>
+              <button className="tx-submit buy" onClick={() => saveSettings({})}>Save settings</button>
+              <p className="tx-fine">
+                How the simulation works: market orders fill at the best ask (buy) or bid (sell), so you pay the spread like on Binance. Limit orders that cross the book fill straight away; otherwise they wait until price trades through them. Fees are 0.1% per side. Sizes follow Binance&apos;s lot-size, tick-size and minimum-order rules, and you can&apos;t spend more than your free balance. Signal trades scale out equally across their take-profits and close after 7 days; manual orders stay open until TP, SL or you close them. If a stop and a target are hit in the same candle, the stop counts. Selling a coin you don&apos;t hold is a simulated short. Next trade risks {fmtUsd(riskNow, false)}.
+              </p>
             </div>
-          </>
-        )}
-
-        {closedSignals.length > 0 && (
-          <>
-            <button onClick={() => setShowClosed((v) => !v)} className="btn-ghost" style={{ marginTop: 18, fontSize: 12 }}>{showClosed ? 'Hide closed signals' : `Show ${closedSignals.length} closed signal${closedSignals.length > 1 ? 's' : ''}`}</button>
-            {showClosed && <div className="card" style={{ padding: 0, marginTop: 10, overflow: 'hidden' }}>{closedSignals.map((s) => signalRow(s, false))}</div>}
-          </>
-        )}
-
-        <p style={{ color: 'var(--text-3)', fontSize: 11, lineHeight: 1.6, marginTop: 18 }}>
-          Signal scoring: entry is the stated price (or market price when none is given). If a stop and a target fall in the same candle, the stop counts first. A signal that hits TP1 and later its stop is scored at the last TP reached. Signals close after 7 days.
-        </p>
+          )}
+        </div>
       </div>
+
+      {picker && <PairPicker current={symbol} highlight={activeSignals.map((s) => s.symbol)} onPick={pickSymbol} onClose={closePicker} />}
+      {toast && <div className="tx-toast" style={{ borderColor: toast.err ? C.down : C.up }}>{toast.text}</div>}
+
+      <style jsx global>{`
+        .tx-root { --tx-bg: #0B0E11; --tx-panel: #181A20; --tx-line: #2B3139; --tx-text: #EAECEF; --tx-dim: #848E9C; --tx-input: #0B0E11;
+          background: var(--tx-bg); color: var(--tx-text); padding: 8px 8px 110px; min-height: 100vh; font-size: 13px; }
+        .tx-root button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+        .tx-root input { font: inherit; color: var(--tx-text); background: transparent; border: 0; outline: none; min-width: 0; }
+        .tx-panel { background: var(--tx-panel); border-radius: 8px; overflow: hidden; }
+        .tx-muted { color: var(--tx-dim); font-size: 12px; }
+
+        .tx-head { display: flex; align-items: center; gap: 14px; padding: 10px 12px; background: var(--tx-panel); border-radius: 8px; flex-wrap: wrap; }
+        .tx-pair { display: flex; align-items: center; gap: 6px; font-size: 18px; }
+        .tx-pair span { color: var(--tx-dim); font-size: 12px; }
+        .tx-last { font-size: 20px; font-weight: 700; display: flex; flex-direction: column; line-height: 1.1; }
+        .tx-last small { font-size: 12px; font-weight: 600; }
+        .tx-stats { display: flex; gap: 16px; }
+        .tx-stats div, .tx-acct div, .tx-summary div { display: flex; flex-direction: column; gap: 2px; }
+        .tx-stats span, .tx-acct span, .tx-summary span, .tx-row-grid span { color: var(--tx-dim); font-size: 11px; }
+        .tx-stats b { font-size: 12px; font-weight: 600; }
+        .tx-paper { font-size: 10px; font-weight: 800; letter-spacing: .08em; color: ${C.gold}; border: 1px solid rgba(240,185,11,.4); padding: 3px 7px; border-radius: 4px; }
+        .tx-live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--tx-dim); }
+        .tx-live i { width: 7px; height: 7px; border-radius: 50%; background: #5E6673; }
+        .tx-live.on { color: ${C.up}; }
+        .tx-live.on i { background: ${C.up}; box-shadow: 0 0 0 3px rgba(14,203,129,.2); }
+
+        .tx-acct { display: flex; gap: 18px; padding: 10px 12px; margin-top: 6px; background: var(--tx-panel); border-radius: 8px; overflow-x: auto; align-items: center; }
+        .tx-acct b { font-size: 13px; white-space: nowrap; }
+        .tx-acct .tx-auto { flex-direction: row; align-items: center; gap: 8px; margin-left: auto; white-space: nowrap; }
+        .tx-switch { width: 36px; height: 20px; border-radius: 999px; background: #474D57 !important; position: relative; flex-shrink: 0; }
+        .tx-switch i { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; }
+        .tx-switch.on { background: ${C.gold} !important; }
+        .tx-switch.on i { left: 18px; }
+
+        .tx-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 6px; margin-top: 6px; }
+        .tx-side-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+        .tx-main { min-width: 0; }
+
+        .tx-chart { background: var(--tx-bg); border: 1px solid var(--tx-line); border-radius: 8px; overflow: hidden; height: 100%; display: flex; flex-direction: column; }
+        .tx-chart-bar { display: flex; align-items: center; gap: 2px; padding: 6px 8px; background: var(--tx-panel); overflow-x: auto; }
+        .tx-iv { padding: 3px 7px; border-radius: 4px; color: var(--tx-dim) !important; font-size: 12px !important; white-space: nowrap; }
+        .tx-iv.on { color: var(--tx-text) !important; background: #2B3139 !important; }
+        .tx-dot { width: 7px; height: 7px; border-radius: 50%; background: #5E6673; margin-left: 6px; flex-shrink: 0; }
+        .tx-dot.live { background: ${C.up}; }
+        .tx-dot.warn { background: ${C.gold}; }
+        .tx-chart-area { position: relative; flex: 1; min-height: 420px; }
+        .tx-chart-canvas { position: absolute; inset: 0; }
+        .tx-legend { position: absolute; z-index: 3; top: 6px; left: 8px; display: flex; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--tx-dim); pointer-events: none; }
+        .tx-legend b { font-weight: 500; }
+        .tx-chart-msg { position: absolute; z-index: 3; top: 40%; width: 100%; text-align: center; color: ${C.down}; }
+
+        .tx-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--tx-line); overflow-x: auto; padding: 0 8px; }
+        .tx-tabs button { padding: 10px 8px; color: var(--tx-dim) !important; white-space: nowrap; position: relative; font-weight: 600; }
+        .tx-tabs button.on { color: var(--tx-text) !important; }
+        .tx-tabs button.on::after { content: ''; position: absolute; left: 30%; right: 30%; bottom: 0; height: 2px; background: ${C.gold}; border-radius: 2px; }
+        .tx-tabs button em { font-style: normal; font-size: 10px; background: ${C.gold}; color: #000; border-radius: 999px; padding: 0 5px; margin-left: 4px; }
+        .tx-tabs.small button { padding: 8px 6px; font-size: 12px; }
+
+        .tx-ob-head { display: grid; grid-template-columns: 1.1fr 1fr 1fr; padding: 6px 10px; font-size: 11px; color: var(--tx-dim); }
+        .tx-ob-head span:nth-last-child(-n+2), .tx-ob-row > span:nth-last-child(-n+2) { text-align: right; }
+        .tx-ob-row { position: relative; display: grid !important; grid-template-columns: 1.1fr 1fr 1fr; width: 100%; padding: 2px 10px !important; font-size: 12px; line-height: 18px; text-align: left; }
+        .tx-ob-row:hover { background: #2B3139 !important; }
+        .tx-ob-row > span { position: relative; z-index: 1; color: var(--tx-text); }
+        .tx-ob-depth { position: absolute; right: 0; top: 0; bottom: 0; z-index: 0 !important; }
+        .tx-ob-mid { display: flex; align-items: baseline; gap: 10px; padding: 6px 10px; font-size: 17px; }
+        .tx-ob-mid span { font-size: 11px; color: var(--tx-dim); }
+        .tx-ob-ratio { display: flex; align-items: center; gap: 6px; padding: 8px 10px; font-size: 11px; }
+        .tx-ob-ratio-bar { flex: 1; height: 4px; background: ${C.down}; border-radius: 2px; overflow: hidden; }
+        .tx-ob-ratio-bar i { display: block; height: 100%; background: ${C.up}; }
+
+        .tx-form { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+        .tx-form .tx-tabs { padding: 0; }
+        .tx-side { display: grid; grid-template-columns: 1fr 1fr; background: #2B3139; border-radius: 6px; padding: 2px; }
+        .tx-side button { padding: 7px 0; border-radius: 5px; font-weight: 700; color: var(--tx-dim) !important; }
+        .tx-side .buy.on { background: ${C.up} !important; color: #fff !important; }
+        .tx-side .sell.on { background: ${C.down} !important; color: #fff !important; }
+        .tx-avbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--tx-dim); }
+        .tx-avbl b { color: var(--tx-text); font-weight: 600; }
+        .tx-field { display: flex; align-items: center; gap: 8px; background: var(--tx-input); border: 1px solid var(--tx-line); border-radius: 6px; padding: 0 10px; height: 40px; }
+        .tx-field:focus-within { border-color: ${C.gold}; }
+        .tx-field.bad { border-color: ${C.down}; }
+        .tx-field > span { color: var(--tx-dim); font-size: 12px; white-space: nowrap; }
+        .tx-field input, .tx-field > b { flex: 1; text-align: right; font-size: 14px; font-weight: 600; }
+        .tx-field.ghost > b { color: var(--tx-dim); font-weight: 500; font-size: 13px; }
+        .tx-field em { font-style: normal; color: var(--tx-text); font-size: 12px; }
+        .tx-pcts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+        .tx-pcts button { border: 1px solid var(--tx-line) !important; border-radius: 4px; padding: 3px 0; font-size: 11px; color: var(--tx-dim) !important; }
+        .tx-pcts button:hover { border-color: ${C.gold} !important; color: var(--tx-text) !important; }
+        .tx-check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--tx-dim); }
+        .tx-check input { accent-color: ${C.gold}; }
+        .tx-link { color: ${C.gold} !important; font-size: 12px; text-align: left; padding: 0; }
+        .tx-info { display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
+        .tx-info div { display: flex; justify-content: space-between; }
+        .tx-info span { color: var(--tx-dim); }
+        .tx-submit { height: 42px; border-radius: 6px; font-weight: 700; font-size: 14px; color: #fff !important; }
+        .tx-submit.buy { background: ${C.up} !important; }
+        .tx-submit.sell { background: ${C.down} !important; }
+        .tx-submit:disabled { opacity: .6; }
+        .tx-hint, .tx-fine { font-size: 11px; color: var(--tx-dim); line-height: 1.5; margin: 0; }
+        .tx-note { font-size: 12px; }
+
+        .tx-bottom { margin-top: 6px; }
+        .tx-empty { padding: 28px 16px; color: var(--tx-dim); text-align: center; line-height: 1.6; }
+        .tx-row { padding: 12px 14px; border-bottom: 1px solid var(--tx-line); }
+        .tx-row-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .tx-sym { font-weight: 700; font-size: 14px; padding: 0 !important; }
+        .tx-sym i { font-style: normal; color: var(--tx-dim); font-weight: 500; font-size: 12px; }
+        .tx-badge { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 3px; }
+        .tx-st { font-size: 11px; color: var(--tx-dim); }
+        .tx-x { color: var(--tx-dim) !important; padding: 2px 6px !important; }
+        .tx-row-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+        .tx-row-grid div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .tx-row-grid b { font-weight: 500; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tx-row-note { font-size: 11px; color: var(--tx-dim); margin-top: 6px; line-height: 1.5; }
+        .tx-row-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+        .tx-row-actions input { width: 100px; border: 1px solid var(--tx-line) !important; border-radius: 4px; padding: 5px 8px; font-size: 12px; }
+        .tx-btn { padding: 6px 12px !important; border-radius: 4px; font-size: 12px; font-weight: 700; }
+        .tx-btn.buy { background: ${C.up} !important; color: #fff !important; }
+        .tx-btn.sell { background: ${C.down} !important; color: #fff !important; }
+        .tx-btn.ghost { background: #2B3139 !important; }
+        .tx-btn:disabled { opacity: .6; }
+        .tx-summary { display: flex; gap: 22px; padding: 12px 14px; border-bottom: 1px solid var(--tx-line); flex-wrap: wrap; }
+        .tx-summary b { font-size: 15px; }
+        .tx-sub { padding: 14px 14px 6px; color: var(--tx-dim); font-size: 12px; font-weight: 700; }
+        .tx-board-row { display: grid; grid-template-columns: 1.6fr 1fr 1fr .5fr; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--tx-line); font-size: 12px; }
+        .tx-board-row b:last-child { text-align: right; }
+        .tx-tg-status { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; }
+        .tx-tg-status .tx-live { font-size: 13px; font-weight: 700; }
+        .tx-inbox { border-top: 1px solid var(--tx-line); }
+        .tx-inbox summary { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; flex-wrap: wrap; list-style: none; }
+        .tx-inbox summary::-webkit-details-marker { display: none; }
+        .tx-inbox-detail { flex-basis: 100%; color: var(--tx-dim); font-size: 12px; }
+        .tx-inbox pre { margin: 0 14px 12px; padding: 10px; background: var(--tx-bg); border-radius: 6px; white-space: pre-wrap; font-size: 12px; color: var(--tx-text); font-family: inherit; }
+        .tx-settings { padding: 14px; display: flex; flex-direction: column; gap: 10px; max-width: 520px; }
+        .tx-settings .tx-tabs { padding: 0; }
+        .tx-set-row { display: flex; align-items: center; gap: 12px; }
+        .tx-set-row div { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+        .tx-set-row span { color: var(--tx-dim); font-size: 12px; }
+
+        .tx-bell { font-size: 11px; font-weight: 700; color: ${C.gold} !important; border: 1px solid rgba(240,185,11,.4) !important; border-radius: 4px; padding: 3px 8px !important; }
+        .tx-ladder { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+        .tx-ladder span { font-size: 11px; padding: 4px 8px; border-radius: 4px; background: #2B3139; color: var(--tx-dim); }
+        .tx-ladder span.hit { background: ${C.upDim}; color: ${C.up}; }
+        .tx-ladder span.next { color: var(--tx-text); box-shadow: inset 0 0 0 1px ${C.up}; }
+        .tx-ladder small { opacity: .75; }
+        .tx-wallet-head { padding: 16px 14px; border-bottom: 1px solid var(--tx-line); }
+        .tx-wallet-total { font-size: 28px; font-weight: 700; margin-top: 4px; }
+        .tx-wallet-total small { font-size: 13px; color: var(--tx-dim); font-weight: 500; }
+        .tx-alloc { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 14px; gap: 2px; }
+        .tx-alloc i { display: block; height: 100%; }
+        .tx-alloc-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 11px; color: var(--tx-dim); }
+        .tx-alloc-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+        .tx-wallet-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
+        .tx-asset { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--tx-line); }
+        .tx-coin { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; color: #fff; flex-shrink: 0; }
+        .tx-asset-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .tx-asset-name em { font-style: normal; }
+        .tx-asset-val { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+        .tx-modal { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.6); display: flex; align-items: flex-start; justify-content: center; padding: 60px 12px 12px; }
+        .tx-picker { width: 100%; max-width: 460px; max-height: calc(100vh - 80px); background: #1E2329; color: #EAECEF; border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; font-size: 13px; }
+        .tx-picker button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+        .tx-picker .tx-tabs { border-color: #2B3139; }
+        .tx-search { margin: 12px; padding: 10px 12px; background: #0B0E11; border: 1px solid #2B3139; border-radius: 6px; color: #EAECEF; font: inherit; outline: none; }
+        .tx-search:focus { border-color: ${C.gold}; }
+        .tx-pick-head, .tx-pick-row { display: grid; grid-template-columns: 24px 1.6fr 1fr 78px; gap: 8px; align-items: center; padding: 8px 12px; }
+        .tx-pick-head { font-size: 11px; color: #848E9C; }
+        .tx-pick-head span:first-child { grid-column: 1 / 3; }
+        .tx-pick-head span:not(:first-child) { text-align: right; }
+        .tx-pick-list { overflow-y: auto; }
+        .tx-pick-row { cursor: pointer; }
+        .tx-pick-row:hover, .tx-pick-row.on { background: #2B3139; }
+        .tx-pick-row > span:nth-child(3) { text-align: right; }
+        .tx-pick-name { display: flex; align-items: baseline; gap: 2px; flex-wrap: wrap; min-width: 0; }
+        .tx-pick-name i { font-style: normal; color: #848E9C; font-size: 11px; }
+        .tx-pick-name em { font-style: normal; font-size: 9px; color: #B98CFF; border: 1px solid #B98CFF; border-radius: 3px; padding: 0 3px; margin-left: 4px; }
+        .tx-pick-name small { flex-basis: 100%; color: #5E6673; font-size: 10px; }
+        .tx-chg { text-align: center; color: #fff; border-radius: 4px; padding: 4px 0; font-size: 12px; font-weight: 600; }
+        .tx-star { font-size: 14px; }
+        .tx-toast { position: fixed; z-index: 210; left: 50%; bottom: 90px; transform: translateX(-50%); background: #1E2329; color: #EAECEF; border: 1px solid; border-radius: 8px; padding: 10px 16px; font-size: 13px; max-width: calc(100vw - 32px); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+
+        @media (max-width: 1000px) {
+          .tx-grid { grid-template-columns: minmax(0, 1fr); }
+          .tx-chart-area { min-height: 360px; }
+          /* Binance app layout: order form on the left, order book on the right */
+          .tx-side-col { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; }
+          .tx-row-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+          .tx-stats { display: none; }
+        }
+        @media (max-width: 640px) {
+          .tx-root { padding: 4px 4px 110px; }
+          .tx-ob-head, .tx-ob-row { grid-template-columns: 1.2fr 1fr !important; }
+          .tx-ob-head span:nth-child(3), .tx-ob-row > span:nth-child(4) { display: none; }
+          .tx-ob-row:not(:has(.tx-ob-depth)) > span:nth-child(3) { display: none; }
+          .tx-field { height: 36px; padding: 0 8px; }
+          .tx-field > span { font-size: 11px; }
+          .tx-field input { font-size: 13px; }
+          .tx-acct { gap: 14px; }
+        }
+        @media (max-width: 360px) {
+          .tx-side-col { grid-template-columns: minmax(0, 1fr); }
+        }
+      `}</style>
     </Layout>
   );
 }

@@ -1,11 +1,11 @@
 import { requireUser } from '../../../lib/require-user';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
-import { getSettings, getEquity, riskAmount } from '../../../lib/trading';
+import { getSettings, getAccount, riskAmount } from '../../../lib/trading';
 
 // PAPER ONLY. Live mode is rejected until real execution is built and enabled.
 async function snapshot(userId, settings) {
-  const equity = await getEquity(userId, settings);
-  return { settings, equity, riskNow: riskAmount(settings, equity) };
+  const account = await getAccount(userId, settings);
+  return { settings, equity: account.equity, account, riskNow: riskAmount(settings, account.equity) };
 }
 
 export default async function handler(req, res) {

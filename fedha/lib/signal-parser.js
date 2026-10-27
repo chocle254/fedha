@@ -3,13 +3,25 @@
 // "#BTCUSDT Buy 65,000-65,500 Targets: 66000, 67000 Stop: 64000", etc.
 const NUM = '\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?|\\.\\d+';
 
+// Telegram channels love "𝗕𝗢𝗟𝗗" maths letters and superscripts (TP¹). NFKC turns those back into plain A-Z / 0-9.
+export function normalizeText(text) {
+  return String(text || '').normalize('NFKC').replace(/[*_`~]/g, ' ').replace(/\u00a0/g, ' ');
+}
+
+// Result posts ("TP2 HIT", "590 pips", "1:1.7rr") are follow-ups, not new signals.
+export function isFollowUp(text) {
+  const up = normalizeText(text).toUpperCase();
+  const followUp = /\b(HIT|DONE|REACHED|ACHIEVED|BOOKED|SMASHED|SECURED|CLOSED|RUNNING)\b|TPS?\s*\d*\s*HIT|TPHIT|\bPIPS\b|\d\s*RR\b/.test(up);
+  return followUp && !/\b(ENTRY|ENTER|ENTRIES|NOW|LIMIT)\b|@/.test(up);
+}
+
 function num(s) {
   const n = Number(String(s).replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 export function parseSignal(text) {
-  const t = String(text || '').replace(/[*_`~]/g, ' ').replace(/\u00a0/g, ' ');
+  const t = normalizeText(text);
   const up = t.toUpperCase();
 
   // Symbol
@@ -48,7 +60,8 @@ export function parseSignal(text) {
   // Entry (single price or range)
   let entryLow = null;
   let entryHigh = null;
-  const entryRe = new RegExp(`\\b(?:ENTRY|ENTER|BUY\\s*(?:ZONE|AT|BELOW|ABOVE|NOW)?|SELL\\s*(?:ZONE|AT)?)\\s*(?:ZONE|PRICE|RANGE|AT|@)?\\s*[:=@\\-]?\\s*(${NUM})(?:\\s*(?:-|–|—|TO)\\s*(${NUM}))?`, 'i');
+  // "ENTRY 4058", "SELL NOW 4058", "BUY LIMIT 65000", "SELL @ 4058", "BUY ZONE 64000-64500", "SELL 4058/4062"
+  const entryRe = new RegExp(`\\b(?:ENTRY|ENTER|(?:BUY|SELL|LONG|SHORT)\\s*(?:NOW|LIMIT|STOP|MARKET|ZONE|AT|BELOW|ABOVE)?)\\s*(?:ZONE|PRICE|RANGE|AT|@)?\\s*[:=@\\-]?\\s*(${NUM})(?:\\s*(?:-|–|—|/|TO)\\s*(${NUM}))?`, 'i');
   const em = up.match(entryRe);
   if (em) {
     const a = num(em[1]);

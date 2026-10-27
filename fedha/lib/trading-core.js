@@ -46,7 +46,10 @@ export function levelsValid(side, entry, tps, sl) {
 // Replays candles against a paper trade. Rules: stop counts first if stop and target share a candle;
 // the position scales out equally across the take-profits; the stop stays at its original level.
 // Also records how far price went AGAINST the trade (max adverse excursion).
-export function evaluateTrade(trade, candles, now = Date.now()) {
+// Options: exitAt = close whatever is still open at this price now (manual "Close position").
+// Manual orders (no signal) behave like Binance GTC orders: they never expire on their own.
+export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null } = {}) {
+  const manual = trade.source === 'Manual';
   const buy = trade.side === 'BUY';
   const dir = buy ? 1 : -1;
   const entry = Number(trade.entry);
@@ -98,12 +101,18 @@ export function evaluateTrade(trade, candles, now = Date.now()) {
   const last = candles.length ? candles[candles.length - 1].c : entry;
   let status;
   let pnl = null;
+  if (closedAt == null && filled && Number(exitAt) > 0) {
+    realized += dir * (exitAt - entry) * remaining;
+    fees += FEE_RATE * exitAt * remaining;
+    remaining = 0;
+    closedAt = now;
+  }
   if (closedAt != null) {
     pnl = realized - fees;
     status = pnl > 0 ? 'won' : 'lost';
-  } else if (!filled && age > MAX_PENDING_MS) {
+  } else if (!manual && !filled && age > MAX_PENDING_MS) {
     status = 'expired'; closedAt = now;
-  } else if (filled && age > MAX_OPEN_MS) {
+  } else if (!manual && filled && age > MAX_OPEN_MS) {
     realized += dir * (last - entry) * remaining;
     fees += FEE_RATE * last * remaining;
     remaining = 0;
@@ -125,10 +134,33 @@ export function evaluateTrade(trade, candles, now = Date.now()) {
     filled_at: filledAt,
     closed_at: closedAt != null ? new Date(closedAt).toISOString() : null,
     pnl_usdt: r4(pnl),
-    last_price: last,
+    last_price: closedAt != null && Number(exitAt) > 0 ? exitAt : last,
     max_adverse_price: worst,
     max_favorable_price: best,
     max_drawdown_usdt: r4(dd),
     max_drawdown_r: dd != null && risk ? r4(dd / risk) : null
   };
+}
+
+// Binance price filter: prices must be a multiple of tickSize.
+export function roundToTick(v, tick) { return tick > 0 ? Number((Math.round(v / tick) * tick).toFixed(decimals(tick))) : v; }
+
+// Candle size for replaying a trade: 1000 candles must cover its whole life.
+export function replayInterval(ageMs) {
+  const h = ageMs / 3600e3;
+  return h < 16 ? '1m' : h < 80 ? '5m' : h < 240 ? '15m' : h < 960 ? '1h' : '4h';
+}
+
+// Profit already banked on an open trade from the take-profits it has hit (after fees on those exits and the
+// entry fee for the part that was closed). The rest of the position is still open.
+export function partialRealized(t) {
+  const tps = (t.take_profits || []).map(Number);
+  const hit = Math.min(Number(t.tp_hit) || 0, tps.length);
+  if (!hit) return 0;
+  const dir = t.side === 'BUY' ? 1 : -1;
+  const entry = Number(t.entry);
+  const share = Number(t.qty) / tps.length;
+  let r = 0;
+  for (let i = 0; i < hit; i++) r += dir * (tps[i] - entry) * share - FEE_RATE * (tps[i] + entry) * share;
+  return r;
 }
