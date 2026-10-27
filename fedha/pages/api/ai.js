@@ -26,7 +26,7 @@ import { STAGES } from '../../lib/startup';
 export const config = { maxDuration: 60 };
 
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b'; // free & strong; or 'llama-3.1-8b-instant' for speed
-const SEARCH_GROUNDED_TYPES = new Set(['activities', 'opportunities', 'startup_programs', 'startup_ideas']);
+const SEARCH_GROUNDED_TYPES = new Set(['activities', 'opportunities', 'startup_programs', 'startup_ideas', 'local_hackathons']);
 
 export default async function handler(req, res) {
   if (!(await requireUser(req, res))) return;
@@ -95,6 +95,25 @@ Return ONLY a JSON object (no markdown, no commentary): { "results": [ ...6 item
 - estimated_cost (number in ${currency}), category (one of "food","outdoor","entertainment","social","relaxation","adventure"),
 - why_now (short fun reason), is_free (boolean).
 If fewer than 6 results genuinely fit, return fewer items rather than padding with invented ones.`;
+  }
+
+  if (type === 'local_hackathons') {
+    const city = location?.city || 'Nairobi';
+    prompt = (foundText) => `You find real hackathons happening in Kenya (especially near ${city}) that are still open to join.
+
+Below are real, current web search results. Use ONLY hackathons that appear in these results, never invent a name, date or URL. Skip any whose date has already passed (today is ${new Date().toISOString().slice(0, 10)}). Skip ones that are not in Kenya, unless they are online and explicitly aimed at Kenyan or East African participants.
+
+--- SEARCH RESULTS ---
+${foundText}
+
+Return ONLY JSON: { "results": [ ...items ] } (up to 10). Each item has exactly:
+- name, organizer, url (official link from the results),
+- deadline (registration close or event date, YYYY-MM-DD; "" if not stated),
+- dates (human text like "14–16 Nov 2026", or ""),
+- mode (venue and city, e.g. "iHub, Nairobi" or "Online (Kenya)"), online (boolean),
+- prize_pool (as stated, e.g. "KSh 500,000", or ""), prize_usd (number, approximate USD; KSh ÷ 130; 0 if none),
+- themes (short comma list), description (1 sentence).
+Return fewer items rather than inventing any.`;
   }
 
   if (type === 'startup_programs') {
@@ -254,7 +273,13 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
       // activities/opportunities: run real web searches first, then have
       // NVIDIA NIM write up JSON from only what those searches found.
       const year = new Date().getFullYear();
-      const searchQueries = type === 'startup_programs'
+      const searchQueries = type === 'local_hackathons'
+        ? [
+            `hackathon ${location?.city || 'Nairobi'} Kenya ${year} register`,
+            `Kenya hackathon ${year} call for applications prize`,
+            `Nairobi hackathon upcoming ${year} iHub OR Strathmore OR Moringa OR KamiLimu`,
+          ]
+        : type === 'startup_programs'
         ? [
             `startup accelerator applications open ${year} ${region && region !== 'All' ? region : 'global remote'}`,
             `Africa startup accelerator call for applications ${year} deadline`,
@@ -295,7 +320,7 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
 
       let rawText;
       try {
-        rawText = await nvidiaChat({ prompt: prompt(foundText), temperature: 0.5, maxTokens: ['opportunities', 'startup_ideas', 'startup_programs'].includes(type) ? 4000 : 2500 });
+        rawText = await nvidiaChat({ prompt: prompt(foundText), temperature: 0.5, maxTokens: ['opportunities', 'startup_ideas', 'startup_programs', 'local_hackathons'].includes(type) ? 4000 : 2500 });
       } catch (e) {
         console.error('[fedha] NVIDIA NIM failed for', type, ':', e.status, e.message);
         // NVIDIA's own staff confirm the free tier can genuinely run out of

@@ -36,6 +36,20 @@ export function devpostEndDate(text) {
   return `${year}-${pad(month + 1)}-${pad(day)}`;
 }
 
+// Where an in-person hackathon is. Kenya first, then the rest of Africa.
+const KENYA = /\b(kenya|nairobi|mombasa|kisumu|nakuru|eldoret|thika|machakos|kiambu|strathmore|jkuat|kenyatta university|moi university|ihub)\b/i;
+const AFRICA = /\b(africa|nigeria|lagos|abuja|ghana|accra|kumasi|uganda|kampala|tanzania|dar es salaam|arusha|rwanda|kigali|ethiopia|addis|south africa|cape town|johannesburg|pretoria|durban|egypt|cairo|morocco|casablanca|tunisia|senegal|dakar|zambia|lusaka|zimbabwe|harare|cameroon|ivory coast|abidjan|botswana|namibia|malawi|mozambique)\b/i;
+export function placeTags(text, online) {
+  const t = String(text || '');
+  return { kenya: !online && KENYA.test(t), africa: !online && (KENYA.test(t) || AFRICA.test(t)) };
+}
+// "$50,000" → 50000. Devpost always shows prizes converted to US dollars.
+export function prizeUsd(text) {
+  const m = String(text || '').replace(/,/g, '').match(/\$\s*(\d+(?:\.\d+)?)\s*(k|m)?/i);
+  if (!m) return 0;
+  return Number(m[1]) * (m[2] ? (m[2].toLowerCase() === 'k' ? 1e3 : 1e6) : 1);
+}
+
 const stripHtml = (s) => String(s || '').replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').trim();
 
 async function getJSON(url, opts = {}) {
@@ -51,14 +65,21 @@ async function getJSON(url, opts = {}) {
 }
 
 async function fromDevpost() {
-  const pages = await Promise.all([1, 2, 3, 4, 5, 6].map((p) =>
-    getJSON(`https://devpost.com/api/hackathons?status[]=open&status[]=upcoming&order_by=deadline&page=${p}`)
-      .then((d) => d.hackathons || [])
-      .catch(() => [])));
+  const base = 'https://devpost.com/api/hackathons?status[]=open&status[]=upcoming';
+  const urls = [
+    ...[1, 2, 3, 4, 5, 6].map((p) => `${base}&order_by=deadline&page=${p}`),
+    ...[1, 2].map((p) => `${base}&order_by=prize-amount&page=${p}`), // the biggest prizes, even if they close later
+    ...['nairobi', 'kenya', 'africa'].map((q) => `${base}&search=${q}`), // widen the pool; Kenya is detected from the location below
+  ];
+  const pages = await Promise.all(urls.map((u) => getJSON(u).then((d) => d.hackathons || []).catch(() => [])));
   return pages.flat().filter((h) => !h.invite_only).map((h) => {
     const prize = stripHtml(h.prize_amount);
     const cash = h.prizes_counts?.cash || 0;
+    const where = h.displayed_location?.location || '';
+    const online = /online/i.test(where);
     return {
+      ...placeTags(`${where} ${h.organization_name || ''} ${h.title}`, online),
+      prize_usd: cash > 0 ? prizeUsd(prize) : 0,
       id: `devpost_${h.id}`,
       source: 'Devpost',
       name: h.title,
@@ -70,7 +91,7 @@ async function fromDevpost() {
       prize_pool: cash > 0 && prize && !/^\$?0$/.test(prize) ? prize : (h.prizes_counts?.other ? `${h.prizes_counts.other} non-cash prizes` : ''),
       themes: (h.themes || []).map((t) => t.name).join(', '),
       mode: h.displayed_location?.location || '',
-      online: /online/i.test(h.displayed_location?.location || ''),
+      online,
       upcoming: h.open_state === 'upcoming',
       registrations: h.registrations_count || 0,
       thumbnail: h.thumbnail_url ? (h.thumbnail_url.startsWith('//') ? `https:${h.thumbnail_url}` : h.thumbnail_url) : '',
@@ -89,6 +110,8 @@ async function fromDevfolio() {
     const closes = s.reg_ends_at || h.ends_at;
     const place = h.is_online ? 'Online' : [h.city, h.country].filter(Boolean).join(', ');
     return {
+      ...placeTags(`${place} ${h.name}`, !!h.is_online),
+      prize_usd: 0,
       id: `devfolio_${h.uuid}`,
       source: 'Devfolio',
       name: h.name,
@@ -120,8 +143,8 @@ export default async function handler(req, res) {
     .filter((h) => h.name && h.url)
     .filter((h) => !h.deadline || h.deadline > today) // at least a day left to register
     .filter((h) => { const k = h.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
-    // Online ones first (you can join from Kenya), then soonest deadline.
-    .sort((a, b) => (b.online - a.online) || String(a.deadline || '9').localeCompare(String(b.deadline || '9')));
+    // In Kenya first, then online (joinable from Kenya), then soonest deadline. The page re-sorts on demand.
+    .sort((a, b) => (b.kenya - a.kenya) || (b.online - a.online) || String(a.deadline || '9').localeCompare(String(b.deadline || '9')));
 
   if (!results.length && dp.status === 'rejected' && df.status === 'rejected') {
     return res.status(502).json({ error: 'Could not reach Devpost or Devfolio right now. Try again in a minute.' });
@@ -129,7 +152,8 @@ export default async function handler(req, res) {
 
   res.setHeader('Cache-Control', 's-maxage=1800, stale-while-revalidate=3600');
   return res.status(200).json({
-    results: results.slice(0, 40),
+    // Keep every Kenyan / African one, then the rest up to 80.
+    results: [...results.filter((h) => h.africa), ...results.filter((h) => !h.africa)].slice(0, 80),
     sources: { devpost: devpost.length, devfolio: devfolio.length },
   });
 }

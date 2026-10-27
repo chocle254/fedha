@@ -510,6 +510,8 @@ function DiscoverCard({ item, kind, onAdd }) {
       </div>
       {item.description && <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5, marginBottom: 10 }}>{item.description}</div>}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+        {item.kenya && <span style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)', color: 'var(--green)', fontSize: 12, fontWeight: 800, padding: '3px 10px', borderRadius: 100 }}>🇰🇪 In Kenya</span>}
+        {!item.kenya && item.africa && <span style={{ background: 'rgba(245,158,11,0.12)', color: '#F59E0B', fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 100 }}>🌍 Africa</span>}
         {kind === 'hack' && item.prize_pool && <span style={{ background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.2)', color: 'var(--green)', fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 100 }}>🏆 {item.prize_pool}</span>}
         {item.mode && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 12, padding: '3px 10px', borderRadius: 100 }}>{item.mode}</span>}
         {item.category && <span style={{ background: 'var(--card-2)', border: '1px solid var(--border)', color: 'var(--text-3)', fontSize: 12, padding: '3px 10px', borderRadius: 100 }}>{item.category}</span>}
@@ -2001,13 +2003,32 @@ export default function TechHubPage() {
   }
 
   // Real hackathons from Devpost + Devfolio (pages/api/hackathons.js).
-  async function fetchRealHackathons() {
+  // Kenyan hackathons rarely appear on Devpost/Devfolio, so a web search finds those (cached for 12 hours).
+  async function fetchKenyaHackathons(force) {
+    const cached = await getSetting('kenya_hacks', null);
+    if (!force && cached && Date.now() - cached.at < 12 * 3600e3) return cached.results;
+    const home = await getSetting('home_location', null);
+    const city = location?.city || (home?.name ? String(home.name).split(',')[0] : 'Nairobi');
+    const r = await fetch('/api/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'local_hackathons', location: { city }, nonce: Date.now() }) });
+    const j = await r.json();
+    if (!r.ok || j.error) return cached?.results || [];
+    const today = todayISO();
+    const results = (j.results || [])
+      .filter((h) => h.name && h.url && (!h.deadline || h.deadline >= today))
+      .map((h, i) => ({ ...h, id: `web_${i}_${h.name}`, source: 'Web', kenya: !h.online || /kenya|nairobi/i.test(h.mode || ''), africa: true, registrations: 0, prize_usd: Number(h.prize_usd) || 0 }));
+    await setSetting('kenya_hacks', { at: Date.now(), results });
+    return results;
+  }
+
+  async function fetchRealHackathons(force = false) {
     setLoadingHacks(true); setAiError(null);
     try {
-      const res = await fetch('/api/hackathons');
+      const [res, local] = await Promise.all([fetch('/api/hackathons'), fetchKenyaHackathons(force === true).catch(() => [])]);
       const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || 'Could not load hackathons');
-      setDiscHacks(data.results || []);
+      if ((!res.ok || data.error) && !local.length) throw new Error(data.error || 'Could not load hackathons');
+      const seen = new Set();
+      const merged = [...local, ...(data.results || [])].filter((h) => { const k = h.name.trim().toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+      setDiscHacks(merged);
     } catch (e) { setAiError(e.message); }
     finally { setLoadingHacks(false); }
   }
@@ -2016,7 +2037,41 @@ export default function TechHubPage() {
   useEffect(() => {
     if (tab === 'hackathons' && !hacksLoaded.current) { hacksLoaded.current = true; fetchRealHackathons(); }
   }, [tab]);
-  const [onlineOnly, setOnlineOnly] = useState(false);
+  const [hackSort, setHackSort] = useState('best');
+  const [hackTheme, setHackTheme] = useState('All');
+  const [hackWhere, setHackWhere] = useState('all');
+  const [cashOnly, setCashOnly] = useState(false);
+  // Most common themes across the open hackathons, for the feature filter.
+  const hackThemes = (() => {
+    const count = {};
+    discHacks.forEach((h) => String(h.themes || '').split(',').map((t) => t.trim()).filter(Boolean).forEach((t) => { count[t] = (count[t] || 0) + 1; }));
+    return Object.entries(count).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([t]) => t);
+  })();
+  const daysLeft = (h) => (h.deadline ? (new Date(`${h.deadline}T23:59:59`).getTime() - Date.now()) / 86400000 : 999);
+  const HACK_SORTS = {
+    best: { label: '⭐ Best match', fn: (a, b) => hackScore(b) - hackScore(a) },
+    prize: { label: '💰 Biggest prize', fn: (a, b) => (b.prize_usd || 0) - (a.prize_usd || 0) || daysLeft(a) - daysLeft(b) },
+    ending: { label: '⏳ Ending soon', fn: (a, b) => daysLeft(a) - daysLeft(b) },
+    time: { label: '🗓 Most time left', fn: (a, b) => daysLeft(b) - daysLeft(a) },
+    popular: { label: '🔥 Most popular', fn: (a, b) => (b.registrations || 0) - (a.registrations || 0) },
+  };
+  // Best match: prize size, enough (but not too much) time to build, joinable from Kenya, and popularity.
+  function hackScore(h) {
+    const d = daysLeft(h);
+    let s = Math.log10((h.prize_usd || 0) + 1) * 2;
+    s += d >= 3 && d <= 30 ? 3 : d < 3 ? 0 : 1.5;
+    if (h.online) s += 2;
+    if (h.africa) s += 2;
+    if (/beginner/i.test(h.themes || '')) s += 0.5;
+    s += Math.log10((h.registrations || 0) + 1) * 0.5;
+    return s;
+  }
+  const shownHacks = discHacks
+    .filter((h) => !hackathons.some((m) => (m.name || '').trim().toLowerCase() === h.name.trim().toLowerCase()))
+    .filter((h) => hackWhere === 'all' || (hackWhere === 'online' ? h.online : !h.online))
+    .filter((h) => hackTheme === 'All' || String(h.themes || '').split(',').map((t) => t.trim()).includes(hackTheme))
+    .filter((h) => !cashOnly || h.prize_usd > 0)
+    .sort((a, b) => (b.kenya ? 1 : 0) - (a.kenya ? 1 : 0) || HACK_SORTS[hackSort].fn(a, b)); // Kenya always on top
 
   async function fetchAI(type) {
     const setLoading = type === 'hackathons' ? setLoadingHacks : setLoadingEvents;
@@ -2248,16 +2303,31 @@ export default function TechHubPage() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 12px' }}>
-                <div className="section-title" style={{ marginBottom: 0 }}>Open on Devpost & Devfolio</div>
-                <button onClick={fetchRealHackathons} disabled={loadingHacks}
+                <div className="section-title" style={{ marginBottom: 0 }}>Open hackathons</div>
+                <button onClick={() => fetchRealHackathons(true)} disabled={loadingHacks}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 100, color: 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit' }}>
                   🔄 {loadingHacks ? 'Finding…' : discHacks.length ? 'Refresh' : 'Discover'}
                 </button>
               </div>
               {discHacks.length > 0 && (
-                <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
-                  <button className={`chip ${!onlineOnly ? 'active' : ''}`} onClick={() => setOnlineOnly(false)}>All ({discHacks.length})</button>
-                  <button className={`chip ${onlineOnly ? 'active' : ''}`} onClick={() => setOnlineOnly(true)}>🌍 Online ({discHacks.filter((h) => h.online).length})</button>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 6 }}>
+                    {Object.entries(HACK_SORTS).map(([k, v]) => <button key={k} className={`chip ${hackSort === k ? 'active' : ''}`} style={{ flexShrink: 0 }} onClick={() => setHackSort(k)}>{v.label}</button>)}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 6, marginTop: 4 }}>
+                    {[['all', `All (${discHacks.length})`], ['online', `🌍 Online (${discHacks.filter((h) => h.online).length})`], ['inperson', `📍 In person (${discHacks.filter((h) => !h.online).length})`]].map(([k, l]) => (
+                      <button key={k} className={`chip ${hackWhere === k ? 'active' : ''}`} style={{ flexShrink: 0 }} onClick={() => setHackWhere(k)}>{l}</button>
+                    ))}
+                    <button className={`chip ${cashOnly ? 'active' : ''}`} style={{ flexShrink: 0 }} onClick={() => setCashOnly((v) => !v)}>💵 Cash prize</button>
+                  </div>
+                  {hackThemes.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginTop: 4 }}>
+                      {['All', ...hackThemes].map((t) => <button key={t} className={`chip ${hackTheme === t ? 'active' : ''}`} style={{ flexShrink: 0, fontSize: 12 }} onClick={() => setHackTheme(t)}>{t === 'All' ? '🏷 All themes' : t}</button>)}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
+                    {shownHacks.length} shown{discHacks.some((h) => h.kenya) ? ` · 🇰🇪 ${discHacks.filter((h) => h.kenya).length} in Kenya pinned on top` : ' · none in Kenya right now'}
+                  </div>
                 </div>
               )}
               {loadingHacks && discHacks.length === 0 ? (
@@ -2266,10 +2336,9 @@ export default function TechHubPage() {
                 <div style={{ padding: '12px 14px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 12, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
                   💡 Tap Discover to load hackathons that are open for registration right now.
                 </div>
-              ) : discHacks
-                  .filter((h) => !onlineOnly || h.online)
-                  .filter((h) => !hackathons.some((m) => (m.name || '').trim().toLowerCase() === h.name.trim().toLowerCase()))
-                  .map((h) => <DiscoverCard key={h.id} item={h} kind="hack" onAdd={registerFromDiscover} />)}
+              ) : shownHacks.length === 0 ? (
+                <div style={{ padding: '12px 14px', fontSize: 13, color: 'var(--text-3)' }}>No hackathons match these filters.</div>
+              ) : shownHacks.map((h) => <DiscoverCard key={h.id} item={h} kind="hack" onAdd={registerFromDiscover} />)}
             </div>
           )}
 
