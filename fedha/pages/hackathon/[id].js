@@ -33,7 +33,12 @@ const VERDICT = {
   overbuilding: { label: 'Overbuilding', color: '#EF4444', emoji: '✂️' },
   overthinking: { label: 'Overthinking', color: '#F59E0B', emoji: '🌀' },
   underbuilding: { label: 'Too thin', color: '#3B82F6', emoji: '➕' },
+  build_it: { label: 'Build it', color: '#10B981', emoji: '🚀' },
+  build_slice: { label: 'Build a slice', color: '#7B61FF', emoji: '🎯' },
+  postpone: { label: 'After the must-haves', color: '#F59E0B', emoji: '⏳' },
+  cut: { label: 'Cut it', color: '#EF4444', emoji: '✂️' },
 };
+const EFFECT = { up: ['▲', '#10B981'], same: ['•', 'var(--text-3)'], down: ['▼', '#EF4444'] };
 const FIT = { fits: ['Fits your time', '#10B981'], tight: ['Tight', '#F59E0B'], too_big: ['Too big', '#EF4444'] };
 
 function Orb({ size = 38, busy }) {
@@ -493,17 +498,34 @@ export default function HackathonCoach() {
             </section>
 
             <section className="card muse-card">
-              <div className="muse-label">✂️ SCOPE CHECK</div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>About to add something, or stuck deciding? Say it here and the mentor tells you to keep it, cut it, or ship.</div>
-              <textarea className="input" rows={2} style={{ marginTop: 10, resize: 'vertical', lineHeight: 1.5 }} placeholder="e.g. I want to add user accounts and a dashboard before the demo" value={scopeText} onChange={(e) => setScopeText(e.target.value)} />
-              <button className="btn-primary muse-send" style={{ marginTop: 8 }} onClick={scopeCheck} disabled={!!busy || !coach.brief}>{busy === 'scope' ? 'Checking…' : 'Check my scope'}</button>
+              <div className="muse-label">🧭 VISION CHECK</div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>Thinking of adding something big, or changing direction? The mentor researches what already exists, finds the wild version and the slice you can really demo, then works out how to fit it in.</div>
+              <textarea className="input" rows={2} style={{ marginTop: 10, resize: 'vertical', lineHeight: 1.5 }} placeholder="e.g. Add a live AR mirror that shows the outfit on the user" value={scopeText} onChange={(e) => setScopeText(e.target.value)} />
+              <button className="btn-primary muse-send" style={{ marginTop: 8 }} onClick={scopeCheck} disabled={!!busy || !coach.brief}>{busy === 'scope' ? 'Researching & thinking (≈30s)…' : 'Check the vision'}</button>
               {coach.scope && (() => {
                 const v = VERDICT[coach.scope.verdict] || VERDICT.on_track;
                 return (
                   <div className="muse-bubble" style={{ marginTop: 12, borderLeft: `3px solid ${v.color}` }}>
                     <div className="muse-bubble-kicker" style={{ color: v.color }}>{v.emoji} {v.label.toUpperCase()}</div>
                     <div style={{ fontWeight: 700 }}>{coach.scope.headline}</div>
-                    {coach.scope.time_check && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4 }}>{coach.scope.time_check}</div>}
+                    {coach.scope.win_effect && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4 }}>{coach.scope.win_effect}</div>}
+                    {coach.scope.what_exists?.length > 0 && <>
+                      <div className="muse-label" style={{ marginTop: 10 }}>WHAT ALREADY EXISTS</div>
+                      <ul className="muse-how">{coach.scope.what_exists.map((x) => <li key={x.name}>{x.url ? <a href={x.url} target="_blank" rel="noreferrer" style={{ color: 'inherit', fontWeight: 600 }}>{x.name}</a> : <b>{x.name}</b>}: {x.does}</li>)}</ul>
+                    </>}
+                    {coach.scope.gap && <><div className="muse-label" style={{ marginTop: 6 }}>THE GAP</div><div style={{ fontSize: 13, lineHeight: 1.5 }}>{coach.scope.gap}</div></>}
+                    {coach.scope.wild_version && <><div className="muse-label" style={{ marginTop: 10, color: '#E64FB4' }}>🔥 WILD VERSION</div><div style={{ fontSize: 13, lineHeight: 1.5 }}>{coach.scope.wild_version}</div></>}
+                    {coach.scope.demo_slice?.what && <>
+                      <div className="muse-label" style={{ marginTop: 10, color: '#7B61FF' }}>🎯 SLICE TO DEMO{coach.scope.demo_slice.hours ? ` · ~${coach.scope.demo_slice.hours}h` : ''}</div>
+                      <div style={{ fontSize: 13, lineHeight: 1.5 }}>{coach.scope.demo_slice.what}</div>
+                      {coach.scope.demo_slice.how?.length > 0 && <ol className="muse-how">{coach.scope.demo_slice.how.map((x) => <li key={x}>{x}</li>)}</ol>}
+                    </>}
+                    {coach.scope.judge_view?.length > 0 && <>
+                      <div className="muse-label" style={{ marginTop: 8 }}>WHAT THE JUDGES WOULD SEE</div>
+                      <div style={{ display: 'grid', gap: 4, marginTop: 4 }}>{coach.scope.judge_view.map((j) => { const [ic, col] = EFFECT[j.effect] || EFFECT.same; return <div key={j.criterion} style={{ fontSize: 12.5, lineHeight: 1.45 }}><b style={{ color: col }}>{ic} {j.criterion}</b>: {j.why}</div>; })}</div>
+                    </>}
+                    {coach.scope.time_check && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 10 }}>⏱ {coach.scope.time_check}</div>}
+                    {coach.scope.make_time?.length > 0 && <><div className="muse-label" style={{ marginTop: 10, color: '#F59E0B' }}>MAKE TIME BY TRIMMING</div><ul className="muse-how">{coach.scope.make_time.map((x) => <li key={x}>{x}</li>)}</ul></>}
                     {coach.scope.cut?.length > 0 && <><div className="muse-label" style={{ marginTop: 10, color: 'var(--red)' }}>CUT</div><ul className="muse-how">{coach.scope.cut.map((x) => <li key={x}>{x}</li>)}</ul></>}
                     {coach.scope.keep?.length > 0 && <><div className="muse-label" style={{ marginTop: 6, color: 'var(--green)' }}>KEEP</div><ul className="muse-how">{coach.scope.keep.map((x) => <li key={x}>{x}</li>)}</ul></>}
                     {coach.scope.do_next?.length > 0 && <><div className="muse-label" style={{ marginTop: 6 }}>DO NEXT</div><ol className="muse-how">{coach.scope.do_next.map((x) => <li key={x}>{x}</li>)}</ol></>}

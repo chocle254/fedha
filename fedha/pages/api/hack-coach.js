@@ -48,9 +48,12 @@ export default async function handler(req, res) {
     if (b.type === 'hack_brief') return res.status(200).json(await brief(b, GROQ_API_KEY));
     if (b.type === 'hack_chat' && !String(b.question || '').trim()) return res.status(400).json({ error: 'Question required' });
     if (b.type === 'hack_ideas') b.found = await ideaResearch(b);
+    // Vision check, and chat questions about adding/building something: look at what already exists first.
+    if (b.type === 'hack_scope' || (b.type === 'hack_chat' && FEATURE_TALK.test(String(b.question || '')))) b.found = await featureResearch(b);
+    const reasoning = ['hack_scope', 'hack_chat', 'hack_ideas', 'hack_judge'].includes(b.type) ? 'medium' : null;
     let obj;
     try {
-      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : b.type === 'hack_judge' ? 0.3 : 0.6, 6000, b.type === 'hack_judge' ? JUDGE_MODEL : GROQ_MODEL);
+      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : b.type === 'hack_judge' ? 0.3 : 0.6, 6000, b.type === 'hack_judge' ? JUDGE_MODEL : GROQ_MODEL, { reasoning });
     } catch (e) {
       // Groq's free tier caps tokens per request/minute. If the code
       // evidence made the prompt too big, try once more with less of it.
@@ -62,36 +65,70 @@ export default async function handler(req, res) {
       ev.files = (ev.files || []).slice(0, 80);
       ev.deps = (ev.deps || []).slice(0, 1);
       if (b.hack.coach.presentation?.text) b.hack.coach.presentation.text = String(b.hack.coach.presentation.text).slice(0, 2500);
-      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), 0.6, 3000, b.type === 'hack_judge' ? JUDGE_MODEL : GROQ_MODEL);
+      if (b.found) b.found = String(b.found).slice(0, 2500);
+      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), 0.6, 3000, b.type === 'hack_judge' ? JUDGE_MODEL : GROQ_MODEL, { reasoning: reasoning ? 'low' : null });
     }
     const out = shape[b.type](obj, b);
     if (out.error) return res.status(500).json(out);
     return res.status(200).json(out);
   } catch (e) {
     console.error('[fedha] hack-coach', b.type, 'failed:', e.status, e.message);
-    return res.status(500).json({ error: e.status === 429 ? 'The AI is rate limited right now. Try again in a minute.' : 'The mentor could not answer right now. Try again in a moment.' });
+    const wait = e.retryAfter ? (e.retryAfter >= 60 ? `${Math.ceil(e.retryAfter / 60)} min` : `${e.retryAfter}s`) : 'a minute';
+    return res.status(e.status === 429 ? 429 : 500).json({ error: e.status === 429 ? `The free AI tier is rate limited right now. Try again in ${wait}.` : 'The mentor could not answer right now. Try again in a moment.' });
   }
 }
 
-async function groqJSON(key, prompt, temperature = 0.6, maxTokens = 6000, model = GROQ_MODEL) {
-  const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify({
-      model,
-      temperature,
-      max_tokens: maxTokens,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: 'You output only valid JSON. No markdown, no commentary.' },
-        { role: 'user', content: prompt },
-      ],
-    }),
-  });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(data.error?.message || 'Groq API error'); e.status = r.status; throw e; }
-  const raw = data.choices?.[0]?.message?.content || '';
-  return parseObject(raw);
+// Rate limits (Groq free tier): on a 429, wait if Groq asks for a short pause, otherwise try the smaller
+// model once (it has its own limit), then give up with how long to wait.
+const FALLBACK_MODEL = process.env.GROQ_FALLBACK_MODEL || 'openai/gpt-oss-20b';
+async function groqJSON(key, prompt, temperature = 0.6, maxTokens = 6000, model = GROQ_MODEL, { reasoning = null } = {}) {
+  let useReasoning = reasoning;
+  const call = async (m) => {
+    try { return await callOnce(m); } catch (e) {
+      // Model/endpoint doesn't accept reasoning_effort: retry once without it rather than failing.
+      if (e.status === 400 && useReasoning && /reasoning/i.test(e.message || '')) { useReasoning = null; return callOnce(m); }
+      throw e;
+    }
+  };
+  const callOnce = async (m) => {
+    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: m,
+        temperature,
+        max_tokens: maxTokens,
+        response_format: { type: 'json_object' },
+        // gpt-oss models think before answering; "medium" gives real reasoning without eating the token budget.
+        ...(useReasoning && /gpt-oss/.test(m) ? { reasoning_effort: useReasoning } : {}),
+        messages: [
+          { role: 'system', content: 'You output only valid JSON. No markdown, no commentary.' },
+          { role: 'user', content: prompt },
+        ],
+      }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const e = new Error(data.error?.message || 'Groq API error');
+      e.status = r.status;
+      e.retryAfter = Number(r.headers.get('retry-after')) || null;
+      throw e;
+    }
+    return parseObject(data.choices?.[0]?.message?.content || '');
+  };
+  try {
+    return await call(model);
+  } catch (e) {
+    if (e.status !== 429) throw e;
+    if (e.retryAfter && e.retryAfter <= 12) {
+      await new Promise((res) => setTimeout(res, e.retryAfter * 1000));
+      try { return await call(model); } catch (e2) { if (e2.status !== 429) throw e2; }
+    }
+    if (model !== FALLBACK_MODEL) {
+      try { return await call(FALLBACK_MODEL); } catch (e3) { if (e3.status !== 429) throw e3; }
+    }
+    throw e;
+  }
 }
 
 function parseObject(raw) {
@@ -150,6 +187,36 @@ async function ideaResearch(b) {
     return r.text.slice(0, 9000);
   } catch (e) {
     console.warn('[fedha] hack-coach idea research failed:', e.message);
+    return null;
+  }
+}
+
+// What already exists for the idea / the feature being considered, and what has won before.
+// Cached for 6 hours per hackathon + question, so asking again doesn't spend search credits or AI tokens on it.
+const FEATURE_TALK = /\b(add|adding|build|building|feature|should i|idea|instead|pivot|wild|bigger|ar\b|vr\b|ai\b|integrat|mirror|live|real[- ]?time)/i;
+const researchCache = new Map();
+async function featureResearch(b) {
+  const h = b.hack || {};
+  const c = h.coach || {};
+  const idea = c.idea?.title ? `${c.idea.title} ${clip(c.idea.pitch, 80)}` : (h.project_name || '');
+  const ask = clip(b.question, 120).replace(/\s+/g, ' ').trim();
+  const key = `${h.id || h.name}|${ask.toLowerCase()}|${idea.slice(0, 40)}`;
+  const hit = researchCache.get(key);
+  if (hit && Date.now() - hit.at < 6 * 3600e3) return hit.text;
+  const theme = (c.brief?.summary || h.themes || h.name || '').slice(0, 80);
+  const queries = [
+    ask ? `${ask} app OR tool that already exists` : `${idea} existing apps competitors`,
+    `${idea || theme} ${ask.split(' ').slice(0, 6).join(' ')} similar project github demo`,
+    `${h.name || theme} hackathon winning projects`,
+  ].filter((q) => q.trim().length > 8);
+  try {
+    const r = await webSearchMulti(queries, { limitEach: 4 });
+    const text = r.text.slice(0, 6000);
+    researchCache.set(key, { at: Date.now(), text });
+    if (researchCache.size > 200) researchCache.delete(researchCache.keys().next().value);
+    return text;
+  } catch (e) {
+    console.warn('[fedha] hack-coach feature research failed:', e.message);
     return null;
   }
 }
@@ -324,15 +391,16 @@ Rules: every idea must meet every hard requirement. hours = realistic build hour
 
   hack_chat(b) {
     const past = (Array.isArray(b.history) ? b.history : []).slice(-8).map((m) => `${m.role === 'user' ? 'Builder' : 'Mentor'}: ${clip(m.text, 600)}`).join('\n');
-    return `You are this builder's hackathon mentor. You have researched the hackathon below and you keep them on track: you stop them overbuilding and overthinking, keep them aimed at the judging criteria and requirements, and watch the clock.
+    return `You are this builder's hackathon mentor, someone who has won and judged international hackathons. You think about the VISION first: hackathons are won by the project judges remember (a real problem, a "how did they do that" demo moment, smart use of the sponsor's tech), not by the most polished settings page. The clock is something you plan around, not a reason to shrink every idea.
 
 ${ctx(b.hack)}
 
 ${BUILDER}
 
-${past ? `Conversation so far:\n${past}\n\n` : ''}Builder: ${clip(b.question, 1500)}
+${b.found ? `RESEARCH (what already exists in this space and what has won before; use it, cite names):\n${b.found}\n\n` : ''}${past ? `Conversation so far:\n${past}\n\n` : ''}Builder: ${clip(b.question, 1500)}
 
-Reply as the mentor: specific to this hackathon and project, honest and direct. If they are adding scope they cannot finish, polishing too early, or stuck deciding, say so and give the decision. Tie advice to the judging criteria and the time left. Plain text, no headings, at most 150 words; up to 4 short lines starting with "• " for steps.
+Think it through before answering: what would make judges remember this project, what already exists (from the research), what the boldest version is, and the smallest REAL slice of it that one person can demo in the time left. If something is genuinely low-value (polish nobody sees, extra pages), say cut it. If an ambitious feature is the thing that wins, help them build a narrow slice and say what to trim to make room. Never fake results.
+Reply as the mentor: specific, honest, direct. Plain text, no headings, at most 170 words; up to 4 short lines starting with "• " for steps.
 Return JSON: {"reply":"..."}`;
   },
 
@@ -356,15 +424,39 @@ Rules:
   },
 
   hack_scope(b) {
-    return `You are a hackathon mentor doing a scope check. The builder says what they are working on or planning to add. Decide if they are overbuilding, overthinking or on track, given the time left and the judging criteria.
+    return `You are a hackathon mentor who has won and judged many international hackathons. The builder is considering something (a feature, a change, a direction). Do a VISION CHECK: decide what gives them the best chance of WINNING, then make it fit the clock. Do not reflexively say "overbuilding" because time is tight: a memorable, ambitious demo moment usually beats extra polish, and judges forget polished-but-ordinary projects.
 
 ${ctx(b.hack)}
 
 ${BUILDER}
 
-BUILDER SAYS: ${clip(b.question, 1500) || '(nothing — judge the current plan)'}
+BUILDER IS CONSIDERING: ${clip(b.question, 1500) || '(nothing specific: review the current direction)'}
 
-Return JSON: {"verdict":"on_track|overbuilding|overthinking|underbuilding","headline":"one direct sentence","keep":["what to keep doing"],"cut":["what to drop or postpone, specifically"],"do_next":["the next 1-3 actions, in order"],"time_check":"one sentence comparing remaining work with the time left"}`;
+${b.found ? `RESEARCH (real web results: what already exists, similar projects, past winners):\n${b.found}\n` : 'No web research was available: rely on what you know and say so; do not invent products.\n'}
+REASON IN THIS ORDER (think it through before writing JSON):
+1. What wins THIS hackathon: its judging criteria, tracks, sponsor tech, and what past winners had in common.
+2. What already exists: name real products/projects from the research that do this or something close. If it's common, how could it be twisted so it isn't?
+3. The gap: what none of them do, that this builder could.
+4. The wild version: the boldest form of the idea, the one that makes a judge say "wait, how?".
+5. The demo slice: the narrowest REAL, working piece of that wild version one person can build and show (no faked output), with honest hours. Prefer proven libraries/APIs (e.g. MediaPipe, WebXR, TensorFlow.js, sponsor SDKs) over building from scratch.
+6. Only now the clock: compare the slice's hours with the time left. If the slice is what wins, find the time by shrinking lower-value work (polish beyond the basics, extra screens, nice-to-haves); a lean demo video, README and submission must still happen. Only say postpone/cut when the feature does not move the judging criteria, or even its smallest slice cannot fit.
+
+verdict:
+- "build_it": it's core to winning and fits.
+- "build_slice": the wild version won't fit, but a narrow real slice will and it lifts the score; build that.
+- "postpone": worth it, but not before the must-haves; do it only if time remains after them.
+- "cut": doesn't move the criteria or can't fit in any honest form.
+
+Return JSON: {"verdict":"build_it|build_slice|postpone|cut","headline":"one direct sentence with the decision and why",
+"what_exists":[{"name":"real product/project","does":"what it does, short","url":"from research or empty"}],
+"gap":"what none of them do that this could","wild_version":"the boldest version, 1-2 sentences",
+"demo_slice":{"what":"the exact slice to build and show","hours":0,"how":["2-4 concrete build steps with libraries"]},
+"judge_view":[{"criterion":"a judging criterion","effect":"up|same|down","why":"short"}],
+"win_effect":"one honest sentence on how this changes their chances",
+"make_time":["lower-value work to shrink or drop to fund this (empty if not needed)"],
+"keep":["must-haves to protect"],"do_next":["the next 1-3 actions, in order"],
+"time_check":"one sentence: slice hours + must-haves vs time left"}
+Rules: what_exists 2-5 items, only real ones (from research, or well-known products you are sure of). judge_view covers the hackathon's criteria (max 6). hours honest for a solo builder.`;
   },
 
   hack_judge(b) {
@@ -471,10 +563,17 @@ const shape = {
     return tasks.length ? { tasks, cut: list(o.cut, 8, 200), must_haves: list(o.must_haves, 8, 200), note: clip(o.note, 300) } : { error: 'Could not make a plan right now. Try again.' };
   },
   hack_scope(o) {
-    if (!o?.headline) return { error: 'Could not check the scope right now. Try again.' };
+    if (!o?.headline) return { error: 'Could not run the vision check right now. Try again.' };
+    const ds = o.demo_slice || {};
     return {
-      verdict: ['on_track', 'overbuilding', 'overthinking', 'underbuilding'].includes(o.verdict) ? o.verdict : 'on_track',
-      headline: clip(o.headline, 300), keep: list(o.keep, 5), cut: list(o.cut, 6), do_next: list(o.do_next, 3), time_check: clip(o.time_check, 300),
+      verdict: ['build_it', 'build_slice', 'postpone', 'cut'].includes(o.verdict) ? o.verdict : 'build_slice',
+      headline: clip(o.headline, 400),
+      what_exists: (o.what_exists || []).filter((x) => x && x.name).slice(0, 5).map((x) => ({ name: clip(x.name, 80), does: clip(x.does, 200), url: /^https?:\/\//.test(String(x.url || '')) ? clip(x.url, 300) : '' })),
+      gap: clip(o.gap, 400), wild_version: clip(o.wild_version, 500),
+      demo_slice: { what: clip(ds.what, 400), hours: num(ds.hours, 0, 200), how: list(ds.how, 4, 250) },
+      judge_view: (o.judge_view || []).filter((j) => j && j.criterion).slice(0, 6).map((j) => ({ criterion: clip(j.criterion, 60), effect: ['up', 'same', 'down'].includes(j.effect) ? j.effect : 'same', why: clip(j.why, 160) })),
+      win_effect: clip(o.win_effect, 300),
+      make_time: list(o.make_time, 5), keep: list(o.keep, 5), do_next: list(o.do_next, 3), time_check: clip(o.time_check, 300),
     };
   },
   hack_judge(o, b) {
