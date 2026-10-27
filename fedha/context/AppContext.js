@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { releaseDueUnlocks } from '../lib/ziidi';
 import { genId, todayISO, setRates, goalsInTurnOrder, fillGoalsInOrder } from '../lib/utils';
 import { fetchRates } from '../lib/exchange';
 import { loanIdFromPaymentTx } from '../lib/finance-actions';
@@ -133,9 +134,13 @@ export function AppProvider({ children }) {
     const total = Math.round(fills.reduce((s, a) => s + a.allocated, 0) * 100) / 100;
     if (total <= 0) return null;
 
+    // If this wallet has Ziidi, the savings go into Ziidi Locked (a transfer, so the money is still yours,
+    // just locked). Otherwise it is recorded as a savings expense like before.
+    const lockedPocket = (await getWallets()).find((w) => w.parent_id === deposit.wallet_id && w.pocket === 'ziidi_locked');
     const saveTx = await saveTransaction({
       id: `${deposit.id}_save`,
-      type: 'expense',
+      type: lockedPocket ? 'transfer' : 'expense',
+      ...(lockedPocket ? { to_wallet_id: lockedPocket.id } : {}),
       amount: total,
       wallet_id: deposit.wallet_id,
       category: 'savings',
@@ -186,6 +191,17 @@ export function AppProvider({ children }) {
     const [ws, bs] = await Promise.all([getWallets(), getBudgets()]); setWallets(ws); setBudgets(bs);
   }, [pendingSavings, saveCutFromDeposit]);
   const skipSavingsCut = useCallback(() => setSavingsQueue((q) => q.slice(1)), []);
+
+  // Ziidi unlocks: once the 72 hours are up, move the money from Ziidi Locked to Ziidi.
+  const walletsRef = useRef(wallets);
+  walletsRef.current = wallets;
+  useEffect(() => {
+    if (loading) return undefined;
+    const run = () => releaseDueUnlocks(walletsRef.current, addTransaction).catch(() => {});
+    run();
+    const id = setInterval(run, 5 * 60e3);
+    return () => clearInterval(id);
+  }, [loading, addTransaction]);
   const removeTransaction = useCallback(async (id) => {
     // A transaction's fee (id + "_fee") and savings cut (id + "_save") go with
     // it, so balances and goals stay right.

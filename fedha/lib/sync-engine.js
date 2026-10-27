@@ -42,7 +42,7 @@ export async function getPendingCount() {
 // (Matches the live Supabase schema; add a column here if you add one there.)
 const TABLE_COLUMNS = {
   transactions: ['id', 'type', 'amount', 'wallet_id', 'to_wallet_id', 'category', 'description', 'date', 'is_impulse', 'currency', 'created_at', 'updated_at', 'user_id', 'synced'],
-  wallets: ['id', 'name', 'type', 'balance', 'currency', 'color', 'icon', 'phone_number', 'created_at', 'updated_at', 'user_id', 'synced'],
+  wallets: ['id', 'name', 'type', 'balance', 'currency', 'color', 'icon', 'phone_number', 'parent_id', 'pocket', 'created_at', 'updated_at', 'user_id', 'synced'],
   budgets: ['id', 'name', 'category', 'allocated', 'spent', 'period', 'created_at', 'updated_at', 'user_id', 'synced'],
   goals: ['id', 'name', 'target', 'current', 'deadline', 'icon', 'color', 'created_at', 'updated_at', 'user_id', 'synced'],
   loans: ['id', 'type', 'contact_name', 'amount', 'remaining', 'due_date', 'notes', 'status', 'created_at', 'updated_at', 'user_id', 'synced', 'settled_txn_id'],

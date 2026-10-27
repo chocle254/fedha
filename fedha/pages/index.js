@@ -178,11 +178,12 @@ export default function Dashboard() {
         <div className="section">
           <div className="section-title">Wallets</div>
           <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
-            {wallets.map((w) => (
+            {wallets.filter((w) => !w.pocket).map((w) => (
               <div key={w.id} className="card" style={{ minWidth: 140, padding: '14px 16px', flexShrink: 0, borderColor: `${w.color}30` }}>
                 <div style={{ fontSize: 22, marginBottom: 8 }}>{w.icon}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 4 }}>{w.name}</div>
                 <div className="font-num" style={{ fontSize: 16, fontWeight: 700, color: w.color }}>{formatShort(w.balance, w.currency || currency)}</div>
+                <ZiidiLine wallets={wallets} parent={w} currency={w.currency || currency} />
               </div>
             ))}
           </div>
@@ -391,11 +392,12 @@ function DesktopDashboard({ wallets, transactions, goals, currency, netWorth, to
               <div style={{ fontSize: 13, color: 'var(--text-2)' }}>No wallets yet.</div>
             ) : (
               <div className="desk-wallets">
-                {wallets.map((w) => (
+                {wallets.filter((w) => !w.pocket).map((w) => (
                   <div key={w.id} className="card-2" style={{ padding: '14px', borderColor: `${w.color}40` }}>
                     <div style={{ fontSize: 22, marginBottom: 6 }}>{w.icon}</div>
                     <div style={{ fontSize: 12, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.name}</div>
                     <div className="font-num" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginTop: 2 }}>{formatShort(w.balance, w.currency || currency)}</div>
+                    <ZiidiLine wallets={wallets} parent={w} currency={w.currency || currency} />
                     <div style={{ height: 3, borderRadius: 2, background: w.color, marginTop: 10, opacity: 0.8 }} />
                   </div>
                 ))}
@@ -496,6 +498,19 @@ function DesktopDashboard({ wallets, transactions, goals, currency, netWorth, to
         <span style={{ color: 'var(--green)', fontWeight: 700 }}>Fedha</span>
         <span>© {new Date().getFullYear()} Fedha</span>
       </footer>
+    </div>
+  );
+}
+
+// Under an M-Pesa wallet: its Ziidi and locked savings, so the main number is only what you can spend.
+function ZiidiLine({ wallets, parent, currency }) {
+  const z = wallets.find((w) => w.parent_id === parent.id && w.pocket === 'ziidi');
+  const l = wallets.find((w) => w.parent_id === parent.id && w.pocket === 'ziidi_locked');
+  if (!z && !l) return null;
+  return (
+    <div className="font-num" style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6, lineHeight: 1.5 }}>
+      {z && <div>📈 Ziidi {formatShort(z.balance, currency)}</div>}
+      {l && <div>🔒 Locked {formatShort(l.balance, currency)}</div>}
     </div>
   );
 }

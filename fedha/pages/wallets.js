@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { pocketsOf, enableZiidi, move, getUnlocks, requestUnlock, cancelUnlock, walletSplit, releaseDueUnlocks, UNLOCK_HOURS } from '../lib/ziidi';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
@@ -83,12 +84,208 @@ function WalletForm({ initial, onSave, onClose }) {
   );
 }
 
+// Value for a datetime-local input, in local time.
+const localInput = (d = new Date()) => { const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return z.toISOString().slice(0, 16); };
+const releaseLabel = (startedLocal) => {
+  const t = new Date(startedLocal).getTime();
+  if (!Number.isFinite(t)) return '';
+  const r = new Date(t + UNLOCK_HOURS * 3600e3);
+  return r <= new Date() ? 'already finished, so it moves to Ziidi straight away' : `lands in Ziidi ${r.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`;
+};
+
+function timeLeft(iso) {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 'releasing now';
+  const h = Math.floor(ms / 3600e3);
+  return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h left` : `${h}h ${Math.floor((ms % 3600e3) / 60e3)}m left`;
+}
+
+const MOVES = {
+  push: { title: 'Push to Ziidi', from: 'mpesa', to: 'ziidi', verb: 'Move', desc: 'M-Pesa → Ziidi. Earns interest and is still withdrawable any time.' },
+  lock: { title: 'Lock for savings', from: 'ziidi', to: 'locked', verb: 'Lock', desc: `Ziidi → Ziidi Locked. Taking it out later needs a ${UNLOCK_HOURS}-hour unlock.` },
+  unlock: { title: 'Unlock', from: 'locked', to: 'ziidi', verb: 'Start unlock', desc: `Starts the ${UNLOCK_HOURS}-hour wait. The money moves to Ziidi by itself when it's done.` },
+  withdraw: { title: 'Withdraw to M-Pesa', from: 'ziidi', to: 'mpesa', verb: 'Withdraw', desc: 'Ziidi → M-Pesa balance, ready to spend.' },
+};
+
+function MoveModal({ kind, pockets, available, currency, onDone, onClose }) {
+  const m = MOVES[kind];
+  const [amount, setAmount] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [earlier, setEarlier] = useState(false);
+  const [startedAt, setStartedAt] = useState(localInput());
+  const max = Math.max(0, available);
+  async function go() {
+    const a = Number(amount);
+    if (!(a > 0)) { setErr('Enter an amount.'); return; }
+    if (a > max + 1e-9) { setErr(`Only ${formatCurrency(max, currency)} available.`); return; }
+    setBusy(true);
+    if (kind === 'unlock' && earlier && !(new Date(startedAt).getTime() <= Date.now())) { setErr('The start time must be in the past.'); return; }
+    try { await onDone(a, kind === 'unlock' && earlier ? new Date(startedAt).toISOString() : null); } catch (e) { setErr(e.message || 'Could not move the money.'); setBusy(false); }
+  }
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-sheet">
+        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+        <div className="modal-header">
+          <span style={{ fontSize: 16, fontWeight: 700 }}>{m.title}</span>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>{m.desc}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Available: <b className="font-num" style={{ color: 'var(--text)' }}>{formatCurrency(max, currency)}</b></div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input className="input font-num" type="number" inputMode="decimal" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
+            <button className="btn-ghost" onClick={() => setAmount(String(Math.floor(max * 100) / 100))}>All</button>
+          </div>
+          {kind === 'unlock' && (
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-2)' }}>
+                <input type="checkbox" checked={earlier} onChange={(e) => setEarlier(e.target.checked)} /> I already started this unlock in the M-Pesa app
+              </label>
+              {earlier && (
+                <div style={{ marginTop: 8 }}>
+                  <input className="input" type="datetime-local" max={localInput()} value={startedAt} onChange={(e) => setStartedAt(e.target.value)} />
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>Started {startedAt ? new Date(startedAt).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}: {releaseLabel(startedAt)}.</div>
+                </div>
+              )}
+            </div>
+          )}
+          {err && <div style={{ color: 'var(--red)', fontSize: 13 }}>{err}</div>}
+          <button className="btn-primary" disabled={busy} onClick={go}>{busy ? '…' : kind === 'unlock' && earlier ? 'Add unlock' : m.verb}</button>
+          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>Do the same move in the M-Pesa app too. This keeps Fedha's balances matching your phone.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SetupZiidiModal({ wallet, currency, onSave, onClose }) {
+  const [ziidi, setZiidi] = useState('');
+  const [locked, setLocked] = useState('');
+  const [wasCounted, setWasCounted] = useState(true);
+  const [unlocking, setUnlocking] = useState('');
+  const [unlockStart, setUnlockStart] = useState(localInput());
+  const total = (Number(ziidi) || 0) + (Number(locked) || 0) + (Number(unlocking) || 0);
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-sheet">
+        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+        <div className="modal-header">
+          <span style={{ fontSize: 16, fontWeight: 700 }}>Add Ziidi to {wallet.name}</span>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>Open Ziidi in your M-Pesa app and copy the two balances here.</div>
+          <label style={{ fontSize: 12, color: 'var(--text-3)' }}>Ziidi balance (not locked)
+            <input className="input font-num" type="number" inputMode="decimal" placeholder="0" value={ziidi} onChange={(e) => setZiidi(e.target.value)} style={{ marginTop: 6 }} />
+          </label>
+          <label style={{ fontSize: 12, color: 'var(--text-3)' }}>Locked funds 🔒
+            <input className="input font-num" type="number" inputMode="decimal" placeholder="0" value={locked} onChange={(e) => setLocked(e.target.value)} style={{ marginTop: 6 }} />
+          </label>
+          <label style={{ fontSize: 12, color: 'var(--text-3)' }}>Unlocking right now ⏳ (already left Locked, not yet in Ziidi)
+            <input className="input font-num" type="number" inputMode="decimal" placeholder="0" value={unlocking} onChange={(e) => setUnlocking(e.target.value)} style={{ marginTop: 6 }} />
+          </label>
+          {Number(unlocking) > 0 && (
+            <label style={{ fontSize: 12, color: 'var(--text-3)' }}>When you started that unlock
+              <input className="input" type="datetime-local" max={localInput()} value={unlockStart} onChange={(e) => setUnlockStart(e.target.value)} style={{ marginTop: 6 }} />
+              <div style={{ marginTop: 6 }}>{releaseLabel(unlockStart)}.</div>
+            </label>
+          )}
+          {total > 0 && (
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
+              <input type="checkbox" checked={wasCounted} onChange={(e) => setWasCounted(e.target.checked)} style={{ marginTop: 3 }} />
+              <span>This {formatCurrency(total, currency)} was already counted in {wallet.name}&apos;s balance ({formatCurrency(wallet.balance, currency)}), so take it out of there. Untick if {wallet.name} only shows your M-Pesa balance.</span>
+            </label>
+          )}
+          <button className="btn-primary" onClick={() => onSave({ ziidi: Number(ziidi) || 0, locked: Number(locked) || 0, unlocking: Number(unlocking) || 0, unlockStart: new Date(unlockStart).toISOString(), wasCounted: wasCounted && total > 0 })}>Add Ziidi</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock }) {
+  const mine = unlocks.filter((u) => u.parent_id === wallet.id);
+  const unlocking = Math.min(mine.reduce((s, u) => s + Number(u.amount), 0), Number(pockets.locked?.balance) || 0);
+  const lockedFree = (Number(pockets.locked?.balance) || 0) - unlocking;
+  const tile = (label, value, color, sub) => (
+    <div style={{ flex: 1, minWidth: 0, padding: '10px 12px', background: 'var(--card-2)', borderRadius: 10 }}>
+      <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{label}</div>
+      <div className="font-num" style={{ fontSize: 15, fontWeight: 700, color, marginTop: 2 }}>{formatCurrency(value, currency)}</div>
+      {sub && <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+  const act = (k, label, disabled) => (
+    <button key={k} onClick={() => onMove(k)} disabled={disabled} style={{ flex: 1, padding: '9px 4px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: disabled ? 'var(--text-3)' : 'var(--text)', fontSize: 12, fontWeight: 600, cursor: disabled ? 'default' : 'pointer', fontFamily: 'Outfit', opacity: disabled ? 0.5 : 1 }}>{label}</button>
+  );
+  return (
+    <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {tile('📱 M-Pesa', wallet.balance, 'var(--text)', 'spend from here')}
+        {tile('📈 Ziidi', pockets.ziidi?.balance, '#10B981', 'withdraw any time')}
+        {tile('🔒 Locked', lockedFree, '#F59E0B', unlocking > 0 ? `+ ${formatCurrency(unlocking, currency)} unlocking` : 'savings')}
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+        {act('push', '→ Ziidi', !(Number(wallet.balance) > 0))}
+        {act('lock', '🔒 Lock', !(Number(pockets.ziidi?.balance) > 0))}
+        {act('unlock', '🔓 Unlock', !(lockedFree > 0))}
+        {act('withdraw', '← M-Pesa', !(Number(pockets.ziidi?.balance) > 0))}
+      </div>
+      {mine.map((u) => (
+        <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, padding: '8px 10px', borderRadius: 10, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', fontSize: 12 }}>
+          <span>⏳</span>
+          <span style={{ flex: 1 }}><b className="font-num">{formatCurrency(u.amount, currency)}</b> unlocking · {timeLeft(u.release_at)} · lands in Ziidi {new Date(u.release_at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+          <button onClick={() => onCancelUnlock(u.id)} style={{ background: 'none', border: 0, color: 'var(--text-3)', cursor: 'pointer', fontSize: 12 }}>Cancel</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function WalletsPage() {
   const { wallets, transactions, addWallet, updateWallet, removeWallet, currency } = useApp();
   const [showAdd, setShowAdd] = useState(false);
   const [editWallet, setEditWallet] = useState(null);
   const [showTxn, setShowTxn] = useState(false);
   const [selectedWallet, setSelectedWallet] = useState(null);
+  const { addTransaction } = useApp();
+  const [unlocks, setUnlocks] = useState([]);
+  const [moving, setMoving] = useState(null); // { wallet, kind }
+  const [settingUp, setSettingUp] = useState(null);
+  useEffect(() => { getUnlocks().then(setUnlocks); }, [wallets]);
+
+  const pocketWallet = (w, which) => (which === 'mpesa' ? w : pocketsOf(wallets, w.id)[which === 'locked' ? 'locked' : 'ziidi']);
+  function availableFor(w, kind) {
+    const src = pocketWallet(w, MOVES[kind].from);
+    let a = Number(src?.balance) || 0;
+    if (kind === 'unlock') a -= unlocks.filter((u) => u.parent_id === w.id).reduce((s, u) => s + Number(u.amount), 0);
+    return a;
+  }
+  async function doMove(amount, startedAt = null) {
+    const { wallet: w, kind } = moving;
+    if (kind === 'unlock') {
+      await requestUnlock(w.id, amount, startedAt);
+      await releaseDueUnlocks(wallets, addTransaction); // an unlock started 72+ h ago lands in Ziidi right away
+      setUnlocks(await getUnlocks());
+    } else {
+      const m = MOVES[kind];
+      await move(addTransaction, { from: pocketWallet(w, m.from), to: pocketWallet(w, m.to), amount, description: m.title });
+    }
+    setMoving(null);
+  }
+  // Money already unlocking sits in Locked (Fedha counts it there until it lands) with its real start time.
+  async function setupZiidi({ ziidi, locked, unlocking, unlockStart, wasCounted }) {
+    const w = settingUp;
+    const pockets = await enableZiidi(w, { ziidi, locked: locked + unlocking }, addWallet);
+    if (wasCounted) await updateWallet({ ...w, balance: (Number(w.balance) || 0) - ziidi - locked - unlocking });
+    if (unlocking > 0) {
+      await requestUnlock(w.id, unlocking, unlockStart);
+      await releaseDueUnlocks([...wallets, pockets.ziidi, pockets.locked], addTransaction);
+    }
+    setUnlocks(await getUnlocks());
+    setSettingUp(null);
+  }
 
   async function handleSave(data) {
     if (editWallet) { await updateWallet(data); setEditWallet(null); }
@@ -96,6 +293,10 @@ export default function WalletsPage() {
   }
 
   const totalBalance = wallets.reduce((s, w) => s + Number(w.balance || 0), 0);
+  const split = walletSplit(wallets, unlocks);
+  const hasAnyZiidi = wallets.some((w) => w.pocket);
+  // Pockets are shown inside their M-Pesa wallet, not as wallets of their own.
+  const topWallets = wallets.filter((w) => !w.pocket || !wallets.some((p) => p.id === w.parent_id));
 
   return (
     <Layout onFab={() => setShowTxn(true)}>
@@ -103,11 +304,24 @@ export default function WalletsPage() {
         <div className="page-header">
           <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Wallets</h1>
           <div className="font-num" style={{ fontSize: 14, color: 'var(--text-3)' }}>Total: {formatCurrency(totalBalance, currency)}</div>
+          {hasAnyZiidi && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginTop: 12 }}>
+              {[['Ready to spend', split.spendable, 'var(--text)', 'M-Pesa, cash, bank'], ['In Ziidi', split.ziidi, '#10B981', 'withdraw any time'], ['Locked savings', split.locked, '#F59E0B', `needs ${UNLOCK_HOURS}h to unlock`], ...(split.unlocking > 0 ? [['Unlocking', split.unlocking, '#F59E0B', 'on the way to Ziidi']] : [])].map(([l, v, c, sub]) => (
+                <div key={l} className="card" style={{ padding: '10px 12px' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{l}</div>
+                  <div className="font-num" style={{ fontSize: 16, fontWeight: 700, color: c, marginTop: 2 }}>{formatCurrency(v, currency)}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 2 }}>{sub}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div style={{ padding: '0 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {wallets.map((w) => {
-            const txns = transactions.filter((t) => t.wallet_id === w.id || t.to_wallet_id === w.id);
+          {topWallets.map((w) => {
+            const pockets = pocketsOf(wallets, w.id);
+            const ids = [w.id, pockets.ziidi?.id, pockets.locked?.id].filter(Boolean);
+            const txns = transactions.filter((t) => ids.includes(t.wallet_id) || ids.includes(t.to_wallet_id));
             const recent = txns.slice(0, 3);
             return (
               <div key={w.id} className="card" style={{ overflow: 'hidden', borderColor: `${w.color}25` }}>
@@ -118,7 +332,7 @@ export default function WalletsPage() {
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{w.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-3)', textTransform: 'capitalize' }}>{w.type}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-3)', textTransform: 'capitalize' }}>{w.type}{pockets.ziidi ? ` · with Ziidi · total ${formatCurrency(Number(w.balance) + Number(pockets.ziidi.balance || 0) + Number(pockets.locked?.balance || 0), w.currency || currency)}` : ''}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="font-num" style={{ fontSize: 20, fontWeight: 700, color: Number(w.balance) >= 0 ? w.color : 'var(--red)' }}>
@@ -128,20 +342,32 @@ export default function WalletsPage() {
                   </div>
                 </div>
 
+                {pockets.ziidi && (
+                  <ZiidiPanel wallet={w} pockets={pockets} unlocks={unlocks} currency={w.currency || currency}
+                    onMove={(kind) => setMoving({ wallet: w, kind })}
+                    onCancelUnlock={async (id) => { await cancelUnlock(id); setUnlocks(await getUnlocks()); }} />
+                )}
+                {!pockets.ziidi && w.type === 'mobile' && !w.pocket && (
+                  <button onClick={() => setSettingUp(w)} style={{ width: '100%', padding: '10px 16px', background: 'transparent', border: 0, borderTop: '1px solid var(--border)', color: 'var(--green)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit', textAlign: 'left' }}>
+                    📈 Add Ziidi & locked savings to this wallet
+                  </button>
+                )}
+
                 {/* Recent txns */}
                 {recent.length > 0 && (
                   <div style={{ borderTop: '1px solid var(--border)' }}>
                     {recent.map((tx, i) => {
                       const cat = getCategoryById(tx.category);
-                      const isIncoming = tx.to_wallet_id === w.id;
+                      const isIncoming = tx.to_wallet_id === w.id || (tx.type !== 'transfer' && tx.type === 'income');
+                      const internal = tx.type === 'transfer' && ids.includes(tx.wallet_id) && ids.includes(tx.to_wallet_id);
                       return (
                         <div key={tx.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: i < recent.length - 1 ? '1px solid var(--border)' : 'none' }}>
                           <span style={{ fontSize: 16 }}>{tx.type === 'transfer' ? '⇄' : cat.icon}</span>
                           <div style={{ flex: 1, fontSize: 13, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {tx.description || (tx.type === 'transfer' ? 'Transfer' : cat.label)}
                           </div>
-                          <div className="font-num" style={{ fontSize: 13, fontWeight: 600, flexShrink: 0, color: (tx.type === 'income' || isIncoming) ? 'var(--green)' : 'var(--red)' }}>
-                            {(tx.type === 'income' || isIncoming) ? '+' : '-'}{formatCurrency(tx.amount, currency)}
+                          <div className="font-num" style={{ fontSize: 13, fontWeight: 600, flexShrink: 0, color: internal ? 'var(--text-3)' : (tx.type === 'income' || isIncoming) ? 'var(--green)' : 'var(--red)' }}>
+                            {internal ? '⇄ ' : (tx.type === 'income' || isIncoming) ? '+' : '-'}{formatCurrency(tx.amount, currency)}
                           </div>
                         </div>
                       );
@@ -184,6 +410,8 @@ export default function WalletsPage() {
         />
       )}
       {showTxn && <TransactionModal onClose={() => setShowTxn(false)} />}
+      {moving && <MoveModal kind={moving.kind} available={availableFor(moving.wallet, moving.kind)} currency={moving.wallet.currency || currency} onDone={doMove} onClose={() => setMoving(null)} />}
+      {settingUp && <SetupZiidiModal wallet={settingUp} currency={settingUp.currency || currency} onSave={setupZiidi} onClose={() => setSettingUp(null)} />}
     </Layout>
   );
 }
