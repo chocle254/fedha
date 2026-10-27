@@ -13,8 +13,9 @@ export function floorToStep(v, step) { return Number((Math.floor(v / step + 1e-9
 export function ceilToStep(v, step) { return Number((Math.ceil(v / step - 1e-9) * step).toFixed(decimals(step))); }
 
 // Size a position so that hitting the stop loses about riskUsdt, then respect Binance's lot rules.
-export function sizePosition({ entry, stop, riskUsdt, filters }) {
-  const dist = Math.abs(entry - stop);
+export function sizePosition({ entry, stop, riskUsdt, filters, spread = 0 }) {
+  // A stop-loss exits at the stop minus (long) or plus (short) the spread, so that cost is part of the risk per unit.
+  const dist = Math.abs(entry - stop) + Math.max(0, Number(spread) || 0);
   if (!(dist > 0)) return { ok: false, error: 'Stop-loss is the same as the entry.' };
   const step = Number(filters.stepSize) || 1e-8;
   const minQty = Number(filters.minQty) || 0;
@@ -54,6 +55,7 @@ export function evaluateTrade(trade, candles, now = Date.now()) {
   const tps = (trade.take_profits || []).map(Number);
   const age = now - new Date(trade.created_at).getTime();
   const share = tps.length ? qty / tps.length : 0;
+  const spread = Math.max(0, Number(trade.spread_abs) || 0);
 
   let filled = trade.status !== 'pending';
   let filledAt = trade.filled_at || null;
@@ -76,8 +78,9 @@ export function evaluateTrade(trade, candles, now = Date.now()) {
     if (best === null || (buy ? fav > best : fav < best)) best = fav;
 
     if (sl != null && (buy ? k.l <= sl : k.h >= sl)) {
-      realized += dir * (sl - entry) * remaining;
-      fees += FEE_RATE * sl * remaining;
+      const exit = buy ? sl - spread : sl + spread; // stop-market orders fill across the spread
+      realized += dir * (exit - entry) * remaining;
+      fees += FEE_RATE * exit * remaining;
       remaining = 0;
       worst = buy ? Math.max(worst, sl) : Math.min(worst, sl);
       closedAt = k.t;
@@ -113,7 +116,7 @@ export function evaluateTrade(trade, candles, now = Date.now()) {
     status = 'pending';
   }
 
-  const risk = sl != null ? Math.abs(entry - sl) * qty : null;
+  const risk = sl != null ? (Math.abs(entry - sl) + spread) * qty : null;
   const dd = worst == null ? null : Math.max(0, dir * (entry - worst)) * qty;
   const r4 = (n) => (n == null ? null : Math.round(n * 1e4) / 1e4);
   return {

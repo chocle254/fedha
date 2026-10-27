@@ -1,6 +1,6 @@
 import { requireUser } from '../../../lib/require-user';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
-import { getSettings, openPaperTrade, evaluateLiveTrade } from '../../../lib/trading';
+import { openPaperTrade, evaluateLiveTrade } from '../../../lib/trading';
 
 // PAPER ONLY: simulated trades scored against real Binance prices.
 export default async function handler(req, res) {
@@ -28,8 +28,7 @@ export default async function handler(req, res) {
     if (!signalId) return res.status(400).json({ error: 'signalId is required' });
     const { data: signal } = await supabaseAdmin.from('trade_signals').select('*').eq('id', signalId).eq('user_id', user.id).maybeSingle();
     if (!signal) return res.status(404).json({ error: 'Signal not found.' });
-    const settings = await getSettings(user.id);
-    const result = await openPaperTrade({ userId: user.id, signal, riskUsdt: riskUsdt || settings.risk_usdt, auto: false });
+    const result = await openPaperTrade({ userId: user.id, signal, riskUsdt: Number(riskUsdt) > 0 ? Number(riskUsdt) : null, auto: false });
     if (!result.ok) return res.status(422).json({ error: result.error });
     return res.status(200).json({ trade: result.trade });
   }

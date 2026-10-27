@@ -42,6 +42,7 @@ async function send(payload) {
 }
 
 const client = new TelegramClient(new StringSession(TG_SESSION), Number(TG_API_ID), TG_API_HASH, { connectionRetries: Infinity, autoReconnect: true });
+client.session.setDC(client.session.dcId, client.session.serverAddress, Number(process.env.TG_PORT || 443));
 await client.connect();
 await client.getDialogs({ limit: 300 }); // loads your chats so channel updates are delivered
 console.log('Connected. Watching', watch.length ? watch.join(', ') : 'all groups and channels');
@@ -70,4 +71,18 @@ client.addEventHandler(async (event) => {
 }, new NewMessage({}));
 
 // Keep the process alive and make connection drops visible.
-setInterval(() => { if (!client.connected) console.warn('Not connected, waiting for reconnect...'); }, 60000);
+// WATCHDOG: restart cleanly if Telegram stops answering or memory balloons (start.sh relaunches us).
+let misses = 0;
+setInterval(async () => {
+  const mb = process.memoryUsage().rss / 1048576;
+  if (mb > 350) { console.error('Memory at ' + Math.round(mb) + ' MB, restarting'); process.exit(1); }
+  try {
+    await Promise.race([client.getMe(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000))]);
+    misses = 0;
+  } catch (e) {
+    misses++;
+    console.warn('Telegram not answering (' + misses + '/3): ' + e.message);
+    if (misses >= 3) { console.error('Restarting listener'); process.exit(1); }
+  }
+}, 60000);
+process.on('unhandledRejection', (e) => console.error('unhandled:', e && e.message ? e.message : e));

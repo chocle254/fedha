@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Layout from '../components/Layout';
 
 const SIGNAL_STATUS = {
@@ -16,7 +15,7 @@ const TRADE_STATUS = {
   lost: { label: 'Lost', color: '#EF4444' },
   expired: { label: 'Expired', color: '#9CA3AF' }
 };
-const INTERVALS = ['5m', '15m', '1h', '4h'];
+const INTERVALS = ['1m', '5m', '15m', '1h', '4h'];
 
 function price(v) {
   const n = Number(v);
@@ -31,62 +30,156 @@ function usd(v) {
 const base = (symbol) => symbol.replace(/USDT$|USDC$|FDUSD$/, '');
 const pill = (on) => ({ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 700, border: '1px solid var(--border)', background: on ? 'var(--green)' : 'transparent', color: on ? '#04130A' : 'var(--text-2)', cursor: 'pointer' });
 
-function ChartPanel({ symbol, levels, onClose }) {
+// Open-trade profit marked at a live price, before exit fees. Accounts for take-profits already hit.
+function livePnl(t, p) {
+  if (!t || !Number.isFinite(p)) return null;
+  const dir = t.side === 'BUY' ? 1 : -1;
+  const entry = Number(t.entry);
+  const qty = Number(t.qty);
+  const tps = (t.take_profits || []).map(Number);
+  const n = tps.length;
+  const share = n ? qty / n : 0;
+  const hit = Math.min(t.tp_hit || 0, n);
+  let realized = 0;
+  for (let i = 0; i < hit; i++) realized += dir * (tps[i] - entry) * share;
+  return realized + dir * (p - entry) * (n ? qty - share * hit : qty);
+}
+
+// Live candlestick chart: history from our API, then Binance's public WebSocket updates the last candle in real time.
+function CandleChart({ symbol, levels, trade, onClose }) {
   const [interval, setIntervalValue] = useState('15m');
-  const [candles, setCandles] = useState([]);
-  const [err, setErr] = useState('');
+  const [last, setLast] = useState(null);
+  const [status, setStatus] = useState('loading');
+  const [ready, setReady] = useState(false);
+  const boxRef = useRef(null);
+  const seriesRef = useRef(null);
+  const linesRef = useRef([]);
 
   useEffect(() => {
-    let live = true;
-    const load = async () => {
-      try {
-        const r = await fetch(`/api/trading/chart?symbol=${symbol}&interval=${interval}`, { cache: 'no-store' });
-        const j = await r.json();
-        if (!live) return;
-        if (r.ok) { setCandles(j.candles || []); setErr(''); } else setErr(j.error || 'Could not load the chart.');
-      } catch { if (live) setErr('Could not load the chart.'); }
+    let disposed = false;
+    let chart = null;
+    let ws = null;
+    let retry = null;
+    let poll = null;
+    let fails = 0;
+    let observer = null;
+    const tz = -new Date().getTimezoneOffset() * 60; // show candles in your local time
+    const bar = (c) => ({ time: Math.floor(c.t / 1000) + tz, open: c.o, high: c.h, low: c.l, close: c.c });
+
+    const fetchCandles = async () => {
+      const r = await fetch(`/api/trading/chart?symbol=${symbol}&interval=${interval}`, { cache: 'no-store' });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Could not load the chart.');
+      return j.candles || [];
     };
-    load();
-    const id = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 20000);
-    return () => { live = false; clearInterval(id); };
+
+    const startPolling = () => {
+      if (poll || disposed) return;
+      setStatus('polling');
+      poll = setInterval(async () => {
+        try {
+          const candles = await fetchCandles();
+          if (disposed || !seriesRef.current || !candles.length) return;
+          seriesRef.current.setData(candles.map(bar));
+          setLast(candles[candles.length - 1].c);
+        } catch { /* try again on the next tick */ }
+      }, 5000);
+    };
+
+    const connect = () => {
+      if (disposed) return;
+      try {
+        ws = new WebSocket(`wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${interval}`);
+      } catch { startPolling(); return; }
+      ws.onopen = () => { fails = 0; setStatus('live'); };
+      ws.onmessage = (e) => {
+        try {
+          const k = JSON.parse(e.data).k;
+          if (!k || !seriesRef.current) return;
+          seriesRef.current.update(bar({ t: k.t, o: Number(k.o), h: Number(k.h), l: Number(k.l), c: Number(k.c) }));
+          setLast(Number(k.c));
+        } catch { /* ignore a bad frame */ }
+      };
+      ws.onclose = () => {
+        if (disposed) return;
+        fails += 1;
+        if (fails >= 3) startPolling();
+        retry = setTimeout(connect, 3000);
+      };
+      ws.onerror = () => { try { ws.close(); } catch { /* already closed */ } };
+    };
+
+    (async () => {
+      try {
+        const [{ createChart, CrosshairMode }, candles] = await Promise.all([import('lightweight-charts'), fetchCandles()]);
+        if (disposed || !boxRef.current) return;
+        chart = createChart(boxRef.current, {
+          autoSize: true,
+          height: 340,
+          layout: { background: { color: 'transparent' }, textColor: '#9CA3AF', fontSize: 11 },
+          grid: { vertLines: { color: 'rgba(55,65,81,.3)' }, horzLines: { color: 'rgba(55,65,81,.3)' } },
+          rightPriceScale: { borderColor: '#374151' },
+          timeScale: { borderColor: '#374151', timeVisible: true, secondsVisible: false, rightOffset: 4 },
+          crosshair: { mode: CrosshairMode.Normal }
+        });
+        const series = chart.addCandlestickSeries({ upColor: '#22C55E', downColor: '#EF4444', borderVisible: false, wickUpColor: '#22C55E', wickDownColor: '#EF4444' });
+        series.setData(candles.map(bar));
+        chart.timeScale().fitContent();
+        seriesRef.current = series;
+        if (candles.length) setLast(candles[candles.length - 1].c);
+        setReady(true);
+        connect();
+      } catch (e) {
+        if (!disposed) setStatus(e.message || 'error');
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      clearTimeout(retry);
+      clearInterval(poll);
+      if (ws) { ws.onclose = null; try { ws.close(); } catch { /* already closed */ } }
+      if (observer) observer.disconnect();
+      linesRef.current = [];
+      seriesRef.current = null;
+      setReady(false);
+      if (chart) chart.remove();
+    };
   }, [symbol, interval]);
 
-  const lines = [];
-  if (levels) {
-    lines.push({ y: levels.entry, color: '#60A5FA', label: 'Entry' });
-    if (levels.sl != null) lines.push({ y: Number(levels.sl), color: '#EF4444', label: 'SL' });
-    (levels.tps || []).forEach((tp, i) => lines.push({ y: Number(tp), color: '#22C55E', label: `TP${i + 1}` }));
-  }
-  const data = candles.map((c) => ({ t: c.t, c: c.c }));
-  const all = [...candles.flatMap((c) => [c.h, c.l]), ...lines.map((l) => l.y)].filter(Number.isFinite);
-  const lo = all.length ? Math.min(...all) : 0;
-  const hi = all.length ? Math.max(...all) : 1;
-  const pad = (hi - lo) * 0.05 || hi * 0.01;
-  const last = candles.length ? candles[candles.length - 1].c : null;
-  const fmtTime = (t) => { const d = new Date(t); return interval === '4h' || interval === '1h' ? `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:00` : `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  // Entry / stop / target lines, redrawn when the levels change.
+  const levelsKey = levels ? JSON.stringify(levels) : '';
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!ready || !series) return;
+    linesRef.current.forEach((l) => { try { series.removePriceLine(l); } catch { /* chart was rebuilt */ } });
+    linesRef.current = [];
+    if (!levels) return;
+    const add = (price, color, title) => {
+      if (!Number.isFinite(price)) return;
+      linesRef.current.push(series.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title }));
+    };
+    add(Number(levels.entry), '#60A5FA', 'Entry');
+    if (levels.sl != null) add(Number(levels.sl), '#EF4444', 'SL');
+    (levels.tps || []).forEach((tp, i) => add(Number(tp), '#22C55E', `TP${i + 1}`));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, levelsKey]);
 
+  const pnl = trade && trade.status === 'open' ? livePnl(trade, last) : null;
   return (
     <div className="card" style={{ padding: 14, marginTop: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
         <b>{base(symbol)}/USDT</b>
-        <span className="font-num" style={{ color: 'var(--text-2)', fontSize: 13 }}>{last != null ? price(last) : ''}</span>
+        <span className="font-num" style={{ fontSize: 14, fontWeight: 700 }}>{last != null ? price(last) : ''}</span>
+        <span style={{ fontSize: 10, fontWeight: 800, color: status === 'live' ? '#22C55E' : status === 'polling' ? '#F59E0B' : 'var(--text-3)' }}>{status === 'live' ? '● LIVE' : status === 'polling' ? '● refreshing' : status === 'loading' ? 'loading…' : ''}</span>
+        {pnl != null && <span className="font-num" style={{ fontSize: 12, fontWeight: 800, color: pnl >= 0 ? '#22C55E' : '#EF4444' }}>Trade {usd(pnl)}</span>}
         <span style={{ flex: 1 }} />
-        {INTERVALS.map((i) => <button key={i} onClick={() => setIntervalValue(i)} style={pill(i === interval)}>{i}</button>)}
+        {INTERVALS.map((i) => <button key={i} onClick={() => { setStatus('loading'); setIntervalValue(i); }} style={pill(i === interval)}>{i}</button>)}
         <button onClick={onClose} className="btn-ghost" style={{ padding: '2px 8px' }} aria-label="Close chart">✕</button>
       </div>
-      {err && <div style={{ color: '#EF4444', fontSize: 12, marginBottom: 6 }}>{err}</div>}
-      <div style={{ width: '100%', height: 260 }}>
-        <ResponsiveContainer>
-          <LineChart data={data} margin={{ top: 8, right: 44, left: 0, bottom: 0 }}>
-            <XAxis dataKey="t" tickFormatter={fmtTime} tick={{ fontSize: 10, fill: '#9CA3AF' }} minTickGap={40} />
-            <YAxis domain={[lo - pad, hi + pad]} tickFormatter={price} tick={{ fontSize: 10, fill: '#9CA3AF' }} width={58} orientation="right" />
-            <Tooltip labelFormatter={fmtTime} formatter={(v) => [price(v), 'Price']} contentStyle={{ background: '#111827', border: '1px solid #374151', fontSize: 12 }} />
-            {lines.map((l) => <ReferenceLine key={l.label} y={l.y} stroke={l.color} strokeDasharray="4 3" label={{ value: l.label, fill: l.color, fontSize: 10, position: 'right' }} />)}
-            <Line type="monotone" dataKey="c" stroke="#E5E7EB" strokeWidth={1.6} dot={false} isAnimationActive={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-      {!levels && <div style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 6 }}>No active signal or trade on this pair, so no entry/stop/target lines are drawn.</div>}
+      {status !== 'live' && status !== 'polling' && status !== 'loading' && <div style={{ color: '#EF4444', fontSize: 12, marginBottom: 6 }}>{status}</div>}
+      <div ref={boxRef} style={{ width: '100%', height: 340 }} />
+      {!levels && <div style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 6 }}>No active signal or trade on this pair, so no entry, stop or target lines are drawn.</div>}
     </div>
   );
 }
@@ -95,9 +188,16 @@ export default function TradingPage() {
   const [signals, setSignals] = useState([]);
   const [trades, setTrades] = useState([]);
   const [quotes, setQuotes] = useState([]);
-  const [settings, setSettings] = useState({ auto_enabled: false, mode: 'paper', risk_usdt: 10, min_rr: 0 });
-  const [riskInput, setRiskInput] = useState('10');
+  const [settings, setSettings] = useState({ auto_enabled: false, mode: 'paper', risk_usdt: 10, min_rr: 0, paper_balance: 1000, risk_mode: 'percent', risk_pct: 1 });
+  const [equity, setEquity] = useState(1000);
+  const [riskNow, setRiskNow] = useState(10);
+  const [balanceInput, setBalanceInput] = useState('1000');
+  const [riskMode, setRiskMode] = useState('percent');
+  const [pctInput, setPctInput] = useState('1');
+  const [fixedInput, setFixedInput] = useState('10');
   const [rrInput, setRrInput] = useState('0');
+  const [entryRisk, setEntryRisk] = useState({});
+  const inited = useRef(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [busyId, setBusyId] = useState('');
@@ -107,9 +207,23 @@ export default function TradingPage() {
 
   const load = useCallback(async () => {
     try {
-      const [s, t] = await Promise.all([fetch('/api/signals', { cache: 'no-store' }), fetch('/api/trading/trades', { cache: 'no-store' })]);
+      const [s, t, c] = await Promise.all([fetch('/api/signals', { cache: 'no-store' }), fetch('/api/trading/trades', { cache: 'no-store' }), fetch('/api/trading/settings', { cache: 'no-store' })]);
       const sj = await s.json();
       const tj = await t.json();
+      const cj = await c.json();
+      if (c.ok) {
+        setSettings(cj.settings);
+        setEquity(cj.equity);
+        setRiskNow(cj.riskNow);
+        if (!inited.current) {
+          inited.current = true;
+          setBalanceInput(String(cj.settings.paper_balance));
+          setRiskMode(cj.settings.risk_mode);
+          setPctInput(String(cj.settings.risk_pct));
+          setFixedInput(String(cj.settings.risk_usdt));
+          setRrInput(String(cj.settings.min_rr));
+        }
+      }
       if (s.ok) setSignals(sj.signals || []); else setMessage(sj.error || 'Could not load signals.');
       if (t.ok) setTrades(tj.trades || []); else if (tj.error) setMessage(tj.error);
     } catch {
@@ -120,13 +234,6 @@ export default function TradingPage() {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch('/api/trading/settings', { cache: 'no-store' });
-        const j = await r.json();
-        if (r.ok) { setSettings(j.settings); setRiskInput(String(j.settings.risk_usdt)); setRrInput(String(j.settings.min_rr)); }
-      } catch { /* defaults stay */ }
-    })();
     load();
     const id = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60000);
     return () => clearInterval(id);
@@ -155,6 +262,38 @@ export default function TradingPage() {
     return () => { live = false; clearInterval(id); };
   }, [symbolKey]);
 
+  useEffect(() => {
+    if (!symbolKey) return undefined;
+    let ws = null;
+    let retry = null;
+    let closed = false;
+    const url = `wss://stream.binance.com:9443/stream?streams=${symbolKey.split(',').map((x) => `${x.toLowerCase()}@miniTicker`).join('/')}`;
+    const connect = () => {
+      if (closed) return;
+      try { ws = new WebSocket(url); } catch { return; }
+      ws.onmessage = (e) => {
+        try {
+          const d = JSON.parse(e.data).data;
+          if (!d) return;
+          const p = Number(d.c);
+          const o = Number(d.o);
+          setQuotes((prev) => {
+            const i = prev.findIndex((q) => q.symbol === d.s);
+            const next = { ...(i >= 0 ? prev[i] : { symbol: d.s }), price: p, change: o > 0 ? ((p - o) / o) * 100 : 0 };
+            if (i < 0) return [...prev, next];
+            const copy = [...prev];
+            copy[i] = next;
+            return copy;
+          });
+        } catch { /* ignore a bad frame */ }
+      };
+      ws.onclose = () => { if (!closed) retry = setTimeout(connect, 3000); };
+      ws.onerror = () => { try { ws.close(); } catch { /* already closed */ } };
+    };
+    connect();
+    return () => { closed = true; clearTimeout(retry); if (ws) { ws.onclose = null; try { ws.close(); } catch { /* already closed */ } } };
+  }, [symbolKey]);
+
   const levelsFor = (symbol) => {
     const t = activeTrades.find((x) => x.symbol === symbol);
     if (t) return { entry: Number(t.entry), sl: t.stop_loss, tps: t.take_profits };
@@ -162,23 +301,45 @@ export default function TradingPage() {
     return s ? { entry: Number(s.entry), sl: s.stop_loss, tps: s.take_profits } : null;
   };
 
-  async function saveSettings(patch) {
-    const next = { ...settings, ...patch, risk_usdt: Number(patch.risk_usdt ?? riskInput), min_rr: Number(patch.min_rr ?? rrInput) };
+  async function saveSettings(patch = {}) {
+    const body = {
+      auto_enabled: settings.auto_enabled,
+      mode: 'paper',
+      paper_balance: Number(balanceInput),
+      risk_mode: riskMode,
+      risk_pct: Number(pctInput),
+      risk_usdt: Number(fixedInput),
+      min_rr: Number(rrInput),
+      ...patch
+    };
     setMessage('');
     try {
-      const r = await fetch('/api/trading/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next) });
+      const r = await fetch('/api/trading/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const j = await r.json();
       if (!r.ok) { setMessage(j.error || 'Could not save settings.'); return; }
       setSettings(j.settings);
+      setEquity(j.equity);
+      setRiskNow(j.riskNow);
       setMessage('Saved.');
     } catch { setMessage('Could not save settings.'); }
+  }
+
+  async function useBinanceBalance() {
+    setMessage('');
+    try {
+      const r = await fetch('/api/binance/balances', { cache: 'no-store' });
+      const j = await r.json();
+      if (!r.ok || !j.configured || !(Number(j.totalUsdt) > 0)) { setMessage(j.error || 'Could not read your Binance balance.'); return; }
+      setBalanceInput(String(Math.floor(Number(j.totalUsdt) * 100) / 100));
+      setMessage('Balance filled from Binance. Tap Save to use it.');
+    } catch { setMessage('Could not read your Binance balance.'); }
   }
 
   async function enter(signal) {
     setBusyId(signal.id);
     setMessage('');
     try {
-      const r = await fetch('/api/trading/trades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signalId: signal.id, riskUsdt: Number(settings.risk_usdt) }) });
+      const r = await fetch('/api/trading/trades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signalId: signal.id, riskUsdt: Number(entryRisk[signal.id]) > 0 ? Number(entryRisk[signal.id]) : undefined }) });
       const j = await r.json();
       if (!r.ok) setMessage(j.error || 'Could not enter the trade.');
       else await load();
@@ -228,6 +389,8 @@ export default function TradingPage() {
     const pnl = Number(t.pnl_usdt);
     const dd = Number(t.max_drawdown_usdt);
     const closed = t.status === 'won' || t.status === 'lost' || t.status === 'expired';
+    const lq = t.status === 'open' ? quotes.find((q) => q.symbol === t.symbol) : null;
+    const live = lq ? livePnl(t, lq.price) : null;
     return (
       <div key={t.id} style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -235,13 +398,16 @@ export default function TradingPage() {
           <span style={{ fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: t.side === 'BUY' ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.15)', color: t.side === 'BUY' ? '#22C55E' : '#EF4444' }}>{t.side === 'BUY' ? 'LONG' : 'SHORT*'}</span>
           <span style={{ fontSize: 11, color: st.color, fontWeight: 700 }}>{st.label}{t.status === 'open' && t.tp_hit > 0 ? ` · TP${t.tp_hit} ✓` : ''}{t.auto ? ' · auto' : ''}</span>
           <span style={{ flex: 1 }} />
-          {Number.isFinite(pnl) && t.pnl_usdt != null && <span className="font-num" style={{ fontWeight: 800, fontSize: 13, color: pnl >= 0 ? '#22C55E' : '#EF4444' }}>{usd(pnl)}</span>}
+          {live != null
+            ? <span className="font-num" title="Live, before exit fees" style={{ fontWeight: 800, fontSize: 13, color: live >= 0 ? '#22C55E' : '#EF4444' }}>{usd(live)}</span>
+            : Number.isFinite(pnl) && t.pnl_usdt != null && <span className="font-num" style={{ fontWeight: 800, fontSize: 13, color: pnl >= 0 ? '#22C55E' : '#EF4444' }}>{usd(pnl)}</span>}
           <button onClick={() => setChartSymbol(t.symbol)} className="btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} aria-label="Open chart">📈</button>
           <button onClick={() => removeTrade(t.id)} className="btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} aria-label="Delete trade">✕</button>
         </div>
         <div className="font-num" style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 5, lineHeight: 1.6 }}>
           {t.source} · entry {price(t.entry)} · SL {price(t.stop_loss)} · TP {(t.take_profits || []).map(price).join(' / ')}
           <br />size {t.qty} ({t.symbol.replace(/USDT$/, '')}) · ${Number(t.notional).toFixed(2)} · risk ${Number(t.actual_risk_usdt ?? t.risk_usdt).toFixed(2)}
+          {t.spread_pct != null && <span> · spread {Number(t.spread_pct).toFixed(3)}%</span>}
           {t.min_forced && <span style={{ color: '#F59E0B' }}> · ⚠ Binance minimum size forced (planned ${Number(t.risk_usdt).toFixed(2)})</span>}
         </div>
         {t.max_drawdown_usdt != null && (
@@ -270,7 +436,10 @@ export default function TradingPage() {
             ? <span style={{ fontSize: 11, color: 'var(--text-3)' }}>In a trade</span>
             : s.stop_loss == null
               ? <span style={{ fontSize: 11, color: 'var(--text-3)' }}>No SL</span>
-              : <button onClick={() => enter(s)} disabled={busyId === s.id} className="btn-primary" style={{ padding: '5px 10px', borderRadius: 8, fontSize: 12 }}>{busyId === s.id ? '…' : 'Enter paper'}</button>)}
+              : <>
+                  <input type="number" inputMode="decimal" min="0" step="any" placeholder={`$${riskNow.toFixed(2)}`} title="Risk for this trade in USDT (blank = your default)" value={entryRisk[s.id] ?? ''} onChange={(e) => setEntryRisk((m) => ({ ...m, [s.id]: e.target.value }))} style={{ width: 70, padding: '4px 6px', fontSize: 12 }} />
+                  <button onClick={() => enter(s)} disabled={busyId === s.id} className="btn-primary" style={{ padding: '5px 10px', borderRadius: 8, fontSize: 12 }}>{busyId === s.id ? '…' : 'Enter paper'}</button>
+                </>)}
           <button onClick={() => setChartSymbol(s.symbol)} className="btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} aria-label="Open chart">📈</button>
           <button onClick={() => removeSignal(s.id)} className="btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} aria-label="Delete signal">✕</button>
         </div>
@@ -305,10 +474,26 @@ export default function TradingPage() {
             <button style={pill(true)}>Paper</button>
             <button disabled style={{ ...pill(false), opacity: 0.45, cursor: 'not-allowed' }} title="Real execution is not built yet">Live 🔒</button>
           </div>
-          <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-            <label style={{ fontSize: 12, color: 'var(--text-3)', flex: '1 1 140px' }}>Risk per trade (USDT)
-              <input type="number" inputMode="decimal" min="0" step="any" value={riskInput} onChange={(e) => setRiskInput(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
+          <div className="font-num" style={{ marginTop: 12, fontSize: 12, color: 'var(--text-2)' }}>Paper equity <b style={{ color: equity >= Number(settings.paper_balance) ? '#22C55E' : '#EF4444' }}>${equity.toLocaleString('en-US', { maximumFractionDigits: 2 })}</b> · next trade risks <b>${riskNow.toFixed(2)}</b></div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', flex: '1 1 150px' }}>Starting paper balance (USDT)
+              <input type="number" inputMode="decimal" min="0" step="any" value={balanceInput} onChange={(e) => setBalanceInput(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
             </label>
+            <button onClick={useBinanceBalance} className="btn-ghost" style={{ padding: '9px 12px', fontSize: 12 }}>Use my Binance balance</button>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Risk per trade</span>
+            <button onClick={() => setRiskMode('percent')} style={pill(riskMode === 'percent')}>% of balance</button>
+            <button onClick={() => setRiskMode('fixed')} style={pill(riskMode === 'fixed')}>Fixed $</button>
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+            {riskMode === 'percent'
+              ? <label style={{ fontSize: 12, color: 'var(--text-3)', flex: '1 1 140px' }}>Risk (% of paper equity)
+                  <input type="number" inputMode="decimal" min="0" step="any" value={pctInput} onChange={(e) => setPctInput(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
+                </label>
+              : <label style={{ fontSize: 12, color: 'var(--text-3)', flex: '1 1 140px' }}>Risk (USDT per trade)
+                  <input type="number" inputMode="decimal" min="0" step="any" value={fixedInput} onChange={(e) => setFixedInput(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
+                </label>}
             <label style={{ fontSize: 12, color: 'var(--text-3)', flex: '1 1 140px' }}>Minimum reward:risk (0 = off)
               <input type="number" inputMode="decimal" min="0" step="any" value={rrInput} onChange={(e) => setRrInput(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
             </label>
@@ -324,6 +509,7 @@ export default function TradingPage() {
             return (
               <button key={sym} onClick={() => setChartSymbol(chartSymbol === sym ? '' : sym)} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '12px 14px', background: chartSymbol === sym ? 'var(--card-2)' : 'transparent', border: 0, borderBottom: '1px solid var(--border)', color: 'inherit', cursor: 'pointer' }}>
                 <span style={{ fontWeight: 800, flex: 1 }}>{base(sym)}/USDT</span>
+                {q && q.spreadPct != null && <span className="font-num" style={{ fontSize: 10, color: 'var(--text-3)' }} title="Gap between best buy and sell price">spread {q.spreadPct.toFixed(3)}%</span>}
                 <span className="font-num">{q ? price(q.price) : '—'}</span>
                 <span className="font-num" style={{ fontSize: 12, minWidth: 56, textAlign: 'right', color: q && q.change >= 0 ? '#22C55E' : '#EF4444' }}>{q ? `${q.change >= 0 ? '+' : ''}${q.change.toFixed(2)}%` : ''}</span>
                 <span>📈</span>
@@ -331,7 +517,7 @@ export default function TradingPage() {
             );
           })}
         </div>
-        {chartSymbol && <ChartPanel key={chartSymbol} symbol={chartSymbol} levels={levelsFor(chartSymbol)} onClose={() => setChartSymbol('')} />}
+        {chartSymbol && <CandleChart key={chartSymbol} symbol={chartSymbol} levels={levelsFor(chartSymbol)} trade={activeTrades.find((t) => t.symbol === chartSymbol)} onClose={() => setChartSymbol('')} />}
 
         <div className="section-title" style={{ margin: '22px 0 10px' }}>Paper trades</div>
         <div className="card" style={{ padding: 14, display: 'flex', flexWrap: 'wrap', gap: 18 }}>
@@ -350,7 +536,7 @@ export default function TradingPage() {
           </>
         )}
         <p style={{ color: 'var(--text-3)', fontSize: 11, lineHeight: 1.6, marginTop: 10 }}>
-          Size = risk ÷ distance to stop, rounded down to Binance&apos;s step size. If that falls below Binance&apos;s minimum quantity or minimum order value, the size is raised to the minimum and flagged, so your real risk is higher than planned. Fees of 0.1% per side are included. The position scales out equally across the take-profits and the stop stays put. *Spot cannot short: shorts here are simulated only.
+          Size = risk ÷ (distance to stop + spread), rounded down to Binance&apos;s step size. Market entries fill at the ask (longs) or bid (shorts) and stop-losses fill across the spread; take-profits fill at their price. If that falls below Binance&apos;s minimum quantity or minimum order value, the size is raised to the minimum and flagged, so your real risk is higher than planned. Fees of 0.1% per side are included. The position scales out equally across the take-profits and the stop stays put. *Spot cannot short: shorts here are simulated only.
         </p>
 
         {bySymbol.length > 0 && (
