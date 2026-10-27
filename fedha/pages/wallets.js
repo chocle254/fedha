@@ -163,10 +163,10 @@ function MoveModal({ kind, pockets, available, currency, onDone, onClose }) {
 function SetupZiidiModal({ wallet, currency, onSave, onClose }) {
   const [ziidi, setZiidi] = useState('');
   const [locked, setLocked] = useState('');
-  const [wasCounted, setWasCounted] = useState(true);
+  const [wasCounted, setWasCounted] = useState(false);
   const [unlocking, setUnlocking] = useState('');
   const [unlockStart, setUnlockStart] = useState(localInput());
-  const total = (Number(ziidi) || 0) + (Number(locked) || 0) + (Number(unlocking) || 0);
+  const total = (Number(ziidi) || 0) + (Number(locked) || 0); // unlocking money was in Locked, never in M-Pesa
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-sheet">
@@ -195,7 +195,7 @@ function SetupZiidiModal({ wallet, currency, onSave, onClose }) {
           {total > 0 && (
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
               <input type="checkbox" checked={wasCounted} onChange={(e) => setWasCounted(e.target.checked)} style={{ marginTop: 3 }} />
-              <span>This {formatCurrency(total, currency)} was already counted in {wallet.name}&apos;s balance ({formatCurrency(wallet.balance, currency)}), so take it out of there. Untick if {wallet.name} only shows your M-Pesa balance.</span>
+              <span>Only tick this if {wallet.name}&apos;s balance in Fedha ({formatCurrency(wallet.balance, currency)}) already includes this {formatCurrency(total, currency)} of Ziidi money. Fedha will then take it out of {wallet.name}. If {wallet.name} matches your M-Pesa balance, leave it unticked.</span>
             </label>
           )}
           <button className="btn-primary" onClick={() => onSave({ ziidi: Number(ziidi) || 0, locked: Number(locked) || 0, unlocking: Number(unlocking) || 0, unlockStart: new Date(unlockStart).toISOString(), wasCounted: wasCounted && total > 0 })}>Add Ziidi</button>
@@ -205,7 +205,39 @@ function SetupZiidiModal({ wallet, currency, onSave, onClose }) {
   );
 }
 
-function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock }) {
+// Set the three balances to exactly what the M-Pesa app shows (a correction, not a transaction).
+function EditBalancesModal({ wallet, pockets, unlocking, currency, onSave, onClose }) {
+  const [mpesa, setMpesa] = useState(String(Number(wallet.balance) || 0));
+  const [ziidi, setZiidi] = useState(String(Number(pockets.ziidi?.balance) || 0));
+  const [locked, setLocked] = useState(String(Math.max(0, (Number(pockets.locked?.balance) || 0) - unlocking)));
+  const [busy, setBusy] = useState(false);
+  const field = (label, value, set, hint) => (
+    <label style={{ fontSize: 12, color: 'var(--text-3)' }}>{label}
+      <input className="input font-num" type="number" inputMode="decimal" value={value} onChange={(e) => set(e.target.value)} style={{ marginTop: 6 }} />
+      {hint && <div style={{ fontSize: 11, marginTop: 4 }}>{hint}</div>}
+    </label>
+  );
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-sheet">
+        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+        <div className="modal-header">
+          <span style={{ fontSize: 16, fontWeight: 700 }}>Edit {wallet.name} balances</span>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>Type exactly what the M-Pesa app shows. This corrects the numbers without adding transactions.</div>
+          {field('📱 M-Pesa balance', mpesa, setMpesa)}
+          {field('📈 Ziidi balance', ziidi, setZiidi)}
+          {field('🔒 Locked funds', locked, setLocked, unlocking > 0 ? `Money that's unlocking (${formatCurrency(unlocking, currency)}) is kept separately. Change or cancel it under the wallet.` : null)}
+          <button className="btn-primary" disabled={busy} onClick={async () => { setBusy(true); await onSave({ mpesa: Number(mpesa) || 0, ziidi: Number(ziidi) || 0, locked: (Number(locked) || 0) + unlocking }); }}>{busy ? '…' : 'Save balances'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock, onEdit }) {
   const mine = unlocks.filter((u) => u.parent_id === wallet.id);
   const unlocking = Math.min(mine.reduce((s, u) => s + Number(u.amount), 0), Number(pockets.locked?.balance) || 0);
   const lockedFree = (Number(pockets.locked?.balance) || 0) - unlocking;
@@ -232,6 +264,7 @@ function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock
         {act('unlock', '🔓 Unlock', !(lockedFree > 0))}
         {act('withdraw', '← M-Pesa', !(Number(pockets.ziidi?.balance) > 0))}
       </div>
+      <button onClick={() => onEdit(unlocking)} style={{ marginTop: 8, background: 'none', border: 0, padding: 0, color: 'var(--text-3)', fontSize: 12, cursor: 'pointer', fontFamily: 'Outfit' }}>✏️ Edit balances to match the M-Pesa app</button>
       {mine.map((u) => (
         <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, padding: '8px 10px', borderRadius: 10, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', fontSize: 12 }}>
           <span>⏳</span>
@@ -253,6 +286,14 @@ export default function WalletsPage() {
   const [unlocks, setUnlocks] = useState([]);
   const [moving, setMoving] = useState(null); // { wallet, kind }
   const [settingUp, setSettingUp] = useState(null);
+  const [editing, setEditing] = useState(null); // { wallet, pockets, unlocking }
+  async function saveBalances({ mpesa, ziidi, locked }) {
+    const { wallet: w, pockets } = editing;
+    await updateWallet({ ...w, balance: mpesa });
+    if (pockets.ziidi) await updateWallet({ ...pockets.ziidi, balance: ziidi });
+    if (pockets.locked) await updateWallet({ ...pockets.locked, balance: locked });
+    setEditing(null);
+  }
   useEffect(() => { getUnlocks().then(setUnlocks); }, [wallets]);
 
   const pocketWallet = (w, which) => (which === 'mpesa' ? w : pocketsOf(wallets, w.id)[which === 'locked' ? 'locked' : 'ziidi']);
@@ -278,7 +319,7 @@ export default function WalletsPage() {
   async function setupZiidi({ ziidi, locked, unlocking, unlockStart, wasCounted }) {
     const w = settingUp;
     const pockets = await enableZiidi(w, { ziidi, locked: locked + unlocking }, addWallet);
-    if (wasCounted) await updateWallet({ ...w, balance: (Number(w.balance) || 0) - ziidi - locked - unlocking });
+    if (wasCounted) await updateWallet({ ...w, balance: (Number(w.balance) || 0) - ziidi - locked });
     if (unlocking > 0) {
       await requestUnlock(w.id, unlocking, unlockStart);
       await releaseDueUnlocks([...wallets, pockets.ziidi, pockets.locked], addTransaction);
@@ -345,6 +386,7 @@ export default function WalletsPage() {
                 {pockets.ziidi && (
                   <ZiidiPanel wallet={w} pockets={pockets} unlocks={unlocks} currency={w.currency || currency}
                     onMove={(kind) => setMoving({ wallet: w, kind })}
+                    onEdit={(unlocking) => setEditing({ wallet: w, pockets, unlocking })}
                     onCancelUnlock={async (id) => { await cancelUnlock(id); setUnlocks(await getUnlocks()); }} />
                 )}
                 {!pockets.ziidi && w.type === 'mobile' && !w.pocket && (
@@ -411,6 +453,7 @@ export default function WalletsPage() {
       )}
       {showTxn && <TransactionModal onClose={() => setShowTxn(false)} />}
       {moving && <MoveModal kind={moving.kind} available={availableFor(moving.wallet, moving.kind)} currency={moving.wallet.currency || currency} onDone={doMove} onClose={() => setMoving(null)} />}
+      {editing && <EditBalancesModal wallet={editing.wallet} pockets={editing.pockets} unlocking={editing.unlocking} currency={editing.wallet.currency || currency} onSave={saveBalances} onClose={() => setEditing(null)} />}
       {settingUp && <SetupZiidiModal wallet={settingUp} currency={settingUp.currency || currency} onSave={setupZiidi} onClose={() => setSettingUp(null)} />}
     </Layout>
   );
