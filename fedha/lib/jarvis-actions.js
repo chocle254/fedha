@@ -61,7 +61,7 @@ export async function executeProposedAction(action, ctx) {
 
     case 'propose_log_meal': {
       return ctx.saveFoodLog({
-        id: ctx.genId(),
+        id: args._id || ctx.genId(), // the chat pre-assigns the id so it can offer Undo
         date: todayISO(),
         created_at: new Date().toISOString(),
         slot: args.slot,

@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { useApp } from '../context/AppContext';
 import { buildJarvisContext } from '../lib/jarvis-context';
 import { executeProposedAction, describeProposedAction } from '../lib/jarvis-actions';
-import { getJarvisMemory, setJarvisMemory, getJarvisMemories, searchJarvisMemories, saveStructuredJarvisMemory, deleteStructuredJarvisMemory, getJarvisHistory, appendJarvisMessage, saveFoodLog } from '../lib/db';
+import { getJarvisMemory, setJarvisMemory, getJarvisMemories, searchJarvisMemories, saveStructuredJarvisMemory, deleteStructuredJarvisMemory, getJarvisHistory, appendJarvisMessage, saveFoodLog, deleteFoodLog } from '../lib/db';
 import { genId } from '../lib/utils';
 
 // Minimal inline-markdown renderer — just enough for how a chat model
@@ -263,9 +263,11 @@ export default function JarvisWidget() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }]);
-      await appendJarvisMessage('assistant', data.reply);
-      speak(data.reply);
+      if (data.reply) {
+        setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }]);
+        await appendJarvisMessage('assistant', data.reply);
+        speak(data.reply);
+      }
 
       if (data.memoryUpdate) {
         if (data.memoryUpdate.operation === 'forget') {
@@ -279,6 +281,7 @@ export default function JarvisWidget() {
         const pending = data.proposedActions.filter((a) => !a.autoApply);
         for (const action of auto) {
           try {
+            if (action.tool === 'propose_log_meal') action.args = { ...action.args, _id: genId() };
             await executeProposedAction(action, {
               addTransaction: app.addTransaction,
               removeTransaction: app.removeTransaction,
@@ -292,11 +295,20 @@ export default function JarvisWidget() {
             setActionError(`Couldn't apply Jarvis's committed decision: ${e.message}`);
           }
         }
-        if (auto.length) {
-          setMessages((prev) => [...prev, { role: 'assistant', content: `Locked in — I added ${auto.length === 1 ? 'it' : 'them'} to Fedha.` }]);
+        // Meals: say exactly what was logged (also saved to the chat history, so Jarvis knows it is done) with Undo.
+        for (const action of auto.filter((a) => a.tool === 'propose_log_meal' && a.args._id)) {
+          const note = `✓ Logged — ${describeProposedAction(action).replace(/^Log /, '')}.`;
+          setMessages((prev) => [...prev, { role: 'assistant', content: note, undoMealId: action.args._id }]);
+          await appendJarvisMessage('assistant', note);
+        }
+        const otherAuto = auto.filter((a) => a.tool !== 'propose_log_meal');
+        if (otherAuto.length) {
+          setMessages((prev) => [...prev, { role: 'assistant', content: `Locked in — I added ${otherAuto.length === 1 ? 'it' : 'them'} to Fedha.` }]);
         }
         if (pending.length) {
           setPendingActions((prev) => [...prev, ...pending.map((a) => ({ ...a, id: genId() }))]);
+          // Remember the proposal in the chat history too, so a follow-up ("is it done?") makes sense to Jarvis.
+          await appendJarvisMessage('assistant', `(Waiting for your confirm: ${pending.map(describeProposedAction).join('; ')})`);
         }
       }
     } catch (e) {
@@ -319,9 +331,21 @@ export default function JarvisWidget() {
         currency: app.currency,
       });
       setPendingActions((prev) => prev.filter((a) => a.id !== action.id));
-      setMessages((prev) => [...prev, { role: 'assistant', content: `Done — ${describeProposedAction(action).toLowerCase()}.` }]);
+      const done = `Done — ${describeProposedAction(action).toLowerCase()}.`;
+      setMessages((prev) => [...prev, { role: 'assistant', content: done }]);
+      await appendJarvisMessage('assistant', done);
     } catch (e) {
       setActionError(`Couldn't do that: ${e.message}`);
+    }
+  }
+
+  async function undoMeal(id) {
+    try {
+      await deleteFoodLog(id);
+      setMessages((prev) => prev.map((m) => (m.undoMealId === id ? { ...m, undoMealId: null, content: `${m.content.replace(/^✓ Logged/, 'Undone')}` } : m)));
+      await appendJarvisMessage('assistant', '(That meal log was undone.)');
+    } catch (e) {
+      setActionError(`Couldn't undo that: ${e.message}`);
     }
   }
 
@@ -440,6 +464,14 @@ export default function JarvisWidget() {
                   }}
                 >
                   {renderInlineMarkdown(m.content)}
+                  {m.undoMealId && (
+                    <button
+                      onClick={() => undoMeal(m.undoMealId)}
+                      style={{ marginLeft: 8, padding: '2px 10px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 999, color: 'var(--text-2)', fontSize: 12, cursor: 'pointer', fontFamily: 'Outfit' }}
+                    >
+                      Undo
+                    </button>
+                  )}
                 </div>
               ))}
 

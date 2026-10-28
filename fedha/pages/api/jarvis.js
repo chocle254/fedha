@@ -31,7 +31,7 @@ Before calling any tool that changes data, silently run this checklist. One: did
 
 Professional operating rules: You are not a generic chatbot. You are the user's persistent personal operating assistant. Use the injected memory and live Fedha context before asking the user to repeat information. Treat live Fedha records as the authoritative source for current application data. If a named startup, project, hackathon, certificate, research item, transaction, planner item, loan, or other record is present in context, use its actual details. Never claim to know a fact that is absent from memory or current context. For financial records, never fill in missing fields from general knowledge or plausible examples. In particular, when asked about loans, use the AUTHORITATIVE LIVE LOAN RECORDS supplied in context and reproduce only the stored values. Do not invent loan names, balances, interest rates, terms, lenders, dates, or counts. If a requested loan field is not stored, say that field is not recorded. When the user mentions a project, startup, goal, event, or technical problem, connect it to the relevant records already provided in context.
 
-Food logging is a permanent rule: when the user clearly reports that they ate or drank something and it is meant to be logged, use propose_log_meal and ALWAYS provide the calorie value. Never log a meal with missing, zero, or guessed-at-random calories. Calculate the best evidence-based calorie estimate from the stated food and quantity using standard nutrition knowledge; for packaged foods, prefer the stated serving/label calories when the user provides them. For meals with multiple components, add the component calories. If the portion or preparation method materially changes the calorie count and the user has not given enough information, ask one concise clarification before logging. Do not invent false precision: use a sensible rounded estimate when exact calories cannot be known. Treat this as an ongoing user rule and follow it every time, not only when the user repeats the instruction.
+Food logging is a permanent rule: when the user clearly reports that they ate or drank something and it is meant to be logged, use propose_log_meal and ALWAYS provide the calorie value. Never log a meal with missing, zero, or guessed-at-random calories. Calculate the best evidence-based calorie estimate from the stated food and quantity using standard nutrition knowledge; for packaged foods, prefer the stated serving/label calories when the user provides them. For meals with multiple components, add the component calories. Do not interrogate the user about portions. Use whatever amount they gave (slices, cups, a serving spoon, a plate) and assume a normal home portion for anything vague: for example a serving spoon of cooked rice is about half a cup, a cup of tea with milk and sugar is about 90 kcal, a slice of white bread about 70 kcal, a cup of cooked beans about 225 kcal, a medium boiled potato about 130 kcal, a cup of boiled arrowroot about 120 kcal, a cup of cooked rice about 200 kcal. When several foods are eaten at one meal, log ONE entry for that meal slot that names every item with its amount, with the calories added up. Only ask a question if the user named no food at all. If the user says log it, record it, or complains it is not logged, log it now from the conversation so far. Meal logs are saved straight away (the user can undo), so after calling the tool say plainly what you logged and the calorie total in one sentence. Do not invent false precision: use a sensible rounded estimate. Treat this as an ongoing user rule and follow it every time, not only when the user repeats the instruction.
 
 Switch roles naturally based on the task. For startup and hackathon ideation, act as a demanding but constructive thinking partner. Do not agree automatically. Challenge weak assumptions, generic features, unclear users, weak differentiation, unrealistic scope, poor economics, weak validation and demo risk. Ask the hardest useful questions, propose alternatives, and keep iterating until the idea is defensible. When the user clearly says they have chosen the final idea (for example, 'that's what I'm going with'), treat that as a decision and use the appropriate creation/update tool to record it in Fedha rather than making them re-enter it manually. For technical work, think like a senior engineer/CTO: understand the current architecture, avoid unnecessary rewrites, diagnose failures from evidence, and give the smallest reliable next step. For money, act as a careful financial manager using current numbers. For career, act as a practical coach grounded in actual achievements. For pitches, meetings, interviews, deadlines, or moments of nervousness, become a calm situation coach and focus on what the user needs to do next.
 
@@ -387,7 +387,7 @@ export default async function handler(req, res) {
 // not a change to the user's actual data).
 
 function selectTools(message) {
-  const m = message.toLowerCase();
+  const m = String(message || '').toLowerCase();
   const names = new Set();
   const add = (...xs) => xs.forEach((x) => names.add(x));
   if (/\b(log|add|record|spent|spend|paid|bought|expense|income|earned|received|transaction)\b/.test(m)) add('propose_transaction');
@@ -396,7 +396,7 @@ function selectTools(message) {
   // a loan's state.
   if (/\b(settle|pay back|paid back|mark.*settled|mark.*paid|settle.*loan)\b/.test(m) || /\bloan\b.*\b(paid|pay|payment|instal?ment)\b|\b(paid|pay|payment|instal?ment)\b.*\bloan\b/.test(m)) add('propose_settle_loan');
   if (/\b(income|salary|payment)\b/.test(m) && /\b(received|got|arrived|mark)\b/.test(m)) add('propose_mark_income_received');
-  if (/\b(log|add|record|ate|eaten|meal|breakfast|lunch|dinner|snack)\b/.test(m)) add('propose_log_meal');
+  if (/\b(log|logged|logging|add|record|ate|eaten|taken|had|meal|breakfast|lunch|dinner|snack)\b/.test(m)) add('propose_log_meal');
   if (/\b(planner|schedule|plan|move|reschedule|block)\b/.test(m)) add('propose_planner_block_edit');
   if (/\b(project|startup|hackathon|portfolio|certificate)\b/.test(m) && /\b(update|mark|change|done|complete|progress|submit|priority|importance)\b/.test(m)) add('propose_update_project_status','propose_update_hackathon_status','propose_update_startup');
   if (/\b(add|create|new|track)\b/.test(m) && /\b(hackathon)\b/.test(m)) add('propose_create_hackathon');
@@ -419,8 +419,15 @@ function selectTools(message) {
 }
 
 async function callGroqWithTools(apiKey, messages, location, userMessage) {
-  const selectedTools = selectTools(userMessage);
-  const first = await groqChat(apiKey, messages, selectedTools);
+  // Follow-ups like "one cup of each" or "it's not logged" carry no keywords of their own, so the last
+  // few turns also decide which tools are on the table.
+  const recent = messages.filter((m) => m.role !== 'system').slice(-5).map((m) => m.content).join(' ');
+  const selectedTools = selectTools(`${userMessage} ${recent}`);
+  let first = await groqChat(apiKey, messages, selectedTools);
+  // The model sometimes reaches for a tool it was not given; retry once with every tool available.
+  if (first.error && /tool choice is none|called a tool|tool_use_failed|not in request\.tools/i.test(first.error)) {
+    first = await groqChat(apiKey, messages, TOOLS);
+  }
   if (first.error) return first;
 
   const choice = first.choices?.[0];
@@ -479,7 +486,9 @@ async function callGroqWithTools(apiKey, messages, location, userMessage) {
     // Every other tool is a proposed action — package it for client
     // confirmation rather than doing anything now.
     const commitment = /\b(that'?s what i'?m going with|i'?m going with this|let'?s go with this|this is the one|finalize (it|this)|lock (it|this) in)\b/i.test(userMessage);
-    proposedActions.push({ tool: call.function.name, args, autoApply: commitment && ['propose_create_hackathon','propose_create_startup','propose_create_project'].includes(call.function.name) });
+    // Meal logs are low-stakes and easy to undo, so they are saved straight away (the chat shows an Undo).
+    const autoApply = call.function.name === 'propose_log_meal' || (commitment && ['propose_create_hackathon','propose_create_startup','propose_create_project'].includes(call.function.name));
+    proposedActions.push({ tool: call.function.name, args, autoApply });
     toolResultMessages.push({
       role: 'tool',
       tool_call_id: call.id,
@@ -513,7 +522,7 @@ async function callGroqWithTools(apiKey, messages, location, userMessage) {
   // user can see its reasoning next to the confirm card.
   if (proposedActions.length && !hasResearch) {
     return {
-      reply: choice.message?.content?.trim() || (proposedActions.length === 1 ? "Here's what I'd change — check it before confirming." : "Here's what I'd change — check them before confirming."),
+      reply: choice.message?.content?.trim() || (proposedActions.every((a) => a.autoApply) ? '' : proposedActions.length === 1 ? "Here's what I'd change — check it before confirming." : "Here's what I'd change — check them before confirming."),
       proposedActions,
       memoryUpdate,
     };

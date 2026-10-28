@@ -29,9 +29,9 @@ async function phraseNudge(situation) {
       }),
     });
     const data = await res.json();
-    return data.reply || situation;
+    return data.reply?.trim() || null;
   } catch {
-    return situation; // fall back to the plain rule-based description if the API call fails
+    return null; // the situation text is written for the AI, not the user, so skip rather than show it
   }
 }
 
@@ -51,12 +51,20 @@ async function markNudged(key) {
 // _app.js's own due-date detection (loans, income plans — it already has
 // a well-tested detection window for these) can reuse the phrasing/
 // delivery half without duplicating it.
+const inFlight = new Set();
 export async function fireJarvisNudge(key, situation) {
-  if (await alreadyNudgedToday(key)) return;
-  const text = await phraseNudge(situation);
-  await appendJarvisMessage('assistant', text);
-  await showNotif({ title: '🤖 Jarvis', body: text, tag: `jarvis_${key}`, vibrate: VIBRATE.medium });
-  await markNudged(key);
+  // Claim the nudge before the slow phrasing call, so overlapping checks (app load + timer) can't send it twice.
+  if (inFlight.has(key) || (await alreadyNudgedToday(key))) return;
+  inFlight.add(key);
+  try {
+    await markNudged(key);
+    const text = await phraseNudge(situation);
+    if (!text) return;
+    await appendJarvisMessage('assistant', text);
+    await showNotif({ title: '🤖 Jarvis', body: text, tag: `jarvis_${key}`, vibrate: VIBRATE.medium });
+  } finally {
+    inFlight.delete(key);
+  }
 }
 
 
@@ -73,7 +81,7 @@ export async function checkMealNudges() {
 
     await fireJarvisNudge(
       'food_no_meal',
-      'It is already late morning and the user has not logged any meal today. Gently remind them to eat/log their first meal, and if useful suggest a simple meal using their Food preferences, nutrition needs and Floating Balance.'
+      'It is late morning and nothing is logged in the food diary today. In one short, friendly sentence, ask what they have eaten so far so you can log it, or remind them to eat. Keep it simple and local (Kenyan home food), no app jargon such as Floating Balance, no lecture.'
     );
   } catch (e) {
     console.warn('[fedha] Jarvis meal nudge check failed:', e?.message);
