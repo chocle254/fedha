@@ -88,7 +88,7 @@ export const VOICES = { rhodes, sub, pad, sparkle, droplet, sweep, knock };
 
 // ─── MIXING ──────────────────────────────────────────────────────────────────
 // note: [voice, midi, start (s), dur (s), gain, pan -1..1]
-export function render(notes, { tail = 1.1, wet = 0.24, delay = 0.22, fb = 0.42, crackle = 0.004, maxLen = 0 } = {}) {
+export function render(notes, { tail = 1.1, wet = 0.24, delay = 0.22, fb = 0.42, crackle = 0.004, maxLen = 0, fx = null, eq = true } = {}) {
   let len = Math.ceil(RATE * (Math.max(...notes.map((n) => n[2] + n[3])) + tail));
   if (maxLen) len = Math.min(len, Math.ceil(maxLen * RATE));
   const L = new Float32Array(len);
@@ -108,6 +108,7 @@ export function render(notes, { tail = 1.1, wet = 0.24, delay = 0.22, fb = 0.42,
       R[s0 + i] += v * gr;
     }
   }
+  if (fx) fx(L, R); // optional effects on the dry mix (glitch, tape-stop, bit-crush: see make-sound-pack-2.mjs)
   pingPong(L, R, EIGHTH * 1.5, delay, fb);
   const rl = reverb(L, 0);
   const rr = reverb(R, 23);
@@ -126,7 +127,7 @@ export function render(notes, { tail = 1.1, wet = 0.24, delay = 0.22, fb = 0.42,
     const pop = rnd() < 0.00025 ? (rnd() - 0.5) * crackle * 18 : 0;
     L[i] += hiss + pop; R[i] += hiss + pop * 0.6;
   }
-  return master(L, R);
+  return master(L, R, eq);
 }
 
 // Stereo ping-pong echo: repeats bounce left, right, left..., each one darker and quieter.
@@ -214,9 +215,9 @@ function speakerEq(x) {
   }
 }
 
-function master(L, R) {
+function master(L, R, eq = true) {
   const len = L.length;
-  speakerEq(L); speakerEq(R);
+  if (eq) { speakerEq(L); speakerEq(R); } // off for headphone-only sounds: full sub-bass
   let peak = 0;
   for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i]));
   const DRIVE = 3.0; // tape-style saturation: louder on a phone speaker, still smooth
