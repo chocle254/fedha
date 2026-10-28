@@ -19,7 +19,7 @@ import { VIBECODER, AMBITION, NERVOUS_PITCHER } from '../../lib/mentor-mindset';
 // Nemotron model) writes up the JSON from those real results — it never
 // invents an item that isn't grounded in something Firecrawl actually found.
 import { webSearchMulti } from '../../lib/web-search';
-import { nvidiaChat } from '../../lib/nvidia-client';
+import { nvidiaChat, nvidiaAvailable } from '../../lib/nvidia-client';
 import { PLAYBOOK, PITCH_SLIDES, INVESTORS, JUDGE_CRITERIA, playbookText } from '../../lib/founder-playbook';
 import { STAGES } from '../../lib/startup';
 
@@ -401,12 +401,15 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
       body: JSON.stringify(body),
     });
     const data = await response.json();
+    let rawText = '';
     if (!response.ok) {
       console.error(`[fedha] groq/${GROQ_MODEL} request failed:`, response.status, JSON.stringify(data.error || data));
-      return res.status(500).json({ error: data.error?.message || 'Groq API error' });
-    }
-
-    const rawText = data.choices?.[0]?.message?.content || '';
+      // Groq's free tier is rate limited or busy: NVIDIA's free tier has its own limit, so it takes over.
+      if ([429, 503].includes(response.status) && nvidiaAvailable()) {
+        try { rawText = await nvidiaChat({ system: body.messages[0].content, prompt, temperature: body.temperature, maxTokens: body.max_tokens, fallback: false }); } catch (e) { console.warn('[fedha] NVIDIA backup failed:', e.status, e.message); }
+      }
+      if (!rawText) return res.status(response.status === 429 ? 429 : 500).json({ error: response.status === 429 ? 'The free AI tiers are busy right now. Try again in a minute.' : data.error?.message || 'Groq API error' });
+    } else rawText = data.choices?.[0]?.message?.content || '';
     if (!rawText) return res.status(500).json({ error: 'Empty response from Groq' });
 
     if (type === 'lesson_notes') return res.status(200).json({ notes: rawText.trim() });

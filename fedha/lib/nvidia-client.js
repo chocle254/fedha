@@ -1,6 +1,7 @@
 // lib/nvidia-client.js — thin wrapper around NVIDIA NIM's OpenAI-compatible
-// chat completions endpoint (https://integrate.api.nvidia.com/v1). Used only
-// for the two spots that used to call groq/compound for web search
+// chat completions endpoint (https://integrate.api.nvidia.com/v1). Groq and NVIDIA back each other up:
+// the hackathon coach shares its load across both, and Groq calls fall over to NVIDIA when rate limited.
+// Originally used for the two spots that used to call groq/compound for web search
 // (lib/jarvis-research-core.js and the activities/opportunities branch of
 // pages/api/ai.js) — everywhere else in the app still calls Groq's plain
 // openai/gpt-oss-120b directly, unchanged. NIM has no built-in search tool,
@@ -24,7 +25,7 @@ const NVIDIA_MODELS = [
 let workingModel = null; // remembered while this server instance is warm
 const deadModels = new Set();
 
-async function callNvidiaOnce({ prompt, temperature, maxTokens, model: NVIDIA_MODEL }) {
+async function callNvidiaOnce({ prompt, system, temperature, maxTokens, model: NVIDIA_MODEL }) {
   const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
   const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
     method: 'POST',
@@ -36,7 +37,7 @@ async function callNvidiaOnce({ prompt, temperature, maxTokens, model: NVIDIA_MO
       model: NVIDIA_MODEL,
       temperature,
       max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }],
       ...(/nemotron/.test(NVIDIA_MODEL) ? { chat_template_kwargs: { enable_thinking: false } } : {}),
     }),
   });
@@ -90,14 +91,18 @@ async function groqFallback({ prompt, temperature, maxTokens }) {
   return data.choices?.[0]?.message?.content || '';
 }
 
-export async function nvidiaChat({ prompt, temperature = 0.5, maxTokens = 900 }) {
+export const nvidiaAvailable = () => !!process.env.NVIDIA_API_KEY;
+
+// fallback: false = throw instead of falling back to Groq (used when Groq itself is the one rate limited,
+// so the two providers back each other up without bouncing a request back and forth).
+export async function nvidiaChat({ prompt, system = '', temperature = 0.5, maxTokens = 900, fallback = true }) {
   const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
   const order = workingModel ? [workingModel, ...NVIDIA_MODELS.filter((m) => m !== workingModel)] : NVIDIA_MODELS;
   if (NVIDIA_API_KEY) {
     for (const model of order) {
       if (deadModels.has(model)) continue;
       try {
-        const out = await withRetries(() => callNvidiaOnce({ prompt, temperature, maxTokens, model }));
+        const out = await withRetries(() => callNvidiaOnce({ prompt, system, temperature, maxTokens, model }));
         if (out) { workingModel = model; return out; }
       } catch (e) {
         // 404 / 400 / 403: this model isn't available to this account. Try the next one.
@@ -106,5 +111,6 @@ export async function nvidiaChat({ prompt, temperature = 0.5, maxTokens = 900 })
       }
     }
   }
-  return groqFallback({ prompt, temperature, maxTokens });
+  if (!fallback) throw Object.assign(new Error('NVIDIA is unavailable right now'), { status: 503 });
+  return groqFallback({ prompt: system ? `${system}\n\n${prompt}` : prompt, temperature, maxTokens });
 }

@@ -7,6 +7,7 @@ import { requireUser } from '../../lib/require-user';
 import { webSearchMulti } from '../../lib/web-search';
 import { weightedOverall } from '../../lib/hack-coach';
 import { MINDSET } from '../../lib/mentor-mindset';
+import { nvidiaChat, nvidiaAvailable } from '../../lib/nvidia-client';
 
 // Criteria weights are real only when every criterion has one and they add up to about 100.
 function validWeights(crit) {
@@ -47,6 +48,9 @@ export default async function handler(req, res) {
   const b = req.body || {};
   if (!TYPES.has(b.type)) return res.status(400).json({ error: 'Unknown request type' });
   if (!b.hack) return res.status(400).json({ error: 'Hackathon data required' });
+  // Which AI provider to try first for this request (the page alternates judges between them).
+  // Light jobs go to NVIDIA first too, keeping Groq's budget for ideas, plans and judging.
+  const prefer = b.provider === 'nvidia' || LIGHT.has(b.type) ? 'nvidia' : null;
   // Lessons the builder recorded after past hackathons (post-mortems): every prompt sees them.
   if (Array.isArray(b.lessons)) b.hack.lessons = list(b.lessons, 12, 220);
 
@@ -61,7 +65,7 @@ export default async function handler(req, res) {
     const reasoning = ['hack_scope', 'hack_chat', 'hack_ideas', 'hack_judge', 'hack_judge_one'].includes(b.type) ? 'medium' : null;
     let obj;
     try {
-      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : ['hack_judge', 'hack_judge_one'].includes(b.type) ? 0.3 : 0.6, LIGHT.has(b.type) ? 2500 : b.type === 'hack_judge_one' ? 3500 : 6000, ['hack_judge', 'hack_judge_one', 'hack_panel'].includes(b.type) ? JUDGE_MODEL : LIGHT.has(b.type) ? FALLBACK_MODEL : GROQ_MODEL, { reasoning });
+      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : ['hack_judge', 'hack_judge_one'].includes(b.type) ? 0.3 : 0.6, LIGHT.has(b.type) ? 2500 : b.type === 'hack_judge_one' ? 3500 : 6000, ['hack_judge', 'hack_judge_one', 'hack_panel'].includes(b.type) ? JUDGE_MODEL : LIGHT.has(b.type) ? FALLBACK_MODEL : GROQ_MODEL, { reasoning, prefer });
     } catch (e) {
       // Groq's free tier caps tokens per request/minute. If the code
       // evidence made the prompt too big, try once more with less of it.
@@ -74,7 +78,7 @@ export default async function handler(req, res) {
       ev.deps = (ev.deps || []).slice(0, 1);
       if (b.hack.coach.presentation?.text) b.hack.coach.presentation.text = String(b.hack.coach.presentation.text).slice(0, 2500);
       if (b.found) b.found = String(b.found).slice(0, 2500);
-      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), 0.6, 3000, ['hack_judge', 'hack_judge_one', 'hack_panel'].includes(b.type) ? JUDGE_MODEL : GROQ_MODEL, { reasoning: reasoning ? 'low' : null });
+      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), 0.6, 3000, ['hack_judge', 'hack_judge_one', 'hack_panel'].includes(b.type) ? JUDGE_MODEL : GROQ_MODEL, { reasoning: reasoning ? 'low' : null, prefer });
     }
     const out = shape[b.type](obj, b);
     if (out.error) return res.status(500).json(out);
@@ -89,7 +93,26 @@ export default async function handler(req, res) {
 // Rate limits (Groq free tier): on a 429, wait if Groq asks for a short pause, otherwise try the smaller
 // model once (it has its own limit), then give up with how long to wait.
 const FALLBACK_MODEL = process.env.GROQ_FALLBACK_MODEL || 'openai/gpt-oss-20b';
-async function groqJSON(key, prompt, temperature = 0.6, maxTokens = 6000, model = GROQ_MODEL, { reasoning = null } = {}) {
+// NVIDIA as a JSON model: same prompt, parsed the same way; throws (no Groq fallback inside) so the
+// caller decides what to try next.
+async function nvidiaJSON(prompt, temperature, maxTokens) {
+  const text = await nvidiaChat({ prompt, system: 'You output only valid JSON. No markdown, no commentary.', temperature, maxTokens: Math.min(maxTokens, 6000), fallback: false });
+  const obj = parseObject(text);
+  if (!obj) throw Object.assign(new Error('NVIDIA returned no JSON'), { status: 502 });
+  return obj;
+}
+
+// Groq and NVIDIA share the load: prefer = 'nvidia' tries NVIDIA first (the judges alternate providers);
+// otherwise Groq first, and on a rate limit NVIDIA takes over before the smaller Groq model is tried.
+async function groqJSON(key, prompt, temperature = 0.6, maxTokens = 6000, model = GROQ_MODEL, opts = {}) {
+  const nvidiaFirst = opts.prefer === 'nvidia' && nvidiaAvailable();
+  if (nvidiaFirst) {
+    try { return await nvidiaJSON(prompt, temperature, maxTokens); } catch (e) { console.warn('[fedha] hack-coach NVIDIA first failed, using Groq:', e.status, e.message); }
+  }
+  return groqJSONOnly(key, prompt, temperature, maxTokens, model, opts, !nvidiaFirst && nvidiaAvailable());
+}
+
+async function groqJSONOnly(key, prompt, temperature = 0.6, maxTokens = 6000, model = GROQ_MODEL, { reasoning = null } = {}, nvidiaBackup = false) { // eslint-disable-line default-param-last
   let useReasoning = reasoning;
   const call = async (m) => {
     try { return await callOnce(m); } catch (e) {
@@ -131,6 +154,10 @@ async function groqJSON(key, prompt, temperature = 0.6, maxTokens = 6000, model 
     if (e.retryAfter && e.retryAfter <= 12) {
       await new Promise((res) => setTimeout(res, e.retryAfter * 1000));
       try { return await call(model); } catch (e2) { if (e2.status !== 429) throw e2; }
+    }
+    // Groq is rate limited: NVIDIA's free tier has its own, separate limit.
+    if (nvidiaBackup) {
+      try { return await nvidiaJSON(prompt, temperature, maxTokens); } catch (e4) { console.warn('[fedha] hack-coach NVIDIA backup failed:', e4.status, e4.message); }
     }
     if (model !== FALLBACK_MODEL) {
       try { return await call(FALLBACK_MODEL); } catch (e3) { if (e3.status !== 429) throw e3; }

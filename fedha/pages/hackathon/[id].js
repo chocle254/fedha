@@ -358,12 +358,22 @@ export default function HackathonCoach() {
         const sources = await gatherEvidence(cur().coach?.app?.repo);
         setJudgeSeen(sources.map((f) => f.path));
         const payload = { hack: hackForAI(cur(), { evidence: sources }), pitch: subm };
+        // Judges alternate between the two free AI providers (Groq, NVIDIA, Groq…). Each provider's judges
+        // go one after another, and the two queues run at the same time: half the rate-limit pressure,
+        // about twice as fast. Each side falls back to the other if it is limited.
         const results = [];
-        for (const [i, j] of panel.judges.entries()) {
-          setJudgeStep(`Judge ${i + 1} of ${panel.judges.length}: ${j.title}${j.org ? ` (${j.org})` : ''} is reviewing…`);
-          try { results.push((await askJudge('hack_judge_one', { ...payload, judge: j })).result); } catch (e) { if (!results.length && i === panel.judges.length - 1) throw e; }
-        }
-        if (!results.length) throw new Error('No judge could score it right now. Try again in a minute.');
+        const reviewing = new Set();
+        let lastErr = null;
+        const showStep = () => setJudgeStep(reviewing.size ? `${results.length} of ${panel.judges.length} judges done · reviewing now: ${[...reviewing].join(', ')}` : `${results.length} of ${panel.judges.length} judges done`);
+        const queue = (provider) => panel.judges.filter((_, i) => (i % 2 === 1) === (provider === 'nvidia'));
+        await Promise.all(['groq', 'nvidia'].map(async (provider) => {
+          for (const j of queue(provider)) {
+            reviewing.add(j.title); showStep();
+            try { results.push((await askJudge('hack_judge_one', { ...payload, judge: j, provider })).result); } catch (e) { lastErr = e; }
+            reviewing.delete(j.title); showStep();
+          }
+        }));
+        if (!results.length) throw lastErr || new Error('No judge could score it right now. Try again in a minute.');
         const raw = combinePanel(panel, results);
         // Checked facts beat the AI: requirements are re-marked from GitHub, done things are not suggested again.
         const r = {

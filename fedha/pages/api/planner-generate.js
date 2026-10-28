@@ -1,4 +1,5 @@
 import { requireUser } from '../../lib/require-user';
+import { nvidiaChat, nvidiaAvailable } from '../../lib/nvidia-client';
 // pages/api/planner-generate.js — the "I'm Awake" brain.
 //
 // planner.js's buildTodayBlocks() is a deterministic wish-list-then-fit
@@ -70,7 +71,14 @@ export default async function handler(req, res) {
       });
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error?.message || 'Groq API error');
+      if (!response.ok) {
+        // Rate limited on Groq's free tier: NVIDIA's free tier has its own limit, so it takes over.
+        if ([429, 503].includes(response.status) && nvidiaAvailable()) {
+          const content = await nvidiaChat({ system: SYSTEM_PROMPT, prompt: userPrompt, temperature: 0.4, maxTokens: 2000, fallback: false }).catch(() => '');
+          if (content) return { choices: [{ message: { content } }] };
+        }
+        throw new Error(data.error?.message || 'Groq API error');
+      }
       return data;
     }
 
