@@ -21,7 +21,9 @@ const RATE = 44100;
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '../app/src/main/res/raw');
 const TAU = Math.PI * 2;
 const hz = (m) => 440 * 2 ** ((m - 69) / 12);
+export const RATE_HZ = 44100;
 const BPM = 84;
+export const EIGHTH_S = 60 / 84 / 2;
 const EIGHTH = 60 / BPM / 2;
 
 // Tape wow: a slow, tiny pitch drift shared by all tonal voices (phase offset form of FM).
@@ -82,25 +84,26 @@ function knock(f, t) {
   return Math.sin(TAU * f * t) * Math.exp(-t / 0.005) * 0.6 + Math.sin(TAU * 170 * t) * Math.exp(-t / 0.035);
 }
 
-const VOICES = { rhodes, sub, pad, sparkle, droplet, sweep, knock };
+export const VOICES = { rhodes, sub, pad, sparkle, droplet, sweep, knock };
 
 // ─── MIXING ──────────────────────────────────────────────────────────────────
 // note: [voice, midi, start (s), dur (s), gain, pan -1..1]
-function render(notes, { tail = 1.1, wet = 0.24, delay = 0.22, fb = 0.42, crackle = 0.004, maxLen = 0 } = {}) {
+export function render(notes, { tail = 1.1, wet = 0.24, delay = 0.22, fb = 0.42, crackle = 0.004, maxLen = 0 } = {}) {
   let len = Math.ceil(RATE * (Math.max(...notes.map((n) => n[2] + n[3])) + tail));
   if (maxLen) len = Math.min(len, Math.ceil(maxLen * RATE));
   const L = new Float32Array(len);
   const R = new Float32Array(len);
-  for (const [voice, midi, start, dur, gain, pan = 0] of notes) {
-    const fn = VOICES[voice];
+  for (const [name, midi, start, dur, gain, pan = 0] of notes) {
+    const rev = name.startsWith('~'); // '~voice' plays the note backwards (a swell that lands on `start + dur`)
+    const fn = VOICES[name.replace('~', '')];
     const f = hz(midi);
     const s0 = Math.floor(start * RATE);
     const n = Math.min(len - s0, Math.floor((dur * 1.6 + 0.3) * RATE));
     const gl = gain * Math.cos(((pan + 1) * Math.PI) / 4);
     const gr = gain * Math.sin(((pan + 1) * Math.PI) / 4);
     for (let i = 0; i < n; i++) {
-      const t = i / RATE;
-      const v = fn(f, t, dur);
+      const t = rev ? Math.max(0, dur - i / RATE) : i / RATE;
+      const v = rev && i / RATE > dur ? 0 : fn(f, t, dur);
       L[s0 + i] += v * gl;
       R[s0 + i] += v * gr;
     }
@@ -279,6 +282,9 @@ const OPTS = {
   sound_gentle: { tail: 0.8, delay: 0.16 },
 };
 
-for (const f of readdirSync(OUT)) if (f.startsWith('sound_') && f.endsWith('.wav')) unlinkSync(join(OUT, f));
-for (const [name, notes] of Object.entries(SOUNDS)) writeFileSync(join(OUT, `${name}.wav`), render(notes, OPTS[name] || {}));
-console.log('wrote', Object.keys(SOUNDS).join(', '));
+// Only write the app's sounds when run directly (make-sound-pack.mjs imports the engine).
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  for (const f of readdirSync(OUT)) if (f.startsWith('sound_') && f.endsWith('.wav')) unlinkSync(join(OUT, f));
+  for (const [name, notes] of Object.entries(SOUNDS)) writeFileSync(join(OUT, `${name}.wav`), render(notes, OPTS[name] || {}));
+  console.log('wrote', Object.keys(SOUNDS).join(', '));
+}
