@@ -9,8 +9,8 @@
 //   - Lo-fi: slight tape wow, warm low-pass, soft saturation and a whisper of vinyl crackle.
 //
 // Four sounds, shared by kind of news:
-//   sound_success  "Aurora"     TP hit, NestLink withdrawal: sub thump, Dmaj9 rising, shimmer (keys an octave up for phone speakers)
-//   sound_alert    "Low tide"   SL hit, UpesiPay low: Bm9 falling to Gmaj7 over a deep pulse
+//   sound_success  "Aurora"     TP hit, NestLink withdrawal: knock + sub, fast Dmaj9 roll, sparkle (~1.6 s)
+//   sound_alert    "Low tide"   SL hit, UpesiPay low: two deep pulses, Bm9 falling to Gmaj7 (~1.6 s)
 //   sound_gentle   "Droplet"    planner, Jarvis: water-drop blip into a soft A/E dyad
 //   sound_entry    "Lift-off"   trade entered: sub drop, rising sweep, D then A
 import { writeFileSync, readdirSync, unlinkSync } from 'fs';
@@ -77,12 +77,18 @@ function sweep(f, t, dur) {
   return env * v * 0.5;
 }
 
-const VOICES = { rhodes, sub, pad, sparkle, droplet, sweep };
+// Knock: a tight transient (bright tick + chesty body) that gives the hit its punch on a phone speaker.
+function knock(f, t) {
+  return Math.sin(TAU * f * t) * Math.exp(-t / 0.005) * 0.6 + Math.sin(TAU * 170 * t) * Math.exp(-t / 0.035);
+}
+
+const VOICES = { rhodes, sub, pad, sparkle, droplet, sweep, knock };
 
 // ─── MIXING ──────────────────────────────────────────────────────────────────
 // note: [voice, midi, start (s), dur (s), gain, pan -1..1]
-function render(notes, { tail = 1.1, wet = 0.24, delay = 0.22, crackle = 0.004 } = {}) {
-  const len = Math.ceil(RATE * (Math.max(...notes.map((n) => n[2] + n[3])) + tail));
+function render(notes, { tail = 1.1, wet = 0.24, delay = 0.22, fb = 0.42, crackle = 0.004, maxLen = 0 } = {}) {
+  let len = Math.ceil(RATE * (Math.max(...notes.map((n) => n[2] + n[3])) + tail));
+  if (maxLen) len = Math.min(len, Math.ceil(maxLen * RATE));
   const L = new Float32Array(len);
   const R = new Float32Array(len);
   for (const [voice, midi, start, dur, gain, pan = 0] of notes) {
@@ -99,7 +105,7 @@ function render(notes, { tail = 1.1, wet = 0.24, delay = 0.22, crackle = 0.004 }
       R[s0 + i] += v * gr;
     }
   }
-  pingPong(L, R, EIGHTH * 1.5, delay);
+  pingPong(L, R, EIGHTH * 1.5, delay, fb);
   const rl = reverb(L, 0);
   const rr = reverb(R, 23);
   const sl = shimmer(rl);
@@ -121,9 +127,8 @@ function render(notes, { tail = 1.1, wet = 0.24, delay = 0.22, crackle = 0.004 }
 }
 
 // Stereo ping-pong echo: repeats bounce left, right, left..., each one darker and quieter.
-function pingPong(L, R, time, mix) {
+function pingPong(L, R, time, mix, fb = 0.42) {
   const d = Math.floor(time * RATE);
-  const fb = 0.42;
   const n = L.length;
   const dl = new Float32Array(n);
   const dr = new Float32Array(n);
@@ -231,23 +236,25 @@ function master(L, R) {
 // ─── THE FOUR SOUNDS ─────────────────────────────────────────────────────────
 const e = EIGHTH;
 const SOUNDS = {
-  // Aurora: deep D sub, Dmaj9 rolled upward like a harp stroke, a sparkle on top, pad blooming underneath.
+  // Aurora (tight): a punchy knock and a heavy D sub, Dmaj9 rolled up fast like a harp, sparkle on top.
   sound_success: [
-    ['sub', 38, 0, 1.2, 0.38],
-    ['pad', 74, 0, 1.6, 0.18, -0.3], ['pad', 81, 0, 1.6, 0.14, 0.3],
-    ['rhodes', 74, 0.0, 1.4, 0.42, -0.5],
-    ['rhodes', 78, e * 0.33, 1.3, 0.38, -0.2],
-    ['rhodes', 81, e * 0.66, 1.3, 0.38, 0.1],
-    ['rhodes', 85, e * 1.0, 1.3, 0.36, 0.35],
-    ['rhodes', 88, e * 1.33, 1.5, 0.36, 0.55],
-    ['sparkle', 88, e * 1.9, 1.2, 0.2, 0.4], ['sparkle', 93, e * 2.4, 1.2, 0.14, -0.4],
+    ['knock', 86, 0, 0.1, 0.35],
+    ['sub', 38, 0, 0.75, 0.55],
+    ['pad', 74, 0, 0.9, 0.16, -0.3], ['pad', 81, 0, 0.9, 0.12, 0.3],
+    ['rhodes', 74, 0.0, 0.8, 0.42, -0.55],
+    ['rhodes', 78, 0.055, 0.8, 0.38, -0.25],
+    ['rhodes', 81, 0.11, 0.8, 0.38, 0.05],
+    ['rhodes', 85, 0.165, 0.85, 0.36, 0.3],
+    ['rhodes', 88, 0.22, 0.95, 0.36, 0.55],
+    ['sparkle', 93, 0.3, 0.7, 0.2, 0.45], ['sparkle', 100, 0.42, 0.6, 0.12, -0.45],
   ],
-  // Low tide: calm but unmistakable. Deep B pulse twice; Bm9 settles down onto Gmaj7.
+  // Low tide (tight): two deep B pulses close together, Bm9 settling onto Gmaj7. Calm, but you notice it.
   sound_alert: [
-    ['sub', 35, 0, 0.7, 0.40], ['sub', 31, e * 2, 1.1, 0.40],
-    ['rhodes', 71, 0, 0.9, 0.42, -0.4], ['rhodes', 74, 0.02, 0.9, 0.36, -0.1], ['rhodes', 78, 0.04, 0.9, 0.34, 0.2], ['rhodes', 85, 0.06, 0.9, 0.3, 0.45],
-    ['rhodes', 67, e * 2, 1.3, 0.42, -0.4], ['rhodes', 71, e * 2 + 0.02, 1.3, 0.36, -0.1], ['rhodes', 74, e * 2 + 0.04, 1.3, 0.34, 0.2], ['rhodes', 78, e * 2 + 0.06, 1.3, 0.32, 0.45],
-    ['pad', 59, 0, 2.0, 0.16],
+    ['knock', 71, 0, 0.1, 0.3], ['knock', 67, 0.36, 0.1, 0.3],
+    ['sub', 35, 0, 0.45, 0.55], ['sub', 31, 0.36, 0.8, 0.55],
+    ['rhodes', 71, 0, 0.5, 0.42, -0.4], ['rhodes', 74, 0.015, 0.5, 0.36, -0.1], ['rhodes', 78, 0.03, 0.5, 0.34, 0.2], ['rhodes', 85, 0.045, 0.5, 0.3, 0.45],
+    ['rhodes', 67, 0.36, 0.8, 0.42, -0.4], ['rhodes', 71, 0.375, 0.8, 0.36, -0.1], ['rhodes', 74, 0.39, 0.8, 0.34, 0.2], ['rhodes', 78, 0.405, 0.8, 0.32, 0.45],
+    ['pad', 59, 0, 1.0, 0.14],
   ],
   // Droplet: a water-drop blip, then a soft A/E dyad and a whisper of sub.
   sound_gentle: [
@@ -265,6 +272,13 @@ const SOUNDS = {
   ],
 };
 
+// Aurora and Low tide are kept short (about 1.6 s): a shorter echo and tail, and a hard cap with a smooth fade.
+const OPTS = {
+  sound_success: { tail: 0.5, delay: 0.16, fb: 0.28, wet: 0.2, maxLen: 1.65 },
+  sound_alert: { tail: 0.45, delay: 0.14, fb: 0.25, wet: 0.2, maxLen: 1.6 },
+  sound_gentle: { tail: 0.8, delay: 0.16 },
+};
+
 for (const f of readdirSync(OUT)) if (f.startsWith('sound_') && f.endsWith('.wav')) unlinkSync(join(OUT, f));
-for (const [name, notes] of Object.entries(SOUNDS)) writeFileSync(join(OUT, `${name}.wav`), render(notes, name === 'sound_gentle' ? { tail: 0.8, delay: 0.16 } : {}));
+for (const [name, notes] of Object.entries(SOUNDS)) writeFileSync(join(OUT, `${name}.wav`), render(notes, OPTS[name] || {}));
 console.log('wrote', Object.keys(SOUNDS).join(', '));
