@@ -1,0 +1,48 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Signing comes from CI secrets (see .github/workflows/android.yml). Without them the build is unsigned.
+def ksFile = System.getenv('KEYSTORE_FILE')
+def ksPass = System.getenv('KEYSTORE_PASSWORD')
+
+android {
+    namespace 'com.chocle254.fedha'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.chocle254.fedha'
+        minSdk 21
+        targetSdk 34
+        versionCode (System.getenv('VERSION_CODE') ?: '1').toInteger()
+        versionName "1.0.${System.getenv('VERSION_CODE') ?: '1'}"
+    }
+
+    signingConfigs {
+        release {
+            if (ksFile) {
+                storeFile file(ksFile)
+                storePassword ksPass
+                keyAlias 'fedha'
+                keyPassword ksPass
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (ksFile) signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+}
