@@ -10,7 +10,7 @@ import WalletPanel from '../components/trading/WalletPanel';
 import BrokerPanel from '../components/trading/BrokerPanel';
 import { ensurePushSubscription } from '../lib/push';
 import { groupReport, brokerResults, GROUP_MIN_TRADES, TRAIL_LABEL, TRAIL_DEFAULT } from '../lib/trading-core';
-import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST } from '../components/trading/util';
+import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST, lotsLabel, rrPlan, rrText, rrDetail, resultR } from '../components/trading/util';
 
 // The stop in force now: signal trades trail it with their channel's learned style (saved as trail_stop).
 const curStop = (t) => (t.source !== 'Manual' && t.trail_stop != null ? t.trail_stop : t.stop_loss);
@@ -349,7 +349,11 @@ export default function TradingPage() {
           <div><span>Mark</span><b>{mark ? fmtPrice(mark) : '—'}</b></div>
           <div><span>SL{trailed(t) ? ' (trailed)' : ''}</span><b title={t.trail_mode ? `Trailing: ${TRAIL_LABEL[t.trail_mode] || t.trail_mode}` : undefined} style={{ color: trailed(t) ? C.up : C.down }}>{t.stop_loss != null ? fmtPrice(curStop(t)) : '—'}</b></div>
           <div><span>Banked</span><b style={{ color: C.up }}>{t.tp_hit > 0 ? fmtUsd(livePnl(t, Number(t.entry))) : '—'}</b></div>
+          <div><span>Lots</span><b>{lotsLabel(t)}</b></div>
+          <div><span>Risk</span><b style={{ color: C.down }}>{t.actual_risk_usdt != null || t.risk_usdt != null ? fmtUsd(Number(t.actual_risk_usdt ?? t.risk_usdt), false) : '—'}</b></div>
+          <div><span>R:R (avg)</span><b title={rrDetail(rrPlan(t))}>{rrText(rrPlan(t))}</b></div>
         </div>
+        {rrPlan(t)?.n > 1 && <div className="tx-row-note font-num">R:R per target: {rrDetail(rrPlan(t))}</div>}
         {(t.take_profits || []).length > 0 && (
           <div className="tx-ladder font-num">
             {t.take_profits.map((p, i) => {
@@ -419,10 +423,13 @@ export default function TradingPage() {
         <div className="tx-row-grid font-num">
           <div><span>Entry</span><b>{fmtPrice(t.entry)}</b></div>
           <div><span>Exit</span><b>{cancelled ? '—' : fmtPrice(t.last_price)}</b></div>
-          <div><span>Size</span><b>{fmtQty(t.qty)}</b></div>
+          <div><span>Lots</span><b>{lotsLabel(t)}</b></div>
           <div><span>Source</span><b>{t.source}</b></div>
           <div><span>TP hit</span><b>{t.tp_hit || 0}/{(t.take_profits || []).length}</b></div>
           <div><span>Closed</span><b>{t.closed_at ? new Date(t.closed_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</b></div>
+          <div><span>Risk</span><b>{t.actual_risk_usdt != null || t.risk_usdt != null ? fmtUsd(Number(t.actual_risk_usdt ?? t.risk_usdt), false) : '—'}</b></div>
+          <div><span>R:R planned</span><b title={rrDetail(rrPlan(t))}>{rrText(rrPlan(t))}</b></div>
+          <div><span>Result</span><b style={{ color: (resultR(t) ?? 0) >= 0 ? C.up : C.down }}>{!cancelled && resultR(t) != null ? `${resultR(t) >= 0 ? '+' : ''}${resultR(t).toFixed(2)}R` : '—'}</b></div>
         </div>
       </div>
     );

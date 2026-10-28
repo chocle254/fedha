@@ -109,3 +109,32 @@ export const C = {
   gold: '#F0B90B',
   blue: '#5B9BFF'
 };
+
+// ─── LOTS AND RISK:REWARD ────────────────────────────────────────────────────
+// Gold is quoted in ounces; a standard broker lot is 100 oz (so 0.01 lot = 1 oz). Crypto has no lots.
+export function lotsLabel(t) {
+  const q = Number(t.qty);
+  if (!Number.isFinite(q)) return '—';
+  if (t.symbol === 'XAUUSD') return `${(q / 100).toFixed(q / 100 >= 0.01 ? 2 : 4)} lot`;
+  return `${fmtQty(q)} ${base(t.symbol)}`;
+}
+
+// Planned reward:risk from entry to the ORIGINAL stop, for the first and last target and the average
+// (the position is split equally across the targets, so the average is what a full run pays).
+export function rrPlan(t) {
+  const entry = Number(t.entry);
+  const risk = Math.abs(entry - Number(t.stop_loss));
+  const tps = (t.take_profits || []).map(Number).filter(Number.isFinite);
+  if (!(risk > 0) || !tps.length) return null;
+  const rr = tps.map((p) => Math.abs(p - entry) / risk);
+  return { first: rr[0], last: rr[rr.length - 1], avg: rr.reduce((a, b) => a + b, 0) / rr.length, n: rr.length };
+}
+export const rrText = (p) => (p ? `1:${p.avg.toFixed(2)}` : '—');
+export const rrDetail = (p) => (p ? (p.n > 1 ? `TP1 1:${p.first.toFixed(2)} → TP${p.n} 1:${p.last.toFixed(2)}` : `1:${p.first.toFixed(2)}`) : '');
+
+// Result in R: profit ÷ amount risked (+2R made twice the risk, −1R is a full stop-out).
+export function resultR(t) {
+  const risk = Number(t.actual_risk_usdt) || Number(t.risk_usdt);
+  const pnl = Number(t.pnl_usdt);
+  return risk > 0 && Number.isFinite(pnl) ? pnl / risk : null;
+}
