@@ -29,19 +29,21 @@ public class FedhaDelegationService extends DelegationService {
         }
     }
 
-    // Patterns in milliseconds: wait, buzz, pause, buzz, ... Sounds are res/raw/*.wav (android/tools/make-sounds.mjs).
+    // Patterns in milliseconds: wait, buzz, pause, buzz, ... Sounds are res/raw/*.wav (android/tools/make-sounds.mjs),
+    // shared by kind of news: success (TP, NestLink), alert (SL, UpesiPay), gentle (planner, Jarvis), entry (trades).
     // A channel's sound and buzz are fixed once created, so changing either means a new id (and deleting the old).
-    private static final Kind NESTLINK = new Kind("fedha_nestlink_v3", "NestLink withdrawals", new long[]{0, 100, 80, 100, 80, 700, 300, 700}, "sound_nestlink", 0xFF22C55E, "💸");
-    private static final Kind UPESIPAY = new Kind("fedha_upesipay_v2", "UpesiPay low balance", new long[]{0, 400, 150, 400, 150, 400}, "sound_upesipay", 0xFFF59E0B, "⚠️");
-    private static final Kind TRADE = new Kind("fedha_trade_v2", "Trades entered", new long[]{0, 250, 150, 250}, "sound_trade", 0xFF3B82F6, "🚀");
-    private static final Kind TP = new Kind("fedha_tp_v2", "Take-profit hit", new long[]{0, 70, 60, 70, 60, 70}, "sound_tp", 0xFF10B981, "🎯");
-    private static final Kind SL = new Kind("fedha_sl_v2", "Stop-loss hit", new long[]{0, 600, 200, 600}, "sound_sl", 0xFFEF4444, "🛑");
-    private static final Kind PLANNER = new Kind("fedha_planner_v2", "Planner reminders", new long[]{0, 120}, "sound_planner", 0xFF8B5CF6, "🗓️");
-    private static final Kind OTHER = new Kind("fedha_other_v2", "Other", new long[]{0, 200, 100, 200}, null, 0xFF64748B, "🔔");
+    private static final Kind NESTLINK = new Kind("fedha_nestlink_v4", "NestLink withdrawals", new long[]{0, 100, 80, 100, 80, 700, 300, 700}, "sound_success", 0xFF22C55E, "💸");
+    private static final Kind UPESIPAY = new Kind("fedha_upesipay_v3", "UpesiPay low balance", new long[]{0, 400, 150, 400, 150, 400}, "sound_alert", 0xFFF59E0B, "⚠️");
+    private static final Kind TRADE = new Kind("fedha_trade_v3", "Trades entered", new long[]{0, 250, 150, 250}, "sound_entry", 0xFF3B82F6, "🚀");
+    private static final Kind TP = new Kind("fedha_tp_v3", "Take-profit hit", new long[]{0, 70, 60, 70, 60, 70}, "sound_success", 0xFF10B981, "🎯");
+    private static final Kind SL = new Kind("fedha_sl_v3", "Stop-loss hit", new long[]{0, 600, 200, 600}, "sound_alert", 0xFFEF4444, "🛑");
+    private static final Kind PLANNER = new Kind("fedha_planner_v3", "Planner reminders", new long[]{0, 120}, "sound_gentle", 0xFF8B5CF6, "🗓️");
+    private static final Kind OTHER = new Kind("fedha_other_v3", "Jarvis and other", new long[]{0, 120}, "sound_gentle", 0xFF64748B, "🔔");
 
     private static final String[] OLD_CHANNELS = {
         "fedha_nestlink_v1", "fedha_nestlink_v2", "fedha_upesipay_v1", "fedha_trade_v1", "fedha_tp_v1",
-        "fedha_sl_v1", "fedha_planner_v1", "fedha_other_v1"
+        "fedha_sl_v1", "fedha_planner_v1", "fedha_other_v1", "fedha_nestlink_v3", "fedha_upesipay_v2",
+        "fedha_trade_v2", "fedha_tp_v2", "fedha_sl_v2", "fedha_planner_v2", "fedha_other_v2"
     };
 
     // Titles and tags come from the site (lib/trading.js, lib/broker.js, lib/nestlink-*.js, lib/upesipay-alert.js, the planner).
