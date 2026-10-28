@@ -22,8 +22,20 @@ export default function Document() {
 
         {/* PWA manifest */}
         <link rel="manifest" href="/manifest.json" />
+
+        {/* First paint: the intro's midnight backdrop, before any script loads, so opening the app goes
+            splash -> midnight -> intro with no flash of a blank or differently coloured page. */}
+        <style dangerouslySetInnerHTML={{ __html: `
+          html{background:#05060B}
+          #lx-boot{position:fixed;inset:0;z-index:2147482999;pointer-events:none;
+            background:radial-gradient(120% 90% at 50% 38%,#1A1F33 0%,#0B0E19 45%,#05060B 100%);
+            transition:opacity .45s ease;animation:lxBootOut .4s 8s forwards}
+          #lx-boot.lx-gone{opacity:0}
+          @keyframes lxBootOut{to{opacity:0;visibility:hidden}}
+        ` }} />
       </Head>
       <body>
+        <div id="lx-boot" />
         <Main />
         <NextScript />
       </body>

@@ -17,16 +17,25 @@ function greeting() {
   return 'Good evening';
 }
 
-export default function WelcomeIntro() {
+export default function WelcomeIntro({ enabled = true }) {
   const [phase, setPhase] = useState('off'); // off | on | leaving
   const [hello, setHello] = useState('');
 
+  // The static midnight backdrop from _document covers the screen until the app (or this intro) is up.
+  const dropBoot = (delay) => setTimeout(() => {
+    const el = document.getElementById('lx-boot');
+    if (!el) return;
+    el.classList.add('lx-gone');
+    setTimeout(() => el.remove(), 500);
+  }, delay);
+
   useEffect(() => {
     let seen = false;
-    try { seen = sessionStorage.getItem('luxe_intro_shown') === '1'; sessionStorage.setItem('luxe_intro_shown', '1'); } catch { /* private mode: show it */ }
-    if (seen) return undefined;
+    if (enabled) try { seen = sessionStorage.getItem('luxe_intro_shown') === '1'; sessionStorage.setItem('luxe_intro_shown', '1'); } catch { /* private mode: show it */ }
+    if (seen || !enabled) { const b = dropBoot(0); return () => clearTimeout(b); }
     setHello(greeting());
     setPhase('on');
+    const boot = dropBoot(80); // the intro is painted on top by now; hand over seamlessly
     const inApp = typeof document !== 'undefined' && document.referrer.startsWith('android-app://');
     if (!inApp) {
       try { const a = new Audio('/sounds/luxe-welcome.mp3'); a.volume = 0.9; a.play().catch(() => {}); } catch { /* no audio */ }
@@ -34,7 +43,7 @@ export default function WelcomeIntro() {
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const t1 = setTimeout(() => setPhase('leaving'), reduce ? 900 : SHOW_MS);
     const t2 = setTimeout(() => setPhase('off'), (reduce ? 900 : SHOW_MS) + LEAVE_MS);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(boot); };
   }, []);
 
   if (phase === 'off') return null;

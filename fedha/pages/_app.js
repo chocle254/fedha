@@ -270,7 +270,7 @@ export default function App(props) {
   return (
     <>
       <AppBody {...props} />
-      {!props.router?.pathname?.startsWith('/certificate') && <WelcomeIntro />}
+      <WelcomeIntro enabled={!props.router?.pathname?.startsWith('/certificate')} />
     </>
   );
 }
