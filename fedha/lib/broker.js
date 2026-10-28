@@ -11,7 +11,7 @@ const PENDING_MAX_MS = 6 * 3600e3; // a limit order that has not filled in 6 h i
 
 export const DEFAULT_ACCOUNT_SETTINGS = { enabled: false, risk_pct: 1, min_confidence: 0, daily_loss_pct: 5 };
 export const DEFAULT_BROKER_SETTINGS = {
-  breakeven: true,      // smart trailing stop (style learned per channel) once TP1 is hit
+  breakeven: true,      // smart trailing stop (style learned per channel), following the chart from entry
   allow_real: false,    // never trade a real-money account unless switched on explicitly
   paper_too: false,     // keep Fedha's own paper trades running alongside the demo accounts
   xm: { ...DEFAULT_ACCOUNT_SETTINGS },
@@ -235,7 +235,7 @@ export async function syncBrokerTrades(userId) {
     }
 
     // Smart trailing, same styles as the paper trades: each signal uses its channel's learned style
-    // (ATR-based by default), measured from the best price since entry. Stops only ever tighten.
+    // (ATR-based by default), measured from the best price since entry, before and after TP1. Stops only ever tighten.
     if (settings.breakeven) {
       const keys = [...new Set(rows.map((r) => r.signal_key))];
       const { data: all } = await supabaseAdmin.from('broker_trades').select('signal_key, leg, take_profit, close_reason').eq('user_id', userId).eq('account', key).in('signal_key', keys);
@@ -248,8 +248,7 @@ export async function syncBrokerTrades(userId) {
         let best = r.best_price != null ? Number(r.best_price) : Number(r.entry);
         if (px > 0) best = buy ? Math.max(best, px) : Math.min(best, px);
         if (px > 0 && best !== Number(r.best_price)) await supabaseAdmin.from('broker_trades').update({ best_price: best }).eq('id', r.id).then(() => null, () => null);
-        const k = legs.filter((l) => l.close_reason === 'tp').length;
-        if (!k) continue;
+        const k = legs.filter((l) => l.close_reason === 'tp').length; // TP legs closed so far (0 = trailing before TP1)
         if (!(px > 0)) continue;
         const style = r.trail_mode || TRAIL_DEFAULT;
         const mode = style.startsWith('atr') && !(Number(r.trail_atr) > 0) ? 'be2' : style; // no ATR known: safe fallback

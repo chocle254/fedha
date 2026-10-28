@@ -51,23 +51,38 @@ export function levelsValid(side, entry, tps, sl) {
 //   none   keep the original SL until every TP or the SL is hit
 //   be2    move to break-even only after TP2
 //   step   entry after TP1, then the previous TP after each later TP (tight)
-//   atrK   after TP1, follow the best price at K × ATR (the average candle range at entry), so a volatile
-//          market gets more room and a calm one a tighter stop. Never looser than the original SL.
+//   atrK   follows the chart from the start. Before TP1: once price has run K × ATR in the trade's favour,
+//          the stop follows half of every further move, up to break-even. After TP1: it trails the best
+//          price at K × ATR (the average candle range at entry), so a volatile market gets more room and a
+//          calm one a tighter stop. atr1 reacts early and tight, atr3 late and loose; each channel learns which.
+//          Never looser than the original SL.
 export const TRAIL_MODES = ['none', 'be2', 'step', 'atr1', 'atr2', 'atr3'];
 export const TRAIL_DEFAULT = 'atr2';
 export const TRAIL_LABEL = { none: 'No trailing', be2: 'Break-even after TP2', step: 'Step (previous TP)', atr1: 'ATR ×1 (tight)', atr2: 'ATR ×2', atr3: 'ATR ×3 (loose)' };
+export const EARLY_FOLLOW = 0.5; // before TP1 the stop moves this share of each favourable move past K × ATR
 
 // The candidate stop for a trade right now. The caller keeps the tighter of this and the current stop.
 export function trailCandidate(mode, { side, entry, sl, tps, tpHit, best, atr }) {
   if (sl == null) return null;
   const buy = side === 'BUY';
+  const dir = buy ? 1 : -1;
+  const stop = Number(sl);
+  const e = Number(entry);
   const tighter = (a, b) => (buy ? Math.max(a, b) : Math.min(a, b));
-  if (!tpHit || mode === 'none') return Number(sl);
-  if (mode === 'be2') return tpHit >= 2 ? Number(entry) : Number(sl);
-  if (mode === 'step') return tpHit === 1 ? Number(entry) : Number(tps[tpHit - 2]);
+  if (mode === 'none') return stop;
+  if (mode === 'be2') return tpHit >= 2 ? e : stop;
+  if (mode === 'step') return !tpHit ? stop : tpHit === 1 ? e : Number(tps[tpHit - 2]);
   const k = Number(String(mode).replace('atr', ''));
-  if (!(k > 0) || !(atr > 0) || best == null) return Number(sl);
-  return tighter(Number(sl), buy ? best - k * atr : best + k * atr);
+  if (!(k > 0) || !(atr > 0) || best == null) return stop;
+  // Early follow (any time): half of the run beyond K × ATR, capped at break-even.
+  const run = dir * (Number(best) - e) - k * atr;
+  let early = stop;
+  if (run > 0) {
+    const moved = stop + dir * run * EARLY_FOLLOW;
+    early = tighter(stop, buy ? Math.min(moved, e) : Math.max(moved, e));
+  }
+  if (!tpHit) return early;
+  return tighter(early, tighter(stop, buy ? Number(best) - k * atr : Number(best) + k * atr));
 }
 
 // Old name kept for the fixed step style.
