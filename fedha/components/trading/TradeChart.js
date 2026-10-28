@@ -9,7 +9,8 @@ const toVol = (k) => ({ time: Math.floor(k[0] / 1000) + TZ, value: +k[5], color:
 
 async function loadKlines(symbol, interval, endTime) {
   const q = `symbol=${symbol}&interval=${interval}&limit=500${endTime ? `&endTime=${endTime}` : ''}`;
-  try {
+  if (symbol === 'XAUUSD' && endTime) return []; // gold comes from our server, newest 500 candles only
+  if (symbol !== 'XAUUSD') try {
     const r = await fetch(`${REST}/klines?${q}`, { cache: 'no-store' });
     if (r.ok) return await r.json();
   } catch { /* fall back to our server below */ }
@@ -120,13 +121,18 @@ export default function TradeChart({ symbol, interval, onInterval, lines = [], m
         poll = setInterval(async () => {
           if (Date.now() - lastMsg < 6000 || document.visibilityState !== 'visible') return;
           try {
+            if (symbol === 'XAUUSD') { // gold: refresh the newest candles from our server (no Binance stream)
+              const rows = await loadKlines(symbol, interval);
+              if (!disposed) { rows.slice(-2).forEach(apply); setState('live'); }
+              return;
+            }
             const r = await fetch(`${REST}/klines?symbol=${symbol}&interval=${interval}&limit=2`, { cache: 'no-store' });
             if (!r.ok || disposed) return;
             (await r.json()).forEach((k) => apply([k[0], k[1], k[2], k[3], k[4], k[5]]));
             setState('polling');
           } catch { /* next tick */ }
         }, 3000);
-        stop = openStream([`${symbol.toLowerCase()}@kline_${interval}`], (_s, d) => {
+        if (symbol === 'XAUUSD') { lastMsg = 0; stop = () => {}; } else stop = openStream([`${symbol.toLowerCase()}@kline_${interval}`], (_s, d) => {
           const k = d.k;
           if (!k) return;
           lastMsg = Date.now();

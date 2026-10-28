@@ -1,5 +1,7 @@
 // Pure trading maths (no I/O) so it can be tested on its own. PAPER ONLY.
 export const FEE_RATE = 0.001; // Binance Spot taker fee, 0.1% per side
+// Gold (XAUUSD) trades like a broker CFD: no fee, the cost is the spread (modelled at entry, see lib/market.js).
+export const feeRate = (symbol) => (String(symbol || '').toUpperCase() === 'XAUUSD' ? 0 : FEE_RATE);
 const MAX_PENDING_MS = 3 * 86400e3;
 const MAX_OPEN_MS = 7 * 86400e3;
 
@@ -103,6 +105,7 @@ export function pickTrail(scores, minTrades = 8, margin = 0.05) {
 // Manual orders (no signal) behave like Binance GTC orders: they never expire on their own.
 export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null, trail = null } = {}) {
   const manual = trade.source === 'Manual';
+  const FEE = feeRate(trade.symbol);
   const buy = trade.side === 'BUY';
   const dir = buy ? 1 : -1;
   const entry = Number(trade.entry);
@@ -122,14 +125,14 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null,
   let tpHit = 0;
   let remaining = qty;
   let realized = 0;
-  let fees = filled ? FEE_RATE * entry * qty : 0;
+  let fees = filled ? FEE * entry * qty : 0;
   let closedAt = null;
   let worst = null;
   let best = null;
 
   for (const k of candles) {
     if (!filled) {
-      if (k.l <= entry && entry <= k.h) { filled = true; filledAt = new Date(k.t).toISOString(); fees += FEE_RATE * entry * qty; }
+      if (k.l <= entry && entry <= k.h) { filled = true; filledAt = new Date(k.t).toISOString(); fees += FEE * entry * qty; }
       continue;
     }
     const adverse = buy ? k.l : k.h;
@@ -140,7 +143,7 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null,
     if (stop != null && (buy ? k.l <= stop : k.h >= stop)) {
       const exit = buy ? stop - spread : stop + spread; // stop-market orders fill across the spread
       realized += dir * (exit - entry) * remaining;
-      fees += FEE_RATE * exit * remaining;
+      fees += FEE * exit * remaining;
       remaining = 0;
       worst = buy ? Math.max(worst, stop) : Math.min(worst, stop);
       closedAt = k.t;
@@ -148,7 +151,7 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null,
     }
     while (tpHit < tps.length && (buy ? k.h >= tps[tpHit] : k.l <= tps[tpHit])) {
       realized += dir * (tps[tpHit] - entry) * share;
-      fees += FEE_RATE * tps[tpHit] * share;
+      fees += FEE * tps[tpHit] * share;
       remaining -= share;
       tpHit++;
     }
@@ -164,7 +167,7 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null,
   let pnl = null;
   if (closedAt == null && filled && Number(exitAt) > 0) {
     realized += dir * (exitAt - entry) * remaining;
-    fees += FEE_RATE * exitAt * remaining;
+    fees += FEE * exitAt * remaining;
     remaining = 0;
     closedAt = now;
   }
@@ -175,7 +178,7 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null,
     status = 'expired'; closedAt = now;
   } else if (!manual && filled && age > MAX_OPEN_MS) {
     realized += dir * (last - entry) * remaining;
-    fees += FEE_RATE * last * remaining;
+    fees += FEE * last * remaining;
     remaining = 0;
     pnl = realized - fees;
     status = 'expired'; closedAt = now;
@@ -223,7 +226,7 @@ export function partialRealized(t) {
   const entry = Number(t.entry);
   const share = Number(t.qty) / tps.length;
   let r = 0;
-  for (let i = 0; i < hit; i++) r += dir * (tps[i] - entry) * share - FEE_RATE * (tps[i] + entry) * share;
+  for (let i = 0; i < hit; i++) r += dir * (tps[i] - entry) * share - feeRate(t.symbol) * (tps[i] + entry) * share;
   return r;
 }
 

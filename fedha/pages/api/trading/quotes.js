@@ -1,4 +1,5 @@
 import { requireUser } from '../../../lib/require-user';
+import { isGold, goldQuote } from '../../../lib/market';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -6,7 +7,11 @@ export default async function handler(req, res) {
   if (!user) return;
   const symbols = [...new Set(String(req.query.symbols || '').toUpperCase().split(',').map((s) => s.trim()).filter((s) => /^[A-Z0-9]{5,15}$/.test(s)))].slice(0, 30);
   if (!symbols.length) return res.status(200).json({ quotes: [] });
-  const q = encodeURIComponent(JSON.stringify(symbols));
+  // Gold is not a Binance pair (one unknown symbol makes Binance reject the whole request), so it is fetched on its own.
+  const gold = symbols.some(isGold) ? await goldQuote().catch(() => null) : null;
+  const crypto = symbols.filter((s) => !isGold(s));
+  if (!crypto.length) return res.status(200).json({ quotes: gold ? [gold] : [] });
+  const q = encodeURIComponent(JSON.stringify(crypto));
   try {
     const [tickerRes, bookRes] = await Promise.all([
       fetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${q}`, { cache: 'no-store' }),
@@ -20,7 +25,7 @@ export default async function handler(req, res) {
       const spreadPct = b && b.bid > 0 ? ((b.ask - b.bid) / ((b.ask + b.bid) / 2)) * 100 : null;
       return { symbol: t.symbol, price: Number(t.lastPrice), change: Number(t.priceChangePercent), spreadPct };
     });
-    return res.status(200).json({ quotes });
+    return res.status(200).json({ quotes: gold ? [...quotes, gold] : quotes });
   } catch {
     return res.status(502).json({ error: 'Could not load prices.' });
   }

@@ -3,7 +3,8 @@ export const REST = 'https://api.binance.com/api/v3';
 export const WS = 'wss://stream.binance.com:9443';
 export const FEE = 0.001; // Binance Spot taker fee, 0.1%
 
-export const base = (symbol) => String(symbol || '').replace(/USDT$|USDC$|FDUSD$/, '');
+export const base = (symbol) => String(symbol || '').replace(/USDT$|USDC$|FDUSD$/, '').replace(/^XAUUSD$/, 'XAU');
+export const quoteOf = (symbol) => (String(symbol || '') === 'XAUUSD' ? 'USD' : 'USDT');
 
 // Decimals that suit a price's size (Binance shows 2 for BTC, 4 for XRP, 8 for PEPE).
 export function priceDecimals(p) {

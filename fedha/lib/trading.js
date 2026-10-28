@@ -2,11 +2,13 @@
 import { supabaseAdmin } from './supabaseAdmin';
 import { sizePosition, rewardRisk, levelsValid, evaluateTrade, floorToStep, roundToTick, replayInterval, FEE_RATE, partialRealized, groupReport, LOT_MIN, atrOf, TRAIL_DEFAULT, TRAIL_LABEL } from './trading-core';
 import { pushToAll } from './nestlink-push';
+import { klines, bookTicker, isGold, GOLD_FILTERS } from './market';
 
 const BINANCE = 'https://api.binance.com/api/v3';
 const filterCache = new Map();
 
 export async function getFilters(symbol) {
+  if (isGold(symbol)) return GOLD_FILTERS;
   const hit = filterCache.get(symbol);
   if (hit && Date.now() - hit.at < 6 * 3600e3) return hit.filters;
   const r = await fetch(`${BINANCE}/exchangeInfo?symbol=${symbol}`, { cache: 'no-store' });
@@ -23,16 +25,7 @@ export async function getFilters(symbol) {
 
 // Best bid and ask: a market buy fills at the ask, a market sell at the bid. The gap between them is the spread.
 export async function fetchBook(symbol) {
-  try {
-    const r = await fetch(`${BINANCE}/ticker/bookTicker?symbol=${symbol}`, { cache: 'no-store' });
-    if (!r.ok) return null;
-    const j = await r.json();
-    const bid = Number(j.bidPrice);
-    const ask = Number(j.askPrice);
-    return bid > 0 && ask > 0 ? { bid, ask } : null;
-  } catch {
-    return null;
-  }
+  return bookTicker(symbol);
 }
 
 export const DEFAULT_SETTINGS = { auto_enabled: false, mode: 'paper', risk_usdt: 10, min_rr: 0, paper_balance: 1000, risk_mode: 'percent', risk_pct: 1 };
@@ -50,11 +43,8 @@ export async function trailProfiles(userId) {
 
 // Volatility at a moment: ATR of the 14 fifteen-minute candles before it.
 export async function atrBefore(symbol, ms) {
-  try {
-    const r = await fetch(`${BINANCE}/klines?symbol=${symbol}&interval=15m&endTime=${Math.floor(ms)}&limit=15`, { cache: 'no-store' });
-    if (!r.ok) return null;
-    return atrOf((await r.json()).map((c) => ({ h: Number(c[2]), l: Number(c[3]), c: Number(c[4]) })));
-  } catch { return null; }
+  const candles = await klines(symbol, { interval: '15m', endTime: Math.floor(ms), limit: 15 });
+  return candles && candles.length > 1 ? atrOf(candles) : null;
 }
 
 // Until supabase-migration-smart-trailing.sql has run, the trail_* columns do not exist: save without them.
@@ -69,7 +59,7 @@ export async function getEquity(userId, settings) {
 
 // Like a Binance wallet: equity, the USDT tied up in open positions and resting orders, and what is free to trade.
 export async function getAccount(userId, settings) {
-  const { data } = await supabaseAdmin.from('paper_trades').select('signal_id, status, side, entry, qty, pnl_usdt, notional, tp_hit, take_profits').eq('user_id', userId);
+  const { data } = await supabaseAdmin.from('paper_trades').select('signal_id, symbol, status, side, entry, qty, pnl_usdt, notional, tp_hit, take_profits').eq('user_id', userId);
   let realized = 0;
   let locked = 0;
   for (const t of data || []) {
@@ -121,7 +111,7 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false })
   if (!levelsValid(signal.side, entry, tps, signal.stop_loss)) return { ok: false, error: 'Price has already moved past the targets or the stop, so this entry is no longer valid.' };
 
   let filters;
-  try { filters = await getFilters(signal.symbol); } catch { return { ok: false, error: 'Could not load Binance lot-size rules.' }; }
+  try { filters = await getFilters(signal.symbol); } catch { return { ok: false, error: 'Could not load the lot-size rules.' }; }
   const sz = sizePosition({ entry, stop: Number(signal.stop_loss), riskUsdt: risk, filters, spread });
   if (!sz.ok) return sz;
   // Every signal is its own trade at the same risk, whatever else is open. It is never shrunk to fit the
@@ -193,10 +183,7 @@ export async function maybeAutoEnter(userId, signal) {
 }
 
 export async function candlesSince(symbol, startMs) {
-  const interval = replayInterval(Date.now() - startMs);
-  const r = await fetch(`${BINANCE}/klines?symbol=${symbol}&interval=${interval}&startTime=${startMs}&limit=1000`, { cache: 'no-store' });
-  if (!r.ok) return null;
-  return (await r.json()).map((c) => ({ t: c[0], h: Number(c[2]), l: Number(c[3]), c: Number(c[4]) }));
+  return klines(symbol, { interval: replayInterval(Date.now() - startMs), startTime: startMs, limit: 1000 });
 }
 
 export async function evaluateLiveTrade(trade, profiles = {}) {

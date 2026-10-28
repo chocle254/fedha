@@ -35,9 +35,9 @@ export function parseSignal(text) {
       if (!NOT_COINS.includes(x[1])) { symbol = x[1] + x[2]; break; }
     }
   }
-  // Gold is not on Binance Spot, but PAXG (a gold-backed token) tracks it closely, so it stands in.
+  // Gold is tracked on the real gold price (COMEX futures, see lib/market.js), shifted onto the signal's levels.
   let proxyOf = null;
-  if (!symbol && /\b(?:XAU\s*[\/\-]?\s*USD|GOLD)\b/.test(up)) { symbol = 'PAXGUSDT'; proxyOf = 'XAUUSD'; }
+  if (!symbol && /\b(?:XAU\s*[\/\-]?\s*USD|GOLD)\b/.test(up)) { symbol = 'XAUUSD'; proxyOf = 'XAUUSD'; }
   // Instruments Binance Spot does not offer: say so instead of guessing a pair.
   if (!symbol) {
     const fx = up.match(/\b(XAG\s*\/?\s*USD|EUR\s*\/?\s*USD|GBP\s*\/?\s*USD|AUD\s*\/?\s*USD|NZD\s*\/?\s*USD|USD\s*\/?\s*(?:JPY|CAD|CHF)|[A-Z]{3}\s*\/?\s*JPY|USOIL|UKOIL|US30|US100|NAS100|SPX500|GER40|DXY|BRENT|WTI)\b/);
@@ -91,14 +91,14 @@ export function parseSignal(text) {
   return { ok: true, symbol, proxyOf, side, entryLow, entryHigh, takeProfits: tps, stopLoss };
 }
 
-// For stand-in instruments (gold via PAXG): the signal's prices are in the original market's terms, which sit a few
+// For gold: the signal's prices are a broker's spot quotes, while the feed is gold futures, which sit a few
 // dollars away from the stand-in's price. Shift every level by that gap so the distances (and so the risk) are preserved,
 // and treat the entry as the stand-in's current price. Returns { error } when it cannot be matched safely.
 export function rebaseToMarket(parsed, marketPrice) {
-  if (parsed.entryLow == null) return { error: `${parsed.proxyOf} signals need a stated entry price so they can be matched to ${parsed.symbol}.` };
+  if (parsed.entryLow == null) return { error: 'Gold signals need a stated entry price so they can be matched to the gold price.' };
   const ref = (parsed.entryLow + parsed.entryHigh) / 2;
   const delta = marketPrice - ref;
-  if (Math.abs(delta) / marketPrice > 0.02) return { error: `${parsed.symbol} is more than 2% away from the signal's price, so it was skipped.` };
+  if (Math.abs(delta) / marketPrice > 0.02) return { error: `Gold is more than 2% away from the signal's price, so it was skipped.` };
   const r = (v) => Math.round((v + delta) * 100) / 100;
   return {
     entry: marketPrice,

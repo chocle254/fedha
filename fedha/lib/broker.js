@@ -48,7 +48,7 @@ export async function brokerSizing(userId, source) {
 }
 
 function brokerSymbolFor(parsed) {
-  if (parsed.proxyOf) return parsed.proxyOf;                 // XAUUSD (the parser maps gold to PAXG for Binance)
+  if (parsed.proxyOf) return parsed.proxyOf;                 // XAUUSD
   return String(parsed.symbol).replace(/USDT$|USDC$|FDUSD$/, 'USD'); // BTCUSDT -> BTCUSD
 }
 
@@ -107,7 +107,7 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
   const split = splitLots({ riskUsd: plannedRisk, entry, stop: sl, tps, contractSize: spec.contractSize, minVolume: spec.minVolume, volumeStep: spec.volumeStep });
   if (split.error) return { skipped: split.error };
 
-  // Smart trailing: the channel's learned style, and volatility from Binance's gold token (tracks XAUUSD).
+  // Smart trailing: the channel's learned style, and volatility from the gold price feed (lib/market.js).
   const trailMode = (await trailProfiles(userId).catch(() => ({})))[source]?.mode || TRAIL_DEFAULT;
   const trailAtr = await atrBefore(parsed.symbol, Date.now());
   const digits = Number(spec.digits) || 2;

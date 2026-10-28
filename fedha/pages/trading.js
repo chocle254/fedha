@@ -10,7 +10,7 @@ import WalletPanel from '../components/trading/WalletPanel';
 import BrokerPanel from '../components/trading/BrokerPanel';
 import { ensurePushSubscription } from '../lib/push';
 import { groupReport, brokerResults, GROUP_MIN_TRADES, TRAIL_LABEL, TRAIL_DEFAULT } from '../lib/trading-core';
-import { C, base, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST } from '../components/trading/util';
+import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST } from '../components/trading/util';
 
 // The stop in force now: signal trades trail it with their channel's learned style (saved as trail_stop).
 const curStop = (t) => (t.source !== 'Manual' && t.trail_stop != null ? t.trail_stop : t.stop_loss);
@@ -143,26 +143,35 @@ export default function TradingPage() {
   const watchKey = watch.join(',');
   useEffect(() => {
     let buf = {};
-    const stop = openStream(watchKey.split(',').map((s) => `${s.toLowerCase()}@miniTicker`), (_s, d) => { buf[d.s] = { c: +d.c, o: +d.o, h: +d.h, l: +d.l, q: +d.q }; });
+    // Gold (XAUUSD) is not on Binance: its price comes from our server every 5 s instead of the socket.
+    const syms = watchKey.split(',').filter((x) => x && x !== 'XAUUSD');
+    const stop = syms.length ? openStream(syms.map((s) => `${s.toLowerCase()}@miniTicker`), (_s, d) => { buf[d.s] = { c: +d.c, o: +d.o, h: +d.h, l: +d.l, q: +d.q }; }) : () => {};
     let lastMsg = Date.now();
-    const syms = watchKey.split(',');
+    const goldPoll = watchKey.split(',').includes('XAUUSD') ? setInterval(async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const r = await fetch('/api/trading/quotes?symbols=XAUUSD', { cache: 'no-store' });
+        const g = r.ok ? (await r.json()).quotes?.find((x) => x.symbol === 'XAUUSD') : null;
+        if (g) buf.XAUUSD = { c: g.price, o: g.open, h: g.high, l: g.low, q: 0 };
+      } catch { /* next tick */ }
+    }, 5000) : null;
     const tick = setInterval(() => { if (Object.keys(buf).length) { lastMsg = Date.now(); const b = buf; buf = {}; setTickers((p) => ({ ...p, ...b })); } }, 500);
     // Socket quiet for 5 s (blocked network, phone woke up): poll prices instead until it comes back.
     const poll = setInterval(async () => {
-      if (Date.now() - lastMsg < 5000 || document.visibilityState !== 'visible') return;
+      if (!syms.length || Date.now() - lastMsg < 5000 || document.visibilityState !== 'visible') return;
       try {
         const r = await fetch(`${REST}/ticker/24hr?type=MINI&symbols=${encodeURIComponent(JSON.stringify(syms))}`, { cache: 'no-store' });
         if (!r.ok) return;
         for (const d of await r.json()) buf[d.symbol] = { c: +d.lastPrice, o: +d.openPrice, h: +d.highPrice, l: +d.lowPrice, q: +d.quoteVolume };
       } catch { /* next tick */ }
     }, 2500);
-    return () => { stop(); clearInterval(tick); clearInterval(poll); };
+    return () => { stop(); clearInterval(tick); clearInterval(poll); if (goldPoll) clearInterval(goldPoll); };
   }, [watchKey]);
 
   const tk = tickers[symbol];
   const last = tk?.c;
   const change = tk && tk.o ? ((tk.c - tk.o) / tk.o) * 100 : null;
-  useEffect(() => { document.title = last ? `${fmtPrice(last)} | ${base(symbol)}/USDT · Fedha` : 'Trading · Fedha'; }, [last, symbol]);
+  useEffect(() => { document.title = last ? `${fmtPrice(last)} | ${base(symbol)}/${quoteOf(symbol)} · Fedha` : 'Trading · Fedha'; }, [last, symbol]);
 
   const unrealized = positions.reduce((a, t) => a + openPnl(t, tickers[t.symbol]?.c), 0);
   const equityLive = account ? account.equity + unrealized : null;
@@ -291,7 +300,7 @@ export default function TradingPage() {
     return (
       <div key={s.id} className="tx-row">
         <div className="tx-row-top">
-          <button className="tx-sym" onClick={() => pickSymbol(s.symbol)}>{base(s.symbol)}<i>/USDT</i></button>
+          <button className="tx-sym" onClick={() => pickSymbol(s.symbol)}>{base(s.symbol)}<i>/{quoteOf(s.symbol)}</i></button>
           <Side side={s.side} />
           <span className="tx-st" style={{ color }}>{label}{s.status === 'open' && s.tp_hit > 0 ? ` · TP${s.tp_hit} ✓` : ''}</span>
           <span style={{ flex: 1 }} />
@@ -327,7 +336,7 @@ export default function TradingPage() {
     return (
       <div key={t.id} className="tx-row">
         <div className="tx-row-top">
-          <button className="tx-sym" onClick={() => pickSymbol(t.symbol)}>{base(t.symbol)}<i>/USDT</i></button>
+          <button className="tx-sym" onClick={() => pickSymbol(t.symbol)}>{base(t.symbol)}<i>/{quoteOf(t.symbol)}</i></button>
           <Side side={t.side} />
           <span className="tx-st">{t.source === 'Manual' ? 'Manual' : t.auto ? `Auto · ${t.source}` : t.source}{t.tp_hit > 0 ? ` · TP${t.tp_hit} ✓` : ''}</span>
           <span style={{ flex: 1 }} />
@@ -376,7 +385,7 @@ export default function TradingPage() {
   const orderRow = (t) => (
     <div key={t.id} className="tx-row">
       <div className="tx-row-top">
-        <button className="tx-sym" onClick={() => pickSymbol(t.symbol)}>{base(t.symbol)}<i>/USDT</i></button>
+        <button className="tx-sym" onClick={() => pickSymbol(t.symbol)}>{base(t.symbol)}<i>/{quoteOf(t.symbol)}</i></button>
         <span className="tx-badge" style={{ color: t.side === 'BUY' ? C.up : C.down, background: t.side === 'BUY' ? C.upDim : C.downDim }}>Limit {t.side === 'BUY' ? 'Buy' : 'Sell'}</span>
         <span className="tx-st">{t.source === 'Manual' ? 'Manual' : t.source}</span>
         <span style={{ flex: 1 }} />
@@ -400,7 +409,7 @@ export default function TradingPage() {
     return (
       <div key={t.id} className="tx-row">
         <div className="tx-row-top">
-          <button className="tx-sym" onClick={() => pickSymbol(t.symbol)}>{base(t.symbol)}<i>/USDT</i></button>
+          <button className="tx-sym" onClick={() => pickSymbol(t.symbol)}>{base(t.symbol)}<i>/{quoteOf(t.symbol)}</i></button>
           <Side side={t.side} />
           <span className="tx-st" style={{ color: t.status === 'won' ? C.up : t.status === 'lost' ? C.down : '#848E9C' }}>{label}</span>
           <span style={{ flex: 1 }} />
@@ -437,7 +446,7 @@ export default function TradingPage() {
         {/* Pair header */}
         <div className="tx-head">
           <button className="tx-pair" onClick={() => setPicker(true)}>
-            <b>{base(symbol)}/USDT</b><span>▾</span>
+            <b>{base(symbol)}/{quoteOf(symbol)}</b><span>▾</span>
           </button>
           <div className="tx-last font-num" style={{ color: change == null ? 'inherit' : change >= 0 ? C.up : C.down }}>
             {last ? fmtPrice(last) : '—'}

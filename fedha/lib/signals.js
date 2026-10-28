@@ -1,18 +1,13 @@
 // Signal tracking (PAPER ONLY — nothing here places an order).
 import { supabaseAdmin } from './supabaseAdmin';
 import { parseSignal, rebaseToMarket } from './signal-parser';
+import { klines, lastPrice } from './market';
 
-const BINANCE = 'https://api.binance.com/api/v3';
 const FILL_TOLERANCE = 0.003; // entry within 0.3% of market counts as a market entry
 const MAX_PENDING_MS = 3 * 86400e3;
 const MAX_OPEN_MS = 7 * 86400e3;
 
-async function fetchPrice(symbol) {
-  const r = await fetch(`${BINANCE}/ticker/price?symbol=${symbol}`, { cache: 'no-store' });
-  if (!r.ok) return null;
-  const p = Number((await r.json()).price);
-  return p > 0 ? p : null;
-}
+const fetchPrice = (symbol) => lastPrice(symbol);
 
 function levelsError(side, entry, tps, sl) {
   const buy = side === 'BUY';
@@ -25,7 +20,7 @@ export async function createSignal({ userId, source, text, externalId = null }) 
   const parsed = parseSignal(text);
   if (!parsed.ok) return { ok: false, error: parsed.error };
   const price = await fetchPrice(parsed.symbol);
-  if (!price) return { ok: false, error: `${parsed.symbol} is not a Binance Spot pair.` };
+  if (!price) return { ok: false, error: parsed.proxyOf ? 'Could not get the gold price right now.' : `${parsed.symbol} is not a Binance Spot pair.` };
 
   let { entryLow, entryHigh, takeProfits, stopLoss } = parsed;
   let entry = parsed.entryLow != null ? (parsed.entryLow + parsed.entryHigh) / 2 : price;
@@ -114,8 +109,7 @@ export async function evaluateSignal(sig) {
   const created = new Date(sig.created_at).getTime();
   const age = Date.now() - created;
   const interval = age < 16 * 3600e3 ? '1m' : age < 3 * 86400e3 ? '5m' : '15m';
-  const r = await fetch(`${BINANCE}/klines?symbol=${sig.symbol}&interval=${interval}&startTime=${created}&limit=1000`, { cache: 'no-store' });
-  if (!r.ok) return null;
-  const candles = (await r.json()).map((c) => ({ t: c[0], h: Number(c[2]), l: Number(c[3]), c: Number(c[4]) }));
+  const candles = await klines(sig.symbol, { interval, startTime: created, limit: 1000 });
+  if (!candles) return null;
   return evaluateCandles(sig, candles);
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { C, base, fmtPrice, fmtCompact } from './util';
+import { C, base, quoteOf, fmtPrice, fmtCompact } from './util';
 
 const FAV_KEY = 'tx-favs';
 const readFavs = () => { try { return JSON.parse(localStorage.getItem(FAV_KEY)) || ['BTCUSDT', 'ETHUSDT', 'PAXGUSDT', 'SOLUSDT', 'BNBUSDT']; } catch { return ['BTCUSDT', 'ETHUSDT', 'PAXGUSDT']; } };
