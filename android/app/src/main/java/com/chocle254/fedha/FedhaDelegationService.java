@@ -12,6 +12,7 @@ import android.graphics.Typeface;
 import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
+import android.widget.RemoteViews;
 
 import com.google.androidbrowserhelper.trusted.DelegationService;
 
@@ -21,24 +22,24 @@ import com.google.androidbrowserhelper.trusted.DelegationService;
 public class FedhaDelegationService extends DelegationService {
 
     private static final class Kind {
-        final String id, name, sound, badge;
+        final String id, name, sound, badge, label;
         final long[] pattern;
         final int color;
-        Kind(String id, String name, long[] pattern, String sound, int color, String badge) {
-            this.id = id; this.name = name; this.pattern = pattern; this.sound = sound; this.color = color; this.badge = badge;
+        Kind(String id, String name, long[] pattern, String sound, int color, String badge, String label) {
+            this.id = id; this.name = name; this.pattern = pattern; this.sound = sound; this.color = color; this.badge = badge; this.label = label;
         }
     }
 
     // Patterns in milliseconds: wait, buzz, pause, buzz, ... The 150 ms wait lets the sound start before the motor. Sounds are res/raw/*.wav (android/tools/make-sounds.mjs),
     // shared by kind of news: success (TP, NestLink), alert (SL, UpesiPay), gentle (planner, Jarvis), entry (trades).
     // A channel's sound and buzz are fixed once created, so changing either means a new id (and deleting the old).
-    private static final Kind NESTLINK = new Kind("fedha_nestlink_v5", "NestLink withdrawals", new long[]{150, 90, 70, 90, 70, 380, 200, 380}, "sound_success", 0xFF22C55E, "💸");
-    private static final Kind UPESIPAY = new Kind("fedha_upesipay_v4", "UpesiPay low balance", new long[]{150, 260, 140, 260, 140, 260}, "sound_alert", 0xFFF59E0B, "⚠️");
-    private static final Kind TRADE = new Kind("fedha_trade_v4", "Trades entered", new long[]{150, 180, 120, 180}, "sound_entry", 0xFF3B82F6, "🚀");
-    private static final Kind TP = new Kind("fedha_tp_v4", "Take-profit hit", new long[]{150, 60, 60, 60, 60, 60}, "sound_success", 0xFF10B981, "🎯");
-    private static final Kind SL = new Kind("fedha_sl_v4", "Stop-loss hit", new long[]{150, 380, 180, 380}, "sound_alert", 0xFFEF4444, "🛑");
-    private static final Kind PLANNER = new Kind("fedha_planner_v4", "Planner reminders", new long[]{150, 100}, "sound_gentle", 0xFF8B5CF6, "🗓️");
-    private static final Kind OTHER = new Kind("fedha_other_v4", "Jarvis and other", new long[]{150, 100}, "sound_gentle", 0xFF64748B, "🔔");
+    private static final Kind NESTLINK = new Kind("fedha_nestlink_v5", "NestLink withdrawals", new long[]{150, 90, 70, 90, 70, 380, 200, 380}, "sound_success", 0xFF22C55E, "💸", "NESTLINK · WITHDRAWAL");
+    private static final Kind UPESIPAY = new Kind("fedha_upesipay_v4", "UpesiPay low balance", new long[]{150, 260, 140, 260, 140, 260}, "sound_alert", 0xFFF59E0B, "⚠️", "UPESIPAY · LOW BALANCE");
+    private static final Kind TRADE = new Kind("fedha_trade_v4", "Trades entered", new long[]{150, 180, 120, 180}, "sound_entry", 0xFF3B82F6, "🚀", "TRADE ENTERED");
+    private static final Kind TP = new Kind("fedha_tp_v4", "Take-profit hit", new long[]{150, 60, 60, 60, 60, 60}, "sound_success", 0xFF10B981, "🎯", "TAKE PROFIT");
+    private static final Kind SL = new Kind("fedha_sl_v4", "Stop-loss hit", new long[]{150, 380, 180, 380}, "sound_alert", 0xFFEF4444, "🛑", "STOP LOSS");
+    private static final Kind PLANNER = new Kind("fedha_planner_v4", "Planner reminders", new long[]{150, 100}, "sound_gentle", 0xFF8B5CF6, "🗓️", "PLANNER");
+    private static final Kind OTHER = new Kind("fedha_other_v4", "Jarvis and other", new long[]{150, 100}, "sound_gentle", 0xFF64748B, "🔔", "JARVIS");
 
     private static final String[] OLD_CHANNELS = {
         "fedha_nestlink_v1", "fedha_nestlink_v2", "fedha_upesipay_v1", "fedha_trade_v1", "fedha_tp_v1",
@@ -103,6 +104,31 @@ public class FedhaDelegationService extends DelegationService {
         return bmp;
     }
 
+    private RemoteViews bigView(Kind kind, Bitmap icon, String label, String title, String body, int lines) {
+        RemoteViews v = new RemoteViews(getPackageName(), R.layout.notif_big);
+        v.setInt(R.id.accent, "setColorFilter", kind.color);
+        v.setImageViewBitmap(R.id.badge, icon);
+        v.setTextViewText(R.id.label, label);
+        v.setTextColor(R.id.label, kind.color);
+        v.setTextViewText(R.id.title, title);
+        v.setTextViewText(R.id.body, body);
+        v.setInt(R.id.body, "setMaxLines", lines);
+        return v;
+    }
+
+    // The badge already shows the emoji, so drop it from the start of the title ("🎯 XAUUSD short TP1 hit" -> "XAUUSD short TP1 hit").
+    static String stripLeadingEmoji(String s) {
+        int i = 0;
+        while (i < s.length()) {
+            int cp = s.codePointAt(i);
+            boolean emoji = Character.getType(cp) == Character.OTHER_SYMBOL || cp == 0xFE0F || cp == 0x200D || Character.isSurrogate(s.charAt(i))
+                    || (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0x2600 && cp <= 0x27BF);
+            if (!emoji && !Character.isWhitespace(cp)) break;
+            i += Character.charCount(cp);
+        }
+        return i < s.length() ? s.substring(i) : s;
+    }
+
     @Override
     public boolean onNotifyNotificationWithChannel(String platformTag, int platformId, Notification notification, String channelName) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -116,12 +142,31 @@ public class FedhaDelegationService extends DelegationService {
         CharSequence text = notification.extras != null ? notification.extras.getCharSequence(Notification.EXTRA_TEXT) : null;
         Kind kind = kindOf(platformTag, title == null ? null : title.toString());
 
+        // Styled layouts inside Android's own frame (app name, time and actions stay system-drawn):
+        // accent stripe and badge in the kind's colour, a small label, bold title, the message below.
+        Bitmap icon = badge(kind);
+        String t = title == null ? "" : stripLeadingEmoji(title.toString());
+        String body = text == null ? "" : text.toString();
+        String label = kind == OTHER && !(title != null && title.toString().startsWith("🤖")) ? "FEDHA" : kind.label;
+
+        RemoteViews small = new RemoteViews(getPackageName(), R.layout.notif_small);
+        small.setInt(R.id.accent, "setColorFilter", kind.color);
+        small.setImageViewBitmap(R.id.badge, icon);
+        small.setTextViewText(R.id.title, t);
+        small.setTextViewText(R.id.body, body);
+
+        RemoteViews popup = bigView(kind, icon, label, t, body, 2);
+        RemoteViews expanded = bigView(kind, icon, label, t, body, 10);
+
         Notification.Builder b = Notification.Builder.recoverBuilder(this, notification)
                 .setChannelId(kind.id)
                 .setColor(kind.color)
-                .setLargeIcon(badge(kind))
-                .setShowWhen(true);
-        if (text != null) b.setStyle(new Notification.BigTextStyle().bigText(text).setBigContentTitle(title));
+                .setLargeIcon(icon)
+                .setShowWhen(true)
+                .setStyle(new Notification.DecoratedCustomViewStyle())
+                .setCustomContentView(small)
+                .setCustomHeadsUpContentView(popup)
+                .setCustomBigContentView(expanded);
         if (kind == NESTLINK || kind == UPESIPAY) b.setCategory(Notification.CATEGORY_STATUS);
 
         try {

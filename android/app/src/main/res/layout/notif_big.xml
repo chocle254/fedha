@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="horizontal" android:paddingTop="2dp" android:paddingBottom="2dp">
+    <ImageView android:id="@+id/accent" android:layout_width="4dp" android:layout_height="match_parent" android:minHeight="48dp" android:src="@drawable/accent_bar" />
+    <ImageView android:id="@+id/badge" android:layout_width="40dp" android:layout_height="40dp" android:layout_marginStart="10dp" android:layout_marginEnd="12dp" android:layout_marginTop="2dp" />
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+        <TextView android:id="@+id/label" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textSize="11sp" android:textStyle="bold" android:letterSpacing="0.08" android:singleLine="true" />
+        <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="1dp"
+            android:textAppearance="@style/TextAppearance.Compat.Notification.Title" android:textStyle="bold" android:textSize="15sp"
+            android:maxLines="2" android:ellipsize="end" />
+        <TextView android:id="@+id/body" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp"
+            android:textAppearance="@style/TextAppearance.Compat.Notification" android:lineSpacingExtra="2dp" android:ellipsize="end" />
+    </LinearLayout>
+</LinearLayout>
