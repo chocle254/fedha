@@ -13,7 +13,10 @@ import com.google.androidbrowserhelper.trusted.DelegationService;
 public class FedhaDelegationService extends DelegationService {
 
     // Patterns in milliseconds: wait, buzz, pause, buzz, ...
-    private static final Kind NESTLINK = new Kind("fedha_nestlink_v1", "NestLink transfers", new long[]{0, 80, 80, 80, 80, 450});
+    // Most important: money left NestLink. Longest, most distinct pattern.
+    private static final Kind NESTLINK = new Kind("fedha_nestlink_v2", "NestLink withdrawals", new long[]{0, 100, 80, 100, 80, 700, 300, 700});
+    // Important: UpesiPay service wallet below KES 8.
+    private static final Kind UPESIPAY = new Kind("fedha_upesipay_v1", "UpesiPay low balance", new long[]{0, 400, 150, 400, 150, 400});
     private static final Kind TRADE = new Kind("fedha_trade_v1", "Trades entered", new long[]{0, 250, 150, 250});
     private static final Kind TP = new Kind("fedha_tp_v1", "Take-profit hit", new long[]{0, 70, 60, 70, 60, 70});
     private static final Kind SL = new Kind("fedha_sl_v1", "Stop-loss hit", new long[]{0, 600, 200, 600});
@@ -31,8 +34,8 @@ public class FedhaDelegationService extends DelegationService {
     static Kind kindOf(String tag, String title) {
         String g = tag == null ? "" : tag;
         String t = title == null ? "" : title;
-        if (g.contains("nestlink") || g.contains("upesipay") || t.startsWith("Funds withdrawn")
-                || t.startsWith("Withdrawal failed") || t.startsWith("UpesiPay")) return NESTLINK;
+        if (g.contains("upesipay") || t.startsWith("UpesiPay")) return UPESIPAY;
+        if (g.contains("nestlink") || t.startsWith("Funds withdrawn") || t.startsWith("Withdrawal failed")) return NESTLINK;
         if (g.contains("block_") || g.contains("meal_") || g.contains("missed_blocks")) return PLANNER;
         if (t.startsWith("🛑")) return SL;
         if (t.startsWith("🎯") || t.startsWith("✅")) return TP;
@@ -52,8 +55,11 @@ public class FedhaDelegationService extends DelegationService {
         CharSequence title = notification.extras != null ? notification.extras.getCharSequence(Notification.EXTRA_TITLE) : null;
         Kind kind = kindOf(platformTag, title == null ? null : title.toString());
 
+        nm.deleteNotificationChannel("fedha_nestlink_v1"); // replaced by v2 (a channel's buzz can't change once made)
+
         NotificationChannel channel = new NotificationChannel(kind.id, kind.name, NotificationManager.IMPORTANCE_HIGH);
         channel.enableVibration(true);
+        channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         channel.setVibrationPattern(kind.pattern);
         nm.createNotificationChannel(channel); // no-op if it already exists (you can then tweak it in Android settings)
 

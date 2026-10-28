@@ -2,7 +2,7 @@ import { requireUser } from '../../../lib/require-user';
 import { isCronRequest } from '../../../lib/nestlink-control';
 import { evaluateServiceWalletAlert } from '../../../lib/upesipay-alert';
 
-// Checks the UpesiPay service wallet and sends the zero-balance alert when due.
+// Checks the UpesiPay service wallet and sends the low-balance alert (below KES 8) when due.
 // Callable by the signed-in app, or by an external timer with CRON_SECRET (works with the app closed).
 export default async function handler(req, res) {
   if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return res.status(405).json({ error: 'Method not allowed.' }); }
