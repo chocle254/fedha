@@ -1,6 +1,6 @@
 // Paper trading on top of tracked signals. NOTHING here places a real order.
 import { supabaseAdmin } from './supabaseAdmin';
-import { sizePosition, rewardRisk, levelsValid, evaluateTrade, floorToStep, roundToTick, replayInterval, FEE_RATE, partialRealized } from './trading-core';
+import { sizePosition, rewardRisk, levelsValid, evaluateTrade, floorToStep, roundToTick, replayInterval, FEE_RATE, partialRealized, groupReport, LOT_MIN } from './trading-core';
 import { pushToAll } from './nestlink-push';
 
 const BINANCE = 'https://api.binance.com/api/v3';
@@ -49,13 +49,15 @@ export async function getEquity(userId, settings) {
 
 // Like a Binance wallet: equity, the USDT tied up in open positions and resting orders, and what is free to trade.
 export async function getAccount(userId, settings) {
-  const { data } = await supabaseAdmin.from('paper_trades').select('status, side, entry, qty, pnl_usdt, notional, tp_hit, take_profits').eq('user_id', userId);
+  const { data } = await supabaseAdmin.from('paper_trades').select('signal_id, status, side, entry, qty, pnl_usdt, notional, tp_hit, take_profits').eq('user_id', userId);
   let realized = 0;
   let locked = 0;
   for (const t of data || []) {
     if (['won', 'lost', 'expired'].includes(t.status)) realized += Number(t.pnl_usdt) || 0;
     else {
       if (t.status === 'open') realized += partialRealized(t); // TPs already hit pay into the balance straight away
+      // Signal trades are scored on their own (like a margin position), so they do not tie up the wallet.
+      if (t.signal_id) continue;
       const n = (t.take_profits || []).length;
       const left = n ? Math.max(0, 1 - (t.tp_hit || 0) / n) : 1;
       locked += (Number(t.notional) || 0) * left;
@@ -102,16 +104,8 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false })
   try { filters = await getFilters(signal.symbol); } catch { return { ok: false, error: 'Could not load Binance lot-size rules.' }; }
   const sz = sizePosition({ entry, stop: Number(signal.stop_loss), riskUsdt: risk, filters, spread });
   if (!sz.ok) return sz;
-  // Spot needs the full position value in the wallet. A tight stop can ask for more than you have, so cap the size.
-  const { available } = await getAccount(userId, settings);
-  const maxQty = floorToStep(available / (entry * (1 + FEE_RATE)), filters.stepSize || 1e-8);
-  if (sz.qty > maxQty) {
-    if (maxQty < filters.minQty || maxQty * entry < filters.minNotional) return { ok: false, error: `Not enough free paper balance ($${available.toFixed(2)} available).` };
-    const dist = sz.actualRisk / sz.qty;
-    sz.qty = maxQty;
-    sz.notional = maxQty * entry;
-    sz.actualRisk = maxQty * dist;
-  }
+  // Every signal is its own trade at the same risk, whatever else is open. It is never shrunk to fit the
+  // free balance, so each group is scored on equal terms (results are compared in R = profit ÷ risk).
 
   const row = {
     user_id: userId,
@@ -140,6 +134,16 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false })
   return { ok: true, trade: data };
 }
 
+// Lot multiplier for a channel from its closed paper trades (see groupReport in trading-core).
+export async function channelSizing(userId, source) {
+  const { data } = await supabaseAdmin.from('paper_trades')
+    .select('signal_id, source, status, pnl_usdt, risk_usdt, actual_risk_usdt, closed_at, created_at')
+    .eq('user_id', userId).eq('source', source).not('signal_id', 'is', null).limit(1000);
+  const g = groupReport(data || [])[0];
+  if (!g) return { mult: 0.5, confidence: 50, verdict: 'testing' };
+  return { mult: g.lotMultiplier > 0 ? g.lotMultiplier : LOT_MIN, confidence: g.confidence, verdict: g.verdict };
+}
+
 // Called right after a signal is created (Telegram listener / bot). Respects the user's automation settings.
 export async function maybeAutoEnter(userId, signal) {
   try {
@@ -147,8 +151,17 @@ export async function maybeAutoEnter(userId, signal) {
     if (!s.auto_enabled) return null;
     const rr = rewardRisk(Number(signal.entry), Number(signal.stop_loss), signal.take_profits);
     if (Number(s.min_rr) > 0 && (rr == null || rr < Number(s.min_rr))) return { ok: false, skipped: 'rr' };
-    const r = await openPaperTrade({ userId, signal, auto: true });
-    if (r.ok) await notify(describeEntry(r.trade), `trade-${r.trade.id}-new`);
+    // Size by the channel's track record: proven groups get bigger lots, new or shaky ones smaller.
+    // Dropped groups keep trading at the minimum so they are still measured and can earn their way back.
+    const { mult, confidence } = await channelSizing(userId, signal.source);
+    const equity = await getEquity(userId, s);
+    const riskUsdt = Math.round(riskAmount(s, equity) * mult * 100) / 100;
+    const r = await openPaperTrade({ userId, signal, riskUsdt, auto: true });
+    if (r.ok) {
+      const msg = describeEntry(r.trade);
+      msg.body += ` · lot ×${mult} (${confidence}% confident in ${signal.source})`;
+      await notify(msg, `trade-${r.trade.id}-new`);
+    }
     return r;
   } catch {
     return null;

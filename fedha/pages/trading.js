@@ -8,6 +8,7 @@ import OrderForm from '../components/trading/OrderForm';
 import PairPicker from '../components/trading/PairPicker';
 import WalletPanel from '../components/trading/WalletPanel';
 import { ensurePushSubscription } from '../lib/push';
+import { groupReport, GROUP_MIN_TRADES } from '../lib/trading-core';
 import { C, base, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST } from '../components/trading/util';
 
 // PAPER TRADING TERMINAL. Real Binance prices, simulated orders. Nothing here places a real order.
@@ -270,16 +271,7 @@ export default function TradingPage() {
     for (const s of activeSignals) (map[s.symbol] = map[s.symbol] || []).push(s);
     return Object.entries(map).map(([sym, list]) => ({ sym, list, conflict: new Set(list.map((s) => s.side)).size > 1 })).filter((g) => g.list.length > 1);
   }, [activeSignals]);
-  const board = useMemo(() => {
-    const map = {};
-    for (const s of signals) {
-      if (s.status !== 'won' && s.status !== 'lost') continue;
-      const b = map[s.source] || (map[s.source] = { source: s.source, won: 0, lost: 0, sum: 0 });
-      if (s.status === 'won') b.won++; else b.lost++;
-      b.sum += Number(s.result_pct) || 0;
-    }
-    return Object.values(map).map((b) => ({ ...b, total: b.won + b.lost, rate: Math.round((b.won / (b.won + b.lost)) * 100), avg: b.sum / (b.won + b.lost) })).sort((a, b) => b.avg - a.avg);
-  }, [signals]);
+  const groups = useMemo(() => groupReport(trades), [trades]);
 
   const signalRow = (s, canEnter) => {
     const [label, color] = SIGNAL_STATUS[s.status] || SIGNAL_STATUS.open;
@@ -507,17 +499,31 @@ export default function TradingPage() {
               {activeSignals.length ? activeSignals.map((s) => signalRow(s, true)) : (
                 <div className="tx-empty">No active signals. New ones appear here the moment the Telegram listener forwards them. Check the Telegram tab to see every message that came in and why any were skipped.</div>
               )}
-              {board.length > 0 && (
+              {groups.length > 0 && (
                 <div className="tx-board">
-                  <div className="tx-sub">Scoreboard by group</div>
-                  {board.map((b) => (
-                    <div key={b.source} className="tx-board-row font-num">
-                      <span>{b.source}</span>
-                      <span className="tx-muted">{b.won} TP · {b.lost} SL</span>
-                      <b style={{ color: b.avg >= 0 ? C.up : C.down }}>{b.avg >= 0 ? '+' : ''}{b.avg.toFixed(2)}% avg</b>
-                      <b>{b.rate}%</b>
-                    </div>
-                  ))}
+                  <div className="tx-sub">Group report card</div>
+                  <div className="tx-row-note" style={{ padding: '0 14px 8px' }}>
+                    Every signal is paper-traded on its own. R = profit ÷ risk (+1R made what it risked, −1R hit the stop). Confidence grows as a group keeps winning, and its lot size grows with it (up to ×3). New groups stay small until {GROUP_MIN_TRADES} closed trades; 3 stop-losses in a row halve the size.
+                  </div>
+                  {groups.map((g) => {
+                    const v = { scale: [C.up, `Lots ×${g.lotMultiplier}`], keep: ['#EAECEF', `Lots ×${g.lotMultiplier}`], testing: [C.gold, `Testing ×${g.lotMultiplier}`], drop: [C.down, 'Drop'] }[g.verdict];
+                    return (
+                      <div key={g.source} className="tx-group font-num">
+                        <div className="tx-group-top">
+                          <b>{g.source}</b>
+                          <span className="tx-badge" style={{ color: v[0], background: 'rgba(132,142,156,.12)' }}>{v[1]}</span>
+                        </div>
+                        <div className="tx-conf" title={`${g.confidence}% confident this group makes money`}>
+                          <i style={{ width: `${g.confidence}%`, background: g.confidence >= 75 ? C.up : g.confidence >= 50 ? C.gold : C.down }} />
+                          <span>{g.confidence}% confident</span>
+                        </div>
+                        <div className="tx-muted">
+                          {g.closed} closed{g.open ? ` · ${g.open} open` : ''} · {g.winRate}% win · <b style={{ color: g.avgR >= 0 ? C.up : C.down }}>{g.avgR >= 0 ? '+' : ''}{g.avgR.toFixed(2)}R/trade</b> · total {g.totalR >= 0 ? '+' : ''}{g.totalR.toFixed(1)}R · worst run {g.worstStreak} SL
+                        </div>
+                        <div className="tx-muted" style={{ marginTop: 2 }}>{g.why}</div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               {closedSignals.length > 0 && <button className="tx-link" style={{ margin: 14 }} onClick={() => setShowClosedSignals((v) => !v)}>{showClosedSignals ? 'Hide' : 'Show'} {closedSignals.length} closed signals</button>}
@@ -710,6 +716,11 @@ export default function TradingPage() {
         .tx-sub { padding: 14px 14px 6px; color: var(--tx-dim); font-size: 12px; font-weight: 700; }
         .tx-board-row { display: grid; grid-template-columns: 1.6fr 1fr 1fr .5fr; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--tx-line); font-size: 12px; }
         .tx-board-row b:last-child { text-align: right; }
+        .tx-group { padding: 10px 14px; border-bottom: 1px solid var(--tx-line); font-size: 12px; line-height: 1.5; }
+        .tx-conf { position: relative; height: 14px; border-radius: 7px; background: rgba(132,142,156,.15); overflow: hidden; margin: 4px 0; }
+        .tx-conf i { position: absolute; inset: 0 auto 0 0; border-radius: 7px; opacity: .45; }
+        .tx-conf span { position: relative; font-size: 10px; padding-left: 6px; line-height: 14px; }
+        .tx-group-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 2px; font-size: 13px; }
         .tx-tg-status { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; }
         .tx-tg-status .tx-live { font-size: 13px; font-weight: 700; }
         .tx-inbox { border-top: 1px solid var(--tx-line); }

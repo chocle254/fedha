@@ -71,7 +71,7 @@ export function parseSignal(text) {
 
   // Take profits
   const takeProfits = [];
-  const tpRe = new RegExp(`\\b(?:TP|TAKE[\\s-]*PROFIT|TARGET)S?(?:\\s*\\d{1,2}(?![\\d.,]))?\\s*[:=@\\-]?\\s*(${NUM})((?:\\s*(?:,|/|>|\\|)\\s*(?:${NUM}))*)`, 'gi');
+  const tpRe = new RegExp(`\\b(?:TP|TAKE[\\s-]*PROFIT|TARGET)S?(?:\\s*\\d{1,2}(?![\\d,]|\\.\\d))?\\.?\\s*[:=@\\-]?\\s*(${NUM})((?:\\s*(?:,|/|>|\\|)\\s*(?:${NUM}))*)`, 'gi');
   for (const x of up.matchAll(tpRe)) {
     const first = num(x[1]);
     if (first) takeProfits.push(first);

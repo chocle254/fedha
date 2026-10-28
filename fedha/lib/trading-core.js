@@ -164,3 +164,92 @@ export function partialRealized(t) {
   for (let i = 0; i < hit; i++) r += dir * (tps[i] - entry) * share - FEE_RATE * (tps[i] + entry) * share;
   return r;
 }
+
+// ─── GROUP REPORT CARD ───────────────────────────────────────────────────────
+// Every signal is paper-traded on its own at the same risk, so groups can be compared fairly in R
+// (R = profit ÷ the amount risked; +2R means the trade made twice what it risked, -1R is a full stop-out).
+// The verdict is what the AI and the Trading page use to size real-account lots and to drop groups.
+export const GROUP_MIN_TRADES = 10; // fewer closed trades than this is too little to judge
+
+export function tradeR(t) {
+  const risk = Number(t.actual_risk_usdt) || Number(t.risk_usdt) || 0;
+  return risk > 0 ? (Number(t.pnl_usdt) || 0) / risk : 0;
+}
+
+// Chance that a group's true average is above 0R, from its results so far (normal approximation).
+function normCdf(z) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(z));
+  const d = 0.3989423 * Math.exp(-z * z / 2);
+  const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  return z > 0 ? 1 - p : p;
+}
+
+export const LOT_MIN = 0.25;  // floor while a group is being judged or after a bad patch
+export const LOT_MAX = 3;     // ceiling for a proven group
+
+export function groupReport(trades = []) {
+  const map = {};
+  const closedAt = (t) => t.closed_at || t.created_at || '';
+  const ordered = [...trades].sort((a, b) => (closedAt(a) < closedAt(b) ? -1 : 1)); // oldest first, so streaks are real
+  for (const t of ordered) {
+    if (!t.signal_id || !t.source || t.source === 'Manual') continue;
+    const g = map[t.source] || (map[t.source] = { source: t.source, closed: 0, open: 0, wins: 0, losses: 0, totalR: 0, sumSq: 0, bestR: 0, worstR: 0, streak: 0, worstStreak: 0, last: null });
+    if (['open', 'pending'].includes(t.status)) { g.open++; continue; }
+    if (!['won', 'lost'].includes(t.status)) continue;
+    const r = tradeR(t);
+    g.closed++;
+    g.totalR += r;
+    g.sumSq += r * r;
+    g.bestR = Math.max(g.bestR, r);
+    g.worstR = Math.min(g.worstR, r);
+    if (r > 0) { g.wins++; g.streak = 0; } else { g.losses++; g.streak++; g.worstStreak = Math.max(g.worstStreak, g.streak); }
+    g.last = closedAt(t) || g.last;
+  }
+  return Object.values(map).map((g) => {
+    const n = g.closed;
+    const avgR = n ? g.totalR / n : 0;
+    const winRate = n ? Math.round((g.wins / n) * 100) : 0;
+    // Confidence: how sure we are this group really makes money. It needs both a positive average AND
+    // enough trades for that average to not be luck, so it climbs as the track record grows.
+    const sd = n > 1 ? Math.sqrt(Math.max(0, (g.sumSq - n * avgR * avgR) / (n - 1))) : 1;
+    const z = n ? avgR / (Math.max(sd, 0.5) / Math.sqrt(n)) : 0;
+    const confidence = n ? Math.round(normCdf(z) * 100) : 50;
+
+    // Lot multiplier grows with confidence and with the size of the edge, but the ceiling only
+    // opens up as trades pile up (1× + 0.1× per closed trade), so a lucky start cannot jump to 3×.
+    const edge = Math.max(0, (confidence - 50) / 50) * Math.min(1, Math.max(0, avgR) / 0.5);
+    const cap = Math.min(LOT_MAX, 1 + n * 0.1);
+    let lotMultiplier = Math.min(cap, 0.5 + edge * (LOT_MAX - 0.5));
+    let verdict, why;
+    if (n < GROUP_MIN_TRADES) {
+      // Too early to judge: small size either way (0.25×–1×), leaning with how it is going so far.
+      verdict = 'testing';
+      lotMultiplier = Math.min(1, Math.max(LOT_MIN, lotMultiplier * (confidence / 100) * 1.5));
+      why = `${n} closed trade${n === 1 ? '' : 's'}, ${confidence}% confident. Small lots until ${GROUP_MIN_TRADES} trades, then they grow with its record.`;
+    } else if (confidence < 25 || avgR <= 0) {
+      verdict = 'drop'; lotMultiplier = 0;
+      why = `Only ${confidence}% confident it makes money (${avgR >= 0 ? '+' : ''}${avgR.toFixed(2)}R per trade over ${n}). No real money; still paper-tracked in case it recovers.`;
+    } else if (lotMultiplier > 1) {
+      verdict = 'scale';
+      why = `${confidence}% confident over ${n} trades, ${avgR.toFixed(2)}R per trade. Lots raised.`;
+    } else {
+      verdict = 'keep';
+      why = `${confidence}% confident over ${n} trades (${avgR >= 0 ? '+' : ''}${avgR.toFixed(2)}R per trade). Not proven enough to size up yet.`;
+    }
+    // A losing run cuts size straight away; it builds back up as wins return.
+    if (lotMultiplier > 0 && g.streak >= 3) {
+      lotMultiplier /= 2;
+      why += ` Halved for now: ${g.streak} stop-losses in a row.`;
+    }
+    if (lotMultiplier > 0) lotMultiplier = Math.max(LOT_MIN, Math.floor(lotMultiplier * 4) / 4);
+    return { ...g, avgR, winRate, confidence, verdict, lotMultiplier, why };
+  }).sort((a, b) => b.confidence - a.confidence || b.avgR - a.avgR);
+}
+
+// Real-account XAUUSD lot size: standard lot = 100 oz, so a $1 move costs $100 per lot.
+// riskUsd is what you are willing to lose on the trade before the group's multiplier.
+export function goldLots({ riskUsd, entry, stop, multiplier = 1 }) {
+  const dist = Math.abs(Number(entry) - Number(stop));
+  if (!(dist > 0) || !(riskUsd > 0) || !(multiplier > 0)) return 0;
+  return Math.max(0.01, Math.floor(((riskUsd * multiplier) / (dist * 100)) * 100) / 100);
+}

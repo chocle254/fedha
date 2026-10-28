@@ -56,6 +56,24 @@ console.log('Connected. Watching', watch.length ? watch.join(', ') : 'all groups
 
 let seen = 0;
 let forwarded = 0;
+// Message ids already handled, so the live feed and the backup poll never send the same post twice.
+const handled = new Set();
+const lastId = new Map(); // chat id -> newest message id we have looked at
+
+// Shared by the live feed and the backup poll.
+async function forward({ chatId, id, date, text, title }) {
+  const key = `${chatId}:${id}`;
+  if (handled.has(key)) return;
+  handled.add(key);
+  if (handled.size > 5000) handled.delete(handled.values().next().value);
+  if (Number(id) > (lastId.get(String(chatId)) || 0)) lastId.set(String(chatId), Number(id));
+  if (!looksLikeSignal(text)) return;
+  if (watch.length && !watch.some((w) => title.toLowerCase().includes(w))) return;
+  forwarded++;
+  const out = await send({ source: title, text, externalId: key, messageDate: new Date(date * 1000).toISOString() });
+  console.log(new Date().toISOString(), title, '->', out ? JSON.stringify(out) : 'failed');
+}
+
 client.addEventHandler(async (event) => {
   try {
     const msg = event.message;
@@ -64,22 +82,51 @@ client.addEventHandler(async (event) => {
     if (!msg || (msg.out && process.env.ALLOW_OWN === '0')) return;
     if (!(event.isGroup || event.isChannel)) return;
     const text = msg.message || '';
-    if (!looksLikeSignal(text)) return;
+    if (!looksLikeSignal(text)) { handled.add(`${msg.chatId}:${msg.id}`); return; }
     const chat = await msg.getChat();
-    const title = chat?.title || 'Telegram group';
-    if (watch.length && !watch.some((w) => title.toLowerCase().includes(w))) return;
-    forwarded++;
-    const out = await send({
-      source: title,
-      text,
-      externalId: `${msg.chatId}:${msg.id}`,
-      messageDate: new Date(msg.date * 1000).toISOString()
-    });
-    console.log(new Date().toISOString(), title, '->', out ? JSON.stringify(out) : 'failed');
+    await forward({ chatId: msg.chatId, id: msg.id, date: msg.date, text, title: chat?.title || 'Telegram group' });
   } catch (e) {
     console.error('handler error:', e.message);
   }
 }, new NewMessage({}));
+
+// BACKUP POLL: Telegram's live feed silently skips posts from some channels (busy ones, or ones the
+// account rarely opens, including "restrict saving content" channels). Every 45 s, look at the newest
+// message in each group/channel and fetch anything we have not handled yet.
+const POLL_MS = Number(process.env.POLL_MS || 45000);
+let polling = false;
+async function pollChats() {
+  if (polling) return;
+  polling = true;
+  try {
+    const dialogs = await client.getDialogs({ limit: 200 });
+    for (const d of dialogs) {
+      if (!(d.isGroup || d.isChannel) || !d.message) continue;
+      const chatId = String(d.id);
+      const top = Number(d.message.id);
+      const known = lastId.get(chatId);
+      if (known == null) { lastId.set(chatId, top); continue; } // first look: start from now, no backlog
+      if (top <= known) continue;
+      const title = d.title || 'Telegram group';
+      if (watch.length && !watch.some((w) => title.toLowerCase().includes(w))) { lastId.set(chatId, top); continue; }
+      const msgs = await client.getMessages(d.entity, { minId: known, limit: 20 });
+      for (const m of [...msgs].reverse()) {
+        if (!m || (m.out && process.env.ALLOW_OWN === '0')) continue;
+        seen++;
+        await forward({ chatId: m.chatId ?? d.id, id: m.id, date: m.date, text: m.message || '', title });
+      }
+      lastId.set(chatId, Math.max(top, lastId.get(chatId) || 0));
+    }
+  } catch (e) {
+    const wait = e.seconds ? e.seconds * 1000 : 0; // FloodWait: back off as Telegram asks
+    console.warn('backup poll failed: ' + e.message + (wait ? ` (waiting ${e.seconds}s)` : ''));
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+  } finally {
+    polling = false;
+  }
+}
+setTimeout(pollChats, 5000);
+setInterval(pollChats, POLL_MS);
 
 // Keep the process alive and make connection drops visible.
 // WATCHDOG: restart cleanly if Telegram stops answering or memory balloons (start.sh relaunches us).

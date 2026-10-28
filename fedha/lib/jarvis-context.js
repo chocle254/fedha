@@ -15,6 +15,8 @@ import {
 } from './db';
 import { todayISO, countdownTo, formatShort, hackDeadlineLabel } from './utils';
 import { eventWindow, isEventEnded, sortEventsByStart, eventDateLabel, eventTimeLabel } from './events';
+import { supabase } from './supabase';
+import { groupReport, GROUP_MIN_TRADES } from './trading-core';
 import { detectJarvisRole, detectJarvisSituation, getJarvisRoleGuidance } from './jarvis-intelligence';
 
 const RECENT_TRANSACTION_COUNT = 15;
@@ -270,6 +272,24 @@ async function summarizeCareer(message = '') {
 }
 
 // The full context string injected as a system message on every Jarvis turn.
+// Signal groups: each Telegram signal is paper-traded separately at equal risk, so this report card
+// tells Jarvis which groups earn their place, what lot size to give each on a real account, and which to drop.
+async function summarizeTrading() {
+  if (!supabase) return null;
+  const { data, error } = await supabase.from('paper_trades')
+    .select('signal_id, source, status, pnl_usdt, risk_usdt, actual_risk_usdt, closed_at, created_at')
+    .not('signal_id', 'is', null).order('created_at', { ascending: false }).limit(1000);
+  if (error) throw error;
+  const groups = groupReport(data || []);
+  if (!groups.length) return 'No signal trades yet.';
+  const lines = groups.map((g) => `${g.source}: ${g.verdict.toUpperCase()} (lot ×${g.lotMultiplier}, ${g.confidence}% confident) | ${g.closed} closed, ${g.open} open | ${g.winRate}% win | ${g.avgR >= 0 ? '+' : ''}${g.avgR.toFixed(2)}R/trade, total ${g.totalR.toFixed(1)}R | worst run ${g.worstStreak} SL. ${g.why}`);
+  return [
+    `Each signal is paper-traded on its own at the same risk; results are in R (profit ÷ risk). Confidence = how sure we are the group makes money; it grows with a longer winning record, and the lot multiplier grows with it (0.25× to 3×). Under ${GROUP_MIN_TRADES} closed trades a group stays at 1× or less; 3 stop-losses in a row halve its size.`,
+    'Real-account lot rule for XAUUSD: lots = (base risk in $ × group multiplier) ÷ (SL distance in $ × 100), min 0.01. Groups marked DROP get no real money. Paper results only; never promise profits.',
+    ...lines,
+  ].join('\n');
+}
+
 export async function buildJarvisContext(message = '') {
   const m = String(message || '').toLowerCase();
   const wantsMoney = /\b(money|cash|balance|wallet|budget|expense|spent|spend|transaction|income|salary|loan|owe|owed|saving|savings|financial|afford|price|cost|client|clients|outstanding|freelance)\b/.test(m);
@@ -299,10 +319,11 @@ export async function buildJarvisContext(message = '') {
   }
   const wantsCareer = /\b(cv|resume|project|projects|hackathon|startup|certificate|portfolio|career|job|venture|event)\b/.test(m) || mentionedRecord;
   const wantsResearch = /\b(research|gig|side hustle|online job|food near|restaurant|cafe|activity|activities)\b/.test(m);
+  const wantsTrading = /\b(trade|trades|trading|signal|signals|group|groups|channel|gold|xau|lot|lots|forex|pips|paper|real account)\b/.test(m);
   const wantsGoals = /\b(goal|goals|achieve|achievement|milestone|progress|target|life goal)\b/.test(m);
   const role = detectJarvisRole(message);
   const situation = detectJarvisSituation(message);
-  const [money, planner, meals, deadlines, career, research, goals, clientWork, techEvents] = await Promise.all([
+  const [money, planner, meals, deadlines, career, research, goals, clientWork, techEvents, trading] = await Promise.all([
     wantsMoney ? summarizeMoney().catch((e) => `(money data unavailable: ${e.message})`) : Promise.resolve(null),
     wantsPlanner ? summarizePlanner().catch((e) => `(planner data unavailable: ${e.message})`) : Promise.resolve(null),
     wantsMeals ? summarizeMeals().catch((e) => `(meal data unavailable: ${e.message})`) : Promise.resolve(null),
@@ -312,6 +333,7 @@ export async function buildJarvisContext(message = '') {
     wantsGoals ? summarizeGoals().catch(() => null) : Promise.resolve(null),
     (wantsPlanner || wantsCareer) ? summarizeClientProjects().catch(() => null) : Promise.resolve(null),
     wantsPlanner ? summarizeTechEvents().catch(() => null) : Promise.resolve(null),
+    wantsTrading ? summarizeTrading().catch((e) => `(trading data unavailable: ${e.message})`) : Promise.resolve(null),
   ]);
 
   const now = new Date();
@@ -327,5 +349,6 @@ export async function buildJarvisContext(message = '') {
     research ? `— RESEARCH —\n${research}` : null,
     goals ? `— GOALS & PROGRESS —\n${goals}` : null,
     career ? `— PROJECTS, HACKATHONS & STARTUPS —\n${career}` : null,
+    trading ? `— SIGNAL GROUPS (paper trading) —\n${trading}` : null,
   ].filter(Boolean).join('\n\n');
 }
