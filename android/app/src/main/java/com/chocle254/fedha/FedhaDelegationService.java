@@ -23,6 +23,7 @@ public class FedhaDelegationService extends DelegationService {
 
     private static final class Kind {
         final String id, name, sound, badge, label;
+        String bg() { return "bg_" + id.replaceAll("^fedha_|_v\\d+$", ""); } // drawable/bg_<kind>.xml
         final long[] pattern;
         final int color;
         Kind(String id, String name, long[] pattern, String sound, int color, String badge, String label) {
@@ -107,6 +108,8 @@ public class FedhaDelegationService extends DelegationService {
     private RemoteViews bigView(Kind kind, Bitmap icon, String label, String title, String body, int lines) {
         RemoteViews v = new RemoteViews(getPackageName(), R.layout.notif_big);
         v.setInt(R.id.accent, "setColorFilter", kind.color);
+        int bgRes = getResources().getIdentifier(kind.bg(), "drawable", getPackageName());
+        if (bgRes != 0) v.setInt(R.id.root, "setBackgroundResource", bgRes);
         v.setImageViewBitmap(R.id.badge, icon);
         v.setTextViewText(R.id.label, label);
         v.setTextColor(R.id.label, kind.color);
@@ -151,6 +154,8 @@ public class FedhaDelegationService extends DelegationService {
 
         RemoteViews small = new RemoteViews(getPackageName(), R.layout.notif_small);
         small.setInt(R.id.accent, "setColorFilter", kind.color);
+        int bgRes = getResources().getIdentifier(kind.bg(), "drawable", getPackageName());
+        if (bgRes != 0) small.setInt(R.id.root, "setBackgroundResource", bgRes);
         small.setImageViewBitmap(R.id.badge, icon);
         small.setTextViewText(R.id.title, t);
         small.setTextViewText(R.id.body, body);
