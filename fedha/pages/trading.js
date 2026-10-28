@@ -10,7 +10,7 @@ import WalletPanel from '../components/trading/WalletPanel';
 import BrokerPanel from '../components/trading/BrokerPanel';
 import { ensurePushSubscription } from '../lib/push';
 import { groupReport, brokerResults, GROUP_MIN_TRADES, TRAIL_LABEL, TRAIL_DEFAULT } from '../lib/trading-core';
-import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST, lotsLabel, rrPlan, rrText, rrDetail, resultR } from '../components/trading/util';
+import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST, lotsLabel, rrPlan, rrText, rrDetail, resultR, pipSize, moveLabel, bankedPipsLabel, netPipsLabel } from '../components/trading/util';
 
 // The stop in force now: signal trades trail it with their channel's learned style (saved as trail_stop).
 const curStop = (t) => (t.source !== 'Manual' && t.trail_stop != null ? t.trail_stop : t.stop_loss);
@@ -352,6 +352,9 @@ export default function TradingPage() {
           <div><span>Lots</span><b>{lotsLabel(t)}</b></div>
           <div><span>Risk</span><b style={{ color: C.down }}>{t.actual_risk_usdt != null || t.risk_usdt != null ? fmtUsd(Number(t.actual_risk_usdt ?? t.risk_usdt), false) : '—'}</b></div>
           <div><span>R:R (avg)</span><b title={rrDetail(rrPlan(t))}>{rrText(rrPlan(t))}</b></div>
+          <div><span>{pipSize(t.symbol) ? 'Pips now' : 'Move now'}</span><b style={{ color: mark && (t.side === 'BUY' ? mark >= Number(t.entry) : mark <= Number(t.entry)) ? C.up : C.down }}>{moveLabel(t, mark)}</b></div>
+          <div><span>Best move</span><b style={{ color: C.up }}>{moveLabel(t, t.max_favorable_price)}</b></div>
+          <div><span>{pipSize(t.symbol) ? 'Pips banked' : 'Banked at'}</span><b style={{ color: C.up }}>{t.tp_hit > 0 ? `${bankedPipsLabel(t)} (TP${t.tp_hit})` : '—'}</b></div>
         </div>
         {rrPlan(t)?.n > 1 && <div className="tx-row-note font-num">R:R per target: {rrDetail(rrPlan(t))}</div>}
         {(t.take_profits || []).length > 0 && (
@@ -430,6 +433,9 @@ export default function TradingPage() {
           <div><span>Risk</span><b>{t.actual_risk_usdt != null || t.risk_usdt != null ? fmtUsd(Number(t.actual_risk_usdt ?? t.risk_usdt), false) : '—'}</b></div>
           <div><span>R:R planned</span><b title={rrDetail(rrPlan(t))}>{rrText(rrPlan(t))}</b></div>
           <div><span>Result</span><b style={{ color: (resultR(t) ?? 0) >= 0 ? C.up : C.down }}>{!cancelled && resultR(t) != null ? `${resultR(t) >= 0 ? '+' : ''}${resultR(t).toFixed(2)}R` : '—'}</b></div>
+          <div><span>{pipSize(t.symbol) ? 'Pips moved' : 'Moved'}</span><b>{cancelled ? '—' : moveLabel(t, t.last_price)}</b></div>
+          <div><span>Best move</span><b style={{ color: C.up }}>{cancelled ? '—' : moveLabel(t, t.max_favorable_price)}</b></div>
+          <div><span>{pipSize(t.symbol) ? 'Pips profit' : 'Profit %'}</span><b style={{ color: Number(t.pnl_usdt) >= 0 ? C.up : C.down }}>{cancelled ? '—' : netPipsLabel(t)}</b></div>
         </div>
       </div>
     );

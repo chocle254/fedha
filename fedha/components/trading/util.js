@@ -138,3 +138,29 @@ export function resultR(t) {
   const pnl = Number(t.pnl_usdt);
   return risk > 0 && Number.isFinite(pnl) ? pnl / risk : null;
 }
+
+// ─── PIPS ────────────────────────────────────────────────────────────────────
+// Gold pips the way signal channels count them: 1 pip = $0.10 (a $3 move = 30 pips). Crypto has no pips,
+// so it shows the move in percent instead. Positive = in the trade's favour.
+export const pipSize = (symbol) => (symbol === 'XAUUSD' ? 0.1 : null);
+const favour = (t, price) => (t.side === 'BUY' ? 1 : -1) * (Number(price) - Number(t.entry));
+export function moveLabel(t, price) {
+  if (!Number.isFinite(Number(price)) || price == null) return '—';
+  const d = favour(t, price);
+  const ps = pipSize(t.symbol);
+  if (ps) return `${d >= 0 ? '+' : ''}${(d / ps).toFixed(0)} pips`;
+  const pct = (d / Number(t.entry)) * 100;
+  return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+}
+// Channel-style "TPn hit with X pips": the distance from entry to the last target reached.
+export const bankedPipsLabel = (t) => (t.tp_hit > 0 ? moveLabel(t, (t.take_profits || [])[t.tp_hit - 1]) : '—');
+// Net pips for the whole position (all exits, spread included): profit ÷ size ÷ pip size.
+export function netPipsLabel(t) {
+  const ps = pipSize(t.symbol);
+  const pnl = Number(t.pnl_usdt);
+  const q = Number(t.qty);
+  if (!Number.isFinite(pnl) || !(q > 0)) return '—';
+  if (!ps) { const pct = (pnl / (q * Number(t.entry))) * 100; return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`; }
+  const p = pnl / q / ps;
+  return `${p >= 0 ? '+' : ''}${p.toFixed(0)} pips`;
+}
