@@ -34,17 +34,16 @@ jobs:
             rsvg-convert -w ${d##*:} -h ${d##*:} -b '#0A0D17' fedha/public/icon.svg -o "$dir/ic_launcher.png"
           done
 
-      - name: Signing key
+      - name: Check signing password
         env:
-          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE_B64" ]; then echo "::error::Add the ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD secrets"; exit 1; fi
-          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/fedha.keystore"
+          if [ -z "$KEYSTORE_PASSWORD" ]; then echo "::error::Add the ANDROID_KEYSTORE_PASSWORD secret (Settings > Secrets and variables > Actions)"; exit 1; fi
 
       - name: Build APK
         working-directory: android
         env:
-          KEYSTORE_FILE: ${{ runner.temp }}/fedha.keystore
+          KEYSTORE_FILE: ${{ github.workspace }}/android/fedha.keystore # locked with the password secret
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           VERSION_CODE: ${{ github.run_number }}
         run: |
