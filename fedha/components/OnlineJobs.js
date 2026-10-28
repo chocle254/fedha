@@ -298,7 +298,7 @@ function TodayPanel({ job, onUpdate }) {
             <div style={{ fontSize: 11, color: 'var(--text-3)' }}>Next break after 60 min of work</div>
           </div>
         ) : (
-          <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>Start the timer when you begin tasks. Fedha tracks your hours and locks the screen for a proper reboot break after each 60-min block so your eyes and mood stay fresh.</div>
+          <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>Start the timer when you begin tasks. Luxe tracks your hours and locks the screen for a proper reboot break after each 60-min block so your eyes and mood stay fresh.</div>
         )}
 
         <button className="btn-primary" onClick={active ? stop : start}
@@ -529,7 +529,7 @@ export default function OnlineJobs() {
   return (
     <div>
       <div style={{ padding: '12px 14px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 12, marginBottom: 16, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
-        💼 Track the online gigs you actually do. Log what you earn each day and Fedha tells you how many tasks per day you need to beat your payout threshold — without overworking.
+        💼 Track the online gigs you actually do. Log what you earn each day and Luxe tells you how many tasks per day you need to beat your payout threshold — without overworking.
       </div>
 
       <button className="btn-primary" onClick={() => setShowAdd(true)} style={{ marginBottom: 20, background: 'var(--blue)' }}>+ Add Online Job</button>

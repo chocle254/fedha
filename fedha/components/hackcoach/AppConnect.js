@@ -5,7 +5,7 @@ import { getSetting, setSetting } from '../../lib/db';
 import { fetchRepos, sortRepos } from '../../lib/github';
 import { scanRepo, parseRepo, linkedFacts, hackForAI, coachAsk, startDateOf, timelineOf, timelineText, gatherEvidence, applyFacts } from '../../lib/hack-coach';
 
-// Connect an app you already built (GitHub repo, a Fedha startup or
+// Connect an app you already built (GitHub repo, a Luxe startup or
 // Showroom project, or just a live link) so the coach knows what exists,
 // checks it against the hackathon, and counts your commits as progress.
 
@@ -65,7 +65,7 @@ export default function AppConnect({ hack, cur, save, saveCoach, busy, run, onUs
       const link = chosenLinked();
       const repoName = parseRepo(repoInput) || parseRepo(link?.item?.repo_url);
       const liveUrl = live.trim() || link?.item?.site_url || link?.item?.stages?.prototyping?.prototype_link || '';
-      if (!repoName && !link && !liveUrl) throw new Error('Pick a repo, a Fedha startup or project, or paste a live link.');
+      if (!repoName && !link && !liveUrl) throw new Error('Pick a repo, a Luxe startup or project, or paste a live link.');
       const repo = repoName ? await scanRepo(repoName, { folder }) : null;
       const appObj = {
         name: link?.item?.name || repo?.full_name?.split('/')[1] || hack.project_name || 'My app',
@@ -112,7 +112,7 @@ export default function AppConnect({ hack, cur, save, saveCoach, busy, run, onUs
         <div className="muse-label">🔗 ALREADY BUILT SOMETHING FOR THIS?</div>
         <div style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '8px 0 10px', lineHeight: 1.5 }}>Connect your app. The mentor reads the repo (README, files, dependencies, commits), checks it against this hackathon's rules and criteria, and counts your commits as progress.</div>
         <div className="muse-suggest" style={{ marginTop: 0 }}>
-          {[['github', '🐙 GitHub repo'], ['fedha', '💡 From Fedha'], ['link', '🌐 Just a link']].map(([k, l]) => (
+          {[['github', '🐙 GitHub repo'], ['fedha', '💡 From Luxe'], ['link', '🌐 Just a link']].map(([k, l]) => (
             <button key={k} type="button" onClick={() => setSource(k)} style={source === k ? { borderColor: '#7B61FF', background: 'rgba(123,97,255,0.15)' } : undefined}>{l}</button>
           ))}
         </div>
@@ -194,7 +194,7 @@ export default function AppConnect({ hack, cur, save, saveCoach, busy, run, onUs
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 8, fontSize: 12 }}>
         {r?.url && <a href={r.url} target="_blank" rel="noreferrer" style={{ color: '#A78BFA' }}>Repo ↗</a>}
         {app.live_url && <a href={app.live_url} target="_blank" rel="noreferrer" style={{ color: '#A78BFA' }}>Live ↗</a>}
-        {app.linked && <span style={{ color: 'var(--text-3)' }}>Linked to your Fedha {app.linked.kind}</span>}
+        {app.linked && <span style={{ color: 'var(--text-3)' }}>Linked to your Luxe {app.linked.kind}</span>}
       </div>
 
       {r && r.dirs?.length > 0 && !compact && (

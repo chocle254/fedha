@@ -303,7 +303,7 @@ export default function JarvisWidget() {
         }
         const otherAuto = auto.filter((a) => a.tool !== 'propose_log_meal');
         if (otherAuto.length) {
-          setMessages((prev) => [...prev, { role: 'assistant', content: `Locked in — I added ${otherAuto.length === 1 ? 'it' : 'them'} to Fedha.` }]);
+          setMessages((prev) => [...prev, { role: 'assistant', content: `Locked in — I added ${otherAuto.length === 1 ? 'it' : 'them'} to Luxe.` }]);
         }
         if (pending.length) {
           setPendingActions((prev) => [...prev, ...pending.map((a) => ({ ...a, id: genId() }))]);

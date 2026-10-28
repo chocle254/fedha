@@ -1,11 +1,11 @@
 name: Android APK
 
-# Builds the Fedha Android app (a wrapper around https://fedha.vercel.app) and publishes it
+# Builds the Luxe Android app (a wrapper around https://fedha.vercel.app) and publishes it
 # as the "android-latest" GitHub release, so the newest APK is always at the same link.
 on:
   push:
     branches: [main]
-    paths: ['android/**', 'fedha/public/icon.svg', '.github/workflows/android.yml']
+    paths: ['android/**', 'fedha/public/icon.svg', 'fedha/public/icon-maskable.svg', '.github/workflows/android.yml']
   workflow_dispatch:
 
 permissions:
@@ -31,7 +31,7 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq librsvg2-bin
           for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
             dir=android/app/src/main/res/mipmap-${d%%:*}; mkdir -p "$dir"
-            rsvg-convert -w ${d##*:} -h ${d##*:} -b '#0A0D17' fedha/public/icon.svg -o "$dir/ic_launcher.png"
+            rsvg-convert -w ${d##*:} -h ${d##*:} fedha/public/icon-maskable.svg -o "$dir/ic_launcher.png"
           done
 
       - name: Check signing password
@@ -56,5 +56,5 @@ jobs:
         run: |
           gh release delete android-latest --yes --cleanup-tag 2>/dev/null || true
           gh release create android-latest "$RUNNER_TEMP/fedha.apk" \
-            --title "Fedha Android (build ${{ github.run_number }})" \
+            --title "Luxe Android (build ${{ github.run_number }})" \
             --notes "Download fedha.apk on your phone and open it to install."

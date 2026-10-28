@@ -1,4 +1,4 @@
-// Fedha Notification System
+// Luxe Notification System
 // Schedules meal, planner and event reminders via service worker
 // Works offline as long as Chrome is running in background
 

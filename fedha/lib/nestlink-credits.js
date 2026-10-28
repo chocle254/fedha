@@ -1,4 +1,4 @@
-// Credits finished NestLink payouts to the Fedha wallet called "mpesa 2".
+// Credits finished NestLink payouts to the Luxe wallet called "mpesa 2".
 // Pure logic so it can be tested; components/NestLinkCredits.js wires it up.
 
 export const normName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');

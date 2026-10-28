@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lets the Trusted Web Activity hand the splash image to Chrome. -->
+<paths>
+    <files-path path="twa_splash/" name="twa_splash" />
+</paths>

@@ -47,7 +47,7 @@ export default async function handler(req, res) {
 
   const text = msg.text || msg.caption || '';
   if (text.startsWith('/start')) {
-    await reply(msg.chat.id, 'Forward signal messages here and I will track them in Fedha (paper only, no real orders).');
+    await reply(msg.chat.id, 'Forward signal messages here and I will track them in Luxe (paper only, no real orders).');
     return res.status(200).json({ ok: true });
   }
   const result = await createSignal({ userId, source: sourceOf(msg), text });

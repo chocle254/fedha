@@ -40,7 +40,7 @@ export async function settlePending({ waitMs = 0, reference = null } = {}) {
       const delivery = await pushToAll({
         title: completed ? 'Funds withdrawn' : 'Withdrawal failed',
         body: completed
-          ? `KES ${item.payout} sent to your M-Pesa. mpesa 2 updates when Fedha is open.`
+          ? `KES ${item.payout} sent to your M-Pesa. mpesa 2 updates when Luxe is open.`
           : `KES ${item.payout} payout ${item.reference} was ${item.status.toLowerCase()}. The funds stay in NestLink.`,
         tag: `nestlink-${item.reference}`
       });

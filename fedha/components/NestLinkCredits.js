@@ -7,7 +7,7 @@ import { applyCredits } from '../lib/nestlink-credits';
 
 const POLL_MS = 3000;
 
-// Invisible. While Fedha is open it asks the server which NestLink payouts have
+// Invisible. While Luxe is open it asks the server which NestLink payouts have
 // finished, credits them to the "mpesa 2" wallet and shows a notification.
 export default function NestLinkCredits() {
   const { wallets, addTransaction } = useApp();

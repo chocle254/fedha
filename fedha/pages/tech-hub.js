@@ -198,7 +198,7 @@ function HackathonModal({ initial, onClose, onSave }) {
             <div style={{ fontSize: 11.5, marginTop: 6, color: form.deadline_date && form.deadline_time ? 'var(--green)' : 'var(--text-3)', fontWeight: form.deadline_date && form.deadline_time ? 700 : 400 }}>
               {form.deadline_date && form.deadline_time
                 ? `🇰🇪 ${hackDeadlineLabel({ ...form, deadline: 'x' })}`
-                : 'Pick the time and timezone exactly as the hackathon page shows them (e.g. GMT+3). Fedha converts it to Kenya time. No time = end of that day.'}
+                : 'Pick the time and timezone exactly as the hackathon page shows them (e.g. GMT+3). Luxe converts it to Kenya time. No time = end of that day.'}
             </div>
           </Field>
           <Field label="Project Name"><input className="input" placeholder="Your project's name" value={form.project_name} onChange={set('project_name')} /></Field>
@@ -283,7 +283,7 @@ function HackathonModal({ initial, onClose, onSave }) {
 
           {form.status !== 'active' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 12, padding: 14 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-2)', fontWeight: 600 }}>📣 Results announcement — enter the time in its original timezone and Fedha converts it to Kenya time (EAT) and alerts you.</div>
+              <div style={{ fontSize: 12, color: 'var(--text-2)', fontWeight: 600 }}>📣 Results announcement — enter the time in its original timezone and Luxe converts it to Kenya time (EAT) and alerts you.</div>
               <div style={{ display: 'flex', gap: 10 }}>
                 <div style={{ flex: 1 }}><Field label="Results date"><input className="input" type="date" value={form.results_date} onChange={set('results_date')} /></Field></div>
                 <div style={{ width: 110 }}><Field label="Time"><input className="input" type="time" value={form.results_time} onChange={set('results_time')} /></Field></div>
@@ -723,7 +723,7 @@ function CertCard({ cert, onOpen, place }) {
   );
 }
 
-// Rendered when a certificate has no uploaded image — a Fedha-branded
+// Rendered when a certificate has no uploaded image — a Luxe-branded
 // certificate visual generated from the fields you entered.
 function GeneratedCertArt({ cert, compact }) {
   const meta = rankMeta(cert.achievement);
@@ -731,7 +731,7 @@ function GeneratedCertArt({ cert, compact }) {
     <div className={`generated-cert${compact ? ' compact' : ''}`} style={{ padding: compact ? 10 : 22 }}>
       <div className="generated-cert-header">
         <span style={{ fontSize: compact ? 16 : 22 }}>⚡</span>
-        <span style={{ fontSize: compact ? 11 : 14, fontWeight: 800, letterSpacing: 1.5 }}>FEDHA {compact ? '' : 'TECH HUB'}</span>
+        <span style={{ fontSize: compact ? 11 : 14, fontWeight: 800, letterSpacing: 1.5 }}>LUXE {compact ? '' : 'TECH HUB'}</span>
       </div>
       <div style={{ fontSize: compact ? 8 : 11, color: 'var(--text-3)', letterSpacing: 2, marginTop: compact ? 6 : 10, textTransform: 'uppercase' }}>Certificate of Achievement</div>
       {!compact && <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 8 }}>Proudly presented to</div>}
@@ -899,7 +899,7 @@ function CertificatesRoom({ hackathons, certificates, onAdd, onOpen }) {
 }
 
 function CertificateModal({ initial, onClose, onSave }) {
-  const EMPTY = { title: '', organization: 'Fedha Tech Hub', achievement: '1st Place', category: 'Hackathon', date_earned: todayISO(), description: '', image: '', recipient_name: 'Chocle254' };
+  const EMPTY = { title: '', organization: 'Luxe Tech Hub', achievement: '1st Place', category: 'Hackathon', date_earned: todayISO(), description: '', image: '', recipient_name: 'Chocle254' };
   const [form, setForm] = useState({ ...EMPTY, ...initial });
   const [imgBusy, setImgBusy] = useState(false);
   const fileRef = useRef(null);
@@ -923,7 +923,7 @@ function CertificateModal({ initial, onClose, onSave }) {
         </div>
         <div className="modal-body">
           <Field label="Event / Title"><input className="input" placeholder="e.g. Call of Duty Mobile Tournament — Season 3" value={form.title} onChange={set('title')} autoFocus /></Field>
-          <Field label="Issuing Organization"><input className="input" placeholder="e.g. Fedha Tech Hub, Devpost, KITI" value={form.organization} onChange={set('organization')} /></Field>
+          <Field label="Issuing Organization"><input className="input" placeholder="e.g. Luxe Tech Hub, Devpost, KITI" value={form.organization} onChange={set('organization')} /></Field>
           <div style={{ display: 'flex', gap: 10 }}>
             <Field label="Achievement" style={{ flex: 1 }}>
               <select className="input" value={form.achievement} onChange={set('achievement')}>
@@ -955,7 +955,7 @@ function CertificateModal({ initial, onClose, onSave }) {
             <button className="btn-ghost" onClick={() => fileRef.current?.click()} disabled={imgBusy}>
               {imgBusy ? 'Processing…' : form.image ? 'Replace Photo' : '📷 Upload a photo of the real certificate'}
             </button>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>No photo? A Fedha-branded certificate is generated automatically from the fields above.</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>No photo? A Luxe-branded certificate is generated automatically from the fields above.</div>
           </div>
 
           <button className="btn-primary" disabled={!form.title.trim()} onClick={() => onSave(form)}>
@@ -1002,7 +1002,7 @@ function CertificateDetail({ cert, onClose, onEdit, onDelete }) {
       doc.rect(16, 16, w - 32, h - 32);
       doc.setTextColor(245, 197, 107);
       doc.setFontSize(12);
-      doc.text('FEDHA TECH HUB', w / 2, 60, { align: 'center' });
+      doc.text('LUXE TECH HUB', w / 2, 60, { align: 'center' });
       doc.setTextColor(150, 165, 190);
       doc.setFontSize(10);
       doc.text('CERTIFICATE OF ACHIEVEMENT', w / 2, 82, { align: 'center' });
@@ -2447,7 +2447,7 @@ export default function TechHubPage() {
 
               {showStartupForm && (
                 <div className="card" style={{ padding: 16, marginBottom: 12 }}>
-                  <Field label="Startup Name"><input className="input" placeholder="e.g. Fedha" value={startupName} onChange={(e) => setStartupName(e.target.value)} autoFocus /></Field>
+                  <Field label="Startup Name"><input className="input" placeholder="e.g. Luxe" value={startupName} onChange={(e) => setStartupName(e.target.value)} autoFocus /></Field>
                   <div style={{ height: 12 }} />
                   <Field label="Accelerator / Program"><input className="input" placeholder="e.g. Y Combinator, ALX" value={startupAcc} onChange={(e) => setStartupAcc(e.target.value)} /></Field>
                   <button className="btn-primary" style={{ marginTop: 14 }} disabled={!startupName.trim()} onClick={createStartup}>Create Startup</button>

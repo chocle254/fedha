@@ -343,7 +343,7 @@ export async function scanRepo(fullName, { folder = '' } = {}) {
   };
 }
 
-// A startup or Showroom project from Fedha, as plain facts for the coach.
+// A startup or Showroom project from Luxe, as plain facts for the coach.
 export function linkedFacts(kind, item) {
   if (!item) return null;
   if (kind === 'startup') {

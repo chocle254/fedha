@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { AppProvider } from '../context/AppContext';
 import SavingsPrompt from '../components/SavingsPrompt';
+import WelcomeIntro from '../components/WelcomeIntro';
 import { isSupabaseEnabled, getSession, onAuthChange } from '../lib/supabase';
 import '../styles/globals.css';
 import { installApiAuth } from '../lib/api-auth-client';
@@ -10,7 +11,7 @@ import { installApiAuth } from '../lib/api-auth-client';
 if (typeof window !== 'undefined') installApiAuth();
 
 function Splash() {
-  return <div aria-hidden="true" style={{ background: 'var(--bg)', minHeight: '100vh' }} />;
+  return <div aria-hidden="true" style={{ background: '#05060B', minHeight: '100vh' }} />;
 }
 
 function ConfigErrorScreen() {
@@ -28,7 +29,7 @@ function ConfigErrorScreen() {
 }
 
 function NotificationScheduler() {
-  // Another Fedha window (Chrome tab vs installed app) changed today's plan:
+  // Another Luxe window (Chrome tab vs installed app) changed today's plan:
   // replace this window's planner timers with the saved plan.
   useEffect(() => {
     if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return;
@@ -211,7 +212,7 @@ function NotificationScheduler() {
   return null;
 }
 
-export default function App({ Component, pageProps }) {
+function AppBody({ Component, pageProps }) {
   // Defer rendering the page until the client has mounted so the server HTML
   // and the first client paint match exactly (prevents hydration mismatches
   // caused by date/time and client-only data rendered during initial render).
@@ -261,5 +262,15 @@ export default function App({ Component, pageProps }) {
       <Component {...pageProps} />
       <SavingsPrompt />
     </AppProvider>
+  );
+}
+
+// The welcome intro sits above everything (including the loading splash) on the first open of each launch.
+export default function App(props) {
+  return (
+    <>
+      <AppBody {...props} />
+      {!props.router?.pathname?.startsWith('/certificate') && <WelcomeIntro />}
+    </>
   );
 }

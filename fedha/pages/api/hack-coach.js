@@ -260,7 +260,7 @@ function appLines(app) {
     app.timeline ? `  ${timelineFact(app.timeline)}` : '',
     a.new_code_risk && app.timeline?.verdict !== 'during' ? `  Eligibility warning: ${clip(a.new_code_risk, 300)}` : '',
     r?.commits?.length ? `  Recent commits (newest first): ${r.commits.slice(0, 8).map((c) => `${String(c.date || '').slice(0, 10)} ${c.message}`).join(' | ')}` : '',
-    app.linked?.text ? `  From the builder's Fedha ${app.linked.kind}: ${clip(app.linked.text, 900)}` : '',
+    app.linked?.text ? `  From the builder's Luxe ${app.linked.kind}: ${clip(app.linked.text, 900)}` : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -344,7 +344,7 @@ const prompts = {
     const facts = [
       app.name ? `Name: ${app.name}` : '',
       app.live_url ? `Live link: ${app.live_url}` : '',
-      app.linked?.text ? `What the builder wrote about it in Fedha (${app.linked.kind}):\n${clip(app.linked.text, 5000)}` : '',
+      app.linked?.text ? `What the builder wrote about it in Luxe (${app.linked.kind}):\n${clip(app.linked.text, 5000)}` : '',
       r ? `GitHub repo ${r.full_name}: ${r.description || ''}${r.homepage ? ` (homepage ${r.homepage})` : ''}\nCreated ${String(r.created_at || '').slice(0, 10)}, last push ${String(r.pushed_at || '').slice(0, 10)}. Languages: ${(r.languages || []).join(', ')}. Topics: ${(r.topics || []).join(', ')}` : '',
       r?.readme ? `README:\n${clip(r.readme, 7000)}` : '',
       r?.deps?.length ? `Dependencies:\n${r.deps.map((d) => `${d.path}:\n${clip(d.text, 1200)}`).join('\n')}` : '',

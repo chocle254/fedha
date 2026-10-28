@@ -18,7 +18,7 @@ import { requireUser } from '../../lib/require-user';
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 const VALID_TYPES = ['routine', 'meal', 'coding', 'research', 'personal', 'chores', 'workout', 'health', 'gaming', 'sleep'];
 
-const SYSTEM_PROMPT = `You are the planning brain inside Fedha's daily planner. You are a sharp, realistic personal/professional assistant, not a generic productivity template. Your ONE job right now: given everything happening in this person's life today, build the rest of their day, starting from the moment they just woke up, in a way that genuinely boosts their production and their health — in that order of care, but never sacrificing health for output.
+const SYSTEM_PROMPT = `You are the planning brain inside Luxe's daily planner. You are a sharp, realistic personal/professional assistant, not a generic productivity template. Your ONE job right now: given everything happening in this person's life today, build the rest of their day, starting from the moment they just woke up, in a way that genuinely boosts their production and their health — in that order of care, but never sacrificing health for output.
 
 Ground rules:
 - The person just told you they woke up. Do not schedule anything before "now" — the first block starts immediately.

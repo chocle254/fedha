@@ -1,5 +1,5 @@
 // Server-side guard for the AI routes. They spend the Groq / NVIDIA free
-// quota, so only the signed-in Fedha user may call them — otherwise anyone
+// quota, so only the signed-in Luxe user may call them — otherwise anyone
 // who finds the URL can burn through the per-minute limits (which then shows
 // up as Jarvis being "rate limited"). Returns the user, or sends 401 and
 // returns null.

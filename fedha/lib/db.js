@@ -410,7 +410,7 @@ export const deleteProject = (id) => projectsStore.remove(id);
 
 // ─── CLIENT PROJECTS (Tech Hub / paid client work) ─────────────────────────
 // Stored in settings so this feature remains schema-free and synced through
-// the same offline-first settings pipeline as the rest of Fedha.
+// the same offline-first settings pipeline as the rest of Luxe.
 export async function getClientProjects() {
   const value = await getSetting('client_projects', []);
   return Array.isArray(value) ? value : [];

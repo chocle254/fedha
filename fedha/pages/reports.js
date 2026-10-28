@@ -70,7 +70,7 @@ export default function ReportsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `fedha-export-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    a.download = `luxe-export-${format(new Date(), 'yyyy-MM-dd')}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -86,7 +86,7 @@ export default function ReportsPage() {
     doc.setTextColor(16, 185, 129);
     doc.setFontSize(22);
     doc.setFont('helvetica', 'bold');
-    doc.text('FEDHA', 14, 20);
+    doc.text('LUXE', 14, 20);
     doc.setTextColor(150, 170, 200);
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
@@ -157,7 +157,7 @@ export default function ReportsPage() {
       headStyles: { fillColor: [16, 185, 129] },
     });
 
-    doc.save(`fedha-report-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    doc.save(`luxe-report-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
   }
 
   return (

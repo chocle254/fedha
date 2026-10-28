@@ -1,10 +1,10 @@
-// Fedha — send-reminders Edge Function
+// Luxe — send-reminders Edge Function
 //
 // Triggered every minute by a pg_cron job (see supabase-push-schema.sql).
 // For every device that has granted notification permission, checks
 // whether any meal or planner reminder is due *right now* and, if so,
 // sends a real Web Push message via the browser's push service — this
-// works even if the Fedha tab/app is completely closed.
+// works even if the Luxe tab/app is completely closed.
 //
 // Mirrors the same reminder rules as lib/notifications.js so the
 // server-sent notifications match what the in-app scheduler would have

@@ -47,7 +47,7 @@ export default async function handler(req, res) {
   const varietyStr = nonce ? `\nFreshness token: ${nonce}. Give a DIFFERENT, fresh set of ideas than you might usually pick — avoid repeating the obvious defaults.` : '';
 
   if (type === 'lesson_notes') {
-    prompt = `You are Fedha's study-notes assistant. Turn the supplied lesson transcript into accurate, useful study notes.
+    prompt = `You are Luxe's study-notes assistant. Turn the supplied lesson transcript into accurate, useful study notes.
 
 Course: ${lesson?.course || 'Unknown course'}
 Section: ${lesson?.section || 'Course content'}
@@ -181,7 +181,7 @@ Order by fit, highest first. Be specific and honest; no generic "AI for X" ideas
   }
 
   if (type === 'opportunities') {
-    prompt = (foundText) => `You are Fedha's online-income discovery researcher for a tech-savvy user in Kenya.
+    prompt = (foundText) => `You are Luxe's online-income discovery researcher for a tech-savvy user in Kenya.
 
 The goal is NOT to repeatedly recommend the same famous platforms. Search broadly and surface legitimate, less-obvious, higher-ceiling opportunities where access is gated by assessments, credentials, screening, invitations, language/region requirements, portfolio review, or demonstrated expertise.
 
@@ -192,7 +192,7 @@ IMPORTANT DISCOVERY RULES:
 2. Strongly prefer diversity. In one result set, do not repeat the same platform or near-identical platform category. Try to mix at least 4 categories when evidence allows: AI expert/evaluation work, expert networks/research panels, security/bug bounties, developer/open-source bounties, UX/user research, language/audio evaluation, specialist freelance/talent networks, and niche marketplaces.
 3. Prefer GATE-KEPT opportunities. Explicitly identify the gate: assessment, interview, credentials, portfolio, invite, qualification test, geographic eligibility, or specialist expertise.
 4. Search community discussions such as Reddit for worker experiences, hidden platforms, actual payout reports and availability. Community posts are supporting evidence only; distinguish them from official claims and do not treat anecdotes as guaranteed facts.
-5. Prefer the official platform domain for site_url. site_verified=true means the official domain was identified in the evidence; it does NOT mean Fedha guarantees legitimacy, earnings, availability, or payment.
+5. Prefer the official platform domain for site_url. site_verified=true means the official domain was identified in the evidence; it does NOT mean Luxe guarantees legitimacy, earnings, availability, or payment.
 6. Ratings must be sourced. If no defensible current rating is found, use null.
 7. Earnings are POTENTIAL, not guaranteed. Prefer hourly/project rates from evidence, then calculate a transparent daily/weekly potential using realistic hours. Do not present advertised maximums as expected income.
 8. Account for Kenya/region eligibility where evidence exists. If country availability is unclear, say "Check Kenya eligibility".

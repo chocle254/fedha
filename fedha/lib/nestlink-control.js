@@ -29,13 +29,13 @@ export async function recordSweep(summary) {
   if (error) console.error('[fedha] Could not record sweep:', error.message);
 }
 
-// Fedha is a single-user personal app, so any signed-in user is allowed.
+// Luxe is a single-user personal app, so any signed-in user is allowed.
 // (Keep Supabase sign-ups disabled so no one else can create an account.)
 export async function requireOwner(req, res) {
   return requireUser(req, res);
 }
 
-// ─── Pending payouts (waiting to be confirmed by NestLink and credited in Fedha) ───
+// ─── Pending payouts (waiting to be confirmed by NestLink and credited in Luxe) ───
 export async function getPending() {
   const { data, error } = await (await admin()).from(TABLE).select('pending').eq('id', 1).maybeSingle();
   if (error) throw new Error(`Pending payouts unavailable: ${error.message}`);

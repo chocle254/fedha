@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Accent stripe on the left of each notification; tinted per kind in FedhaDelegationService. -->
+<!-- Accent stripe on the left of each notification; tinted per kind in LuxeDelegationService. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <solid android:color="#FFFFFFFF" />
     <corners android:radius="3dp" />

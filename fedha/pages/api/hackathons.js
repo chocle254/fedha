@@ -4,7 +4,7 @@
 //
 // GET /api/hackathons → { results: [...], sources: { devpost, devfolio } }
 
-const UA = 'Mozilla/5.0 (Fedha hackathon finder)';
+const UA = 'Mozilla/5.0 (Luxe hackathon finder)';
 const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
 
 const pad = (n) => String(n).padStart(2, '0');

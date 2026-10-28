@@ -99,9 +99,9 @@ export default function FoodHub({ onLogMeal }) {
       if (error?.code === 1) {
         setNearbyError('Location access was denied. Allow location access in your browser/app settings, then try again.');
       } else if (error?.code === 2) {
-        setNearbyError('Fedha could not determine your location. Turn on Location/GPS and try again.');
+        setNearbyError('Luxe could not determine your location. Turn on Location/GPS and try again.');
       } else {
-        setNearbyError('Fedha could not get your location right now. Please try again.');
+        setNearbyError('Luxe could not get your location right now. Please try again.');
       }
     }, {
       enableHighAccuracy: false,
@@ -343,9 +343,9 @@ export default function FoodHub({ onLogMeal }) {
       </div>
       {!location && !locationRequesting && <div className="card" style={{padding:16}}>
         <div style={{fontSize:14,fontWeight:700,marginBottom:6}}>Location access</div>
-        <div style={{fontSize:12,color:'var(--text-3)',lineHeight:1.5}}>{nearbyError || 'Tap Find my location once. Fedha will remember it for this app session and automatically search nearby options.'}</div>
+        <div style={{fontSize:12,color:'var(--text-3)',lineHeight:1.5}}>{nearbyError || 'Tap Find my location once. Luxe will remember it for this app session and automatically search nearby options.'}</div>
       </div>}
-      {locationRequesting && <div className="card" style={{padding:16,fontSize:13,color:'var(--text-2'}}>Getting your location… Once found, Fedha will search automatically.</div>}
+      {locationRequesting && <div className="card" style={{padding:16,fontSize:13,color:'var(--text-2'}}>Getting your location… Once found, Luxe will search automatically.</div>}
       {nearbyLoading && <div className="card" style={{padding:16,fontSize:13,color:'var(--text-2'}}>Jarvis is checking real nearby options…</div>}
       {nearbyError && location && <div className="card" style={{padding:14,color:'var(--red)',fontSize:13}}>{nearbyError}</div>}
       {acceptedPlace && <div className="card" style={{padding:16,marginTop:12,border:'1px solid var(--green)'}}><div className="section-title" style={{marginBottom:8}}>LOG AT {acceptedPlace.name.toUpperCase()}</div><div style={{fontSize:12,color:'var(--text-3)',marginBottom:12}}>Enter the actual food and price you paid. The food goes into Calories and the payment is recorded against the selected wallet.</div><form onSubmit={recordNearbyPurchase} style={{display:'grid',gap:9}}><input className="input" placeholder="What did you eat?" value={purchase.food} onChange={e=>setPurchase({...purchase,food:e.target.value})} required/><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}><input className="input" type="number" min="0" placeholder="Calories" value={purchase.cal} onChange={e=>setPurchase({...purchase,cal:e.target.value})} required/><input className="input" type="number" min="0" placeholder="Protein (g)" value={purchase.protein} onChange={e=>setPurchase({...purchase,protein:e.target.value})}/></div><input className="input" type="number" min="0" step="0.01" placeholder="Price paid (KES)" value={purchase.price} onChange={e=>setPurchase({...purchase,price:e.target.value})} required/><select className="input" value={purchase.walletId} onChange={e=>setPurchase({...purchase,walletId:e.target.value})} required>{(wallets||[]).map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select><div style={{display:'flex',gap:8}}><button type="submit" className="btn-primary" style={{flex:1}}>Record food + payment</button><button type="button" className="btn-ghost" onClick={()=>setAcceptedPlace(null)}>Cancel</button></div></form></div>}
@@ -378,7 +378,7 @@ export default function FoodHub({ onLogMeal }) {
           const idea=MEAL_IDEAS.find(x=>x.id===id);
           return idea ? <div key={id} style={{display:'flex',alignItems:'center',gap:9,padding:'8px 0',borderBottom:'1px solid var(--border)'}}><span>🍽️</span><span style={{flex:1,fontSize:13}}>{idea.name}</span><span>{p.state==='liked'?'❤️':'👎'}</span></div> : null;
         })}
-        {!foods.some(f=>pref(profile,f.id).score!==0)&&<div style={{fontSize:13,color:'var(--text-3)'}}>Like or dislike foods in Explore and Fedha will learn your personal preferences.</div>}
+        {!foods.some(f=>pref(profile,f.id).score!==0)&&<div style={{fontSize:13,color:'var(--text-3)'}}>Like or dislike foods in Explore and Luxe will learn your personal preferences.</div>}
       </div>
     </div>}
 

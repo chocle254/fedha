@@ -57,14 +57,14 @@ function getDb() {
     // "specified object store was not found" error can surface even though
     // the upgrade() callback above looks correct.
     blocked() {
-      console.warn('[fedha] IndexedDB upgrade blocked by another open tab — close other tabs/windows running Fedha and reload.');
+      console.warn('[fedha] IndexedDB upgrade blocked by another open tab — close other tabs/windows running Luxe and reload.');
     },
     blocking() {
       // This connection is the one blocking a newer version from opening
-      // elsewhere (e.g. you opened Fedha in a second tab after a deploy).
+      // elsewhere (e.g. you opened Luxe in a second tab after a deploy).
       // Closing it lets the other tab upgrade cleanly instead of both tabs
       // ending up in an inconsistent state.
-      console.warn('[fedha] A newer version of Fedha is open elsewhere — closing this tab\'s database connection.');
+      console.warn('[fedha] A newer version of Luxe is open elsewhere — closing this tab\'s database connection.');
       dbPromise?.then((db) => db.close());
       dbPromise = null;
     },

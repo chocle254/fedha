@@ -2,7 +2,7 @@
 // Docs: https://metaapi.cloud/docs/client/
 const PROVISIONING = 'https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai';
 
-// The accounts Fedha can trade on. Each needs its MetaApi account id in an env var.
+// The accounts Luxe can trade on. Each needs its MetaApi account id in an env var.
 export const BROKER_ACCOUNTS = [
   { key: 'xm', name: 'XM', env: 'METAAPI_XM_ACCOUNT_ID' },
   { key: 'litefinance', name: 'LiteFinance', env: 'METAAPI_LITEFINANCE_ACCOUNT_ID' },

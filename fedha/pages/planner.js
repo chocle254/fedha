@@ -769,7 +769,7 @@ export default function PlannerPage() {
     await setSetting('planner_blocks', effectiveBlocks);
     await setSetting('planner_blocks_date', todayISO());
     // Stamp the save so the app-start scheduler in _app.js can tell its copy
-    // is out of date, and tell other open Fedha windows to reschedule.
+    // is out of date, and tell other open Luxe windows to reschedule.
     await setSetting('planner_blocks_rev', Date.now());
     try { new BroadcastChannel('fedha-planner').postMessage({ type: 'plan-updated' }); } catch {}
     try {
@@ -864,7 +864,7 @@ export default function PlannerPage() {
       console.warn('[fedha] push subscription on enable failed:', e?.message);
     }
     await syncPlannerBlocksSetting(blocks);
-    showNotif({ tag: 'planner_active', title: '🟢 Fedha Planner Active', body: `Reminders are on for today's ${isWeekend ? 'weekend' : 'weekday'} schedule.`, vibrate: VIBRATE.gentle });
+    showNotif({ tag: 'planner_active', title: '🟢 Luxe Planner Active', body: `Reminders are on for today's ${isWeekend ? 'weekend' : 'weekday'} schedule.`, vibrate: VIBRATE.gentle });
   }
 
   async function handleEditSave(updated) {

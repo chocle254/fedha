@@ -5,6 +5,7 @@
 // plucked glass (Karplus-Strong), ring-mod hologram, zero-g riser and liquid bubble.
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { fileURLToPath } from 'url';
 import { VOICES, render, EIGHTH_S as e } from './make-sounds.mjs';
 
 const RATE = 44100;
@@ -81,7 +82,7 @@ const roll = (voice, notes, step, dur, gain, start = 0) =>
   notes.map((m, i) => [voice, m, start + i * step, dur, gain, -0.6 + (1.2 * i) / Math.max(1, notes.length - 1)]);
 
 // [file name, what it is, notes, options]
-const PACK = [
+export const PACK = [
   ['01-crystal-rise', 'Dmaj9 rolled up on crystal glass, sub underneath', [['sub', 38, 0, 0.8, 0.5], ['knock', 88, 0, 0.1, 0.25], ...roll('crystal', [74, 78, 81, 85, 88], 0.06, 0.9, 0.4)], { ...SHORT, maxLen: 1.6 }],
   ['02-glass-orbit', 'two crystal notes orbiting left and right on a long echo', [['sub', 45, 0, 0.7, 0.45], ['crystal', 81, 0, 0.8, 0.5, -0.7], ['crystal', 88, e, 0.9, 0.45, 0.7]], { tail: 0.7, delay: 0.3, fb: 0.45, maxLen: 1.9 }],
   ['03-neon-drop', 'chrome droplet into a glass major 7th', [['bubble', 79, 0, 0.3, 0.45, 0.3], ['sub', 43, 0.08, 0.7, 0.45], ...roll('crystal', [67, 71, 74, 78], 0.025, 0.9, 0.36, 0.08)], { ...SHORT, maxLen: 1.5 }],
@@ -108,13 +109,16 @@ const PACK = [
   ['24-photon', 'tiny tick-chime, under a second', [['knock', 95, 0, 0.08, 0.3], ['sub', 45, 0, 0.35, 0.35], ['crystal', 93, 0, 0.45, 0.45]], { tail: 0.3, delay: 0.12, fb: 0.2, maxLen: 0.8 }],
 ];
 
-const out = process.argv[2];
-if (!out) { console.error('usage: node make-sound-pack.mjs <output folder>'); process.exit(1); }
-mkdirSync(out, { recursive: true });
-const list = [];
-for (const [name, what, notes, opts] of PACK) {
-  writeFileSync(join(out, `${name}.wav`), render(notes, opts));
-  list.push(`${name}.wav  ${what}`);
+// Only write the pack when run directly (app-sounds.mjs imports PACK).
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const out = process.argv[2];
+  if (!out) { console.error('usage: node make-sound-pack.mjs <output folder>'); process.exit(1); }
+  mkdirSync(out, { recursive: true });
+  const list = [];
+  for (const [name, what, notes, opts] of PACK) {
+    writeFileSync(join(out, `${name}.wav`), render(notes, opts));
+    list.push(`${name}.wav  ${what}`);
+  }
+  writeFileSync(join(out, 'LIST.txt'), list.join('\n') + '\n');
+  console.log(`wrote ${PACK.length} sounds to ${out}`);
 }
-writeFileSync(join(out, 'LIST.txt'), list.join('\n') + '\n');
-console.log(`wrote ${PACK.length} sounds to ${out}`);

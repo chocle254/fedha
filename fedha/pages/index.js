@@ -117,7 +117,7 @@ export default function Dashboard() {
               <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 2 }}>
                 {format(new Date(), 'EEEE, d MMMM')}
               </div>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>Fedha 💚</div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>Luxe 💚</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-3)' }}>
               <div className="online-dot" />
@@ -499,8 +499,8 @@ function DesktopDashboard({ wallets, transactions, goals, currency, netWorth, to
         </div>
       </div>
       <footer className="desk-footer">
-        <span style={{ color: 'var(--green)', fontWeight: 700 }}>Fedha</span>
-        <span>© {new Date().getFullYear()} Fedha</span>
+        <span style={{ color: 'var(--green)', fontWeight: 700 }}>Luxe</span>
+        <span>© {new Date().getFullYear()} Luxe</span>
       </footer>
     </div>
   );

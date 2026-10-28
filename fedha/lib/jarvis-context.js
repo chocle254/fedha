@@ -1,5 +1,5 @@
 // Builds the context Jarvis sees on every turn: a compact summary of the
-// user's whole world in Fedha — money, schedule, meals, workouts, upcoming
+// user's whole world in Luxe — money, schedule, meals, workouts, upcoming
 // deadlines. This is deliberately a SUMMARY, not a raw dump of every table:
 // sending years of transaction history or every historical workout would
 // blow past context limits and cost, and most of it is irrelevant to any
@@ -74,7 +74,7 @@ async function summarizeMoney() {
     budgetLines.length ? `Budgets:\n- ${budgetLines.join('\n- ')}` : 'No budgets set.',
     activeLoans.length
       ? `Active loans (human-readable):\n- ${activeLoans.join('\n- ')}\n\nAUTHORITATIVE LIVE LOAN RECORDS — use these exact stored values. Do not invent, rename, combine, or estimate any loan field:\n${loanRecordLines.join('\n')}`
-      : 'No active loans are currently stored in Fedha.',
+      : 'No active loans are currently stored in Luxe.',
     pendingIncome.length ? `Pending income (not yet received):\n- ${pendingIncome.join('\n- ')}` : null,
     goalLines.length ? `Savings goals in progress:\n- ${goalLines.join('\n- ')}` : null,
     recent.length ? `Last ${recent.length} transactions:\n- ${recent.join('\n- ')}` : 'No transactions yet.',
@@ -195,7 +195,7 @@ async function summarizeTechEvents() {
 }
 
 // Full career/portfolio picture — used for CV drafting and feature-idea
-// suggestions, grounded in the user's actual Fedha records.
+// suggestions, grounded in the user's actual Luxe records.
 async function summarizeCareer(message = '') {
   const [projects, hackathons, startups, certificates] = await Promise.all([
     getProjects(), getHackathons(), getStartups(), getCertificates(),
@@ -263,7 +263,7 @@ async function summarizeCareer(message = '') {
   const result = [
     projectLines.length ? 'Projects:\n- ' + projectLines.join('\n- ') : null,
     hackathonLines.length ? 'Hackathons:\n- ' + hackathonLines.join('\n- ') : null,
-    startupLines.length ? 'Detailed startup context from Fedha (authoritative):\n- ' + startupLines.join('\n- ') :
+    startupLines.length ? 'Detailed startup context from Luxe (authoritative):\n- ' + startupLines.join('\n- ') :
       (startups.length ? 'Startups: ' + startups.map((st) => st.name).join(', ') : null),
     certLines.length ? 'Certificates:\n- ' + certLines.join('\n- ') : null,
   ].filter(Boolean).join('\n\n');
@@ -292,7 +292,7 @@ async function summarizeTrading() {
   if (!groups.length) return 'No signal trades yet.';
   const lines = groups.map((g) => `${g.source}: ${g.verdict.toUpperCase()} (lot ×${g.lotMultiplier}, ${g.confidence}% confident) | ${g.closed} closed, ${g.open} open | ${g.winRate}% win | ${g.avgR >= 0 ? '+' : ''}${g.avgR.toFixed(2)}R/trade, total ${g.totalR.toFixed(1)}R | worst run ${g.worstStreak} SL. ${g.why} Trailing: ${trail[g.source]?.mode || TRAIL_DEFAULT}${trail[g.source]?.scores ? ` (replayed avg R by style: ${Object.entries(trail[g.source].scores).filter(([, v]) => v.avgR != null).map(([m, v]) => `${m} ${v.avgR}`).join(', ')})` : ''}.`);
   return [
-    fromBroker ? 'Scored from MT5 demo accounts (XM, LiteFinance via MetaApi); each signal on each account counts once. Signals are split into one position per TP.' : 'Scored from Fedha paper trades (no finished MT5 trades yet).',
+    fromBroker ? 'Scored from MT5 demo accounts (XM, LiteFinance via MetaApi); each signal on each account counts once. Signals are split into one position per TP.' : 'Scored from Luxe paper trades (no finished MT5 trades yet).',
     `Each signal is traded on its own; results are in R (profit ÷ risk). Confidence = how sure we are the group makes money; it grows with a longer winning record, and the lot multiplier grows with it (0.25× to 3×). Under ${GROUP_MIN_TRADES} closed trades a group stays at 1× or less; 3 stop-losses in a row halve its size.`,
     'Trailing stop styles (learned per channel by replaying its past trades every 6 h): none, be2 = break-even after TP2, step = previous TP, atrK = follow best price at K×ATR after TP1. Default atr2.',
     'Real-account lot rule for XAUUSD: lots = (base risk in $ × group multiplier) ÷ (SL distance in $ × 100), min 0.01. Groups marked DROP get no real money. Paper results only; never promise profits.',
@@ -306,7 +306,7 @@ export async function buildJarvisContext(message = '') {
   const wantsPlanner = /\b(planner|schedule|plan|today|tomorrow|task|tasks|block|time|busy|free|deadline)\b/.test(m);
   const wantsMeals = /\b(food|eat|eating|meal|breakfast|lunch|dinner|snack|calorie|protein|nutrition|hungry)\b/.test(m);
   // Career context must activate not only for generic words like "project" or
-  // "startup", but also when the user names an actual record stored in Fedha
+  // "startup", but also when the user names an actual record stored in Luxe
   // (for example, "CivCare"). This keeps named-record questions grounded in
   // live data instead of relying on hard-coded keywords.
   let mentionedRecord = false;

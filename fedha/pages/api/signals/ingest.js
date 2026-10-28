@@ -6,7 +6,7 @@ import { maybeAutoEnter } from '../../../lib/trading';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 
 // Called by the Telegram listener (telegram-listener/). Tracks the signal, then trades it on the MT5 demo accounts
-// (XM, LiteFinance via MetaApi) when they are switched on, or as a Fedha paper trade otherwise.
+// (XM, LiteFinance via MetaApi) when they are switched on, or as a Luxe paper trade otherwise.
 const MAX_AGE_MS = 5 * 60 * 1000; // ignore stale messages (for example a backlog replayed after a reconnect)
 
 function same(a, b) {
@@ -64,7 +64,7 @@ export default async function handler(req, res) {
   const brokerTraded = (broker || []).some((b) => b.ok);
 
   if (result.ok) {
-    // Fedha's own paper trade only when no MT5 account is on (or "paper too" is switched on).
+    // Luxe's own paper trade only when no MT5 account is on (or "paper too" is switched on).
     const trade = !onBrokers || brokerSettings.paper_too ? await maybeAutoEnter(userId, result.signal) : null;
     const paperTrade = trade ? (trade.ok ? 'entered' : trade.skipped || trade.error) : null;
     const detail = [brokerNote, trade && !trade.ok ? `Paper trade skipped: ${trade.error || trade.skipped}` : null].filter(Boolean).join(' · ') || null;

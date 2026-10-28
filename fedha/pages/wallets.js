@@ -154,7 +154,7 @@ function MoveModal({ kind, pockets, available, currency, onDone, onClose }) {
           )}
           {err && <div style={{ color: 'var(--red)', fontSize: 13 }}>{err}</div>}
           <button className="btn-primary" disabled={busy} onClick={go}>{busy ? '…' : kind === 'unlock' && earlier ? 'Add unlock' : m.verb}</button>
-          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>Do the same move in the M-Pesa app too. This keeps Fedha's balances matching your phone.</div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>Do the same move in the M-Pesa app too. This keeps Luxe's balances matching your phone.</div>
         </div>
       </div>
     </div>
@@ -196,7 +196,7 @@ function SetupZiidiModal({ wallet, currency, onSave, onClose }) {
           {total > 0 && (
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
               <input type="checkbox" checked={wasCounted} onChange={(e) => setWasCounted(e.target.checked)} style={{ marginTop: 3 }} />
-              <span>Only tick this if {wallet.name}&apos;s balance in Fedha ({formatCurrency(wallet.balance, currency)}) already includes this {formatCurrency(total, currency)} of Ziidi money. Fedha will then take it out of {wallet.name}. If {wallet.name} matches your M-Pesa balance, leave it unticked.</span>
+              <span>Only tick this if {wallet.name}&apos;s balance in Luxe ({formatCurrency(wallet.balance, currency)}) already includes this {formatCurrency(total, currency)} of Ziidi money. Luxe will then take it out of {wallet.name}. If {wallet.name} matches your M-Pesa balance, leave it unticked.</span>
             </label>
           )}
           <button className="btn-primary" onClick={() => onSave({ ziidi: Number(ziidi) || 0, locked: Number(locked) || 0, unlocking: Number(unlocking) || 0, unlockStart: new Date(unlockStart).toISOString(), wasCounted: wasCounted && total > 0 })}>Add Ziidi</button>
@@ -320,7 +320,7 @@ export default function WalletsPage() {
     }
     setMoving(null);
   }
-  // Money already unlocking sits in Locked (Fedha counts it there until it lands) with its real start time.
+  // Money already unlocking sits in Locked (Luxe counts it there until it lands) with its real start time.
   async function setupZiidi({ ziidi, locked, unlocking, unlockStart, wasCounted }) {
     const w = settingUp;
     const pockets = await enableZiidi(w, { ziidi, locked: locked + unlocking }, addWallet);

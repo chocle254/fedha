@@ -3,7 +3,7 @@ import { getSession } from '../lib/supabase';
 
 const POLL_MS = 60000;
 
-// Invisible. While Fedha is open it checks the UpesiPay service wallet once a minute; the
+// Invisible. While Luxe is open it checks the UpesiPay service wallet once a minute; the
 // server sends the low-balance push notification (once) when the balance drops below KES 8.
 export default function ServiceWalletWatch() {
   const busy = useRef(false);

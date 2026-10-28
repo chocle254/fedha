@@ -5,20 +5,20 @@ export default function Document() {
     <Html lang="en">
       <Head>
         <meta charSet="utf-8" />
-        <meta name="application-name" content="Fedha" />
+        <meta name="application-name" content="Luxe" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="Fedha" />
+        <meta name="apple-mobile-web-app-title" content="Luxe" />
         <meta name="description" content="Personal finance, meals, workouts and daily planner" />
         <meta name="format-detection" content="telephone=no" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="theme-color" content="#0A0D17" />
+        <meta name="theme-color" content="#05060B" />
 
         {/* Favicon */}
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
         <link rel="alternate icon" href="/icon.svg" />
-        <link rel="apple-touch-icon" href="/icon.svg" />
-        <link rel="mask-icon" href="/icon.svg" color="#10B981" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <link rel="mask-icon" href="/icon.svg" color="#E9C77B" />
 
         {/* PWA manifest */}
         <link rel="manifest" href="/manifest.json" />

@@ -32,7 +32,7 @@ export default function UpgradeModal({ onClose }) {
       const result = await pollPaymentStatus(reference, {
         onUpdate: (s) => s === 'pending' && setMsg('Waiting for confirmation…'),
       });
-      if (result === 'success') { setStage('done'); setMsg('You are now Fedha Pro! 🎉'); }
+      if (result === 'success') { setStage('done'); setMsg('You are now Luxe Pro! 🎉'); }
       else if (result === 'timeout') { setStage('failed'); setMsg('Timed out. If you paid, it will activate shortly.'); }
       else { setStage('failed'); setMsg('Payment was not completed. Try again.'); }
     } catch (e) { setStage('failed'); setMsg(e.message); }
@@ -42,7 +42,7 @@ export default function UpgradeModal({ onClose }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)' }}>Upgrade to Fedha Pro</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)' }}>Upgrade to Luxe Pro</div>
           <button className="btn-icon" aria-label="Close" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">

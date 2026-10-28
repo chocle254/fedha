@@ -135,9 +135,9 @@ const H = { eq: false, crackle: 0.002 }; // headphone master: no speaker EQ, ful
 const ROOTS = [38, 36, 41, 43, 33, 40, 35, 37];
 
 // ─── GENRE RECIPES: (v = variant number) -> [notes, options] ─────────────────
-const S = {}; // success
-const F = {}; // failed
-const C = {}; // chat
+export const S = {}; // success
+export const F = {}; // failed
+export const C = {}; // chat
 
 S.synthwave = (v) => { const r = ROOTS[v % ROOTS.length] + 24; return [[['kick', 0, 0, 0.4, 0.9], ['subdeep', r - 24, 0, 1.2, 0.7], ...chord(r, v % 2 ? 'maj9' : 'add9', 'supersaw', 0, 1.0, 0.22), ...arp(r + 12, 'maj7', 'glass', 0.12, 0.07, 0.6, 0.25)], { ...H, maxLen: 1.7, wet: 0.28 }]; };
 S.trap = (v) => { const r = ROOTS[(v + 1) % ROOTS.length]; return [[['g808', r, 0, 1.1, 0.95], ['hat', 0, 0, 0.05, 0.5], ['hat', 0, 0.06, 0.05, 0.4], ['hat', 0, 0.09, 0.05, 0.4], ['hat', 0, 0.12, 0.05, 0.45], ...arp(r + 36, v % 2 ? 'm9' : 'six9', 'glass', 0.05, 0.08, 0.5, 0.32)], { ...H, maxLen: 1.6, delay: 0.25 }]; };

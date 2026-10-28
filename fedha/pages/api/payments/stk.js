@@ -47,7 +47,7 @@ export default async function handler(req, res) {
         channel_id: Number(channelId),
         provider: 'm-pesa',
         external_reference: reference,
-        customer_name: 'Fedha Pro',
+        customer_name: 'Luxe Pro',
         callback_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/payments/callback?secret=${encodeURIComponent(process.env.PAYHERO_CALLBACK_SECRET || '')}`,
       }),
     });

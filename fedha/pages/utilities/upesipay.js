@@ -72,7 +72,7 @@ export default function UpesiPayUtilitiesPage() {
       setNotice({ type: 'error', text: 'Choose a saved Mobile Money wallet with a phone number first.' });
       return;
     }
-    if (!window.confirm('Request an M-Pesa STK prompt for KES ' + numericAmount + ' using ' + selectedMoneyWallet.name + ' (' + selectedMoneyWallet.phone_number + ')? If UpesiPay accepts the request, Fedha will record this as an expense from that wallet.')) return;
+    if (!window.confirm('Request an M-Pesa STK prompt for KES ' + numericAmount + ' using ' + selectedMoneyWallet.name + ' (' + selectedMoneyWallet.phone_number + ')? If UpesiPay accepts the request, Luxe will record this as an expense from that wallet.')) return;
     setTopupBusy(true);
     setNotice(null);
     try {
@@ -94,7 +94,7 @@ export default function UpesiPayUtilitiesPage() {
         date: new Date().toISOString().slice(0, 10),
         skipSavingsCut: true
       });
-      setNotice({ type: 'success', text: 'Top-up request ' + (result.status || 'QUEUED') + ' accepted. Fedha recorded KES ' + numericAmount + ' as an expense from ' + selectedMoneyWallet.name + ' and deducted it from that wallet balance. Check your phone and approve the M-Pesa prompt. This records the request; it does not confirm UpesiPay has credited its service wallet.' + (result.reference ? ' Reference: ' + result.reference : '') });
+      setNotice({ type: 'success', text: 'Top-up request ' + (result.status || 'QUEUED') + ' accepted. Luxe recorded KES ' + numericAmount + ' as an expense from ' + selectedMoneyWallet.name + ' and deducted it from that wallet balance. Check your phone and approve the M-Pesa prompt. This records the request; it does not confirm UpesiPay has credited its service wallet.' + (result.reference ? ' Reference: ' + result.reference : '') });
     } catch (error) {
       setNotice({ type: 'error', text: (error.message || 'Top-up request failed.') + ' Check your UpesiPay balance before retrying to avoid duplicate requests.' });
     } finally {
@@ -135,7 +135,7 @@ export default function UpesiPayUtilitiesPage() {
         </section>
         <section style={panel}>
           <h2 style={{ fontSize: 17, fontWeight: 800, margin: 0 }}>Top up service wallet</h2>
-          <p style={{ color: 'var(--text-3)', fontSize: 12, lineHeight: 1.6, marginTop: 5 }}>Choose one of your saved Mobile Money wallets. After UpesiPay accepts the request, Fedha records the amount as an expense from that wallet.</p>
+          <p style={{ color: 'var(--text-3)', fontSize: 12, lineHeight: 1.6, marginTop: 5 }}>Choose one of your saved Mobile Money wallets. After UpesiPay accepts the request, Luxe records the amount as an expense from that wallet.</p>
           <form onSubmit={submitTopup} style={{ marginTop: 14, display: 'grid', gap: 12 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
               <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700 }}>Amount (KES)<input type="number" min="1" max="100000" step="1" required value={amount} onChange={event => setAmount(event.target.value)} placeholder="e.g. 100" style={{ width: '100%', padding: '12px 13px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card-2)', color: 'var(--text)', fontSize: 14 }} /></label>

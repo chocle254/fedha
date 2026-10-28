@@ -13,7 +13,7 @@ export const DEFAULT_ACCOUNT_SETTINGS = { enabled: false, risk_pct: 1, min_confi
 export const DEFAULT_BROKER_SETTINGS = {
   breakeven: true,      // smart trailing stop (style learned per channel), following the chart from entry
   allow_real: false,    // never trade a real-money account unless switched on explicitly
-  paper_too: false,     // keep Fedha's own paper trades running alongside the demo accounts
+  paper_too: false,     // keep Luxe's own paper trades running alongside the demo accounts
   xm: { ...DEFAULT_ACCOUNT_SETTINGS },
   litefinance: { ...DEFAULT_ACCOUNT_SETTINGS },
 };
@@ -131,7 +131,7 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
     const body = {
       actionType: orderType === 'market' ? (buy ? 'ORDER_TYPE_BUY' : 'ORDER_TYPE_SELL') : (buy ? 'ORDER_TYPE_BUY_LIMIT' : 'ORDER_TYPE_SELL_LIMIT'),
       symbol, volume: leg.lots, stopLoss: p(sl), takeProfit: p(leg.tp),
-      comment: `Fedha TP${i + 1}`, clientId: `F${saved.id.slice(0, 8)}`,
+      comment: `Luxe TP${i + 1}`, clientId: `F${saved.id.slice(0, 8)}`,
     };
     if (orderType === 'limit') body.openPrice = p(entry);
     try {

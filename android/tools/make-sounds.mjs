@@ -18,7 +18,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const RATE = 44100;
-const OUT = join(dirname(fileURLToPath(import.meta.url)), '../app/src/main/res/raw');
+const OUT = process.argv[2] || '.';
 const TAU = Math.PI * 2;
 const hz = (m) => 440 * 2 ** ((m - 69) / 12);
 export const RATE_HZ = 44100;
@@ -283,8 +283,10 @@ const OPTS = {
   sound_gentle: { tail: 0.8, delay: 0.16 },
 };
 
-// Only write the app's sounds when run directly (make-sound-pack.mjs imports the engine).
+// Run directly with a folder to write the earlier 'classic' set (Aurora, Low tide, Droplet, Lift-off) there.
+// The app's own sounds now come from app-sounds.mjs.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  if (!process.argv[2]) { console.error('usage: node make-sounds.mjs <output folder>  (app sounds: app-sounds.mjs)'); process.exit(1); }
   for (const f of readdirSync(OUT)) if (f.startsWith('sound_') && f.endsWith('.wav')) unlinkSync(join(OUT, f));
   for (const [name, notes] of Object.entries(SOUNDS)) writeFileSync(join(OUT, `${name}.wav`), render(notes, OPTS[name] || {}));
   console.log('wrote', Object.keys(SOUNDS).join(', '));

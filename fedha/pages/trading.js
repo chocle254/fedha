@@ -171,7 +171,7 @@ export default function TradingPage() {
   const tk = tickers[symbol];
   const last = tk?.c;
   const change = tk && tk.o ? ((tk.c - tk.o) / tk.o) * 100 : null;
-  useEffect(() => { document.title = last ? `${fmtPrice(last)} | ${base(symbol)}/${quoteOf(symbol)} · Fedha` : 'Trading · Fedha'; }, [last, symbol]);
+  useEffect(() => { document.title = last ? `${fmtPrice(last)} | ${base(symbol)}/${quoteOf(symbol)} · Luxe` : 'Trading · Luxe'; }, [last, symbol]);
 
   const unrealized = positions.reduce((a, t) => a + openPnl(t, tickers[t.symbol]?.c), 0);
   const equityLive = account ? account.equity + unrealized : null;
@@ -287,7 +287,7 @@ export default function TradingPage() {
     for (const s of activeSignals) (map[s.symbol] = map[s.symbol] || []).push(s);
     return Object.entries(map).map(([sym, list]) => ({ sym, list, conflict: new Set(list.map((s) => s.side)).size > 1 })).filter((g) => g.list.length > 1);
   }, [activeSignals]);
-  // The report card scores the MT5 demo accounts once they have finished trades; until then, Fedha's paper trades.
+  // The report card scores the MT5 demo accounts once they have finished trades; until then, Luxe's paper trades.
   const brokerScored = useMemo(() => brokerResults(brokerRows || []), [brokerRows]);
   const groupsFromBroker = brokerScored.some((r) => ['won', 'lost'].includes(r.status));
   const groups = useMemo(() => groupReport(groupsFromBroker ? brokerScored : trades), [groupsFromBroker, brokerScored, trades]);
@@ -441,7 +441,7 @@ export default function TradingPage() {
 
   return (
     <Layout fab={false}>
-      <Head><title>Trading · Fedha</title></Head>
+      <Head><title>Trading · Luxe</title></Head>
       <div className="tx-root">
         {/* Pair header */}
         <div className="tx-head">

@@ -23,9 +23,9 @@ export function getJarvisRoleGuidance(role, situation) {
     startup_advisor: 'Startup advisor mode: test assumptions, challenge weak business logic, examine customers, economics, competition and evidence, then give concrete next steps.',
     technical_assistant: 'Technical assistant mode: use known project context, diagnose before changing things, protect working functionality, and give concrete implementation steps.',
     career_coach: 'Career coach mode: ground advice in actual projects, certificates and achievements.',
-    financial_manager: 'Financial manager mode: use live Fedha numbers, protect cash flow, and turn goals into measurable actions.',
+    financial_manager: 'Financial manager mode: use live Luxe numbers, protect cash flow, and turn goals into measurable actions.',
     situation_coach: 'Situation coach mode: focus first on what is happening now and the smallest useful next action.',
-    personal_assistant: 'Personal assistant mode: connect the request to relevant memories, goals, projects and live Fedha state.',
+    personal_assistant: 'Personal assistant mode: connect the request to relevant memories, goals, projects and live Luxe state.',
   };
   return (guidance[role] || guidance.personal_assistant) + (situation !== 'normal' ? ' Current situation: ' + situation + '.' : '');
 }

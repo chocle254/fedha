@@ -30,7 +30,7 @@ export default function PublicCertificatePage() {
     <div style={{ minHeight: '100vh', background: '#080C18', color: '#EDF2FF', fontFamily: 'Outfit, sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 28 }}>
         <span style={{ fontSize: 22 }}>⚡</span>
-        <span style={{ fontSize: 16, fontWeight: 800, letterSpacing: 1 }}>FEDHA TECH HUB</span>
+        <span style={{ fontSize: 16, fontWeight: 800, letterSpacing: 1 }}>LUXE TECH HUB</span>
       </div>
 
       {cert === undefined && <div style={{ color: '#8496B8', fontSize: 14 }}>Verifying certificate…</div>}
@@ -87,7 +87,7 @@ export default function PublicCertificatePage() {
             ))}
           </div>
           <div style={{ textAlign: 'center', fontSize: 11, color: '#3D5070', marginTop: 16 }}>
-            Verified via Fedha Tech Hub — this is a read-only view.
+            Verified via Luxe Tech Hub — this is a read-only view.
           </div>
         </div>
       )}

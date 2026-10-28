@@ -1,4 +1,4 @@
-// Custom service worker source for Fedha.
+// Custom service worker source for Luxe.
 // next-pwa (via workbox-webpack-plugin's InjectManifest mode) injects the
 // precache manifest at the self.__WB_MANIFEST placeholder below and builds
 // this file into public/sw.js.
@@ -23,7 +23,7 @@ cleanupOutdatedCaches();
 
 // ─── OFFLINE PAGE / APP NAVIGATION ───────────────────────────────────────────
 // Navigation requests are the important part of the PWA offline experience.
-// Cache every Fedha page the user successfully visits. When offline, return
+// Cache every Luxe page the user successfully visits. When offline, return
 // that cached page immediately instead of waiting on a dead network request.
 //
 // This is deliberately separate from API requests: Supabase/Jarvis/nearby
@@ -106,11 +106,11 @@ self.addEventListener('push', (event) => {
   try {
     payload = event.data ? event.data.json() : {};
   } catch {
-    payload = { title: 'Fedha', body: event.data ? event.data.text() : '' };
+    payload = { title: 'Luxe', body: event.data ? event.data.text() : '' };
   }
 
   const {
-    title = 'Fedha',
+    title = 'Luxe',
     body = '',
     icon = '/icon.svg',
     badge = '/icon.svg',

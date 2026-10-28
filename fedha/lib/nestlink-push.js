@@ -1,4 +1,4 @@
-// Server-side Web Push to every device subscribed in Fedha (single-user app).
+// Server-side Web Push to every device subscribed in Luxe (single-user app).
 // Reuses the push_subscriptions table and the VAPID keys already used by reminders.
 import webpush from 'web-push';
 

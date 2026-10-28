@@ -80,7 +80,7 @@ export default function HealthPage() {
       type: 'success',
       icon: '🎉',
       title: `Great — you've made a saving of ${formatShort(lastSaved, currency)}!`,
-      body: `That money is now locked in Ziidi. Standby for the next update — when fresh cash lands in your wallet, Fedha will show you the new amount to move to Ziidi. Keep the momentum going! 💪`,
+      body: `That money is now locked in Ziidi. Standby for the next update — when fresh cash lands in your wallet, Luxe will show you the new amount to move to Ziidi. Keep the momentum going! 💪`,
       action: null,
     });
   }
@@ -227,7 +227,7 @@ export default function HealthPage() {
             <div style={{ fontSize:13, color:'var(--text-2)', lineHeight:1.6 }}>
               Ziidi (meaning "extra" in Swahili) is your emergency fund — money you set aside and <strong style={{ color:'var(--text)' }}>never touch</strong> unless something truly critical happens.{'\n\n'}
               Rule: When money comes in, move 10% to Ziidi before you spend anything. Treat it like it does not exist.{'\n\n'}
-              In Fedha, Ziidi lives in your Goals — it builds up over time until it reaches your target (ideally 3 months of living expenses).
+              In Luxe, Ziidi lives in your Goals — it builds up over time until it reaches your target (ideally 3 months of living expenses).
             </div>
             <button onClick={() => setShowZiidiSetup(true)} style={{ marginTop:12, width:'100%', padding:'11px', background:'var(--green-dim)', border:'1px solid rgba(16,185,129,0.3)', borderRadius:10, color:'var(--green)', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Outfit' }}>
               {ziidiGoal ? `Add More to Ziidi (${formatShort(ziidiSaved, currency)} saved)` : 'Set Up Ziidi Emergency Fund'}

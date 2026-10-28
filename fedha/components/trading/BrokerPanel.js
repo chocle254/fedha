@@ -119,7 +119,7 @@ export default function BrokerPanel({ onData, flash }) {
           <button disabled={busy} className={`tx-switch ${data.settings.breakeven ? 'on' : ''}`} onClick={() => save({ breakeven: !data.settings.breakeven })} aria-label="Trailing stop"><i /></button>
         </div>
         <div className="tx-set-row">
-          <div><b>Fedha paper trades too</b><span>{data.settings.paper_too ? 'On: signals are also paper-traded here.' : 'Off: the MT5 demo accounts replace Fedha paper trading.'}</span></div>
+          <div><b>Luxe paper trades too</b><span>{data.settings.paper_too ? 'On: signals are also paper-traded here.' : 'Off: the MT5 demo accounts replace Luxe paper trading.'}</span></div>
           <button disabled={busy} className={`tx-switch ${data.settings.paper_too ? 'on' : ''}`} onClick={() => save({ paper_too: !data.settings.paper_too })} aria-label="Paper too"><i /></button>
         </div>
         <p className="tx-fine">
