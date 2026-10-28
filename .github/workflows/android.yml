@@ -1,0 +1,60 @@
+name: Android APK
+
+# Builds the Fedha Android app (a wrapper around https://fedha.vercel.app) and publishes it
+# as the "android-latest" GitHub release, so the newest APK is always at the same link.
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', 'fedha/public/icon.svg', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: App icons from the site icon
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq librsvg2-bin
+          for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            dir=android/app/src/main/res/mipmap-${d%%:*}; mkdir -p "$dir"
+            rsvg-convert -w ${d##*:} -h ${d##*:} -b '#0A0D17' fedha/public/icon.svg -o "$dir/ic_launcher.png"
+          done
+
+      - name: Check signing password
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_PASSWORD" ]; then echo "::error::Add the ANDROID_KEYSTORE_PASSWORD secret (Settings > Secrets and variables > Actions)"; exit 1; fi
+
+      - name: Build APK
+        working-directory: android
+        env:
+          KEYSTORE_FILE: ${{ github.workspace }}/android/fedha.keystore # locked with the password secret
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          VERSION_CODE: ${{ github.run_number }}
+        run: |
+          gradle assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/fedha.apk"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete android-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create android-latest "$RUNNER_TEMP/fedha.apk" \
+            --title "Fedha Android (build ${{ github.run_number }})" \
+            --notes "Download fedha.apk on your phone and open it to install."
