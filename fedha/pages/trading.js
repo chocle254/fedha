@@ -9,11 +9,12 @@ import PairPicker from '../components/trading/PairPicker';
 import WalletPanel from '../components/trading/WalletPanel';
 import BrokerPanel from '../components/trading/BrokerPanel';
 import { ensurePushSubscription } from '../lib/push';
-import { groupReport, brokerResults, GROUP_MIN_TRADES, trailStop } from '../lib/trading-core';
+import { groupReport, brokerResults, GROUP_MIN_TRADES, TRAIL_LABEL, TRAIL_DEFAULT } from '../lib/trading-core';
 import { C, base, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST } from '../components/trading/util';
 
-// The stop in force now: signal trades trail it (entry after TP1, then the previous TP).
-const curStop = (t) => (t.source === 'Manual' || t.stop_loss == null ? t.stop_loss : trailStop(t.entry, t.stop_loss, (t.take_profits || []).map(Number), t.tp_hit || 0));
+// The stop in force now: signal trades trail it with their channel's learned style (saved as trail_stop).
+const curStop = (t) => (t.source !== 'Manual' && t.trail_stop != null ? t.trail_stop : t.stop_loss);
+const trailed = (t) => t.source !== 'Manual' && t.trail_stop != null && t.stop_loss != null && Number(t.trail_stop) !== Number(t.stop_loss);
 
 // PAPER TRADING TERMINAL. Real Binance prices, simulated orders. Nothing here places a real order.
 const LIVE = ['pending', 'open'];
@@ -198,7 +199,7 @@ export default function TradingPage() {
       const buy = t.side === 'BUY';
       if (t.status === 'open') {
         L.push({ price: t.entry, color: C.blue, title: `${buy ? 'Long' : 'Short'} ${fmtQty(t.qty)}`, dashed: false, width: 2 });
-        if (t.stop_loss != null) L.push({ price: curStop(t), color: C.down, title: (t.tp_hit || 0) > 0 && t.source !== 'Manual' ? 'SL (trailed)' : 'SL' });
+        if (t.stop_loss != null) L.push({ price: curStop(t), color: C.down, title: trailed(t) ? 'SL (trailed)' : 'SL' });
         (t.take_profits || []).forEach((p, i) => { if (i >= (t.tp_hit || 0)) L.push({ price: p, color: C.up, title: `TP${i + 1}` }); });
       }
       if (t.status === 'pending') L.push({ price: t.entry, color: C.gold, title: `Limit ${buy ? 'buy' : 'sell'} ${fmtQty(t.qty)}` });
@@ -337,7 +338,7 @@ export default function TradingPage() {
           <div><span>Value</span><b>{fmtUsd(t.notional, false)}</b></div>
           <div><span>Entry</span><b>{fmtPrice(t.entry)}</b></div>
           <div><span>Mark</span><b>{mark ? fmtPrice(mark) : '—'}</b></div>
-          <div><span>SL{(t.tp_hit || 0) > 0 && t.source !== 'Manual' ? ' (trailed)' : ''}</span><b style={{ color: (t.tp_hit || 0) > 0 && t.source !== 'Manual' ? C.up : C.down }}>{t.stop_loss != null ? fmtPrice(curStop(t)) : '—'}</b></div>
+          <div><span>SL{trailed(t) ? ' (trailed)' : ''}</span><b title={t.trail_mode ? `Trailing: ${TRAIL_LABEL[t.trail_mode] || t.trail_mode}` : undefined} style={{ color: trailed(t) ? C.up : C.down }}>{t.stop_loss != null ? fmtPrice(curStop(t)) : '—'}</b></div>
           <div><span>Banked</span><b style={{ color: C.up }}>{t.tp_hit > 0 ? fmtUsd(livePnl(t, Number(t.entry))) : '—'}</b></div>
         </div>
         {(t.take_profits || []).length > 0 && (
@@ -531,6 +532,16 @@ export default function TradingPage() {
                           {g.closed} closed{g.open ? ` · ${g.open} open` : ''} · {g.winRate}% win · <b style={{ color: g.avgR >= 0 ? C.up : C.down }}>{g.avgR >= 0 ? '+' : ''}{g.avgR.toFixed(2)}R/trade</b> · total {g.totalR >= 0 ? '+' : ''}{g.totalR.toFixed(1)}R · worst run {g.worstStreak} SL
                         </div>
                         <div className="tx-muted" style={{ marginTop: 2 }}>{g.why}</div>
+                        {(() => {
+                          const p = settings?.trail_profiles?.channels?.[g.source];
+                          const best = p?.scores?.[p.mode];
+                          return (
+                            <div className="tx-muted" style={{ marginTop: 2 }}>
+                              Trailing stop: <b>{TRAIL_LABEL[p?.mode || TRAIL_DEFAULT]}</b>
+                              {p && p.trades >= 8 && best?.avgR != null ? ` · learned from ${p.trades} trades (${best.avgR >= 0 ? '+' : ''}${best.avgR.toFixed(2)}R avg)` : ' · default until 8 closed trades'}
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })}
@@ -594,7 +605,7 @@ export default function TradingPage() {
               <label className="tx-field"><span>Min reward:risk</span><input className="font-num" inputMode="decimal" value={form.rr} onChange={(e) => setForm({ ...form, rr: e.target.value })} /><em>0 = off</em></label>
               <button className="tx-submit buy" onClick={() => saveSettings({})}>Save settings</button>
               <p className="tx-fine">
-                How the simulation works: market orders fill at the best ask (buy) or bid (sell), so you pay the spread like on Binance. Limit orders that cross the book fill straight away; otherwise they wait until price trades through them. Fees are 0.1% per side. Sizes follow Binance&apos;s lot-size, tick-size and minimum-order rules, and you can&apos;t spend more than your free balance. Signal trades scale out equally across their take-profits and trail the stop: after TP1 it moves to the entry, after each later TP to the previous TP. They close after 7 days; manual orders stay open until TP, SL or you close them. If a stop and a target are hit in the same candle, the stop counts. Selling a coin you don&apos;t hold is a simulated short. Next trade risks {fmtUsd(riskNow, false)}.
+                How the simulation works: market orders fill at the best ask (buy) or bid (sell), so you pay the spread like on Binance. Limit orders that cross the book fill straight away; otherwise they wait until price trades through them. Fees are 0.1% per side. Sizes follow Binance&apos;s lot-size, tick-size and minimum-order rules, and you can&apos;t spend more than your free balance. Signal trades scale out equally across their take-profits and trail the stop once TP1 is hit, in the style that has worked best for that channel (learned from its past trades every 6 hours; ATR ×2 until there is enough history). They close after 7 days; manual orders stay open until TP, SL or you close them. If a stop and a target are hit in the same candle, the stop counts. Selling a coin you don&apos;t hold is a simulated short. Next trade risks {fmtUsd(riskNow, false)}.
               </p>
             </div>
           )}

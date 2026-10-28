@@ -43,20 +43,65 @@ export function levelsValid(side, entry, tps, sl) {
   return true;
 }
 
-// Stepped trailing stop for signal trades: after TP1 the stop moves to the entry (break-even), after TP2 to TP1,
-// after TP3 to TP2, and so on. Returns the stop that applies once `tpHit` targets are done.
+// ─── SMART TRAILING STOP ─────────────────────────────────────────────────────
+// Each signal trade picks one trailing style when it opens. Which style a channel uses is learned from its
+// own history (see pickTrail / lib/trail-learn.js); until there is enough history, ATR ×2 is the default.
+//   none   keep the original SL until every TP or the SL is hit
+//   be2    move to break-even only after TP2
+//   step   entry after TP1, then the previous TP after each later TP (tight)
+//   atrK   after TP1, follow the best price at K × ATR (the average candle range at entry), so a volatile
+//          market gets more room and a calm one a tighter stop. Never looser than the original SL.
+export const TRAIL_MODES = ['none', 'be2', 'step', 'atr1', 'atr2', 'atr3'];
+export const TRAIL_DEFAULT = 'atr2';
+export const TRAIL_LABEL = { none: 'No trailing', be2: 'Break-even after TP2', step: 'Step (previous TP)', atr1: 'ATR ×1 (tight)', atr2: 'ATR ×2', atr3: 'ATR ×3 (loose)' };
+
+// The candidate stop for a trade right now. The caller keeps the tighter of this and the current stop.
+export function trailCandidate(mode, { side, entry, sl, tps, tpHit, best, atr }) {
+  if (sl == null) return null;
+  const buy = side === 'BUY';
+  const tighter = (a, b) => (buy ? Math.max(a, b) : Math.min(a, b));
+  if (!tpHit || mode === 'none') return Number(sl);
+  if (mode === 'be2') return tpHit >= 2 ? Number(entry) : Number(sl);
+  if (mode === 'step') return tpHit === 1 ? Number(entry) : Number(tps[tpHit - 2]);
+  const k = Number(String(mode).replace('atr', ''));
+  if (!(k > 0) || !(atr > 0) || best == null) return Number(sl);
+  return tighter(Number(sl), buy ? best - k * atr : best + k * atr);
+}
+
+// Old name kept for the fixed step style.
 export function trailStop(entry, sl, tps, tpHit) {
-  if (!tpHit) return sl == null ? null : Number(sl);
-  return tpHit === 1 ? Number(entry) : Number(tps[tpHit - 2]);
+  return trailCandidate('step', { side: Number(tps[0]) > Number(entry) ? 'BUY' : 'SELL', entry, sl, tps, tpHit, best: null, atr: 0 });
+}
+
+// Average true range of candles [{ h, l, c }], over the last `n`.
+export function atrOf(candles, n = 14) {
+  const k = candles.slice(-(n + 1));
+  const tr = [];
+  for (let i = 1; i < k.length; i++) tr.push(Math.max(k[i].h - k[i].l, Math.abs(k[i].h - k[i - 1].c), Math.abs(k[i].l - k[i - 1].c)));
+  return tr.length ? tr.reduce((a, b) => a + b, 0) / tr.length : null;
+}
+
+// Choose a channel's style from replayed results: { mode: { n, avgR } }. Needs `minTrades` replays and must
+// beat the default by a margin, so one lucky trade does not flip a channel to a strange style.
+export function pickTrail(scores, minTrades = 8, margin = 0.05) {
+  const base = scores?.[TRAIL_DEFAULT];
+  if (!base || base.n < minTrades) return TRAIL_DEFAULT;
+  let best = TRAIL_DEFAULT;
+  for (const m of TRAIL_MODES) {
+    const s = scores[m];
+    if (s && s.n >= minTrades && s.avgR > scores[best].avgR) best = m;
+  }
+  return best !== TRAIL_DEFAULT && scores[best].avgR - base.avgR < margin ? TRAIL_DEFAULT : best;
 }
 
 // Replays candles against a paper trade. Rules: stop counts first if stop and target share a candle;
-// the position scales out equally across the take-profits. Signal trades trail their stop (see trailStop);
-// a stop that moves during a candle only applies from the next candle. Manual orders keep their stop.
+// the position scales out equally across the take-profits. Signal trades trail their stop with their own style
+// (trade.trail_mode, opts.trail overrides it for replays); a stop that moves during a candle only applies from
+// the next candle, and it never loosens. Manual orders keep their stop.
 // Also records how far price went AGAINST the trade (max adverse excursion).
 // Options: exitAt = close whatever is still open at this price now (manual "Close position").
 // Manual orders (no signal) behave like Binance GTC orders: they never expire on their own.
-export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null } = {}) {
+export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null, trail = null } = {}) {
   const manual = trade.source === 'Manual';
   const buy = trade.side === 'BUY';
   const dir = buy ? 1 : -1;
@@ -65,6 +110,8 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null 
   const sl = trade.stop_loss != null ? Number(trade.stop_loss) : null;
   const tps = (trade.take_profits || []).map(Number);
   const trailing = !manual && sl != null;
+  const mode = trail?.mode || trade.trail_mode || TRAIL_DEFAULT;
+  const atr = Number(trail?.atr ?? trade.trail_atr) || 0;
   let stop = sl;
   const age = now - new Date(trade.created_at).getTime();
   const share = tps.length ? qty / tps.length : 0;
@@ -105,7 +152,10 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null 
       remaining -= share;
       tpHit++;
     }
-    if (trailing) stop = trailStop(entry, sl, tps, tpHit);
+    if (trailing) {
+      const cand = trailCandidate(atr > 0 || !mode.startsWith('atr') ? mode : 'be2', { side: trade.side, entry, sl, tps, tpHit, best, atr });
+      if (cand != null) stop = buy ? Math.max(stop, cand) : Math.min(stop, cand);
+    }
     if (tps.length && tpHit === tps.length) { remaining = 0; closedAt = k.t; break; }
   }
 
@@ -149,7 +199,8 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null 
     max_adverse_price: worst,
     max_favorable_price: best,
     max_drawdown_usdt: r4(dd),
-    max_drawdown_r: dd != null && risk ? r4(dd / risk) : null
+    max_drawdown_r: dd != null && risk ? r4(dd / risk) : null,
+    trail_stop: trailing ? stop : null
   };
 }
 

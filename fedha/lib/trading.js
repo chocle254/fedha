@@ -1,6 +1,6 @@
 // Paper trading on top of tracked signals. NOTHING here places a real order.
 import { supabaseAdmin } from './supabaseAdmin';
-import { sizePosition, rewardRisk, levelsValid, evaluateTrade, floorToStep, roundToTick, replayInterval, FEE_RATE, partialRealized, groupReport, LOT_MIN, trailStop } from './trading-core';
+import { sizePosition, rewardRisk, levelsValid, evaluateTrade, floorToStep, roundToTick, replayInterval, FEE_RATE, partialRealized, groupReport, LOT_MIN, atrOf, TRAIL_DEFAULT, TRAIL_LABEL } from './trading-core';
 import { pushToAll } from './nestlink-push';
 
 const BINANCE = 'https://api.binance.com/api/v3';
@@ -41,6 +41,26 @@ export async function getSettings(userId) {
   const { data } = await supabaseAdmin.from('trade_settings').select('*').eq('user_id', userId).maybeSingle();
   return { ...DEFAULT_SETTINGS, ...(data || {}) };
 }
+
+// The trailing style learned for each channel (lib/trail-learn.js writes it). Missing = the default.
+export async function trailProfiles(userId) {
+  const { data } = await supabaseAdmin.from('trade_settings').select('trail_profiles').eq('user_id', userId).maybeSingle();
+  return data?.trail_profiles?.channels || {};
+}
+
+// Volatility at a moment: ATR of the 14 fifteen-minute candles before it.
+export async function atrBefore(symbol, ms) {
+  try {
+    const r = await fetch(`${BINANCE}/klines?symbol=${symbol}&interval=15m&endTime=${Math.floor(ms)}&limit=15`, { cache: 'no-store' });
+    if (!r.ok) return null;
+    return atrOf((await r.json()).map((c) => ({ h: Number(c[2]), l: Number(c[3]), c: Number(c[4]) })));
+  } catch { return null; }
+}
+
+// Until supabase-migration-smart-trailing.sql has run, the trail_* columns do not exist: save without them.
+const TRAIL_COLS = ['trail_mode', 'trail_atr', 'trail_stop'];
+const missingColumn = (e) => e && (e.code === '42703' || e.code === 'PGRST204' || /trail_/.test(e.message || ''));
+const withoutTrail = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => !TRAIL_COLS.includes(k)));
 
 // Paper equity = starting paper balance + profit and loss of every closed paper trade.
 export async function getEquity(userId, settings) {
@@ -127,9 +147,13 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false })
     spread_pct: spreadPct,
     equity_at_entry: equity,
     status,
-    filled_at: status === 'open' ? new Date().toISOString() : null
+    filled_at: status === 'open' ? new Date().toISOString() : null,
+    // Smart trailing: this channel's learned style, and the market's volatility right now.
+    trail_mode: (await trailProfiles(userId))[signal.source]?.mode || TRAIL_DEFAULT,
+    trail_atr: await atrBefore(signal.symbol, Date.now())
   };
-  const { data, error } = await supabaseAdmin.from('paper_trades').insert(row).select().single();
+  let { data, error } = await supabaseAdmin.from('paper_trades').insert(row).select().single();
+  if (missingColumn(error)) ({ data, error } = await supabaseAdmin.from('paper_trades').insert(withoutTrail(row)).select().single());
   if (error) return { ok: false, error: error.code === '23505' ? 'Already entered.' : 'Could not save the trade.' };
   return { ok: true, trade: data };
 }
@@ -168,16 +192,23 @@ export async function maybeAutoEnter(userId, signal) {
   }
 }
 
-async function candlesSince(symbol, startMs) {
+export async function candlesSince(symbol, startMs) {
   const interval = replayInterval(Date.now() - startMs);
   const r = await fetch(`${BINANCE}/klines?symbol=${symbol}&interval=${interval}&startTime=${startMs}&limit=1000`, { cache: 'no-store' });
   if (!r.ok) return null;
   return (await r.json()).map((c) => ({ t: c[0], h: Number(c[2]), l: Number(c[3]), c: Number(c[4]) }));
 }
 
-export async function evaluateLiveTrade(trade) {
+export async function evaluateLiveTrade(trade, profiles = {}) {
   const candles = await candlesSince(trade.symbol, new Date(trade.created_at).getTime());
-  return candles ? evaluateTrade(trade, candles) : null;
+  if (!candles) return null;
+  // Trades opened before smart trailing get their channel's style and the ATR at their entry now.
+  const extra = {};
+  if (trade.source !== 'Manual' && trade.stop_loss != null) {
+    if (!trade.trail_mode) extra.trail_mode = profiles[trade.source]?.mode || TRAIL_DEFAULT;
+    if (trade.trail_atr == null) extra.trail_atr = await atrBefore(trade.symbol, new Date(trade.created_at).getTime());
+  }
+  return { ...extra, ...evaluateTrade({ ...trade, ...extra }, candles) };
 }
 
 // A manual order from the order form, like Binance Spot: MARKET fills now at the ask (buy) or bid (sell);
@@ -253,7 +284,8 @@ export async function closeOrCancel(userId, id) {
     if (!book) return { ok: false, error: 'Could not get the order book. Try again.' };
     patch = evaluateTrade(t, candles, Date.now(), { exitAt: t.side === 'BUY' ? book.bid : book.ask });
   }
-  const { data, error } = await supabaseAdmin.from('paper_trades').update(patch).eq('id', id).eq('user_id', userId).select().single();
+  let { data, error } = await supabaseAdmin.from('paper_trades').update(patch).eq('id', id).eq('user_id', userId).select().single();
+  if (missingColumn(error)) ({ data, error } = await supabaseAdmin.from('paper_trades').update(withoutTrail(patch)).eq('id', id).eq('user_id', userId).select().single());
   if (error) return { ok: false, error: 'Could not update the trade.' };
   return { ok: true, trade: data };
 }
@@ -279,7 +311,8 @@ function describeChange(old, now) {
   if ((now.tp_hit || 0) > (old.tp_hit || 0) && now.status === 'open') {
     const k = now.tp_hit;
     const banked = partialRealized({ ...old, tp_hit: k });
-    const moved = old.source !== 'Manual' && old.stop_loss != null ? ` SL moved to ${k === 1 ? 'entry' : `TP${k - 1}`} (${fmt(trailStop(old.entry, old.stop_loss, (old.take_profits || []).map(Number), k))}).` : '';
+    const style = TRAIL_LABEL[now.trail_mode || old.trail_mode] || '';
+    const moved = now.trail_stop != null && Number(now.trail_stop) !== Number(old.stop_loss) ? ` Trailing SL now ${fmt(now.trail_stop)}${style ? ` (${style})` : ''}.` : '';
     return { title: `🎯 ${name} TP${k} hit at ${fmt(old.take_profits[k - 1])}`, body: `${k}/${n} targets done, ${usd(banked)} banked so far.${moved}${k < n ? ` Next TP${k + 1} ${fmt(old.take_profits[k])}.` : ''}` };
   }
   return null;
@@ -301,7 +334,13 @@ export function describeEntry(t, how = 'Auto-traded') {
 // The conditional update (matching the old status and TP count) makes sure two callers can't both notify.
 export async function refreshTrades(userId, trades) {
   const live = trades.filter((t) => t.status === 'pending' || t.status === 'open').slice(0, 30);
-  const results = await Promise.allSettled(live.map((t) => evaluateLiveTrade(t)));
+  const profiles = await trailProfiles(userId).catch(() => ({}));
+  const results = await Promise.allSettled(live.map((t) => evaluateLiveTrade(t, profiles)));
+  const save = async (q, patch) => {
+    let r = await q(patch);
+    if (missingColumn(r.error)) r = await q(withoutTrail(patch));
+    return r;
+  };
   const byId = {};
   await Promise.all(results.map(async (r, i) => {
     const patch = r.status === 'fulfilled' ? r.value : null;
@@ -309,8 +348,8 @@ export async function refreshTrades(userId, trades) {
     const old = live[i];
     byId[old.id] = patch;
     const msg = describeChange(old, patch);
-    if (!msg) { await supabaseAdmin.from('paper_trades').update(patch).eq('id', old.id).eq('user_id', userId); return; }
-    const { data } = await supabaseAdmin.from('paper_trades').update(patch).eq('id', old.id).eq('user_id', userId).eq('status', old.status).eq('tp_hit', old.tp_hit || 0).select('id');
+    if (!msg) { await save((p) => supabaseAdmin.from('paper_trades').update(p).eq('id', old.id).eq('user_id', userId), patch); return; }
+    const { data } = await save((p) => supabaseAdmin.from('paper_trades').update(p).eq('id', old.id).eq('user_id', userId).eq('status', old.status).eq('tp_hit', old.tp_hit || 0).select('id'), patch);
     if (data && data.length) await notify(msg, `trade-${old.id}-${patch.status}-${patch.tp_hit}`);
   }));
   return trades.map((t) => (byId[t.id] ? { ...t, ...byId[t.id] } : t));

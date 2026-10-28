@@ -115,7 +115,7 @@ export default function BrokerPanel({ onData, flash }) {
 
       <div className="tx-broker">
         <div className="tx-set-row">
-          <div><b>Trailing stop</b><span>After TP1 the other positions&apos; SL moves to the entry, after TP2 to TP1, and so on. Same rule as the paper trades.</span></div>
+          <div><b>Smart trailing stop</b><span>After TP1, the other positions&apos; SL follows the price in the style learned for that channel (ATR-based by default). Same rules as the paper trades.</span></div>
           <button disabled={busy} className={`tx-switch ${data.settings.breakeven ? 'on' : ''}`} onClick={() => save({ breakeven: !data.settings.breakeven })} aria-label="Trailing stop"><i /></button>
         </div>
         <div className="tx-set-row">

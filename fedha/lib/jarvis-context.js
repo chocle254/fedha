@@ -16,7 +16,7 @@ import {
 import { todayISO, countdownTo, formatShort, hackDeadlineLabel } from './utils';
 import { eventWindow, isEventEnded, sortEventsByStart, eventDateLabel, eventTimeLabel } from './events';
 import { supabase } from './supabase';
-import { groupReport, brokerResults, GROUP_MIN_TRADES } from './trading-core';
+import { groupReport, brokerResults, GROUP_MIN_TRADES, TRAIL_DEFAULT } from './trading-core';
 import { detectJarvisRole, detectJarvisSituation, getJarvisRoleGuidance } from './jarvis-intelligence';
 
 const RECENT_TRANSACTION_COUNT = 15;
@@ -287,11 +287,14 @@ async function summarizeTrading() {
   const broker = brokerResults(legs || []);
   const fromBroker = broker.some((r) => ['won', 'lost'].includes(r.status));
   const groups = groupReport(fromBroker ? broker : data || []);
+  const { data: ts } = await supabase.from('trade_settings').select('trail_profiles').maybeSingle();
+  const trail = ts?.trail_profiles?.channels || {};
   if (!groups.length) return 'No signal trades yet.';
-  const lines = groups.map((g) => `${g.source}: ${g.verdict.toUpperCase()} (lot ×${g.lotMultiplier}, ${g.confidence}% confident) | ${g.closed} closed, ${g.open} open | ${g.winRate}% win | ${g.avgR >= 0 ? '+' : ''}${g.avgR.toFixed(2)}R/trade, total ${g.totalR.toFixed(1)}R | worst run ${g.worstStreak} SL. ${g.why}`);
+  const lines = groups.map((g) => `${g.source}: ${g.verdict.toUpperCase()} (lot ×${g.lotMultiplier}, ${g.confidence}% confident) | ${g.closed} closed, ${g.open} open | ${g.winRate}% win | ${g.avgR >= 0 ? '+' : ''}${g.avgR.toFixed(2)}R/trade, total ${g.totalR.toFixed(1)}R | worst run ${g.worstStreak} SL. ${g.why} Trailing: ${trail[g.source]?.mode || TRAIL_DEFAULT}${trail[g.source]?.scores ? ` (replayed avg R by style: ${Object.entries(trail[g.source].scores).filter(([, v]) => v.avgR != null).map(([m, v]) => `${m} ${v.avgR}`).join(', ')})` : ''}.`);
   return [
     fromBroker ? 'Scored from MT5 demo accounts (XM, LiteFinance via MetaApi); each signal on each account counts once. Signals are split into one position per TP.' : 'Scored from Fedha paper trades (no finished MT5 trades yet).',
     `Each signal is traded on its own; results are in R (profit ÷ risk). Confidence = how sure we are the group makes money; it grows with a longer winning record, and the lot multiplier grows with it (0.25× to 3×). Under ${GROUP_MIN_TRADES} closed trades a group stays at 1× or less; 3 stop-losses in a row halve its size.`,
+    'Trailing stop styles (learned per channel by replaying its past trades every 6 h): none, be2 = break-even after TP2, step = previous TP, atrK = follow best price at K×ATR after TP1. Default atr2.',
     'Real-account lot rule for XAUUSD: lots = (base risk in $ × group multiplier) ÷ (SL distance in $ × 100), min 0.01. Groups marked DROP get no real money. Paper results only; never promise profits.',
     ...lines,
   ].join('\n');

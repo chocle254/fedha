@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { refreshTrades } from '../../../lib/trading';
 import { syncBrokerTrades } from '../../../lib/broker';
+import { learnTrailProfiles } from '../../../lib/trail-learn';
 
 // Called every minute by the Telegram listener on the phone, so trades are checked (and TP / SL / fill
 // notifications are sent) even when the Trading page is closed. Also syncs the MT5 accounts (fills, TP/SL, break-even).
@@ -18,6 +19,8 @@ export default async function handler(req, res) {
   const userId = process.env.SIGNAL_OWNER_USER_ID;
   if (!secret || !userId || !same(req.headers['x-ingest-secret'], secret)) return res.status(401).json({ error: 'Unauthorized' });
   const broker = await syncBrokerTrades(userId).catch((e) => ({ error: e.message }));
+  // Re-learns each channel's trailing style every 6 h (cheap no-op otherwise).
+  await learnTrailProfiles(userId).catch(() => null);
   const { data, error } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId).in('status', ['pending', 'open']).limit(30);
   if (error) return res.status(500).json({ error: 'Could not load trades.' });
   if (!data.length) return res.status(200).json({ ok: true, checked: 0, broker });

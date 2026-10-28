@@ -4,14 +4,14 @@
 // SAFETY: real-money accounts are refused unless broker_settings.allow_real is true.
 import { supabaseAdmin } from './supabaseAdmin';
 import { BROKER_ACCOUNTS, accountId, metaapiConfigured, mt, tradeOk, findSymbol } from './metaapi';
-import { groupReport, brokerResults, splitLots, LOT_MIN } from './trading-core';
-import { notify } from './trading';
+import { groupReport, brokerResults, splitLots, LOT_MIN, trailCandidate, TRAIL_DEFAULT } from './trading-core';
+import { notify, trailProfiles, atrBefore } from './trading';
 
 const PENDING_MAX_MS = 6 * 3600e3; // a limit order that has not filled in 6 h is cancelled
 
 export const DEFAULT_ACCOUNT_SETTINGS = { enabled: false, risk_pct: 1, min_confidence: 0, daily_loss_pct: 5 };
 export const DEFAULT_BROKER_SETTINGS = {
-  breakeven: true,      // trailing stop: entry after TP1, then the previous TP after each later TP
+  breakeven: true,      // smart trailing stop (style learned per channel) once TP1 is hit
   allow_real: false,    // never trade a real-money account unless switched on explicitly
   paper_too: false,     // keep Fedha's own paper trades running alongside the demo accounts
   xm: { ...DEFAULT_ACCOUNT_SETTINGS },
@@ -104,6 +104,9 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
   const split = splitLots({ riskUsd: plannedRisk, entry, stop: sl, tps, contractSize: spec.contractSize, minVolume: spec.minVolume, volumeStep: spec.volumeStep });
   if (split.error) return { skipped: split.error };
 
+  // Smart trailing: the channel's learned style, and volatility from Binance's gold token (tracks XAUUSD).
+  const trailMode = (await trailProfiles(userId).catch(() => ({})))[source]?.mode || TRAIL_DEFAULT;
+  const trailAtr = await atrBefore(parsed.symbol, Date.now());
   const digits = Number(spec.digits) || 2;
   const p = (v) => Number(Number(v).toFixed(digits));
   const placed = [];
@@ -114,8 +117,13 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
       symbol, side: parsed.side, order_type: orderType, leg: i + 1, legs: split.legs.length, lots: leg.lots,
       entry: p(entry), stop_loss: p(sl), take_profit: p(leg.tp), risk_usd: Math.round(split.riskUsd * 100) / 100,
       lot_multiplier: mult, confidence: sizing.confidence, status: 'pending',
+      trail_mode: trailMode, trail_atr: trailAtr,
     };
-    const { data: saved, error } = await supabaseAdmin.from('broker_trades').insert(row).select('id').single();
+    let { data: saved, error } = await supabaseAdmin.from('broker_trades').insert(row).select('id').single();
+    if (error && /trail_/.test(error.message || '')) {
+      const { trail_mode, trail_atr, ...plain } = row; // smart-trailing migration not run yet
+      ({ data: saved, error } = await supabaseAdmin.from('broker_trades').insert(plain).select('id').single());
+    }
     if (error) { if (error.code === '23505') continue; throw error; } // already placed (duplicate message)
     const body = {
       actionType: orderType === 'market' ? (buy ? 'ORDER_TYPE_BUY' : 'ORDER_TYPE_SELL') : (buy ? 'ORDER_TYPE_BUY_LIMIT' : 'ORDER_TYPE_SELL_LIMIT'),
@@ -223,24 +231,36 @@ export async function syncBrokerTrades(userId) {
       }, `broker-close-${r.id}`);
     }
 
-    // Trailing stop, same rule as the paper trades: after TP1 the open legs' SL moves to the entry,
-    // after TP2 to TP1's price, and so on (k TP legs hit -> SL at the TP of leg k-1).
+    // Smart trailing, same styles as the paper trades: each signal uses its channel's learned style
+    // (ATR-based by default), measured from the best price since entry. Stops only ever tighten.
     if (settings.breakeven) {
       const keys = [...new Set(rows.map((r) => r.signal_key))];
       const { data: all } = await supabaseAdmin.from('broker_trades').select('signal_key, leg, take_profit, close_reason').eq('user_id', userId).eq('account', key).in('signal_key', keys);
       for (const r of rows) {
         if (r.status !== 'open') continue;
+        const pos = posById.get(r.order_id);
         const legs = (all || []).filter((l) => l.signal_key === r.signal_key).sort((x, y) => x.leg - y.leg);
+        const buy = r.side === 'BUY';
+        const px = Number(pos?.currentPrice);
+        let best = r.best_price != null ? Number(r.best_price) : Number(r.entry);
+        if (px > 0) best = buy ? Math.max(best, px) : Math.min(best, px);
+        if (px > 0 && best !== Number(r.best_price)) await supabaseAdmin.from('broker_trades').update({ best_price: best }).eq('id', r.id).then(() => null, () => null);
         const k = legs.filter((l) => l.close_reason === 'tp').length;
         if (!k) continue;
-        const target = k === 1 ? Number(r.entry) : Number(legs[k - 2]?.take_profit);
-        if (!Number.isFinite(target) || Number(r.stop_loss) === target) continue;
-        const better = r.side === 'BUY' ? target > Number(r.stop_loss) : target < Number(r.stop_loss);
-        if (!better) continue; // never loosen a stop
+        if (!(px > 0)) continue;
+        const style = r.trail_mode || TRAIL_DEFAULT;
+        const mode = style.startsWith('atr') && !(Number(r.trail_atr) > 0) ? 'be2' : style; // no ATR known: safe fallback
+        const target = trailCandidate(mode, {
+          side: r.side, entry: Number(r.entry), sl: Number(r.stop_loss), tps: legs.map((l) => Number(l.take_profit)), tpHit: k, best, atr: Number(r.trail_atr) || 0,
+        });
+        if (!Number.isFinite(target)) continue;
+        const rounded = Number(target.toFixed(2));
+        if (!(buy ? rounded > Number(r.stop_loss) : rounded < Number(r.stop_loss))) continue; // never loosen
+        if (buy ? rounded >= px : rounded <= px) continue; // must stay on the right side of the price
         try {
-          const res = await mt.trade(id, { actionType: 'POSITION_MODIFY', positionId: r.order_id, stopLoss: target, takeProfit: Number(r.take_profit) });
-          if (tradeOk(res)) { await supabaseAdmin.from('broker_trades').update({ breakeven: true, stop_loss: target }).eq('id', r.id); changed++; }
-        } catch { /* price may be too close to the new stop right now; retry next minute */ }
+          const res = await mt.trade(id, { actionType: 'POSITION_MODIFY', positionId: r.order_id, stopLoss: rounded, takeProfit: Number(r.take_profit) });
+          if (tradeOk(res)) { await supabaseAdmin.from('broker_trades').update({ breakeven: true, stop_loss: rounded }).eq('id', r.id); changed++; }
+        } catch { /* too close to the price right now; retry next minute */ }
       }
     }
   }
