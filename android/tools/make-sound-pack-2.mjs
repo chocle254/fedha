@@ -7,6 +7,7 @@
 // "AI error" effects: tape-stop, glitch stutter, bit-crush, power-down.
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { fileURLToPath } from 'url';
 import { VOICES, render } from './make-sounds.mjs';
 
 const RATE = 44100;
@@ -85,7 +86,7 @@ Object.assign(VOICES, {
 });
 
 // ─── "AI ERROR" EFFECTS (run on the dry mix) ─────────────────────────────────
-function tapeStop(start, len) {
+export function tapeStop(start, len) {
   return (L, R) => {
     for (const x of [L, R]) {
       const src = Float32Array.from(x);
@@ -101,7 +102,7 @@ function tapeStop(start, len) {
     }
   };
 }
-function stutter(start, slice, repeats) {
+export function stutter(start, slice, repeats) {
   return (L, R) => {
     const s0 = Math.floor(start * RATE);
     const n = Math.floor(slice * RATE);
@@ -111,7 +112,7 @@ function stutter(start, slice, repeats) {
     }
   };
 }
-function crush(start, bits = 5, hold = 6) {
+export function crush(start, bits = 5, hold = 6) {
   return (L, R) => {
     const s0 = Math.floor(start * RATE);
     const q = 2 ** bits;
@@ -121,7 +122,7 @@ function crush(start, bits = 5, hold = 6) {
     }
   };
 }
-const chain = (...fns) => (L, R) => fns.forEach((f) => f(L, R));
+export const chain = (...fns) => (L, R) => fns.forEach((f) => f(L, R));
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const CH = { maj9: [0, 4, 7, 11, 14], maj7: [0, 4, 7, 11], add9: [0, 4, 7, 14], m9: [0, 3, 7, 10, 14], m7: [0, 3, 7, 10], sus2: [0, 2, 7], dim: [0, 3, 6, 9], m: [0, 3, 7], maj: [0, 4, 7], six9: [0, 4, 9, 14] };
@@ -184,22 +185,25 @@ const PLAN = [
   ['C', C, { vox: 4, bubble: 3, data: 3, glassblip: 4, logtap: 3, bloop: 3, rhodestap: 3, holo: 2 }, 'chat'],
 ];
 
-const out = process.argv[2];
-if (!out) { console.error('usage: node make-sound-pack-2.mjs <output folder>'); process.exit(1); }
-const list = [];
-let total = 0;
-for (const [tag, recipes, counts, folder] of PLAN) {
-  mkdirSync(join(out, folder), { recursive: true });
-  let k = 1;
-  for (const [genre, n] of Object.entries(counts)) {
-    for (let v = 0; v < n; v++) {
-      const [notes, opts] = recipes[genre](v);
-      const name = `${tag}${String(k).padStart(2, '0')}-${genre}${n > 1 ? `-${v + 1}` : ''}`;
-      writeFileSync(join(out, folder, `${name}.wav`), render(notes, opts));
-      list.push(`${folder}/${name}.wav`);
-      k++; total++;
+// Only write the pack when run directly (ringtones.mjs imports the instruments above).
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const out = process.argv[2];
+  if (!out) { console.error('usage: node make-sound-pack-2.mjs <output folder>'); process.exit(1); }
+  const list = [];
+  let total = 0;
+  for (const [tag, recipes, counts, folder] of PLAN) {
+    mkdirSync(join(out, folder), { recursive: true });
+    let k = 1;
+    for (const [genre, n] of Object.entries(counts)) {
+      for (let v = 0; v < n; v++) {
+        const [notes, opts] = recipes[genre](v);
+        const name = `${tag}${String(k).padStart(2, '0')}-${genre}${n > 1 ? `-${v + 1}` : ''}`;
+        writeFileSync(join(out, folder, `${name}.wav`), render(notes, opts));
+        list.push(`${folder}/${name}.wav`);
+        k++; total++;
+      }
     }
   }
+  writeFileSync(join(out, 'LIST.txt'), list.join('\n') + '\n');
+  console.log(`wrote ${total} sounds to ${out}`);
 }
-writeFileSync(join(out, 'LIST.txt'), list.join('\n') + '\n');
-console.log(`wrote ${total} sounds to ${out}`);
