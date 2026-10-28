@@ -180,8 +180,74 @@ export async function coachAsk(type, payload) {
     body: JSON.stringify({ type, lessons: LESSONS, ...payload }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.error) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok || data.error) { const e = new Error(data.error || `Request failed (${res.status})`); e.status = res.status; throw e; }
   return data;
+}
+
+// ── Judging panel: combine independent judges into one verdict (in code, no AI call) ──
+const normName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const interleave = (lists, n) => {
+  const out = [];
+  const seen = new Set();
+  for (let i = 0; out.length < n && i < 6; i++) for (const l of lists) {
+    const x = l?.[i];
+    const k = normName(typeof x === 'string' ? x : x?.idea).slice(0, 60);
+    if (x && k && !seen.has(k)) { seen.add(k); out.push(x); if (out.length >= n) break; }
+  }
+  return out;
+};
+
+export function combinePanel(panel, results) {
+  const judges = panel?.judges || [];
+  const done = results.filter(Boolean);
+  // Criteria: average each judge's score; the note comes from the judge who weighs it highest.
+  const byCrit = new Map();
+  done.forEach((r) => {
+    const p = judges.find((j) => j.key === r.key) || {};
+    r.scores.forEach((s) => {
+      const k = normName(s.criterion);
+      if (!byCrit.has(k)) byCrit.set(k, { criterion: s.criterion, weight: s.weight, list: [] });
+      const lens = Object.entries(p.lens || {}).find(([c]) => normName(c) === k)?.[1] || 'normal';
+      byCrit.get(k).list.push({ score: s.score, note: s.note, lens, who: p.title || r.key });
+    });
+  });
+  const rank = { high: 0, normal: 1, low: 2 };
+  const scores = [...byCrit.values()].map((c) => {
+    const avg = c.list.reduce((a, x) => a + x.score, 0) / c.list.length;
+    const lead = [...c.list].sort((a, b) => rank[a.lens] - rank[b.lens])[0];
+    const spread = Math.max(...c.list.map((x) => x.score)) - Math.min(...c.list.map((x) => x.score));
+    return { criterion: c.criterion, weight: c.weight, score: Math.round(avg * 10) / 10, note: `${lead.note}${spread >= 3 ? ` (judges split: ${c.list.map((x) => `${x.who} ${x.score}`).join(', ')})` : ''}`, by: c.list.map((x) => ({ who: x.who, score: x.score })) };
+  });
+  // Requirements: the majority view per rule; a tie is "unclear".
+  const req = new Map();
+  done.forEach((r) => r.requirements.forEach((q) => {
+    const k = normName(q.rule).slice(0, 80);
+    if (!req.has(k)) req.set(k, { rule: q.rule, votes: { met: 0, missing: 0, unclear: 0 }, note: q.note });
+    req.get(k).votes[q.status]++;
+    if (q.status === 'missing' && q.note) req.get(k).note = q.note;
+  }));
+  const requirements = [...req.values()].map((q) => {
+    const top = Object.entries(q.votes).sort((a, b) => b[1] - a[1]);
+    return { rule: q.rule, status: top[0][1] > (top[1]?.[1] || 0) ? top[0][0] : 'unclear', note: q.note };
+  });
+  const overall = weightedOverall(scores);
+  const named = done.map((r) => ({ r, p: judges.find((j) => j.key === r.key) || { title: r.key } }));
+  const shortlisted = named.filter((x) => x.r.shortlist);
+  const sorted = [...scores].sort((a, b) => b.score - a.score);
+  const hi = [...named].sort((a, b) => b.r.overall - a.r.overall);
+  const verdict = `${shortlisted.length} of ${done.length} judges would shortlist it. Strongest on ${sorted[0]?.criterion || '—'}, weakest on ${sorted[sorted.length - 1]?.criterion || '—'}${hi.length > 1 && hi[0].r.overall - hi[hi.length - 1].r.overall >= 15 ? `; ${hi[0].p.title} (${hi[0].r.overall}) rates it far above ${hi[hi.length - 1].p.title} (${hi[hi.length - 1].r.overall})` : ''}.`;
+  const tracks = [...new Set(shortlisted.map((x) => x.r.track).filter(Boolean))];
+  return {
+    overall, verdict,
+    prize_odds: shortlisted.length ? `Shortlisted by ${shortlisted.map((x) => x.p.title).join(' and ')}${tracks.length ? ` for ${tracks.join(' / ')}` : ''}. ${shortlisted.length < done.length ? `Win over ${named.filter((x) => !x.r.shortlist).map((x) => x.p.title).join(' and ')} with their fixes below.` : 'The whole panel is behind it.'}` : 'No judge would shortlist it yet: work through the fixes, starting with the ones more than one judge named.',
+    judges: named.map(({ r, p }) => ({ role: `${p.title}${p.org ? ` · ${p.org}` : ''}`, seat: p.seat, comment: r.comment, score: r.overall, shortlist: r.shortlist, track: r.track, scores: r.scores })),
+    scores, requirements,
+    strengths: interleave(done.map((r) => r.strengths), 4),
+    fixes: interleave(done.map((r) => r.fixes), 5),
+    questions: interleave(done.map((r) => r.questions), 5),
+    twists: interleave(done.map((r) => (r.twist ? [r.twist] : [])), 4),
+    panel: true,
+  };
 }
 
 // Spread plan tasks over the days until the deadline.

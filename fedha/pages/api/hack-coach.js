@@ -20,7 +20,7 @@ export const config = { maxDuration: 60 };
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 // Judging is the hardest reasoning job here, so it always uses the larger model.
 const JUDGE_MODEL = process.env.GROQ_JUDGE_MODEL || 'openai/gpt-oss-120b';
-const TYPES = new Set(['hack_brief', 'hack_app', 'hack_ideas', 'hack_chat', 'hack_plan', 'hack_scope', 'hack_judge', 'hack_submission', 'hack_pitch', 'hack_rehearse', 'hack_postmortem']);
+const TYPES = new Set(['hack_brief', 'hack_app', 'hack_ideas', 'hack_chat', 'hack_plan', 'hack_scope', 'hack_judge', 'hack_submission', 'hack_pitch', 'hack_rehearse', 'hack_postmortem', 'hack_panel', 'hack_judge_one']);
 // Light jobs run on the smaller model so the big model's free-tier quota is kept for ideas, plans and judging.
 const LIGHT = new Set(['hack_rehearse', 'hack_postmortem']);
 const clip = (v, n) => String(v ?? '').slice(0, n);
@@ -54,12 +54,14 @@ export default async function handler(req, res) {
     if (b.type === 'hack_brief') return res.status(200).json(await brief(b, GROQ_API_KEY));
     if (b.type === 'hack_chat' && !String(b.question || '').trim()) return res.status(400).json({ error: 'Question required' });
     if (b.type === 'hack_ideas') b.found = await ideaResearch(b);
+    if (b.type === 'hack_panel') b.found = await panelResearch(b);
+    if (b.type === 'hack_judge_one' && !b.judge?.title) return res.status(400).json({ error: 'Judge persona required' });
     // Vision check, and chat questions about adding/building something: look at what already exists first.
     if (b.type === 'hack_scope' || (b.type === 'hack_chat' && FEATURE_TALK.test(String(b.question || '')))) b.found = await featureResearch(b);
-    const reasoning = ['hack_scope', 'hack_chat', 'hack_ideas', 'hack_judge'].includes(b.type) ? 'medium' : null;
+    const reasoning = ['hack_scope', 'hack_chat', 'hack_ideas', 'hack_judge', 'hack_judge_one'].includes(b.type) ? 'medium' : null;
     let obj;
     try {
-      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : b.type === 'hack_judge' ? 0.3 : 0.6, LIGHT.has(b.type) ? 2500 : 6000, b.type === 'hack_judge' ? JUDGE_MODEL : LIGHT.has(b.type) ? FALLBACK_MODEL : GROQ_MODEL, { reasoning });
+      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : ['hack_judge', 'hack_judge_one'].includes(b.type) ? 0.3 : 0.6, LIGHT.has(b.type) ? 2500 : b.type === 'hack_judge_one' ? 3500 : 6000, ['hack_judge', 'hack_judge_one', 'hack_panel'].includes(b.type) ? JUDGE_MODEL : LIGHT.has(b.type) ? FALLBACK_MODEL : GROQ_MODEL, { reasoning });
     } catch (e) {
       // Groq's free tier caps tokens per request/minute. If the code
       // evidence made the prompt too big, try once more with less of it.
@@ -72,7 +74,7 @@ export default async function handler(req, res) {
       ev.deps = (ev.deps || []).slice(0, 1);
       if (b.hack.coach.presentation?.text) b.hack.coach.presentation.text = String(b.hack.coach.presentation.text).slice(0, 2500);
       if (b.found) b.found = String(b.found).slice(0, 2500);
-      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), 0.6, 3000, b.type === 'hack_judge' ? JUDGE_MODEL : GROQ_MODEL, { reasoning: reasoning ? 'low' : null });
+      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), 0.6, 3000, ['hack_judge', 'hack_judge_one', 'hack_panel'].includes(b.type) ? JUDGE_MODEL : GROQ_MODEL, { reasoning: reasoning ? 'low' : null });
     }
     const out = shape[b.type](obj, b);
     if (out.error) return res.status(500).json(out);
@@ -344,7 +346,111 @@ Never claim something about this hackathon that is not in the brief or the searc
   };
 }
 
+// ── Judging panel: each judge is its own agent ──
+// hack_panel builds the panel once (researched: sponsors, organiser, listed judges) and the builder keeps it.
+// hack_judge_one runs ONE judge with only their own persona, so judges score independently and do not anchor
+// on each other; the page combines their verdicts in code (no extra AI call).
+function criteriaOf(b) {
+  const crit = b.hack.coach?.brief?.criteria || [];
+  const realWeights = validWeights(crit);
+  const criteria = crit.length ? crit.map((k) => `${k.name}${realWeights ? ` (${k.weight}%)` : ''}`).join(', ') : 'Innovation / originality, Technical difficulty & execution, Impact / usefulness, Design & user experience, Presentation & demo, Fit with theme';
+  return { criteria, realWeights };
+}
+
+function judgeMaterial(b) {
+  const verified = clip(b.hack.coach?.facts || b.hack.coach?.app?.verified, 3000);
+  return `${ctx(b.hack)}
+
+${evidenceText(b.hack)}
+${verified ? `
+VERIFIED FACTS (checked in code from GitHub and the builder's entries; these are true, never contradict them):
+${verified}
+- Never call a document "missing" if it appears in the document list above, whatever folder it is in.
+- Never suggest doing something these facts show is already done (for example deploying when a live app is listed).
+- Judge the video only from these facts and THE PRESENTATION below. You cannot watch it: never invent its length, pacing or content.
+` : ''}
+THE PRESENTATION / DEMO THE BUILDER WILL SHOW:
+${clip(b.hack.coach?.presentation?.text, 6000) || '(not provided)'}${b.hack.coach?.presentation?.links ? `\nLinks (deck, video, live demo): ${clip(b.hack.coach.presentation.links, 500)}` : ''}
+
+SUBMISSION WRITE-UP:
+${clip(b.pitch, 4000) || '(not written yet)'}
+
+HOW TO JUDGE FAIRLY — real judges read the code and watch the presentation:
+- Base every note on the evidence above and name it: a file path, a README section, a slide or a submission field.
+- Only say something is missing if you looked where it would be and it is not there. You only see excerpts of some files: if something might be in code you were not shown, mark it "unclear" and ask about it instead of calling it missing.
+- For any rule about new/original work or building during the event, use ONLY the BUILD TIMELINE.
+- If something is not shown in the presentation, say so as advice, not as an accusation.`;
+}
+
+// Real-world context for the panel: what the sponsors' platforms are for, what the organiser cares about,
+// and who the listed judges are (their roles, not their names). Fail-soft.
+async function panelResearch(b) {
+  const h = b.hack || {};
+  const br = h.coach?.brief || {};
+  const host = br.organizer || h.organizer || '';
+  const tech = (br.sponsor_tech || []).slice(0, 3);
+  const listed = (br.judges || []).slice(0, 4);
+  const queries = [
+    ...tech.slice(0, 2).map((t) => `${t} developer platform what teams build with it judging criteria hackathon`),
+    host ? `${host} hackathon judges what they look for` : `${h.name || br.name || ''} hackathon judges`,
+    ...listed.slice(0, 2).map((j) => `${j} ${host} role team`),
+  ].filter((q) => q.trim().length > 8);
+  if (!queries.length) return null;
+  try {
+    const r = await webSearchMulti(queries, { limitEach: 4 });
+    return r.text.slice(0, 7000);
+  } catch (e) {
+    console.warn('[fedha] hack-coach panel research failed:', e.message);
+    return null;
+  }
+}
+
+function personaText(p) {
+  const lens = Object.entries(p.lens || {}).map(([k, v]) => `${k}: ${v}`).join('; ');
+  return `You are ${p.title}${p.org ? ` (${p.org})` : ''}, one judge on THIS hackathon's panel.
+Your seat: ${p.seat}. Your day job: ${p.workspace}
+What you care about most: ${(p.cares || []).join('; ')}
+How you weigh the criteria: ${lens || 'evenly'}
+Red flags for you: ${(p.red_flags || []).join('; ')}
+${p.sponsor_lens ? `How you look at the sponsors' technology: ${p.sponsor_lens}` : ''}
+How you question builders: ${p.asks_like || 'directly'}
+You judge independently: you have not seen the other judges' scores.`;
+}
+
 const prompts = {
+  hack_panel(b) {
+    const br = b.hack.coach?.brief || {};
+    const { criteria } = criteriaOf(b);
+    return `You are assembling the judging panel for THIS hackathon, the way its organisers would.
+
+${ctx(b.hack)}
+
+${br.judges?.length ? `Judges listed by the organisers: ${br.judges.join('; ')}` : 'No judges are listed: build the usual panel for an event like this.'}
+${br.sponsor_tech?.length ? `Sponsor technology: ${br.sponsor_tech.join(', ')}` : ''}
+Judging criteria: ${criteria}
+${b.found ? `RESEARCH (real web results about the sponsors, the organiser and the listed judges):\n${b.found}\n` : 'No web research was available: rely on what is typical for this kind of event and say nothing you cannot support.\n'}
+Build 3 judges (4 only if there are two major sponsors). Cover the seats that decide this event: an organiser representative, a sponsor engineer or developer advocate for the main sponsor technology, and a domain expert or investor in the hackathon's problem space. Base them on the listed judges' roles and companies when given, but NEVER write a real person's name: describe each by role and organisation only.
+For each judge, describe their real workspace: what they do day to day, what their team ships, what success looks like in their seat, and therefore what they want to see in a project like this.
+
+Return JSON: {"judges":[{"key":"short_id","title":"role, e.g. Developer advocate","org":"organisation or team","seat":"organiser|sponsor|domain|investor|technical","workspace":"2 sentences on their day job and team","cares":["3 things they look for, specific to their job"],"lens":{"<criterion name>":"high|normal|low"},"red_flags":["2-3 things that make them mark down"],"sponsor_lens":"how they judge use of the sponsor tech (empty if not relevant)","asks_like":"one example question in their voice"}]}
+lens must use exactly these criterion names: ${criteria.replace(/ \(\d+%\)/g, '')}.`;
+  },
+
+  hack_judge_one(b) {
+    const p = b.judge || {};
+    const { criteria, realWeights } = criteriaOf(b);
+    return `${personaText(p)}
+Judge exactly as this hackathon's criteria say, through YOUR lens, as strictly as real judges: most entries score 45-70.
+
+${judgeMaterial(b)}
+
+Return JSON: {"scores":[{"criterion":"","score":0,"note":""}],"comment":"2-3 sentences in your own voice, from your seat","strengths":["2 things that work, from your seat"],"fixes":["the 3 changes that would raise YOUR scores most in the time left, most important first, concrete"],"questions":["2 hard questions you would ask"],"requirements":[{"rule":"","status":"met|missing|unclear","note":""}],"twist":{"idea":"one move that would impress YOU specifically","why":"","hours":0},"shortlist":false,"track":"the prize or track you would put it up for, or empty"}
+- scores: exactly these criteria: ${criteria}. score 1-10, note = one sentence why, naming the evidence.${realWeights ? '' : ' The hackathon gives no weights.'}
+- requirements: check every hard requirement from the brief (empty list if none).
+- shortlist: true only if you would argue for it in the final deliberation.
+- Penalise anything that looks invented, unfinished core features and missing requirements. Score each criterion on what it asks; a missing requirement belongs in requirements.`;
+  },
+
   // Pitch kit for a nervous presenter: an autopilot opener, short cue cards, recovery lines, likely questions.
   hack_pitch(b) {
     const secs = num(b.seconds, 30, 600, 180);
@@ -573,6 +679,39 @@ Return JSON: {"fields":{"<key>":"text"}}`;
 };
 
 const shape = {
+  hack_panel(o) {
+    const judges = (Array.isArray(o.judges) ? o.judges : []).filter((j) => j && j.title).slice(0, 4).map((j, i) => ({
+      key: clip(j.key || `judge_${i + 1}`, 30), title: clip(j.title, 80), org: clip(j.org, 80),
+      seat: ['organiser', 'sponsor', 'domain', 'investor', 'technical'].includes(j.seat) ? j.seat : 'technical',
+      workspace: clip(j.workspace, 400), cares: list(j.cares, 4, 160), red_flags: list(j.red_flags, 3, 160),
+      lens: Object.fromEntries(Object.entries(j.lens && typeof j.lens === 'object' ? j.lens : {}).slice(0, 10).map(([k, v]) => [clip(k, 80), ['high', 'normal', 'low'].includes(v) ? v : 'normal'])),
+      sponsor_lens: clip(j.sponsor_lens, 300), asks_like: clip(j.asks_like, 200),
+    }));
+    if (judges.length < 2) return { error: 'Could not assemble the panel. Try again.' };
+    return { panel: { judges } };
+  },
+  hack_judge_one(o, b) {
+    const crit = b?.hack?.coach?.brief?.criteria || [];
+    const real = validWeights(crit);
+    const weightOf = (name) => {
+      if (!real) return 0;
+      const k = crit.find((c) => String(c.name).toLowerCase() === String(name).toLowerCase()) || crit.find((c) => String(name).toLowerCase().includes(String(c.name).toLowerCase().split(/[\s/&]/)[0]));
+      return k ? num(k.weight, 0, 100) : 0;
+    };
+    const scores = (o?.scores || []).filter((x) => x && x.criterion).slice(0, 10).map((x) => ({ criterion: clip(x.criterion, 80), weight: weightOf(x.criterion), score: num(x.score, 0, 10), note: clip(x.note, 300) }));
+    if (!scores.length) return { error: 'This judge could not score it. Try again.' };
+    const t = o.twist || {};
+    return {
+      result: {
+        key: clip(b.judge?.key, 30), overall: weightedOverall(scores), scores, comment: clip(o.comment, 500),
+        strengths: list(o.strengths, 3), fixes: list(o.fixes, 3), questions: list(o.questions, 2),
+        requirements: (o.requirements || []).filter((r) => r && r.rule).slice(0, 15).map((r) => ({ rule: clip(r.rule, 200), status: ['met', 'missing', 'unclear'].includes(r.status) ? r.status : 'unclear', note: clip(r.note, 200) })),
+        twist: t.idea ? { idea: clip(t.idea, 250), why: clip(t.why, 250), hours: num(t.hours, 0, 48) } : null,
+        shortlist: !!o.shortlist, track: clip(o.track, 120),
+      },
+    };
+  },
+
   hack_pitch(o) {
     const cues = (Array.isArray(o.cues) ? o.cues : []).slice(0, 8).map((c) => ({ title: clip(c.title, 50), say: clip(c.say, 400), show: clip(c.show, 200), seconds: num(c.seconds, 5, 300, 20) }));
     if (!cues.length) return { error: 'The mentor did not return a pitch. Try again.' };

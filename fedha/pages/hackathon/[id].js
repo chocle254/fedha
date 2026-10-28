@@ -11,7 +11,7 @@ import PitchCoach from '../../components/hackcoach/PitchCoach';
 import TeamChannel from '../../components/hackcoach/TeamChannel';
 import PostMortem from '../../components/hackcoach/PostMortem';
 import { startDateOf, gatherEvidence, timelineOf, timelineText, scanRepo, applyFacts, dropDone, verifiedFacts, fmtDuration } from '../../lib/hack-coach';
-import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, workload, minutesLogged, coachTasks, submissionFields, hackForAI, coachAsk, addDays, setLessons, lessonsFrom } from '../../lib/hack-coach';
+import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, workload, minutesLogged, coachTasks, submissionFields, hackForAI, coachAsk, addDays, setLessons, lessonsFrom, combinePanel } from '../../lib/hack-coach';
 
 // The Hackathon Coach: a mentor that reads the hackathon you paste,
 // researches it, helps you pick an idea, plans the build to fit the time
@@ -118,6 +118,8 @@ export default function HackathonCoach() {
   const [openTask, setOpenTask] = useState(null);
   // judges / submit
   const [judgeSeen, setJudgeSeen] = useState(null);
+  const [judgeStep, setJudgeStep] = useState('');
+  const [showPanel, setShowPanel] = useState(false);
   const [fieldDraft, setFieldDraft] = useState({});
   const [copied, setCopied] = useState('');
 
@@ -324,30 +326,57 @@ export default function HackathonCoach() {
   }
 
   // ── Judges ──
-  function judgeNow() {
+  // Each judge is its own agent: the panel is researched once (and kept), then every judge reviews the
+  // project alone, one request each, and the verdicts are combined in code.
+  const askJudge = async (type, payload) => {
+    try { return await coachAsk(type, payload); } catch (e) {
+      if (e.status !== 429) throw e;
+      // Free AI tier: pause and try this judge once more rather than failing the whole panel.
+      for (let s = 20; s > 0; s--) { setJudgeStep(`Rate limited by the free AI tier, retrying in ${s}s…`); await new Promise((r) => setTimeout(r, 1000)); }
+      return coachAsk(type, payload);
+    }
+  };
+  function judgeNow(rebuild = false) {
     run('judge', async () => {
-      const subm = Object.entries(cur().coach?.submission?.fields || {}).filter(([, v]) => String(v || '').trim()).map(([k, v]) => `${k}: ${v}`).join('\n');
-      // Rescan first, so the judges see the repo as it is now, not as it was when it was connected.
-      const app = cur().coach?.app;
-      if (app?.repo?.full_name) {
-        try {
-          const fresh = await scanRepo(app.repo.full_name, { folder: app.repo.folder || '' });
-          saveCoach({ app: { ...app, repo: fresh } });
-        } catch { /* rate limited or offline: judge the last scan */ }
-      }
-      const sources = await gatherEvidence(cur().coach?.app?.repo);
-      setJudgeSeen(sources.map((f) => f.path));
-      const raw = await coachAsk('hack_judge', { hack: hackForAI(cur(), { evidence: sources }), pitch: subm });
-      // Checked facts beat the AI: requirements are re-marked from GitHub, done things are not suggested again.
-      const r = {
-        ...raw,
-        requirements: applyFacts(raw.requirements, cur()),
-        fixes: dropDone(raw.fixes, cur()),
-        questions: dropDone(raw.questions, cur()),
-        twists: dropDone(raw.twists, cur(), 'idea'),
-      };
-      saveCoach({ judged: [{ ...r, at: Date.now(), date: today }, ...(cur().coach?.judged || [])].slice(0, 6) });
-      setTimeout(() => document.getElementById('hc-verdict')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+      try {
+        const subm = Object.entries(cur().coach?.submission?.fields || {}).filter(([, v]) => String(v || '').trim()).map(([k, v]) => `${k}: ${v}`).join('\n');
+        // Rescan first, so the judges see the repo as it is now, not as it was when it was connected.
+        const app = cur().coach?.app;
+        if (app?.repo?.full_name) {
+          setJudgeStep('Reading your latest code…');
+          try {
+            const fresh = await scanRepo(app.repo.full_name, { folder: app.repo.folder || '' });
+            saveCoach({ app: { ...app, repo: fresh } });
+          } catch { /* rate limited or offline: judge the last scan */ }
+        }
+        let panel = cur().coach?.panel;
+        if (rebuild || !panel?.judges?.length) {
+          setJudgeStep('Assembling the judging panel (researching the sponsors and judges)…');
+          panel = { ...(await askJudge('hack_panel', { hack: hackForAI(cur()) })).panel, at: Date.now() };
+          saveCoach({ panel });
+        }
+        const sources = await gatherEvidence(cur().coach?.app?.repo);
+        setJudgeSeen(sources.map((f) => f.path));
+        const payload = { hack: hackForAI(cur(), { evidence: sources }), pitch: subm };
+        const results = [];
+        for (const [i, j] of panel.judges.entries()) {
+          setJudgeStep(`Judge ${i + 1} of ${panel.judges.length}: ${j.title}${j.org ? ` (${j.org})` : ''} is reviewing…`);
+          try { results.push((await askJudge('hack_judge_one', { ...payload, judge: j })).result); } catch (e) { if (!results.length && i === panel.judges.length - 1) throw e; }
+        }
+        if (!results.length) throw new Error('No judge could score it right now. Try again in a minute.');
+        const raw = combinePanel(panel, results);
+        // Checked facts beat the AI: requirements are re-marked from GitHub, done things are not suggested again.
+        const r = {
+          ...raw,
+          requirements: applyFacts(raw.requirements, cur()),
+          fixes: dropDone(raw.fixes, cur()),
+          questions: dropDone(raw.questions, cur()),
+          twists: dropDone(raw.twists, cur(), 'idea'),
+          missing_judges: panel.judges.length - results.length,
+        };
+        saveCoach({ judged: [{ ...r, at: Date.now(), date: today }, ...(cur().coach?.judged || [])].slice(0, 6) });
+        setTimeout(() => document.getElementById('hc-verdict')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+      } finally { setJudgeStep(''); }
     });
   }
 
@@ -816,7 +845,26 @@ export default function HackathonCoach() {
                   </>
                 );
               })()}
-              <button className="btn-primary muse-send" style={{ marginTop: 10 }} onClick={judgeNow} disabled={!!busy || !coach.idea}>{busy === 'judge' ? 'The judges are scoring…' : !coach.idea ? 'Pick an idea first' : '⚖️ Judge my project'}</button>
+              <button className="btn-primary muse-send" style={{ marginTop: 10 }} onClick={() => judgeNow(false)} disabled={!!busy || !coach.idea}>{busy === 'judge' ? 'The judges are reviewing…' : !coach.idea ? 'Pick an idea first' : coach.panel ? '⚖️ Judge my project' : '⚖️ Assemble the panel and judge'}</button>
+              {judgeStep && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 8 }}>⏳ {judgeStep}</div>}
+              {coach.panel?.judges?.length > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    <button type="button" className="muse-link" style={{ marginTop: 0 }} onClick={() => setShowPanel((x) => !x)}>{showPanel ? 'Hide the panel' : `👥 Meet the panel (${coach.panel.judges.length} judges)`}</button>
+                    <button type="button" className="muse-link" style={{ marginTop: 0 }} disabled={!!busy} onClick={() => { if (window.confirm('Research and build a new judging panel, then judge again?')) judgeNow(true); }}>↻ Build a new panel</button>
+                  </div>
+                  {showPanel && coach.panel.judges.map((j) => (
+                    <div key={j.key} style={{ marginTop: 10, padding: 12, borderRadius: 12, background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
+                      <div className="muse-label">{j.title.toUpperCase()}{j.org ? ` · ${j.org.toUpperCase()}` : ''} <span style={{ color: 'var(--text-3)' }}>({j.seat})</span></div>
+                      <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.5 }}>{j.workspace}</div>
+                      {j.cares?.length > 0 && <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}><b>Looks for:</b> {j.cares.join(' · ')}</div>}
+                      {j.red_flags?.length > 0 && <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.5, color: '#F59E0B' }}><b>Marks down:</b> {j.red_flags.join(' · ')}</div>}
+                      {j.sponsor_lens && <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.5 }}><b>On the sponsor tech:</b> {j.sponsor_lens}</div>}
+                      {j.asks_like && <div style={{ fontSize: 12, marginTop: 4, color: 'var(--text-3)', fontStyle: 'italic' }}>“{j.asks_like}”</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
               <ErrLine />
             </section>
 
@@ -838,10 +886,15 @@ export default function HackathonCoach() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
                     {lastJudge.judges.map((j) => (
                       <div key={j.role} style={{ padding: 12, borderRadius: 12, background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
-                        <div className="muse-label">{j.role.toUpperCase()}</div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <div className="muse-label">{j.role.toUpperCase()}</div>
+                          {j.score != null && <span className="font-num" style={{ fontSize: 13, fontWeight: 800, color: scoreColor(j.score) }}>{j.score}{j.shortlist ? ' ⭐' : ''}</span>}
+                        </div>
                         <div style={{ fontSize: 13, lineHeight: 1.5, marginTop: 4 }}>“{j.comment}”</div>
+                        {j.shortlist && <div style={{ fontSize: 11.5, color: 'var(--green)', marginTop: 4 }}>Would shortlist it{j.track ? ` for ${j.track}` : ''}</div>}
                       </div>
                     ))}
+                    {lastJudge.missing_judges > 0 && <div style={{ fontSize: 11.5, color: '#F59E0B' }}>{lastJudge.missing_judges} judge{lastJudge.missing_judges > 1 ? 's' : ''} could not score this run (free AI limit); the verdict uses the others.</div>}
                   </div>
                 )}
                 <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
