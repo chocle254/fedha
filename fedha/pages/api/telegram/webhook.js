@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { createSignal } from '../../../lib/signals';
 import { maybeAutoEnter } from '../../../lib/trading';
+import { linkTeamChat, unlinkTeamChat } from '../../../lib/team-telegram';
 
 // Forward a signal message from any Telegram group to your own bot and it is tracked here.
 // Paper tracking only: no orders are placed.
@@ -42,6 +43,24 @@ export default async function handler(req, res) {
   const msg = req.body?.message;
   const owner = String(process.env.TELEGRAM_OWNER_CHAT_ID || '');
   const userId = process.env.SIGNAL_OWNER_USER_ID;
+  // Team groups: the owner adds the bot to a group and sends /link there, so the hackathon and startup
+  // mentors can post plans and updates to the team. Only the owner's /link or /unlink counts.
+  const groupCmd = String(msg?.text || '').trim().toLowerCase().replace(/@\w+$/, '');
+  if (msg && userId && owner && ['group', 'supergroup'].includes(msg.chat?.type) && String(msg.from?.id) === owner && ['/link', '/unlink'].includes(groupCmd.split(/\s/)[0])) {
+    try {
+      if (groupCmd.startsWith('/unlink')) {
+        await unlinkTeamChat(userId, msg.chat.id);
+        await reply(msg.chat.id, 'Unlinked. Luxe will not post here any more.');
+      } else {
+        await linkTeamChat(userId, { id: msg.chat.id, title: msg.chat.title });
+        await reply(msg.chat.id, `Linked to Luxe. Your mentor can now post plans and updates to "${msg.chat.title || 'this group'}".`);
+      }
+    } catch (e) {
+      await reply(msg.chat.id, `Could not link this group: ${e.message}`);
+    }
+    return res.status(200).json({ ok: true });
+  }
+
   // Ignore anyone except you. Always answer 200 so Telegram does not retry.
   if (!msg || !owner || String(msg.chat?.id) !== owner || !userId) return res.status(200).json({ ok: true });
 

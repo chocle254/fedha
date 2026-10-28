@@ -6,6 +6,7 @@
 import { requireUser } from '../../lib/require-user';
 import { webSearchMulti } from '../../lib/web-search';
 import { weightedOverall } from '../../lib/hack-coach';
+import { MINDSET } from '../../lib/mentor-mindset';
 
 // Criteria weights are real only when every criterion has one and they add up to about 100.
 function validWeights(crit) {
@@ -19,12 +20,15 @@ export const config = { maxDuration: 60 };
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 // Judging is the hardest reasoning job here, so it always uses the larger model.
 const JUDGE_MODEL = process.env.GROQ_JUDGE_MODEL || 'openai/gpt-oss-120b';
-const TYPES = new Set(['hack_brief', 'hack_app', 'hack_ideas', 'hack_chat', 'hack_plan', 'hack_scope', 'hack_judge', 'hack_submission']);
+const TYPES = new Set(['hack_brief', 'hack_app', 'hack_ideas', 'hack_chat', 'hack_plan', 'hack_scope', 'hack_judge', 'hack_submission', 'hack_pitch', 'hack_rehearse', 'hack_postmortem']);
+// Light jobs run on the smaller model so the big model's free-tier quota is kept for ideas, plans and judging.
+const LIGHT = new Set(['hack_rehearse', 'hack_postmortem']);
 const clip = (v, n) => String(v ?? '').slice(0, n);
 const list = (v, n, len = 300) => (Array.isArray(v) ? v : []).filter((x) => x != null && String(x).trim()).slice(0, n).map((x) => clip(x, len));
 const num = (v, lo, hi, d = 0) => Math.max(lo, Math.min(hi, Number.isFinite(Number(v)) ? Number(v) : d));
 
-const BUILDER = 'The builder usually works solo with little money and a modest laptop, so builds must use free tiers and be finishable by one person. They compete in international hackathons: aim at the hackathon\'s own audience and the global problem space, not at the builder\'s home country, unless the hackathon itself is regional.';
+const BUILDER = `The builder usually works solo with little money and a modest laptop, so builds must use free tiers. They compete in international hackathons: aim at the hackathon's own audience and the global problem space, not at the builder's home country, unless the hackathon itself is regional.
+${MINDSET}`;
 
 // How submissions must read: like the builder wrote them on a tired night,
 // not like a press release.
@@ -43,6 +47,8 @@ export default async function handler(req, res) {
   const b = req.body || {};
   if (!TYPES.has(b.type)) return res.status(400).json({ error: 'Unknown request type' });
   if (!b.hack) return res.status(400).json({ error: 'Hackathon data required' });
+  // Lessons the builder recorded after past hackathons (post-mortems): every prompt sees them.
+  if (Array.isArray(b.lessons)) b.hack.lessons = list(b.lessons, 12, 220);
 
   try {
     if (b.type === 'hack_brief') return res.status(200).json(await brief(b, GROQ_API_KEY));
@@ -53,7 +59,7 @@ export default async function handler(req, res) {
     const reasoning = ['hack_scope', 'hack_chat', 'hack_ideas', 'hack_judge'].includes(b.type) ? 'medium' : null;
     let obj;
     try {
-      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : b.type === 'hack_judge' ? 0.3 : 0.6, 6000, b.type === 'hack_judge' ? JUDGE_MODEL : GROQ_MODEL, { reasoning });
+      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : b.type === 'hack_judge' ? 0.3 : 0.6, LIGHT.has(b.type) ? 2500 : 6000, b.type === 'hack_judge' ? JUDGE_MODEL : LIGHT.has(b.type) ? FALLBACK_MODEL : GROQ_MODEL, { reasoning });
     } catch (e) {
       // Groq's free tier caps tokens per request/minute. If the code
       // evidence made the prompt too big, try once more with less of it.
@@ -163,6 +169,7 @@ function ctx(hack) {
     c.log?.length ? `Progress log (newest first):\n${c.log.map((l) => `  ${l.date}: ${clip(l.text, 200)}${l.minutes ? ` (${l.minutes}m)` : ''}`).join('\n')}` : '',
     c.notes ? `Builder's own notes about the project: ${clip(c.notes, 1500)}` : '',
     c.last_judging ? `Last mock judging: ${c.last_judging.overall}/100 — fixes suggested: ${(c.last_judging.fixes || []).join(' | ')}` : '',
+    hack.lessons?.length ? `LESSONS FROM THE BUILDER'S PAST HACKATHONS (apply them, they come from real results):\n${hack.lessons.map((x) => `  - ${x}`).join('\n')}` : '',
   ];
   return lines.filter(Boolean).join('\n');
 }
@@ -338,6 +345,53 @@ Never claim something about this hackathon that is not in the brief or the searc
 }
 
 const prompts = {
+  // Pitch kit for a nervous presenter: an autopilot opener, short cue cards, recovery lines, likely questions.
+  hack_pitch(b) {
+    const secs = num(b.seconds, 30, 600, 180);
+    return `You are a hackathon pitch coach who has trained nervous first-time presenters to win. Build a pitch kit for THIS project, ${secs} seconds long.
+
+${ctx(b.hack)}
+
+${BUILDER}
+${b.notes ? `Builder's notes for the pitch: ${clip(b.notes, 800)}` : ''}
+
+Return JSON: {"opener":"one strong first sentence they can say on autopilot (a real problem or a striking fact, no 'Hi, my name is')","one_liner":"what it is in under 15 words","cues":[{"title":"2-4 word cue","say":"1-2 short spoken sentences","show":"what is on screen at that moment","seconds":20}],"closer":"memorable last line plus the ask","recovery":["4-6 short lines to say when they blank or something breaks, e.g. 'Let me show you instead.'"],"qa":[{"q":"a question these judges will likely ask","a":"a 1-2 sentence answer"}],"calm":["3 quick physical or mental steps for the minute before going on, e.g. a breathing pattern"]}
+Rules: 4-7 cues; cue seconds add up to about ${secs}; the demo moment gets the most time; plain spoken language, short sentences, no jargon; follow the judging criteria; never invent users, numbers or results (write [ADD: ...] where a fact is missing).`;
+  },
+
+  // Feedback on one practice run, from the transcript the phone heard.
+  hack_rehearse(b) {
+    const cues = (Array.isArray(b.cues) ? b.cues : []).slice(0, 8).map((c) => `- ${clip(c.title, 40)}: ${clip(c.say, 200)}`).join('\n');
+    return `You are a warm but sharp pitch coach. The builder just rehearsed their hackathon pitch out loud. They get nervous, so be encouraging AND specific.
+
+Project: ${clip(b.hack?.name, 120)}${b.hack?.coach?.idea ? ` (${clip(b.hack.coach.idea.title, 120)})` : ''}
+Planned cues:
+${cues || '(no cue cards)'}
+Target length: ${num(b.target, 0, 900, 0)} s. Actual: ${num(b.seconds, 0, 3600, 0)} s. Pace: ${num(b.wpm, 0, 400, 0)} words per minute. Filler words heard: ${num(b.fillers, 0, 999, 0)}.
+What the phone heard (speech-to-text, may have small errors):
+"${clip(b.transcript, 4000)}"
+
+Return JSON: {"score":0,"headline":"one encouraging sentence on how it went","strong":["2-3 things that worked"],"fix":["the 2-3 most important changes for the next run"],"missed":["cue titles they skipped or rushed"],"better_lines":[{"was":"a weak line they said","try":"a stronger version"}],"pace":"too fast|good|too slow","next_drill":"one small exercise for the next run"}
+Rules: score 0-100 against the plan and the time; a good pace is 120-160 wpm; quote their words; never invent things they did not say.`;
+  },
+
+  // After the results: what to keep and what to change, written as reusable lessons.
+  hack_postmortem(b) {
+    const pm = b.postmortem || {};
+    return `You are the builder's hackathon mentor, doing an honest, ambitious post-mortem after results came out. Turn this into lessons that will make the NEXT hackathon better.
+
+${ctx(b.hack)}
+
+${BUILDER}
+RESULT: ${clip(pm.result, 60)}${pm.place ? ` (${clip(pm.place, 60)})` : ''}
+Judges' or organisers' feedback: ${clip(pm.feedback, 1500) || '(none given)'}
+What went well (builder): ${clip(pm.well, 1000) || '(not said)'}
+What went badly (builder): ${clip(pm.badly, 1000) || '(not said)'}
+
+Return JSON: {"summary":"2 sentences: what this result means","repeat":["2-4 things to do again"],"change":["2-4 things to do differently"],"lessons":["3-5 short, reusable rules for future hackathons, each under 20 words, specific (e.g. 'Record the backup demo video by 70% of the time')"],"next":"one ambitious suggestion for the next hackathon"}
+Never blame luck alone; never invent feedback that was not given.`;
+  },
+
   hack_app(b) {
     const app = b.hack.coach?.app || {};
     const r = app.repo;
@@ -386,7 +440,7 @@ WHAT MAKES AN IDEA HERE:
 
 ${own ? 'Return JSON: {"ideas":[ONE idea object: the builder\'s idea, sharpened and made bolder, still theirs]}' : 'Return JSON: {"ideas":[idea objects, each aimed at a different track, problem or angle]}'}
 Idea object: {"title":"short memorable name","ambition":"safe|bold|wild","problem":"the real-world problem and who has it, one or two sentences, with a figure only if the research gives one","source":"url from the research backing the problem, or empty","pitch":"2 sentences: what it does","wow":"the demo moment that makes the host say 'our platform can do THAT?'","track":"which track/prize it targets","why_wins":"how it scores on the judging criteria, one or two sentences","features":["3-4 things that MUST work in the demo slice"],"cut":["tempting parts to NOT build"],"twists":[{"twist":"an add-on that would surprise the judges","why":"which criterion it lifts","hours":0}],"sponsor_use":"exactly how it uses the host/sponsor tools, or empty","risk":"the biggest way this could fail in the time left","hours":0,"fit":"fits|tight|too_big"}
-Rules: every idea must meet every hard requirement. hours = realistic build hours for the demo slice for this solo builder; fit compares that with the working time left. Twists: 2-3, under 4 hours each: a live demo moment, a surprising sponsor-API use, real users tested, a striking visual, a measurable result.${own ? ' If the idea does not fit the hackathon or is too big, say so plainly in risk and set fit honestly.' : ''}`;
+Rules: every idea must meet every hard requirement. hours = build hours for the demo slice for this AI-assisted (vibecoding) builder; fit compares that with the working time left. Twists: 2-3, under 4 hours each: a live demo moment, a surprising sponsor-API use, real users tested, a striking visual, a measurable result.${own ? ' Never shrink the idea for being big: if it does not fit the hackathon, show how to aim it at a track; if it is huge, keep the vision and name the demo slice that proves it. Put real risks in risk with the way to beat them, and set fit honestly.' : ''}`;
   },
 
   hack_chat(b) {
@@ -408,16 +462,17 @@ Return JSON: {"reply":"..."}`;
     const hours = num(b.hours_per_day, 1, 16, 4);
     const left = b.hack.hours_left;
     const days = left != null ? Math.max(1, Math.ceil(left / 24)) : 7;
-    return `You are a hackathon mentor. Make a timed build plan for the chosen idea that FITS the time left. Overbuilding is the most common way solo builders lose.
+    return `You are a hackathon mentor. Make a timed build plan for the chosen idea that FITS the time left. Protect the ambitious core (the wow moment judges will remember): trim nice-to-haves around it, never the core.
 
 ${ctx(b.hack)}
 
 ${BUILDER}
 The builder will work about ${hours} hours a day, for ${days} day(s) until the deadline${left != null ? ` (about ${Math.round(left)} hours away)` : ''}. Total working time ≈ ${Math.round(Math.min(days * hours, left != null ? Math.max(1, left) : days * hours))} hours. Today is day 0.
 
-Return JSON: {"tasks":[{"day":0,"title":"...","how":["..."],"minutes":60,"phase":"setup|core|demo|polish|submit"}],"cut":["features you are deliberately leaving out and why, in a few words"],"must_haves":["what must exist at submission: e.g. working demo path, 2-min video, README with setup, deployed link"],"note":"one honest sentence about whether this is achievable"}
+Return JSON: {"tasks":[{"day":0,"title":"...","how":["..."],"minutes":60,"phase":"setup|core|demo|polish|submit"}],"cut":["features you are deliberately leaving out and why, in a few words"],"must_haves":["what must exist at submission: e.g. working demo path, 2-min video, README with setup, deployed link"],"note":"one honest sentence on the plan: what makes it winnable and the one thing to watch"}
 Rules:
 - 6 to 14 tasks in order. Total minutes must be at most 80% of the working time, leaving a buffer.
+- Task 1 (day 0) tests the riskiest assumption with the smallest real spike (the sponsor API, the AI output, the hardware, the data), so a blocker shows up in the first hours, not the last night.
 - Core features first, then a working end-to-end demo path, then polish. The final 15-20% of the time goes to the demo video, README, screenshots and the submission write-up — never skip these.
 - Skip tasks already done in the plan or log. Each "how": 2-4 concrete steps (what to build, which library, what to test).
 - day must be between 0 and ${days - 1}; each day's minutes must fit in ${Math.round(hours * 60)}.`;
@@ -518,6 +573,20 @@ Return JSON: {"fields":{"<key>":"text"}}`;
 };
 
 const shape = {
+  hack_pitch(o) {
+    const cues = (Array.isArray(o.cues) ? o.cues : []).slice(0, 8).map((c) => ({ title: clip(c.title, 50), say: clip(c.say, 400), show: clip(c.show, 200), seconds: num(c.seconds, 5, 300, 20) }));
+    if (!cues.length) return { error: 'The mentor did not return a pitch. Try again.' };
+    return { pitch: { opener: clip(o.opener, 300), one_liner: clip(o.one_liner, 160), cues, closer: clip(o.closer, 300), recovery: list(o.recovery, 6, 160), qa: (Array.isArray(o.qa) ? o.qa : []).slice(0, 6).map((x) => ({ q: clip(x.q, 200), a: clip(x.a, 400) })), calm: list(o.calm, 4, 200) } };
+  },
+  hack_rehearse(o) {
+    return { feedback: { score: num(o.score, 0, 100, 0), headline: clip(o.headline, 240), strong: list(o.strong, 3, 200), fix: list(o.fix, 3, 240), missed: list(o.missed, 6, 60), better_lines: (Array.isArray(o.better_lines) ? o.better_lines : []).slice(0, 3).map((x) => ({ was: clip(x.was, 200), try: clip(x.try, 240) })), pace: ['too fast', 'good', 'too slow'].includes(o.pace) ? o.pace : '', next_drill: clip(o.next_drill, 240) } };
+  },
+  hack_postmortem(o) {
+    const lessons = list(o.lessons, 5, 160);
+    if (!lessons.length) return { error: 'The mentor did not return lessons. Try again.' };
+    return { review: { summary: clip(o.summary, 400), repeat: list(o.repeat, 4, 200), change: list(o.change, 4, 200), lessons, next: clip(o.next, 300) } };
+  },
+
   hack_app(o) {
     if (!o?.what_it_does) return { error: 'Could not read your app right now. Try again.' };
     const idea = o.idea || {};

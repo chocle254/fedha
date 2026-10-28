@@ -7,13 +7,16 @@ import TimezoneSelect from '../../components/TimezoneSelect';
 import { fireConfetti } from '../../lib/confetti';
 import { ScoreBar, scoreColor } from '../../components/startup/museApi';
 import AppConnect from '../../components/hackcoach/AppConnect';
+import PitchCoach from '../../components/hackcoach/PitchCoach';
+import TeamChannel from '../../components/hackcoach/TeamChannel';
+import PostMortem from '../../components/hackcoach/PostMortem';
 import { startDateOf, gatherEvidence, timelineOf, timelineText, scanRepo, applyFacts, dropDone, verifiedFacts, fmtDuration } from '../../lib/hack-coach';
-import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, workload, minutesLogged, coachTasks, submissionFields, hackForAI, coachAsk, addDays } from '../../lib/hack-coach';
+import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, workload, minutesLogged, coachTasks, submissionFields, hackForAI, coachAsk, addDays, setLessons, lessonsFrom } from '../../lib/hack-coach';
 
 // The Hackathon Coach: a mentor that reads the hackathon you paste,
 // researches it, helps you pick an idea, plans the build to fit the time
-// left, stops you overbuilding, judges the project the way this
-// hackathon's judges would, and drafts the submission in your own voice.
+// left (protecting the ambitious core), judges the project the way this hackathon's judges would, coaches
+// the pitch, posts to the team on Telegram, drafts the submission in your own voice, and learns from results.
 
 const TABS = [
   ['mentor', '🧭 Mentor'],
@@ -21,10 +24,12 @@ const TABS = [
   ['ideas', '💡 Ideas'],
   ['plan', '🛠️ Plan'],
   ['judges', '⚖️ Judges'],
+  ['pitch', '🎤 Pitch'],
   ['submit', '📨 Submit'],
+  ['results', '🏁 Results'],
 ];
 const SUGGESTIONS = [
-  'Am I overbuilding?',
+  "What's the boldest version of this idea?",
   'What will the judges care about most?',
   'What should I do in the next 2 hours?',
 ];
@@ -122,6 +127,9 @@ export default function HackathonCoach() {
   if (hack && latest.current?.id !== hack.id) latest.current = hack;
   useEffect(() => { if (hack) latest.current = hack; }, [hack]);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(t); }, []);
+  // Lessons from past post-mortems go with every mentor request for this hackathon.
+  const pastLessons = lessonsFrom(hackathons || [], id);
+  useEffect(() => { setLessons(pastLessons); }, [pastLessons.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (hack) { setRaw(hack.coach?.raw || ''); setFieldDraft(hack.coach?.submission?.fields || {}); } }, [hack?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Started from a paste in Tech Hub: read and research it straight away.
   useEffect(() => {
@@ -767,6 +775,8 @@ export default function HackathonCoach() {
                 {coach.plan.cut?.length > 0 && <><div className="muse-label" style={{ marginTop: 10, color: 'var(--red)' }}>DELIBERATELY NOT BUILDING</div><ul className="muse-how">{coach.plan.cut.map((x) => <li key={x}>{x}</li>)}</ul></>}
               </section>
             )}
+
+            <TeamChannel hack={hack} />
           </div></div>
         )}
 
@@ -877,6 +887,12 @@ export default function HackathonCoach() {
         )}
 
         {/* ── SUBMIT ── */}
+        {/* ── PITCH ── */}
+        {tab === 'pitch' && <PitchCoach hack={hack} saveCoach={saveCoach} />}
+
+        {/* ── RESULTS ── */}
+        {tab === 'results' && <PostMortem hack={hack} saveCoach={saveCoach} pastLessons={pastLessons} />}
+
         {tab === 'submit' && (
           <div className="muse-grid"><div className="muse-col">
             <section className="card muse-card">

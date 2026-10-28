@@ -106,7 +106,7 @@ export function mentorNotice(hack, now = Date.now()) {
   if (!tasks.length) return { tone: 'info', text: `Let me turn "${c.idea.title}" into a timed build plan that fits the ${fmtHours(left).replace(' left', '')} you have left.`, action: 'plan' };
   const w = workload(hack, now);
   if (w.ratio != null && w.ratio > 1.15) {
-    return { tone: 'warn', text: `You're overbuilding. The open tasks need about ${Math.round(w.needH)}h and you have about ${Math.round(w.availH)}h of working time before the deadline. Cut features now, not on the last night.`, action: 'plan' };
+    return { tone: 'warn', text: `The open tasks need about ${Math.round(w.needH)}h and you have about ${Math.round(w.availH)}h before the deadline. Keep the wow moment; trim the nice-to-haves around it now, not on the last night.`, action: 'plan' };
   }
   const overdue = tasks.filter((t) => !t.done && t.due && t.due < today);
   if (overdue.length) return { tone: 'warn', text: `${overdue.length} task${overdue.length === 1 ? ' is' : 's are'} behind schedule, starting with "${overdue[0].text}". Do it next or cut it.`, action: 'plan' };
@@ -155,11 +155,29 @@ export function hackForAI(hack, { full = false, evidence = null } = {}) {
   };
 }
 
+// Lessons from past post-mortems, sent with every mentor request (set by the hackathon page).
+let LESSONS = [];
+export const setLessons = (list) => { LESSONS = Array.isArray(list) ? list : []; };
+
+// Newest-first, de-duplicated lessons from every OTHER hackathon's post-mortem (at most 12).
+export function lessonsFrom(hackathons = [], exceptId = null) {
+  const done = hackathons
+    .filter((h) => h.id !== exceptId && h.coach?.postmortem?.review?.lessons?.length)
+    .sort((a, b) => String(b.coach.postmortem.at || '').localeCompare(String(a.coach.postmortem.at || '')));
+  const seen = new Set();
+  const out = [];
+  for (const h of done) for (const l of h.coach.postmortem.review.lessons) {
+    const k = l.toLowerCase().trim();
+    if (!seen.has(k)) { seen.add(k); out.push(`${l} (from ${h.name || 'a past hackathon'})`); }
+  }
+  return out.slice(0, 12);
+}
+
 export async function coachAsk(type, payload) {
   const res = await fetch('/api/hack-coach', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type, ...payload }),
+    body: JSON.stringify({ type, lessons: LESSONS, ...payload }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) throw new Error(data.error || `Request failed (${res.status})`);

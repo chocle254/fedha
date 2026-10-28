@@ -1,4 +1,5 @@
 import { requireUser } from '../../lib/require-user';
+import { VIBECODER, AMBITION, NERVOUS_PITCHER } from '../../lib/mentor-mindset';
 // pages/api/ai.js — uses Groq (free, generous, OpenAI-compatible) for most
 // types. Set GROQ_API_KEY.
 //
@@ -499,6 +500,7 @@ function findBalancedJsonEnd(text, start) {
 
 const MUSE_TYPES = new Set(['startup_chat', 'startup_roadmap', 'pitch_draft', 'pitch_judge', 'investor_turn', 'readiness_audit']);
 const FOUNDER = 'The founder is a student developer in Kenya with little money: prefer free, scrappy, do-it-this-week actions, local channels (WhatsApp, campus, chamas, M-Pesa) and honest advice.';
+const FOUNDER_MINDSET = `${VIBECODER}\n${AMBITION}\n${NERVOUS_PITCHER}`;
 const clip = (v, n) => String(v || '').slice(0, n);
 
 // Everything the founder has written about the startup, for Muse's prompts.
@@ -549,10 +551,11 @@ Playbook for the ${st.label} stage:
 ${book}
 
 ${FOUNDER}
+${FOUNDER_MINDSET}
 
 ${past ? `Conversation so far:\n${past}\n\n` : ''}Founder: ${clip(b.question, 1200)}
 
-Reply as Muse: specific to THIS startup and stage, practical and honest — say so if they are skipping a step or fooling themselves. Plain text, no markdown headings, at most 160 words. If you give steps, give at most 4 short lines starting with "• ". If a well-known framework fits (e.g. The Mom Test, Bullseye, Sean Ellis 40% test), name it.
+Reply as Muse: specific to THIS startup and stage, practical, ambitious and honest — push them toward the bigger version of the idea, and say so if they are skipping a step or fooling themselves about users or demand. Plain text, no markdown headings, at most 160 words. If you give steps, give at most 4 short lines starting with "• ". If a well-known framework fits (e.g. The Mom Test, Bullseye, Sean Ellis 40% test), name it.
 Return JSON: {"reply":"..."}`;
   }
 
@@ -567,6 +570,7 @@ Playbook for ${st.label}:
 ${book}
 
 ${FOUNDER}
+${FOUNDER_MINDSET}
 The founder can give about ${hours} hour(s) a day to the startup. The stage should take about ${p?.days || 14} days.
 
 Return JSON: {"tasks":[{"day":0,"title":"...","how":["...","..."],"minutes":60,"time":null}]}
