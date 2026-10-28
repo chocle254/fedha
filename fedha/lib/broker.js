@@ -80,6 +80,9 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
     if (real) return { skipped: `${source} is marked Drop.` };
     mult = LOT_MIN; // demo keeps measuring dropped channels at the smallest size
   }
+  // Real money only follows channels with a proven record (10+ closed trades, positive, Keep or Scale).
+  // Channels still being tested keep trading on demo and paper until they earn it.
+  if (real && sizing.verdict === 'testing') return { skipped: `${source} is still being tested (fewer than 10 closed trades), so demo only.` };
 
   const symbol = await findSymbol(id, brokerSymbolFor(parsed));
   if (!symbol) return { skipped: `${brokerSymbolFor(parsed)} is not offered on this account.` };
