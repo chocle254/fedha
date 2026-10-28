@@ -76,7 +76,9 @@ export async function findSymbol(id, wanted) {
   if (symbolCache.has(key)) return symbolCache.get(key);
   const list = (await mt.symbols(id)) || [];
   const names = list.map((s) => (typeof s === 'string' ? s : s.symbol)).filter(Boolean);
-  const aliases = wanted === 'XAUUSD' ? ['XAUUSD', 'GOLD'] : [wanted];
+  const ALIAS = { XAUUSD: ['XAUUSD', 'GOLD'], XAGUSD: ['XAGUSD', 'SILVER'], USOIL: ['USOIL', 'WTI', 'XTIUSD', 'OILCASH', 'CL'], UKOIL: ['UKOIL', 'BRENT', 'XBRUSD', 'BRENTCASH'],
+    NAS100: ['NAS100', 'US100', 'USTEC', 'NDX'], US30: ['US30', 'DJ30', 'WS30', 'DOW'], SPX500: ['SPX500', 'US500', 'SP500'], DXY: ['DXY', 'USDX'] };
+  const aliases = ALIAS[wanted] || [wanted];
   let found = null;
   for (const a of aliases) {
     found = names.find((n) => n.toUpperCase() === a) || names.find((n) => n.toUpperCase().replace(/[^A-Z]/g, '').startsWith(a));

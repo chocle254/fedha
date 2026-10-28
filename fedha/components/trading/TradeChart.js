@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { REST, C, openStream, fmtPrice, fmtCompact, priceDecimals } from './util';
+import { REST, C, openStream, fmtPrice, fmtCompact, priceDecimals, isMt5 } from './util';
 
 export const INTERVALS = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d', '1w'];
 const LABEL = { '1d': '1D', '1w': '1W' };
@@ -9,8 +9,8 @@ const toVol = (k) => ({ time: Math.floor(k[0] / 1000) + TZ, value: +k[5], color:
 
 async function loadKlines(symbol, interval, endTime) {
   const q = `symbol=${symbol}&interval=${interval}&limit=500${endTime ? `&endTime=${endTime}` : ''}`;
-  if (symbol === 'XAUUSD' && endTime) return []; // gold comes from our server, newest 500 candles only
-  if (symbol !== 'XAUUSD') try {
+  if (isMt5(symbol) && endTime) return []; // MT5 markets come from our server, newest 500 candles only
+  if (!isMt5(symbol)) try {
     const r = await fetch(`${REST}/klines?${q}`, { cache: 'no-store' });
     if (r.ok) return await r.json();
   } catch { /* fall back to our server below */ }
@@ -121,7 +121,7 @@ export default function TradeChart({ symbol, interval, onInterval, lines = [], m
         poll = setInterval(async () => {
           if (Date.now() - lastMsg < 6000 || document.visibilityState !== 'visible') return;
           try {
-            if (symbol === 'XAUUSD') { // gold: refresh the newest candles from our server (no Binance stream)
+            if (isMt5(symbol)) { // MT5 market: refresh the newest candles from our server (no Binance stream)
               const rows = await loadKlines(symbol, interval);
               if (!disposed) { rows.slice(-2).forEach(apply); setState('live'); }
               return;
@@ -132,7 +132,7 @@ export default function TradeChart({ symbol, interval, onInterval, lines = [], m
             setState('polling');
           } catch { /* next tick */ }
         }, 3000);
-        if (symbol === 'XAUUSD') { lastMsg = 0; stop = () => {}; } else stop = openStream([`${symbol.toLowerCase()}@kline_${interval}`], (_s, d) => {
+        if (isMt5(symbol)) { lastMsg = 0; stop = () => {}; } else stop = openStream([`${symbol.toLowerCase()}@kline_${interval}`], (_s, d) => {
           const k = d.k;
           if (!k) return;
           lastMsg = Date.now();

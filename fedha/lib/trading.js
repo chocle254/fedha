@@ -2,13 +2,14 @@
 import { supabaseAdmin } from './supabaseAdmin';
 import { sizePosition, rewardRisk, levelsValid, evaluateTrade, floorToStep, roundToTick, replayInterval, FEE_RATE, partialRealized, groupReport, LOT_MIN, atrOf, TRAIL_DEFAULT, TRAIL_LABEL } from './trading-core';
 import { pushToAll } from './nestlink-push';
-import { klines, bookTicker, isGold, GOLD_FILTERS } from './market';
+import { klines, bookTicker, lastPrice, isMt5, mt5Filters } from './market';
+import { instrument } from './instruments';
 
 const BINANCE = 'https://api.binance.com/api/v3';
 const filterCache = new Map();
 
 export async function getFilters(symbol) {
-  if (isGold(symbol)) return GOLD_FILTERS;
+  if (isMt5(symbol)) return mt5Filters(symbol);
   const hit = filterCache.get(symbol);
   if (hit && Date.now() - hit.at < 6 * 3600e3) return hit.filters;
   const r = await fetch(`${BINANCE}/exchangeInfo?symbol=${symbol}`, { cache: 'no-store' });
@@ -51,6 +52,19 @@ export async function atrBefore(symbol, ms) {
 const TRAIL_COLS = ['trail_mode', 'trail_atr', 'trail_stop'];
 const missingColumn = (e) => e && (e.code === '42703' || e.code === 'PGRST204' || /trail_/.test(e.message || ''));
 const withoutTrail = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => !TRAIL_COLS.includes(k)));
+const withoutQuoteUsd = ({ quote_usd, ...rest }) => rest; // column added by supabase-migration-quote-usd.sql
+const MT5_LEVERAGE = 100;
+
+// US dollars per 1 unit of a market's quote currency (1 for USD-quoted markets and crypto). Yen, CAD and CHF
+// quoted forex pairs need it so profit and risk come out in dollars (stored per trade as quote_usd).
+export async function quoteToUsd(symbol, price) {
+  const i = instrument(symbol);
+  const quote = i ? (i.quote ?? symbol.slice(3)) : 'USD';
+  if (!i || !quote || quote === 'USD') return 1;
+  if (symbol.startsWith('USD')) return 1 / Number(price); // USDJPY, USDCAD, USDCHF: the pair itself
+  const via = await lastPrice(`USD${quote}`); // GBPJPY, EURJPY: through USDJPY
+  return via ? 1 / via : null;
+}
 
 // Paper equity = starting paper balance + profit and loss of every closed paper trade.
 export async function getEquity(userId, settings) {
@@ -59,7 +73,7 @@ export async function getEquity(userId, settings) {
 
 // Like a Binance wallet: equity, the USDT tied up in open positions and resting orders, and what is free to trade.
 export async function getAccount(userId, settings) {
-  const { data } = await supabaseAdmin.from('paper_trades').select('signal_id, symbol, status, side, entry, qty, pnl_usdt, notional, tp_hit, take_profits').eq('user_id', userId);
+  const { data } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId);
   let realized = 0;
   let locked = 0;
   for (const t of data || []) {
@@ -70,7 +84,7 @@ export async function getAccount(userId, settings) {
       if (t.signal_id) continue;
       const n = (t.take_profits || []).length;
       const left = n ? Math.max(0, 1 - (t.tp_hit || 0) / n) : 1;
-      locked += (Number(t.notional) || 0) * left;
+      locked += ((Number(t.notional) || 0) * left) / (isMt5(t.symbol) ? MT5_LEVERAGE : 1); // CFDs tie up margin only
     }
   }
   const equity = Number(settings.paper_balance) + realized;
@@ -112,8 +126,12 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false })
 
   let filters;
   try { filters = await getFilters(signal.symbol); } catch { return { ok: false, error: 'Could not load the lot-size rules.' }; }
-  const sz = sizePosition({ entry, stop: Number(signal.stop_loss), riskUsdt: risk, filters, spread });
-  if (!sz.ok) return sz;
+  const conv = await quoteToUsd(signal.symbol, entry);
+  if (!(conv > 0)) return { ok: false, error: `Could not convert ${signal.symbol} to US dollars right now.` };
+  // Size in the quote currency (risk ÷ conv), then report risk and value back in dollars.
+  const sz0 = sizePosition({ entry, stop: Number(signal.stop_loss), riskUsdt: risk / conv, filters, spread });
+  if (!sz0.ok) return sz0;
+  const sz = { ...sz0, notional: sz0.notional * conv, actualRisk: sz0.actualRisk * conv };
   // Every signal is its own trade at the same risk, whatever else is open. It is never shrunk to fit the
   // free balance, so each group is scored on equal terms (results are compared in R = profit ÷ risk).
 
@@ -136,6 +154,7 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false })
     spread_abs: spread,
     spread_pct: spreadPct,
     equity_at_entry: equity,
+    quote_usd: conv,
     status,
     filled_at: status === 'open' ? new Date().toISOString() : null,
     // Smart trailing: this channel's learned style, and the market's volatility right now.
@@ -143,7 +162,11 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false })
     trail_atr: await atrBefore(signal.symbol, Date.now())
   };
   let { data, error } = await supabaseAdmin.from('paper_trades').insert(row).select().single();
-  if (missingColumn(error)) ({ data, error } = await supabaseAdmin.from('paper_trades').insert(withoutTrail(row)).select().single());
+  if (missingColumn(error)) {
+    if (conv !== 1) return { ok: false, error: `Run supabase-migration-quote-usd.sql to paper-trade ${signal.symbol} (its profit is in ${instrument(signal.symbol)?.quote || 'another currency'}).` };
+    ({ data, error } = await supabaseAdmin.from('paper_trades').insert(withoutQuoteUsd(row)).select().single());
+    if (missingColumn(error)) ({ data, error } = await supabaseAdmin.from('paper_trades').insert(withoutTrail(withoutQuoteUsd(row))).select().single());
+  }
   if (error) return { ok: false, error: error.code === '23505' ? 'Already entered.' : 'Could not save the trade.' };
   return { ok: true, trade: data };
 }
@@ -202,7 +225,7 @@ export async function evaluateLiveTrade(trade, profiles = {}) {
 // LIMIT fills now if it crosses the book, otherwise it rests until price trades through it.
 // SELL without holding the coin is a simulated short (Spot cannot really do that).
 export async function openManualOrder({ userId, symbol, side, type, qty, quoteQty, price, stopLoss, takeProfits }) {
-  if (!/^[A-Z0-9]{5,20}$/.test(symbol || '')) return { ok: false, error: 'Pick a trading pair.' };
+  if (!/^[A-Z0-9]{3,20}$/.test(symbol || '')) return { ok: false, error: 'Pick a trading pair.' };
   if (side !== 'BUY' && side !== 'SELL') return { ok: false, error: 'Side must be BUY or SELL.' };
   if (type !== 'MARKET' && type !== 'LIMIT') return { ok: false, error: 'Order type must be MARKET or LIMIT.' };
   let filters;
@@ -230,8 +253,11 @@ export async function openManualOrder({ userId, symbol, side, type, qty, quoteQt
 
   const settings = await getSettings(userId);
   const acct = await getAccount(userId, settings);
-  const cost = q * entry * (1 + FEE_RATE);
-  if (cost > acct.available + 1e-6) return { ok: false, error: `Insufficient balance: needs $${cost.toFixed(2)}, $${acct.available.toFixed(2)} available.` };
+  // MT5 markets are CFDs: they tie up margin (1:100, like a typical broker account), in dollars; crypto ties up the full cost.
+  const conv = await quoteToUsd(symbol, entry);
+  if (!(conv > 0)) return { ok: false, error: `Could not convert ${symbol} to US dollars right now.` };
+  const cost = isMt5(symbol) ? (q * entry * conv) / MT5_LEVERAGE : q * entry * (1 + FEE_RATE);
+  if (cost > acct.available + 1e-6) return { ok: false, error: `Insufficient balance: needs $${cost.toFixed(2)}${isMt5(symbol) ? ' margin' : ''}, $${acct.available.toFixed(2)} available.` };
 
   const sl = Number(stopLoss) > 0 ? roundToTick(Number(stopLoss), filters.tickSize) : null;
   const tps = (Array.isArray(takeProfits) ? takeProfits : [takeProfits]).map(Number).filter((v) => v > 0).map((v) => roundToTick(v, filters.tickSize));
@@ -239,15 +265,19 @@ export async function openManualOrder({ userId, symbol, side, type, qty, quoteQt
   if (!levelsValid(side, entry, tps, sl)) return { ok: false, error: `For a ${buy ? 'buy' : 'sell'}, take-profit must be ${buy ? 'above' : 'below'} and stop-loss ${buy ? 'below' : 'above'} the entry (${entry}).` };
 
   const spread = book.ask - book.bid;
-  const risk = sl != null ? (Math.abs(entry - sl) + spread) * q : 0;
+  const risk = sl != null ? (Math.abs(entry - sl) + spread) * q * conv : 0;
   const row = {
     user_id: userId, signal_id: null, source: 'Manual', symbol, side, mode: 'paper', auto: false,
-    entry, stop_loss: sl, take_profits: tps, qty: q, notional: q * entry,
+    entry, stop_loss: sl, take_profits: tps, qty: q, notional: q * entry * conv, quote_usd: conv,
     risk_usdt: risk || q * entry, actual_risk_usdt: risk || null, min_forced: false,
     spread_abs: spread, spread_pct: (spread / ((book.ask + book.bid) / 2)) * 100, equity_at_entry: acct.equity,
     status, filled_at: status === 'open' ? new Date().toISOString() : null
   };
-  const { data, error } = await supabaseAdmin.from('paper_trades').insert(row).select().single();
+  let { data, error } = await supabaseAdmin.from('paper_trades').insert(row).select().single();
+  if (missingColumn(error)) {
+    if (conv !== 1) return { ok: false, error: `Run supabase-migration-quote-usd.sql to paper-trade ${symbol}.` };
+    ({ data, error } = await supabaseAdmin.from('paper_trades').insert(withoutQuoteUsd(row)).select().single());
+  }
   if (error) return { ok: false, error: 'Could not save the order.' };
   return { ok: true, trade: data };
 }

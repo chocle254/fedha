@@ -1,7 +1,9 @@
+import { isMt5 } from './instruments';
 // Pure trading maths (no I/O) so it can be tested on its own. PAPER ONLY.
 export const FEE_RATE = 0.001; // Binance Spot taker fee, 0.1% per side
-// Gold (XAUUSD) trades like a broker CFD: no fee, the cost is the spread (modelled at entry, see lib/market.js).
-export const feeRate = (symbol) => (String(symbol || '').toUpperCase() === 'XAUUSD' ? 0 : FEE_RATE);
+// MT5 markets (gold, silver, forex, oil, indices) trade like broker CFDs: no fee, the cost is the spread
+// (modelled at entry, see lib/market.js).
+export const feeRate = (symbol) => (isMt5(symbol) ? 0 : FEE_RATE);
 const MAX_PENDING_MS = 3 * 86400e3;
 const MAX_OPEN_MS = 7 * 86400e3;
 
@@ -210,8 +212,11 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null,
     status = 'pending';
   }
 
-  const risk = sl != null ? (Math.abs(entry - sl) + spread) * qty : null;
-  const dd = worst == null ? null : Math.max(0, dir * (entry - worst)) * qty;
+  // Forex pairs quoted in yen/CAD/CHF: profit is in the quote currency, so convert to dollars (1 otherwise).
+  const conv = Number(trade.quote_usd) || 1;
+  if (pnl != null) pnl *= conv;
+  const risk = sl != null ? (Math.abs(entry - sl) + spread) * qty * conv : null;
+  const dd = worst == null ? null : Math.max(0, dir * (entry - worst)) * qty * conv;
   const r4 = (n) => (n == null ? null : Math.round(n * 1e4) / 1e4);
   return {
     status,
@@ -248,7 +253,7 @@ export function partialRealized(t) {
   const share = Number(t.qty) / tps.length;
   let r = 0;
   for (let i = 0; i < hit; i++) r += dir * (tps[i] - entry) * share - feeRate(t.symbol) * (tps[i] + entry) * share;
-  return r;
+  return r * (Number(t.quote_usd) || 1);
 }
 
 // ─── GROUP REPORT CARD ───────────────────────────────────────────────────────

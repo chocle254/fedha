@@ -4,6 +4,8 @@
 const NUM = '\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?|\\.\\d+';
 
 // Telegram channels love "𝗕𝗢𝗟𝗗" maths letters and superscripts (TP¹). NFKC turns those back into plain A-Z / 0-9.
+import { detectMt5, instrument } from './instruments';
+
 export function normalizeText(text) {
   return String(text || '').normalize('NFKC').replace(/[*_`~]/g, ' ').replace(/\u00a0/g, ' ');
 }
@@ -35,13 +37,14 @@ export function parseSignal(text) {
       if (!NOT_COINS.includes(x[1])) { symbol = x[1] + x[2]; break; }
     }
   }
-  // Gold is tracked on the real gold price (COMEX futures, see lib/market.js), shifted onto the signal's levels.
+  // MT5 markets (gold, silver, forex, oil, indices) are tracked on real prices (lib/market.js), shifted onto
+  // the signal's levels at entry.
   let proxyOf = null;
-  if (!symbol && /\b(?:XAU\s*[\/\-]?\s*USD|GOLD)\b/.test(up)) { symbol = 'XAUUSD'; proxyOf = 'XAUUSD'; }
-  // Instruments Binance Spot does not offer: say so instead of guessing a pair.
+  if (!symbol) { const m5 = detectMt5(up); if (m5) { symbol = m5; proxyOf = m5; } }
+  // Instruments Luxe does not track: say so instead of guessing a pair.
   if (!symbol) {
-    const fx = up.match(/\b(XAG\s*\/?\s*USD|EUR\s*\/?\s*USD|GBP\s*\/?\s*USD|AUD\s*\/?\s*USD|NZD\s*\/?\s*USD|USD\s*\/?\s*(?:JPY|CAD|CHF)|[A-Z]{3}\s*\/?\s*JPY|USOIL|UKOIL|US30|US100|NAS100|SPX500|GER40|DXY|BRENT|WTI)\b/);
-    if (fx) return { ok: false, error: `${fx[1].replace(/\s+/g, '')} is not available on Binance Spot.` };
+    const fx = up.match(/\b(GER\s*40|DE\s*40|UK\s*100|JP\s*225|HK\s*50|NATGAS|XPT\s*USD|XPD\s*USD|[A-Z]{3}\s*\/\s*[A-Z]{3})\b/);
+    if (fx) return { ok: false, error: `${fx[1].replace(/\s+/g, '')} is not one of the markets Luxe tracks yet.` };
   }
   // Last resort: a #TICKER hashtag. Common hashtag words are not coins.
   if (!symbol) {
@@ -91,15 +94,16 @@ export function parseSignal(text) {
   return { ok: true, symbol, proxyOf, side, entryLow, entryHigh, takeProfits: tps, stopLoss };
 }
 
-// For gold: the signal's prices are a broker's spot quotes, while the feed is gold futures, which sit a few
+// For MT5 markets: the signal's prices are a broker's quotes, while the feed (futures, or Yahoo's forex rate) sits a little
 // dollars away from the stand-in's price. Shift every level by that gap so the distances (and so the risk) are preserved,
 // and treat the entry as the stand-in's current price. Returns { error } when it cannot be matched safely.
 export function rebaseToMarket(parsed, marketPrice) {
-  if (parsed.entryLow == null) return { error: 'Gold signals need a stated entry price so they can be matched to the gold price.' };
+  const name = instrument(parsed.symbol)?.name || parsed.symbol;
+  if (parsed.entryLow == null) return { error: `${name} signals need a stated entry price so they can be matched to the live price.` };
   const ref = (parsed.entryLow + parsed.entryHigh) / 2;
   const delta = marketPrice - ref;
-  if (Math.abs(delta) / marketPrice > 0.02) return { error: `Gold is more than 2% away from the signal's price, so it was skipped.` };
-  const r = (v) => Math.round((v + delta) * 100) / 100;
+  if (Math.abs(delta) / marketPrice > 0.02) return { error: `${name} is more than 2% away from the signal's price, so it was skipped.` };
+  const r = (v) => Number((v + delta).toFixed(marketPrice < 10 ? 5 : marketPrice < 1000 ? 3 : 2));
   return {
     entry: marketPrice,
     entryLow: marketPrice,

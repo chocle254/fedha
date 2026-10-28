@@ -10,7 +10,7 @@ import WalletPanel from '../components/trading/WalletPanel';
 import BrokerPanel from '../components/trading/BrokerPanel';
 import { ensurePushSubscription } from '../lib/push';
 import { groupReport, brokerResults, GROUP_MIN_TRADES, TRAIL_LABEL, TRAIL_DEFAULT } from '../lib/trading-core';
-import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST, lotsLabel, rrPlan, rrText, rrDetail, resultR, pipSize, moveLabel, bankedPipsLabel, netPipsLabel } from '../components/trading/util';
+import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST, lotsLabel, rrPlan, rrText, rrDetail, resultR, isMt5, pipSize, moveLabel, bankedPipsLabel, netPipsLabel } from '../components/trading/util';
 
 // The stop in force now: signal trades trail it with their channel's learned style (saved as trail_stop).
 const curStop = (t) => (t.source !== 'Manual' && t.trail_stop != null ? t.trail_stop : t.stop_loss);
@@ -143,18 +143,22 @@ export default function TradingPage() {
   const watchKey = watch.join(',');
   useEffect(() => {
     let buf = {};
-    // Gold (XAUUSD) is not on Binance: its price comes from our server every 5 s instead of the socket.
-    const syms = watchKey.split(',').filter((x) => x && x !== 'XAUUSD');
+    // MT5 markets (gold, silver, forex, oil, indices) are not on Binance: their prices come from our server
+    // every 5 s instead of the socket.
+    const all = watchKey.split(',').filter(Boolean);
+    const syms = all.filter((x) => !isMt5(x));
+    const mt5 = all.filter(isMt5);
     const stop = syms.length ? openStream(syms.map((s) => `${s.toLowerCase()}@miniTicker`), (_s, d) => { buf[d.s] = { c: +d.c, o: +d.o, h: +d.h, l: +d.l, q: +d.q }; }) : () => {};
     let lastMsg = Date.now();
-    const goldPoll = watchKey.split(',').includes('XAUUSD') ? setInterval(async () => {
+    const pollMt5 = async () => {
       if (document.visibilityState !== 'visible') return;
       try {
-        const r = await fetch('/api/trading/quotes?symbols=XAUUSD', { cache: 'no-store' });
-        const g = r.ok ? (await r.json()).quotes?.find((x) => x.symbol === 'XAUUSD') : null;
-        if (g) buf.XAUUSD = { c: g.price, o: g.open, h: g.high, l: g.low, q: 0 };
+        const r = await fetch(`/api/trading/quotes?symbols=${mt5.join(',')}`, { cache: 'no-store' });
+        if (r.ok) for (const g of (await r.json()).quotes || []) if (isMt5(g.symbol)) buf[g.symbol] = { c: g.price, o: g.open, h: g.high, l: g.low, q: 0 };
       } catch { /* next tick */ }
-    }, 5000) : null;
+    };
+    if (mt5.length) pollMt5();
+    const goldPoll = mt5.length ? setInterval(pollMt5, 5000) : null;
     const tick = setInterval(() => { if (Object.keys(buf).length) { lastMsg = Date.now(); const b = buf; buf = {}; setTickers((p) => ({ ...p, ...b })); } }, 500);
     // Socket quiet for 5 s (blocked network, phone woke up): poll prices instead until it comes back.
     const poll = setInterval(async () => {
@@ -499,7 +503,9 @@ export default function TradingPage() {
           </div>
           <div className="tx-side-col">
             <OrderForm symbol={symbol} livePrice={last} account={account} riskNow={riskNow} picked={picked} onPlaced={load} />
-            <OrderBook symbol={symbol} onPickPrice={pickPrice} />
+            {isMt5(symbol)
+              ? <div className="tx-empty" style={{ padding: 16 }}>No public order book for {base(symbol)}/{quoteOf(symbol)}: it trades on MT5 brokers. Price is the live market rate; paper fills include a typical broker spread.</div>
+              : <OrderBook symbol={symbol} onPickPrice={pickPrice} />}
           </div>
         </div>
 

@@ -20,7 +20,7 @@ export async function createSignal({ userId, source, text, externalId = null }) 
   const parsed = parseSignal(text);
   if (!parsed.ok) return { ok: false, error: parsed.error };
   const price = await fetchPrice(parsed.symbol);
-  if (!price) return { ok: false, error: parsed.proxyOf ? 'Could not get the gold price right now.' : `${parsed.symbol} is not a Binance Spot pair.` };
+  if (!price) return { ok: false, error: parsed.proxyOf ? `Could not get the ${parsed.symbol} price right now.` : `${parsed.symbol} is not a Binance Spot pair.` };
 
   let { entryLow, entryHigh, takeProfits, stopLoss } = parsed;
   let entry = parsed.entryLow != null ? (parsed.entryLow + parsed.entryHigh) / 2 : price;

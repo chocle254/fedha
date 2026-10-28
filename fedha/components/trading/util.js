@@ -1,10 +1,13 @@
+import { isMt5, instrument, baseOf, quoteOfMt5, MT5, MT5_SYMBOLS } from '../../lib/instruments';
+
 // Shared helpers for the trading terminal. Market data comes straight from Binance's public API in the browser.
 export const REST = 'https://api.binance.com/api/v3';
 export const WS = 'wss://stream.binance.com:9443';
 export const FEE = 0.001; // Binance Spot taker fee, 0.1%
 
-export const base = (symbol) => String(symbol || '').replace(/USDT$|USDC$|FDUSD$/, '').replace(/^XAUUSD$/, 'XAU');
-export const quoteOf = (symbol) => (String(symbol || '') === 'XAUUSD' ? 'USD' : 'USDT');
+export const base = (symbol) => baseOf(symbol) || String(symbol || '').replace(/USDT$|USDC$|FDUSD$/, '');
+export const quoteOf = (symbol) => (isMt5(symbol) ? quoteOfMt5(symbol) : 'USDT');
+export { isMt5, instrument, MT5, MT5_SYMBOLS };
 
 // Decimals that suit a price's size (Binance shows 2 for BTC, 4 for XRP, 8 for PEPE).
 export function priceDecimals(p) {
@@ -61,7 +64,7 @@ export function livePnl(t, p) {
   const hit = Math.min(t.tp_hit || 0, n);
   let realized = 0;
   for (let i = 0; i < hit; i++) realized += dir * (tps[i] - entry) * share;
-  return realized + dir * (p - entry) * (n ? qty - share * hit : qty);
+  return (realized + dir * (p - entry) * (n ? qty - share * hit : qty)) * (Number(t.quote_usd) || 1); // yen/CAD/CHF pairs -> dollars
 }
 
 // Profit on the part of a position that is still open (TPs already hit are banked in the wallet).
@@ -69,7 +72,7 @@ export function openPnl(t, p) {
   if (!t || !(p > 0)) return 0;
   const n = (t.take_profits || []).length;
   const left = Number(t.qty) * (n ? 1 - Math.min(t.tp_hit || 0, n) / n : 1);
-  return (t.side === 'BUY' ? 1 : -1) * (p - Number(t.entry)) * left;
+  return (t.side === 'BUY' ? 1 : -1) * (p - Number(t.entry)) * left * (Number(t.quote_usd) || 1);
 }
 
 // A Binance WebSocket that reconnects by itself. Returns a function that closes it for good.
@@ -111,11 +114,13 @@ export const C = {
 };
 
 // ─── LOTS AND RISK:REWARD ────────────────────────────────────────────────────
-// Gold is quoted in ounces; a standard broker lot is 100 oz (so 0.01 lot = 1 oz). Crypto has no lots.
+// MT5 markets in standard broker lots (gold 100 oz, silver 5000 oz, forex 100,000 units, oil 1000 bbl,
+// indices 1 contract), so 0.01 lot of gold = 1 oz. Crypto has no lots.
 export function lotsLabel(t) {
   const q = Number(t.qty);
   if (!Number.isFinite(q)) return '—';
-  if (t.symbol === 'XAUUSD') return `${(q / 100).toFixed(q / 100 >= 0.01 ? 2 : 4)} lot`;
+  const i = instrument(t.symbol);
+  if (i) { const l = q / i.lot; return `${l.toFixed(l >= 0.01 ? 2 : 4)} lot`; }
   return `${fmtQty(q)} ${base(t.symbol)}`;
 }
 
@@ -140,9 +145,9 @@ export function resultR(t) {
 }
 
 // ─── PIPS ────────────────────────────────────────────────────────────────────
-// Gold pips the way signal channels count them: 1 pip = $0.10 (a $3 move = 30 pips). Crypto has no pips,
-// so it shows the move in percent instead. Positive = in the trade's favour.
-export const pipSize = (symbol) => (symbol === 'XAUUSD' ? 0.1 : null);
+// Pips the way signal channels count them (lib/instruments.js): gold $0.10 (a $3 move = 30 pips), forex 0.0001,
+// JPY pairs 0.01, indices 1 point. Crypto has no pips, so it shows the move in percent. Positive = in favour.
+export const pipSize = (symbol) => instrument(symbol)?.pip ?? null;
 const favour = (t, price) => (t.side === 'BUY' ? 1 : -1) * (Number(price) - Number(t.entry));
 export function moveLabel(t, price) {
   if (!Number.isFinite(Number(price)) || price == null) return '—';
@@ -161,6 +166,6 @@ export function netPipsLabel(t) {
   const q = Number(t.qty);
   if (!Number.isFinite(pnl) || !(q > 0)) return '—';
   if (!ps) { const pct = (pnl / (q * Number(t.entry))) * 100; return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`; }
-  const p = pnl / q / ps;
+  const p = pnl / (Number(t.quote_usd) || 1) / q / ps; // back to quote currency before counting pips
   return `${p >= 0 ? '+' : ''}${p.toFixed(0)} pips`;
 }
