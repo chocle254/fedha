@@ -51,15 +51,18 @@ export function levelsValid(side, entry, tps, sl) {
 //   none   keep the original SL until every TP or the SL is hit
 //   be2    move to break-even only after TP2
 //   step   entry after TP1, then the previous TP after each later TP (tight)
-//   atrK   follows the chart from the start. Before TP1: once price has run K × ATR in the trade's favour,
-//          the stop follows half of every further move, up to break-even. After TP1: it trails the best
-//          price at K × ATR (the average candle range at entry), so a volatile market gets more room and a
-//          calm one a tighter stop. atr1 reacts early and tight, atr3 late and loose; each channel learns which.
+//   atrK   follows the chart from the start. Its distance is K × ATR (the average candle range at entry),
+//          but never more than K × 0.35 of the trade's own risk (entry to original SL), so a volatile market
+//          cannot leave the stop far behind a tight scalp. Before TP1: once price has run that distance in the
+//          trade's favour, the stop follows half of every further move, up to break-even. After TP1: it trails
+//          the best price at that distance. From TP2 on it also ratchets with the targets: never further back
+//          than one TP behind the last one hit. atr1 is tight, atr3 loose; each channel learns which.
 //          Never looser than the original SL.
 export const TRAIL_MODES = ['none', 'be2', 'step', 'atr1', 'atr2', 'atr3'];
 export const TRAIL_DEFAULT = 'atr2';
 export const TRAIL_LABEL = { none: 'No trailing', be2: 'Break-even after TP2', step: 'Step (previous TP)', atr1: 'ATR ×1 (tight)', atr2: 'ATR ×2', atr3: 'ATR ×3 (loose)' };
-export const EARLY_FOLLOW = 0.5; // before TP1 the stop moves this share of each favourable move past K × ATR
+export const EARLY_FOLLOW = 0.5; // before TP1 the stop moves this share of each favourable move past the trail distance
+export const RISK_CAP = 0.35;    // ATR trail distance is at most K × this × (entry to original SL)
 
 // The candidate stop for a trade right now. The caller keeps the tighter of this and the current stop.
 export function trailCandidate(mode, { side, entry, sl, tps, tpHit, best, atr }) {
@@ -74,15 +77,18 @@ export function trailCandidate(mode, { side, entry, sl, tps, tpHit, best, atr })
   if (mode === 'step') return !tpHit ? stop : tpHit === 1 ? e : Number(tps[tpHit - 2]);
   const k = Number(String(mode).replace('atr', ''));
   if (!(k > 0) || !(atr > 0) || best == null) return stop;
-  // Early follow (any time): half of the run beyond K × ATR, capped at break-even.
-  const run = dir * (Number(best) - e) - k * atr;
+  const dist = Math.min(k * atr, k * RISK_CAP * Math.abs(e - stop));
+  // Early follow (any time): half of the run beyond the trail distance, capped at break-even.
+  const run = dir * (Number(best) - e) - dist;
   let early = stop;
   if (run > 0) {
     const moved = stop + dir * run * EARLY_FOLLOW;
     early = tighter(stop, buy ? Math.min(moved, e) : Math.max(moved, e));
   }
   if (!tpHit) return early;
-  return tighter(early, tighter(stop, buy ? Number(best) - k * atr : Number(best) + k * atr));
+  let trail = tighter(early, tighter(stop, buy ? Number(best) - dist : Number(best) + dist));
+  if (tpHit >= 2 && tps[tpHit - 2] != null) trail = tighter(trail, Number(tps[tpHit - 2])); // one TP behind the last hit
+  return trail;
 }
 
 // Old name kept for the fixed step style.
