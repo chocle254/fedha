@@ -253,3 +253,59 @@ export function goldLots({ riskUsd, entry, stop, multiplier = 1 }) {
   if (!(dist > 0) || !(riskUsd > 0) || !(multiplier > 0)) return 0;
   return Math.max(0.01, Math.floor(((riskUsd * multiplier) / (dist * 100)) * 100) / 100);
 }
+
+// MT5 demo/real trades: one row per leg (one TP each). For the report card every signal on every account
+// counts as ONE result once all its legs are finished, so a 6-TP signal is not counted six times.
+export function brokerResults(rows = []) {
+  const map = {};
+  for (const r of rows) {
+    const k = `${r.account}|${r.signal_key}`;
+    (map[k] = map[k] || []).push(r);
+  }
+  const out = [];
+  for (const [k, legs] of Object.entries(map)) {
+    const first = legs[0];
+    const live = legs.some((l) => ['pending', 'open'].includes(l.status));
+    const filled = legs.filter((l) => l.profit != null && ['won', 'lost'].includes(l.status));
+    if (live) { out.push({ signal_id: k, source: first.source, status: 'open' }); continue; }
+    if (!filled.length) continue; // never filled (cancelled / failed): not a result
+    const pnl = filled.reduce((s, l) => s + Number(l.profit || 0), 0);
+    out.push({
+      signal_id: k,
+      source: first.source,
+      account: first.account,
+      status: pnl > 0 ? 'won' : 'lost',
+      pnl_usdt: pnl,
+      actual_risk_usdt: Number(first.risk_usd) || 0,
+      closed_at: filled.map((l) => l.closed_at).filter(Boolean).sort().pop() || first.created_at,
+    });
+  }
+  return out;
+}
+
+// Lots for one signal on an MT5 account, split into one leg per TP. Returns { legs: [{ lots, tp }], riskUsd } or { error }.
+// contractSize: units per 1 lot (gold = 100 oz). minVolume / volumeStep come from the broker's symbol spec.
+export function splitLots({ riskUsd, entry, stop, tps, contractSize, minVolume, volumeStep }) {
+  const dist = Math.abs(Number(entry) - Number(stop));
+  if (!(dist > 0)) return { error: 'Stop-loss is the same as the entry.' };
+  const cs = Number(contractSize) || 1;
+  const step = Number(volumeStep) || 0.01;
+  const minV = Number(minVolume) || step;
+  const dec = Math.max(0, Math.round(-Math.log10(step)));
+  const fix = (v) => Number(v.toFixed(dec));
+  const total = riskUsd / (dist * cs);
+  let n = Math.min(tps.length, Math.floor(total / minV + 1e-9));
+  if (n < 1) {
+    // Even the smallest lot risks more than planned. Allow it only up to twice the planned risk.
+    if (minV * dist * cs > riskUsd * 2) return { error: `Smallest lot (${minV}) would risk $${(minV * dist * cs).toFixed(2)}, over twice the planned $${riskUsd.toFixed(2)}.` };
+    n = 1;
+  }
+  // Hand out whole volume steps; leftovers go to the earliest TPs (they hit most often).
+  const minSteps = Math.round(minV / step);
+  const steps = Math.max(n * minSteps, Math.floor(total / step + 1e-9));
+  const each = Math.floor(steps / n);
+  const extra = steps - each * n;
+  const legs = tps.slice(0, n).map((tp, i) => ({ lots: fix((each + (i < extra ? 1 : 0)) * step), tp }));
+  const lots = legs.reduce((a, l) => a + l.lots, 0);
+  return { legs, riskUsd: lots * dist * cs };
+}

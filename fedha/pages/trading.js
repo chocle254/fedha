@@ -7,8 +7,9 @@ import OrderBook from '../components/trading/OrderBook';
 import OrderForm from '../components/trading/OrderForm';
 import PairPicker from '../components/trading/PairPicker';
 import WalletPanel from '../components/trading/WalletPanel';
+import BrokerPanel from '../components/trading/BrokerPanel';
 import { ensurePushSubscription } from '../lib/push';
-import { groupReport, GROUP_MIN_TRADES } from '../lib/trading-core';
+import { groupReport, brokerResults, GROUP_MIN_TRADES } from '../lib/trading-core';
 import { C, base, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST } from '../components/trading/util';
 
 // PAPER TRADING TERMINAL. Real Binance prices, simulated orders. Nothing here places a real order.
@@ -49,6 +50,7 @@ export default function TradingPage() {
   const [showClosedSignals, setShowClosedSignals] = useState(false);
   const [form, setForm] = useState(null);
   const [alerts, setAlerts] = useState('unknown');
+  const [brokerRows, setBrokerRows] = useState(null);
   const router = useRouter();
   const prevTrades = useRef(null);
   const lastLoad = useRef(0);
@@ -271,7 +273,10 @@ export default function TradingPage() {
     for (const s of activeSignals) (map[s.symbol] = map[s.symbol] || []).push(s);
     return Object.entries(map).map(([sym, list]) => ({ sym, list, conflict: new Set(list.map((s) => s.side)).size > 1 })).filter((g) => g.list.length > 1);
   }, [activeSignals]);
-  const groups = useMemo(() => groupReport(trades), [trades]);
+  // The report card scores the MT5 demo accounts once they have finished trades; until then, Fedha's paper trades.
+  const brokerScored = useMemo(() => brokerResults(brokerRows || []), [brokerRows]);
+  const groupsFromBroker = brokerScored.some((r) => ['won', 'lost'].includes(r.status));
+  const groups = useMemo(() => groupReport(groupsFromBroker ? brokerScored : trades), [groupsFromBroker, brokerScored, trades]);
 
   const signalRow = (s, canEnter) => {
     const [label, color] = SIGNAL_STATUS[s.status] || SIGNAL_STATUS.open;
@@ -415,6 +420,7 @@ export default function TradingPage() {
     ['history', 'History'],
     ['signals', `Signals (${activeSignals.length})`],
     ['telegram', 'Telegram'],
+    ['mt5', 'MT5 accounts'],
     ['wallet', 'Binance wallet'],
     ['settings', 'Settings']
   ];
@@ -503,7 +509,7 @@ export default function TradingPage() {
                 <div className="tx-board">
                   <div className="tx-sub">Group report card</div>
                   <div className="tx-row-note" style={{ padding: '0 14px 8px' }}>
-                    Every signal is paper-traded on its own. R = profit ÷ risk (+1R made what it risked, −1R hit the stop). Confidence grows as a group keeps winning, and its lot size grows with it (up to ×3). New groups stay small until {GROUP_MIN_TRADES} closed trades; 3 stop-losses in a row halve the size.
+                    {groupsFromBroker ? 'Scored from the MT5 demo accounts (each signal on each account counts once). ' : 'Every signal is paper-traded on its own. '}R = profit ÷ risk (+1R made what it risked, −1R hit the stop). Confidence grows as a group keeps winning, and its lot size grows with it (up to ×3). New groups stay small until {GROUP_MIN_TRADES} closed trades; 3 stop-losses in a row halve the size.
                   </div>
                   {groups.map((g) => {
                     const v = { scale: [C.up, `Lots ×${g.lotMultiplier}`], keep: ['#EAECEF', `Lots ×${g.lotMultiplier}`], testing: [C.gold, `Testing ×${g.lotMultiplier}`], drop: [C.down, 'Drop'] }[g.verdict];
@@ -564,6 +570,7 @@ export default function TradingPage() {
               }) : !inbox.needsMigration && <div className="tx-empty">No messages forwarded yet.</div>}
             </>
           )}
+          <div style={{ display: tab === 'mt5' ? 'block' : 'none' }}><BrokerPanel onData={setBrokerRows} flash={flash} /></div>
           {tab === 'wallet' && <WalletPanel onTrade={(sym) => { pickSymbol(sym); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />}
           {tab === 'settings' && form && settings && (
             <div className="tx-settings">
@@ -720,6 +727,7 @@ export default function TradingPage() {
         .tx-conf { position: relative; height: 14px; border-radius: 7px; background: rgba(132,142,156,.15); overflow: hidden; margin: 4px 0; }
         .tx-conf i { position: absolute; inset: 0 auto 0 0; border-radius: 7px; opacity: .45; }
         .tx-conf span { position: relative; font-size: 10px; padding-left: 6px; line-height: 14px; }
+        .tx-broker { padding: 12px 14px; border-bottom: 1px solid var(--tx-line); display: flex; flex-direction: column; gap: 6px; }
         .tx-group-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 2px; font-size: 13px; }
         .tx-tg-status { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; }
         .tx-tg-status .tx-live { font-size: 13px; font-weight: 700; }

@@ -1,10 +1,12 @@
 import crypto from 'crypto';
 import { createSignal } from '../../../lib/signals';
-import { isFollowUp } from '../../../lib/signal-parser';
+import { isFollowUp, parseSignal } from '../../../lib/signal-parser';
+import { placeSignalOnBrokers, getBrokerSettings, brokersActive } from '../../../lib/broker';
 import { maybeAutoEnter } from '../../../lib/trading';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 
-// Called by the Telegram listener (telegram-listener/). PAPER TRACKING ONLY: no orders are placed.
+// Called by the Telegram listener (telegram-listener/). Tracks the signal, then trades it on the MT5 demo accounts
+// (XM, LiteFinance via MetaApi) when they are switched on, or as a Fedha paper trade otherwise.
 const MAX_AGE_MS = 5 * 60 * 1000; // ignore stale messages (for example a backlog replayed after a reconnect)
 
 function same(a, b) {
@@ -49,13 +51,30 @@ export default async function handler(req, res) {
   }
 
   const result = await createSignal({ userId, source, text, externalId });
-  if (result.ok) {
-    const trade = await maybeAutoEnter(userId, result.signal); // paper trade only, if automation is switched on
-    const paperTrade = trade ? (trade.ok ? 'entered' : trade.skipped || trade.error) : null;
-    await logInbox({ ...base, outcome: trade?.ok ? 'traded' : 'tracked', signal_id: result.signal.id, detail: trade && !trade.ok ? `Auto-trade skipped: ${trade.error || trade.skipped}` : null });
-    return res.status(200).json({ ok: true, symbol: result.signal.symbol, side: result.signal.side, paperTrade });
-  }
   if (result.duplicate) return res.status(200).json({ ok: false, skipped: 'duplicate' });
+
+  // MT5 accounts work from the signal's own prices (real XAUUSD), so they run even if the Binance stand-in could not be tracked.
+  const parsed = parseSignal(text);
+  const brokerSettings = await getBrokerSettings(userId);
+  const onBrokers = parsed.ok && brokersActive(brokerSettings);
+  const broker = onBrokers
+    ? await placeSignalOnBrokers({ userId, parsed, source: base.source, signalKey: base.external_id || crypto.createHash('sha1').update(String(text)).digest('hex').slice(0, 20), signalId: result.ok ? result.signal.id : null })
+    : null;
+  const brokerNote = (broker || []).map((b) => `${b.account}: ${b.ok ? `${b.legs} leg${b.legs > 1 ? 's' : ''}, ${b.lots} lots ×${b.mult}` : b.skipped || b.error}`).join(' · ');
+  const brokerTraded = (broker || []).some((b) => b.ok);
+
+  if (result.ok) {
+    // Fedha's own paper trade only when no MT5 account is on (or "paper too" is switched on).
+    const trade = !onBrokers || brokerSettings.paper_too ? await maybeAutoEnter(userId, result.signal) : null;
+    const paperTrade = trade ? (trade.ok ? 'entered' : trade.skipped || trade.error) : null;
+    const detail = [brokerNote, trade && !trade.ok ? `Paper trade skipped: ${trade.error || trade.skipped}` : null].filter(Boolean).join(' · ') || null;
+    await logInbox({ ...base, outcome: trade?.ok || brokerTraded ? 'traded' : 'tracked', signal_id: result.signal.id, detail });
+    return res.status(200).json({ ok: true, symbol: result.signal.symbol, side: result.signal.side, paperTrade, broker });
+  }
+  if (brokerTraded) {
+    await logInbox({ ...base, outcome: 'traded', detail: `${brokerNote} · (not tracked on Binance: ${result.error})` });
+    return res.status(200).json({ ok: true, broker });
+  }
   await logInbox({ ...base, outcome: 'unparsed', detail: result.error });
   return res.status(200).json({ ok: false, skipped: 'unparsed', error: result.error });
 }
