@@ -5,7 +5,7 @@
 //   sound_gentle   planner, Jarvis, everything else      one soft glass tap
 //   sound_entry    trade entered                         crisp rising fifth
 // Voices are FM bells and marimba-like mallets, in stereo (slightly detuned left/right),
-// softened by a gentle low-pass and placed in a small room reverb.
+// in a small room reverb, then lifted with a soft saturator so they stay loud on a phone speaker.
 import { writeFileSync, readdirSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -39,7 +39,7 @@ function glass(f, t, dur) {
 const VOICES = { bell, mallet, glass };
 
 // notes: [voice, midi, start s, length s, volume, opts]
-function render(notes, { tail = 1.2, wet = 0.22 } = {}) {
+function render(notes, { tail = 0.9, wet = 0.14 } = {}) {
   const len = Math.ceil(RATE * (Math.max(...notes.map((n) => n[2] + n[3])) + tail));
   const L = new Float32Array(len);
   const R = new Float32Array(len);
@@ -54,15 +54,20 @@ function render(notes, { tail = 1.2, wet = 0.22 } = {}) {
       R[s0 + i] += vol * fn(f * 1.0015, t, dur, opts);
     }
   }
-  for (const ch of [L, R]) lowpass(ch, 7500);
+  for (const ch of [L, R]) lowpass(ch, 9000);
   const [rl, rr] = [reverb(L, 0), reverb(R, 23)];
   for (let i = 0; i < len; i++) { L[i] = L[i] * (1 - wet) + rl[i] * wet; R[i] = R[i] * (1 - wet) + rr[i] * wet; }
-  // Fade the last 80 ms, then normalise to just under full scale.
-  const fade = Math.floor(0.08 * RATE);
-  for (let i = 0; i < fade; i++) { const g = i / fade; L[len - 1 - i] *= g; R[len - 1 - i] *= g; }
+  // Loudness: phone speakers are small, so after normalising, a soft saturator lifts the quiet ring of each
+  // note (higher average level, same peak) so the sound carries over the vibration motor.
   let peak = 0;
   for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i]));
-  const gain = 0.89 / (peak || 1);
+  const DRIVE = 3.2;
+  const sat = (v) => Math.tanh((v / (peak || 1)) * DRIVE) / Math.tanh(DRIVE);
+  for (let i = 0; i < len; i++) { L[i] = sat(L[i]); R[i] = sat(R[i]); }
+  // Fade the last 80 ms.
+  const fade = Math.floor(0.08 * RATE);
+  for (let i = 0; i < fade; i++) { const g = i / fade; L[len - 1 - i] *= g; R[len - 1 - i] *= g; }
+  const gain = 0.97;
   return wav(L, R, gain);
 }
 
@@ -123,17 +128,17 @@ const SOUNDS = {
     ['bell', 100, 0.24, 1.1, 0.42, { ratio: 3.5, index: 1.2 }],
     ['glass', 88, 0.24, 1.1, 0.25],
   ],
-  // Warm minor fall, A4 -> F#4, said twice, the second a little softer.
+  // Warm minor fall, A5 -> F#5 (high enough for a phone speaker to play loud), said twice.
   sound_alert: [
-    ['mallet', 69, 0.0, 0.45, 0.8], ['mallet', 81, 0.0, 0.3, 0.18],
-    ['mallet', 66, 0.17, 0.6, 0.8],
-    ['mallet', 69, 0.52, 0.45, 0.65], ['mallet', 81, 0.52, 0.3, 0.14],
-    ['mallet', 66, 0.69, 0.8, 0.65],
+    ['mallet', 81, 0.0, 0.45, 0.8], ['bell', 81, 0.0, 0.35, 0.3, { ratio: 2, index: 1.2 }],
+    ['mallet', 78, 0.17, 0.6, 0.8], ['bell', 78, 0.17, 0.45, 0.3, { ratio: 2, index: 1.2 }],
+    ['mallet', 81, 0.52, 0.45, 0.75], ['bell', 81, 0.52, 0.35, 0.28, { ratio: 2, index: 1.2 }],
+    ['mallet', 78, 0.69, 0.8, 0.75], ['bell', 78, 0.69, 0.55, 0.28, { ratio: 2, index: 1.2 }],
   ],
   // One soft glass tap on A5 with a faint octave shimmer.
   sound_gentle: [
-    ['glass', 81, 0.0, 0.7, 0.7],
-    ['bell', 93, 0.01, 0.4, 0.12, { ratio: 2, index: 0.8 }],
+    ['glass', 81, 0.0, 0.8, 0.7],
+    ['bell', 93, 0.01, 0.5, 0.3, { ratio: 2, index: 0.9 }],
   ],
   // Crisp rising fifth, D5 -> A5, like a confirmation.
   sound_entry: [
@@ -143,5 +148,5 @@ const SOUNDS = {
 };
 
 for (const f of readdirSync(OUT)) if (f.startsWith('sound_') && f.endsWith('.wav')) unlinkSync(join(OUT, f));
-for (const [name, notes] of Object.entries(SOUNDS)) writeFileSync(join(OUT, `${name}.wav`), render(notes, name === 'sound_gentle' ? { tail: 0.9, wet: 0.25 } : {}));
+for (const [name, notes] of Object.entries(SOUNDS)) writeFileSync(join(OUT, `${name}.wav`), render(notes));
 console.log('wrote', Object.keys(SOUNDS).join(', '));

@@ -29,21 +29,22 @@ public class FedhaDelegationService extends DelegationService {
         }
     }
 
-    // Patterns in milliseconds: wait, buzz, pause, buzz, ... Sounds are res/raw/*.wav (android/tools/make-sounds.mjs),
+    // Patterns in milliseconds: wait, buzz, pause, buzz, ... The 150 ms wait lets the sound start before the motor. Sounds are res/raw/*.wav (android/tools/make-sounds.mjs),
     // shared by kind of news: success (TP, NestLink), alert (SL, UpesiPay), gentle (planner, Jarvis), entry (trades).
     // A channel's sound and buzz are fixed once created, so changing either means a new id (and deleting the old).
-    private static final Kind NESTLINK = new Kind("fedha_nestlink_v4", "NestLink withdrawals", new long[]{0, 100, 80, 100, 80, 700, 300, 700}, "sound_success", 0xFF22C55E, "💸");
-    private static final Kind UPESIPAY = new Kind("fedha_upesipay_v3", "UpesiPay low balance", new long[]{0, 400, 150, 400, 150, 400}, "sound_alert", 0xFFF59E0B, "⚠️");
-    private static final Kind TRADE = new Kind("fedha_trade_v3", "Trades entered", new long[]{0, 250, 150, 250}, "sound_entry", 0xFF3B82F6, "🚀");
-    private static final Kind TP = new Kind("fedha_tp_v3", "Take-profit hit", new long[]{0, 70, 60, 70, 60, 70}, "sound_success", 0xFF10B981, "🎯");
-    private static final Kind SL = new Kind("fedha_sl_v3", "Stop-loss hit", new long[]{0, 600, 200, 600}, "sound_alert", 0xFFEF4444, "🛑");
-    private static final Kind PLANNER = new Kind("fedha_planner_v3", "Planner reminders", new long[]{0, 120}, "sound_gentle", 0xFF8B5CF6, "🗓️");
-    private static final Kind OTHER = new Kind("fedha_other_v3", "Jarvis and other", new long[]{0, 120}, "sound_gentle", 0xFF64748B, "🔔");
+    private static final Kind NESTLINK = new Kind("fedha_nestlink_v5", "NestLink withdrawals", new long[]{150, 90, 70, 90, 70, 380, 200, 380}, "sound_success", 0xFF22C55E, "💸");
+    private static final Kind UPESIPAY = new Kind("fedha_upesipay_v4", "UpesiPay low balance", new long[]{150, 260, 140, 260, 140, 260}, "sound_alert", 0xFFF59E0B, "⚠️");
+    private static final Kind TRADE = new Kind("fedha_trade_v4", "Trades entered", new long[]{150, 180, 120, 180}, "sound_entry", 0xFF3B82F6, "🚀");
+    private static final Kind TP = new Kind("fedha_tp_v4", "Take-profit hit", new long[]{150, 60, 60, 60, 60, 60}, "sound_success", 0xFF10B981, "🎯");
+    private static final Kind SL = new Kind("fedha_sl_v4", "Stop-loss hit", new long[]{150, 380, 180, 380}, "sound_alert", 0xFFEF4444, "🛑");
+    private static final Kind PLANNER = new Kind("fedha_planner_v4", "Planner reminders", new long[]{150, 100}, "sound_gentle", 0xFF8B5CF6, "🗓️");
+    private static final Kind OTHER = new Kind("fedha_other_v4", "Jarvis and other", new long[]{150, 100}, "sound_gentle", 0xFF64748B, "🔔");
 
     private static final String[] OLD_CHANNELS = {
         "fedha_nestlink_v1", "fedha_nestlink_v2", "fedha_upesipay_v1", "fedha_trade_v1", "fedha_tp_v1",
         "fedha_sl_v1", "fedha_planner_v1", "fedha_other_v1", "fedha_nestlink_v3", "fedha_upesipay_v2",
-        "fedha_trade_v2", "fedha_tp_v2", "fedha_sl_v2", "fedha_planner_v2", "fedha_other_v2"
+        "fedha_trade_v2", "fedha_tp_v2", "fedha_sl_v2", "fedha_planner_v2", "fedha_other_v2",
+        "fedha_nestlink_v4", "fedha_upesipay_v3", "fedha_trade_v3", "fedha_tp_v3", "fedha_sl_v3", "fedha_planner_v3", "fedha_other_v3"
     };
 
     // Titles and tags come from the site (lib/trading.js, lib/broker.js, lib/nestlink-*.js, lib/upesipay-alert.js, the planner).
@@ -74,10 +75,8 @@ public class FedhaDelegationService extends DelegationService {
             ch.enableLights(true);
             ch.setLightColor(k.color);
             ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-            if (k.sound != null) {
-                int res = getResources().getIdentifier(k.sound, "raw", getPackageName());
-                if (res != 0) ch.setSound(Uri.parse("android.resource://" + getPackageName() + "/" + res), audio);
-            }
+            // By name, not resource number, so a rebuilt APK with new sound files keeps pointing at the right one.
+            if (k.sound != null) ch.setSound(Uri.parse("android.resource://" + getPackageName() + "/raw/" + k.sound), audio);
             nm.createNotificationChannel(ch);
         }
     }
