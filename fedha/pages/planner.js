@@ -238,7 +238,7 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
   const dayIdx = weekdayPlanIndex(new Date());
   const small = (ctx.workoutMode || 'full') === 'small';
   const dayPlan = planForDay(dayIdx, ctx.workoutMode || 'full', ctx.workoutStreak);
-  // Small-space mode: the 10-minute session is pinned right before the bath by lib/day-anchors.js.
+  // Small-space mode: the 20+ minute session is pinned right before the bath by lib/day-anchors.js.
   const morningWorkoutMin = small ? 0 : estimateWorkoutMinutes(dayPlan.morning.exercises);
   const eveningWorkoutMin = small || dayPlan.evening.isRest ? 0 : estimateWorkoutMinutes(dayPlan.evening.exercises);
 
@@ -327,10 +327,12 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
 
   // EVENING — wind down to bed.
   if (dayPlan.evening.isRest && (!small || dayPlan.morning.isRest)) want('eve', 'recovery', 'Active Recovery — Stretch', 'workout', '🧘', 'Rest day evening — light stretching, no heavy sets.', PRIORITY.essential, 10, 15);
-  want('eve', 'bae', 'Bae Time 💕', 'personal', '💕', 'Protected time. Phone down. Be fully present.', PRIORITY.social, 30, isWeekend ? 120 : 90);
-  if (isWeekend) want('eve', 'week_plan', 'Plan Next Week', 'routine', '📋', 'What do you want to achieve? Any big purchases? Check Tech Hub deadlines.', PRIORITY.chores, 10, 20);
-  want('eve', 'gaming', 'Gaming 🎮', 'gaming', '🎮', 'Earned screen time — enjoy it guilt-free.', PRIORITY.leisure, 0, 60);
-  want('eve', 'freetime', 'Free Time 🎧', 'personal', '🎧', 'Wind down however you like.', PRIORITY.leisure, 15, 45);
+  // Evenings are productive: a work run after dinner, a smoke break, a second run,
+  // then an episode of whatever series is on before bed.
+  work('eve', 'work_eve1', continued(pickWork(workItems, 1)), 60);
+  want('eve', 'smoke', 'Smoke Break 🌿', 'personal', '🌿', 'Step out, stretch, drink some water. Back to it after.', PRIORITY.social, 15, 20);
+  work('eve', 'work_eve2', pickWork(workItems, 3), 45);
+  want('eve', 'series', 'Series Episode 📺', 'personal', '📺', 'One episode (Breaking Bad or whatever is on). Earned — enjoy it.', PRIORITY.leisure, 20, 50);
   want('eve', 'review', 'Daily Review', 'routine', '📝', 'What did you learn today? What to do differently? Write 3 lines.', PRIORITY.chores, 5, 15);
   want('eve', 'night_prep', 'Night Prep', 'routine', '🌙', 'Set clothes, pack bag, set alarm. Drink milk before bed.', PRIORITY.essential, 10, 15);
 
@@ -1229,11 +1231,9 @@ export default function PlannerPage() {
               {[
                 { label:'Work Time', v: blocks.filter(b=>['coding','learning'].includes(b.type)).reduce((s,b)=>s+b.duration,0), color:'#10B981', emoji:'💻' },
                 { label:'Workout Time', v: blocks.filter(b=>b.type==='workout').reduce((s,b)=>s+b.duration,0), color:'#EF4444', emoji:'🏋️' },
-                { label:'Bae Time', v: blocks.filter(b=>b.type==='personal'&&b.label.toLowerCase().includes('bae')).reduce((s,b)=>s+b.duration,0), color:'#EC4899', emoji:'💕' },
                 { label:'Chores', v: blocks.filter(b=>b.type==='chores').reduce((s,b)=>s+b.duration,0), color:'#EAB308', emoji:'🏠', showIfZero:false },
                 { label:'Meals', v: blocks.filter(b=>b.type==='meal'&&b.label.includes('Eat')).length, color:'#F59E0B', emoji:'🍽️', isCount:true },
-                { label:'Gaming', v: blocks.filter(b=>b.type==='gaming').reduce((s,b)=>s+b.duration,0), color:'#A78BFA', emoji:'🎮' },
-                { label:'Free Time', v: blocks.filter(b=>b.type==='personal'&&b.label.includes('Free')).reduce((s,b)=>s+b.duration,0), color:'#94A3B8', emoji:'🎧' },
+                { label:'Series', v: blocks.filter(b=>b.id==='series').reduce((s,b)=>s+b.duration,0), color:'#A78BFA', emoji:'📺' },
                 { label:'Sleep', v: blocks.filter(b=>b.type==='sleep').reduce((s,b)=>s+b.duration,0), color:'#475569', emoji:'😴' },
               ].filter(s => s.showIfZero!==false || s.v>0).map(s => (
                 <div key={s.label} className="card" style={{ padding:'14px 16px', display:'flex', alignItems:'center', gap:14 }}>

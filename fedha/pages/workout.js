@@ -25,10 +25,9 @@ export const EXERCISES = {
 };
 
 // ─── SMALL-SPACE PLAN ────────────────────────────────────────────────────────
-// One ~10 minute session a day that fits a strip the length of a bed (about 2 × 1 m):
-// no jumping, no equipment, nothing that needs walking room. It starts tiny on purpose
-// (1 set each) and adds a set for every full week of streak, up to 3, so the habit forms
-// before the effort grows.
+// One ~20–35 minute session a day that fits a strip the length of a bed (about 2 × 1 m):
+// no jumping, no equipment, nothing that needs walking room. It starts at 3 sets of each
+// move and adds a set for every full week of streak, up to 5.
 const MICRO_DAYS = [
   { focus: 'Push 💪', theme: '#3B82F6', moves: [['pushups', 10], ['pike_pushups', 6], ['plank', 20]] },
   { focus: 'Legs 🦵', theme: '#10B981', moves: [['squats', 15], ['glute_bridges', 15], ['calf_raises', 20]] },
@@ -38,22 +37,23 @@ const MICRO_DAYS = [
   { focus: 'Full body ⚡', theme: '#14B8A6', moves: [['squats', 12], ['pushups', 10], ['mountain_climbers', 16], ['plank', 20]] },
   { focus: 'Rest & stretch 🧘', theme: '#A78BFA', moves: [], rest: true },
 ];
-export function microLevel(streak = 0) { return Math.min(3, 1 + Math.floor((Number(streak) || 0) / 7)); }
+export function microLevel(streak = 0) { return Math.min(5, 3 + Math.floor((Number(streak) || 0) / 7)); }
 export function microDay(dayIdx, streak = 0) {
   const d = MICRO_DAYS[dayIdx];
   const sets = microLevel(streak);
   const exercises = d.moves.map(([id, reps]) => ({ ...EXERCISES[id], sets, reps }));
   return {
     day: WEEKLY_PLAN_DAYS[dayIdx], focus: d.focus, theme: d.theme,
-    morning: { title: `10-minute session · level ${sets}`, exercises, isRest: !!d.rest },
+    morning: { title: `${microMinutes(dayIdx, streak)}-minute session · ${sets} sets each`, exercises, isRest: !!d.rest },
     evening: { title: 'Rest', exercises: [], isRest: true },
   };
 }
-// Minutes for a small-space session: ~1 min per set incl. rest, + 3 min warm-up.
+// Minutes for a small-space session: ~1.5 min per set (work + 60–90 s rest),
+// plus 5 min warm-up and 3 min cool-down stretch. Never less than 20 minutes.
 export function microMinutes(dayIdx, streak = 0) {
   const d = MICRO_DAYS[dayIdx];
   if (d.rest) return 0;
-  return d.moves.length * microLevel(streak) + 3;
+  return Math.max(20, Math.round(d.moves.length * microLevel(streak) * 1.5) + 8);
 }
 // The plan the Planner and this page use for a day, depending on the chosen mode.
 export function planForDay(dayIdx, mode = 'small', streak = 0) {
@@ -294,7 +294,7 @@ export default function WorkoutPage() {
   const [completedSets, setCompletedSets] = useState({});
   const [streak, setStreak] = useState(0);
   const [camera, setCamera] = useState(null); // { ex, set }
-  const [mode, setMode] = useState('small'); // 'small' = 10-minute small-space plan, 'full' = the original plan
+  const [mode, setMode] = useState('small'); // 'small' = 20-minute+ small-space plan, 'full' = the original plan
 
   const plan = planForDay(activeDay, mode, streak);
   const sessionData = plan[mode === 'small' ? 'morning' : session];
@@ -361,14 +361,14 @@ export default function WorkoutPage() {
 
           {/* Mode */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button className={`chip ${mode === 'small' ? 'active' : ''}`} onClick={() => changeMode('small')}>🏠 Small space · 10 min</button>
+            <button className={`chip ${mode === 'small' ? 'active' : ''}`} onClick={() => changeMode('small')}>🏠 Small space · 20+ min</button>
             <button className={`chip ${mode === 'full' ? 'active' : ''}`} onClick={() => changeMode('full')}>Full plan</button>
           </div>
           {mode === 'small' && (
             <div className="card" style={{ padding: '12px 14px', marginBottom: 12, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>
               <b style={{ color: 'var(--text)' }}>Needs a strip the length of your bed (about 2 × 1 m).</b> Lay down a towel or mat. No jumping, no equipment, and quiet enough for a shared house.
               <div style={{ marginTop: 6, color: 'var(--text-3)', fontSize: 12 }}>
-                Level {microLevel(streak)}: {microLevel(streak)} set{microLevel(streak) > 1 ? 's' : ''} of each move. {microLevel(streak) < 3 ? `Every 7-day streak adds a set (${7 - (streak % 7)} more session${7 - (streak % 7) === 1 ? '' : 's'} to the next level).` : 'Top level, so keep the streak alive.'} Showing up beats doing a lot.
+                Level {microLevel(streak)}: {microLevel(streak)} set{microLevel(streak) > 1 ? 's' : ''} of each move. {microLevel(streak) < 5 ? `Every 7-day streak adds a set (${7 - (streak % 7)} more session${7 - (streak % 7) === 1 ? '' : 's'} to the next level).` : 'Top level, so keep the streak alive.'} Showing up beats doing a lot.
               </div>
             </div>
           )}

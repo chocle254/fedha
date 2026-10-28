@@ -27,7 +27,7 @@ Ground rules:
 - If there are UPCOMING TECH HUB EVENTS in the context, schedule preparation or attendance when their date makes them relevant. Do not invent events.\n- If there's an OPEN RESEARCH item in the context, give it its own ~45-75 minute block (type "research") placed sensibly among the work blocks — not first thing, not last.
 - Include meals appropriately spaced from now to bedtime (skip ones already logged today per the context) — each meal gets a short prep block right before it.
 - Include exactly one workout block if the day's workout plan (in context) hasn't been done yet, sized to the plan.
-- Protect at least one personal/social block and one leisure block (gaming or free time) — cutting these to zero every day is not sustainable, but they're the first things to shrink if the day is genuinely short on time.
+- Protect the evening: after dinner is their most productive time (work runs with a smoke break in between), then one series episode before bed. They don't game and have no partner, so never add gaming or date blocks.
 - Do not exceed what's realistic — if it's already afternoon, don't cram a full 8-block workday in; be honest about what fits.
 - End with exactly one block of type "sleep" as the last entry — its duration_minutes is the actual hours of sleep you're planning for, in minutes.
 
