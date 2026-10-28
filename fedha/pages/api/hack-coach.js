@@ -384,6 +384,19 @@ function criteriaOf(b) {
   return { criteria, realWeights };
 }
 
+// The demo video (judged from its transcript, the only way an AI judge can "watch" it) kept apart from the
+// builder's notes about the project, so notes are never mistaken for the presentation.
+function presentationBlock(b) {
+  const p = b.hack.coach?.presentation || {};
+  const transcript = clip(p.transcript, 7000).trim();
+  const notes = clip(p.text, 4000).trim();
+  return `THE DEMO VIDEO TRANSCRIPT (what the judges watch):
+${transcript || '(NOT PROVIDED. You cannot watch the video. Score the presentation only from the verified facts (it exists, its length, the limit) and the submission write-up; never describe what it says, shows, its order or its pacing, and say in your note that you judged without the video\'s content.)'}${p.links ? `\nLinks (video, deck, live app): ${clip(p.links, 500)}` : ''}
+
+ABOUT THE PROJECT / PITCH NOTES FROM THE BUILDER (context only, NOT the presentation itself):
+${notes || '(none)'}`;
+}
+
 function judgeMaterial(b) {
   const verified = clip(b.hack.coach?.facts || b.hack.coach?.app?.verified, 3000);
   return `${ctx(b.hack)}
@@ -396,8 +409,7 @@ ${verified}
 - Never suggest doing something these facts show is already done (for example deploying when a live app is listed).
 - Judge the video only from these facts and THE PRESENTATION below. You cannot watch it: never invent its length, pacing or content.
 ` : ''}
-THE PRESENTATION / DEMO THE BUILDER WILL SHOW:
-${clip(b.hack.coach?.presentation?.text, 6000) || '(not provided)'}${b.hack.coach?.presentation?.links ? `\nLinks (deck, video, live demo): ${clip(b.hack.coach.presentation.links, 500)}` : ''}
+${presentationBlock(b)}
 
 SUBMISSION WRITE-UP:
 ${clip(b.pitch, 4000) || '(not written yet)'}
@@ -665,8 +677,7 @@ ${verified}
 - Never suggest doing something these facts show is already done (for example deploying when a live app is listed).
 - Judge the video only from these facts and THE PRESENTATION below. You cannot watch it: never invent its length, pacing or content.
 ` : ''}
-THE PRESENTATION / DEMO THE BUILDER WILL SHOW:
-${clip(b.hack.coach?.presentation?.text, 6000) || '(not provided)'}${b.hack.coach?.presentation?.links ? `\nLinks (deck, video, live demo): ${clip(b.hack.coach.presentation.links, 500)}` : ''}
+${presentationBlock(b)}
 
 SUBMISSION WRITE-UP:
 ${clip(b.pitch, 4000) || '(not written yet)'}

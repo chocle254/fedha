@@ -186,13 +186,16 @@ export async function coachAsk(type, payload) {
 
 // ── Judging panel: combine independent judges into one verdict (in code, no AI call) ──
 const normName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+// Two judges often give the same advice in different words: treat items whose key words mostly overlap as one.
+const STOP = new Set('a an the to of and or in on for with that this your you it its is be by at as from into more add brief short video demo judges show clearly'.split(' '));
+const keyWords = (t) => new Set(normName(t).split(' ').filter((w) => w.length > 2 && !STOP.has(w)));
+const similar = (a, b) => { const A = keyWords(a); const B = keyWords(b); if (!A.size || !B.size) return false; let n = 0; A.forEach((w) => { if (B.has(w)) n++; }); return n / Math.min(A.size, B.size) >= 0.6; };
 const interleave = (lists, n) => {
   const out = [];
-  const seen = new Set();
   for (let i = 0; out.length < n && i < 6; i++) for (const l of lists) {
     const x = l?.[i];
-    const k = normName(typeof x === 'string' ? x : x?.idea).slice(0, 60);
-    if (x && k && !seen.has(k)) { seen.add(k); out.push(x); if (out.length >= n) break; }
+    const t = typeof x === 'string' ? x : x?.idea;
+    if (x && t && !out.some((y) => similar(t, typeof y === 'string' ? y : y.idea))) { out.push(x); if (out.length >= n) break; }
   }
   return out;
 };
@@ -528,6 +531,7 @@ export function verifiedFacts(hack) {
     video_limit: limit,
     video_ok: seconds != null && limit ? seconds >= limit.min && seconds <= limit.max : null,
     video_script: !!String(pres.text || '').trim(),
+    video_transcript: !!String(pres.transcript || '').trim(),
     from_video: judgedFromVideo(hack),
     sponsors: (hack?.coach?.brief?.sponsor_tech || []).filter(Boolean),
     timeline: repo ? timelineOf(hack, repo) : null,
@@ -619,7 +623,7 @@ function videoFact(f) {
   const lim = f.video_limit ? ` The rules allow ${f.video_limit.min ? `${fmtDuration(f.video_limit.min)} to ` : 'up to '}${fmtDuration(f.video_limit.max)}.` : '';
   if (f.video_seconds != null) {
     const fits = f.video_ok === true ? ' It is WITHIN the limit; never say it is too long or needs trimming.' : f.video_ok === false ? ' It is OUTSIDE the limit.' : '';
-    const what = f.video_script ? ' What the video says and shows is in THE PRESENTATION below; judge its content only from that.' : '';
+    const what = f.video_transcript ? ' What the video says is in THE DEMO VIDEO TRANSCRIPT below; judge its content only from that.' : ' You have NOT seen this video and have no transcript: never describe its narration, scenes, order or pacing.';
     return `- Demo video: ${fmtDuration(f.video_seconds)} long${f.video ? ` (${f.video})` : ''}.${lim}${fits}${what}`;
   }
   if (f.video) return `- Demo video: ${f.video}. Its length was not given: never guess it or say it is too long; at most ask the builder to confirm it.${lim}`;

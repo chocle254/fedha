@@ -825,9 +825,11 @@ export default function HackathonCoach() {
             <section className="card muse-card muse-agent" style={{ '--stage': '#7B61FF' }}>
               <div className="muse-label">⚖️ THIS HACKATHON'S PANEL</div>
               <div style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '8px 0 10px', lineHeight: 1.5 }}>A panel shaped like this event's judges scores your project on {brief?.criteria?.length ? `its ${brief.criteria.length} criteria` : 'standard hackathon criteria'}, checks every requirement, and suggests twists that would beat their expectations.</div>
-              <label className="muse-label" htmlFor="hc-pres" style={{ display: 'block' }}>YOUR PRESENTATION</label>
-              <textarea id="hc-pres" className="input" rows={6} style={{ marginTop: 6, resize: 'vertical', lineHeight: 1.5 }} placeholder="Paste your demo video's script (what it says and shows), slides' text or pitch notes. Judges score what they see here." defaultValue={coach.presentation?.text || ''} onBlur={(e) => e.target.value !== (coach.presentation?.text || '') && saveCoach({ presentation: { ...(coach.presentation || {}), text: e.target.value } })} />
-              <input className="input" style={{ marginTop: 8 }} aria-label="Presentation links" placeholder="Links: deck, demo video, live app (optional)" defaultValue={coach.presentation?.links || ''} onBlur={(e) => e.target.value !== (coach.presentation?.links || '') && saveCoach({ presentation: { ...(coach.presentation || {}), links: e.target.value } })} />
+              <label className="muse-label" htmlFor="hc-pres" style={{ display: 'block' }}>ABOUT THE PROJECT / PITCH NOTES</label>
+              <textarea id="hc-pres" className="input" rows={4} style={{ marginTop: 6, resize: 'vertical', lineHeight: 1.5 }} placeholder="What the project is, slide text or pitch notes. Context for the judges; it is not scored as your video." defaultValue={coach.presentation?.text || ''} onBlur={(e) => e.target.value !== (coach.presentation?.text || '') && saveCoach({ presentation: { ...(coach.presentation || {}), text: e.target.value } })} />
+              <input className="input" style={{ marginTop: 8 }} aria-label="Presentation links" placeholder="Links: demo video, deck, live app" defaultValue={coach.presentation?.links || ''} onBlur={(e) => e.target.value !== (coach.presentation?.links || '') && saveCoach({ presentation: { ...(coach.presentation || {}), links: e.target.value } })} />
+              <label className="muse-label" htmlFor="hc-transcript" style={{ display: 'block', marginTop: 12 }}>DEMO VIDEO TRANSCRIPT (WHAT THE JUDGES "WATCH")</label>
+              <textarea id="hc-transcript" className="input" rows={5} style={{ marginTop: 6, resize: 'vertical', lineHeight: 1.5 }} placeholder={'AI judges cannot watch a video link. Paste its transcript so they judge what it really says: on YouTube tap ··· (or "...more") → Show transcript → copy; or YouTube Studio → Subtitles → download. Add what is on screen in [brackets] if it helps.'} defaultValue={coach.presentation?.transcript || ''} onBlur={(e) => e.target.value !== (coach.presentation?.transcript || '') && saveCoach({ presentation: { ...(coach.presentation || {}), transcript: e.target.value } })} />
               <input className="input" style={{ marginTop: 8 }} aria-label="Demo video length" inputMode="numeric" placeholder="Video length, e.g. 2:47" defaultValue={coach.presentation?.video_length || ''} onBlur={(e) => e.target.value !== (coach.presentation?.video_length || '') && saveCoach({ presentation: { ...(coach.presentation || {}), video_length: e.target.value.trim() } })} />
               {(() => {
                 const r = coach.app?.repo;
@@ -838,7 +840,8 @@ export default function HackathonCoach() {
                   <>
                     <div className="muse-label" style={{ marginTop: 14 }}>WHAT THE JUDGES WILL READ</div>
                     <ul className="muse-how" style={{ listStyle: 'none', paddingLeft: 0 }}>
-                      {row(!!coach.presentation?.text?.trim(), coach.presentation?.text?.trim() ? 'Your presentation' : 'Your presentation (paste it above)')}
+                      {row(!!coach.presentation?.transcript?.trim(), coach.presentation?.transcript?.trim() ? 'Your demo video (from its transcript)' : 'Your demo video: paste its transcript above, or judges can only check that it exists and its length')}
+                      {row(!!coach.presentation?.text?.trim(), coach.presentation?.text?.trim() ? 'About the project / pitch notes' : 'About the project / pitch notes (optional)')}
                       {(() => {
                         const f = verifiedFacts(hack);
                         const len = f.video_seconds != null ? fmtDuration(f.video_seconds) : '';
