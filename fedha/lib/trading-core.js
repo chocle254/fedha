@@ -43,8 +43,16 @@ export function levelsValid(side, entry, tps, sl) {
   return true;
 }
 
+// Stepped trailing stop for signal trades: after TP1 the stop moves to the entry (break-even), after TP2 to TP1,
+// after TP3 to TP2, and so on. Returns the stop that applies once `tpHit` targets are done.
+export function trailStop(entry, sl, tps, tpHit) {
+  if (!tpHit) return sl == null ? null : Number(sl);
+  return tpHit === 1 ? Number(entry) : Number(tps[tpHit - 2]);
+}
+
 // Replays candles against a paper trade. Rules: stop counts first if stop and target share a candle;
-// the position scales out equally across the take-profits; the stop stays at its original level.
+// the position scales out equally across the take-profits. Signal trades trail their stop (see trailStop);
+// a stop that moves during a candle only applies from the next candle. Manual orders keep their stop.
 // Also records how far price went AGAINST the trade (max adverse excursion).
 // Options: exitAt = close whatever is still open at this price now (manual "Close position").
 // Manual orders (no signal) behave like Binance GTC orders: they never expire on their own.
@@ -56,6 +64,8 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null 
   const qty = Number(trade.qty);
   const sl = trade.stop_loss != null ? Number(trade.stop_loss) : null;
   const tps = (trade.take_profits || []).map(Number);
+  const trailing = !manual && sl != null;
+  let stop = sl;
   const age = now - new Date(trade.created_at).getTime();
   const share = tps.length ? qty / tps.length : 0;
   const spread = Math.max(0, Number(trade.spread_abs) || 0);
@@ -80,12 +90,12 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null 
     if (worst === null || (buy ? adverse < worst : adverse > worst)) worst = adverse;
     if (best === null || (buy ? fav > best : fav < best)) best = fav;
 
-    if (sl != null && (buy ? k.l <= sl : k.h >= sl)) {
-      const exit = buy ? sl - spread : sl + spread; // stop-market orders fill across the spread
+    if (stop != null && (buy ? k.l <= stop : k.h >= stop)) {
+      const exit = buy ? stop - spread : stop + spread; // stop-market orders fill across the spread
       realized += dir * (exit - entry) * remaining;
       fees += FEE_RATE * exit * remaining;
       remaining = 0;
-      worst = buy ? Math.max(worst, sl) : Math.min(worst, sl);
+      worst = buy ? Math.max(worst, stop) : Math.min(worst, stop);
       closedAt = k.t;
       break;
     }
@@ -95,6 +105,7 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null 
       remaining -= share;
       tpHit++;
     }
+    if (trailing) stop = trailStop(entry, sl, tps, tpHit);
     if (tps.length && tpHit === tps.length) { remaining = 0; closedAt = k.t; break; }
   }
 

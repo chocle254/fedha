@@ -115,8 +115,8 @@ export default function BrokerPanel({ onData, flash }) {
 
       <div className="tx-broker">
         <div className="tx-set-row">
-          <div><b>Break-even after TP1</b><span>When a signal&apos;s first TP is hit, move the SL of its other positions to the entry.</span></div>
-          <button disabled={busy} className={`tx-switch ${data.settings.breakeven ? 'on' : ''}`} onClick={() => save({ breakeven: !data.settings.breakeven })} aria-label="Break-even"><i /></button>
+          <div><b>Trailing stop</b><span>After TP1 the other positions&apos; SL moves to the entry, after TP2 to TP1, and so on. Same rule as the paper trades.</span></div>
+          <button disabled={busy} className={`tx-switch ${data.settings.breakeven ? 'on' : ''}`} onClick={() => save({ breakeven: !data.settings.breakeven })} aria-label="Trailing stop"><i /></button>
         </div>
         <div className="tx-set-row">
           <div><b>Fedha paper trades too</b><span>{data.settings.paper_too ? 'On: signals are also paper-traded here.' : 'Off: the MT5 demo accounts replace Fedha paper trading.'}</span></div>
@@ -145,7 +145,7 @@ export default function BrokerPanel({ onData, flash }) {
             return (
               <div key={l.id} className="tx-board-row font-num">
                 <span>TP{l.leg} {l.take_profit}</span>
-                <span className="tx-muted">{l.lots} lots · SL {l.stop_loss}{l.breakeven ? ' (BE)' : ''}</span>
+                <span className="tx-muted">{l.lots} lots · SL {l.stop_loss}{l.breakeven ? ' (trailed)' : ''}</span>
                 <b style={{ color }}>{label}</b>
                 <b style={{ color: Number(l.profit) >= 0 ? C.up : C.down }}>{l.profit != null ? `${Number(l.profit) >= 0 ? '+' : ''}${Number(l.profit).toFixed(2)}` : l.error ? '⚠' : ''}</b>
               </div>

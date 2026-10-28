@@ -1,6 +1,6 @@
 // Paper trading on top of tracked signals. NOTHING here places a real order.
 import { supabaseAdmin } from './supabaseAdmin';
-import { sizePosition, rewardRisk, levelsValid, evaluateTrade, floorToStep, roundToTick, replayInterval, FEE_RATE, partialRealized, groupReport, LOT_MIN } from './trading-core';
+import { sizePosition, rewardRisk, levelsValid, evaluateTrade, floorToStep, roundToTick, replayInterval, FEE_RATE, partialRealized, groupReport, LOT_MIN, trailStop } from './trading-core';
 import { pushToAll } from './nestlink-push';
 
 const BINANCE = 'https://api.binance.com/api/v3';
@@ -270,7 +270,7 @@ function describeChange(old, now) {
   if (['won', 'lost', 'expired'].includes(now.status) && !['won', 'lost', 'expired'].includes(old.status)) {
     if (now.pnl_usdt == null) return { title: `⌛ ${name} order expired`, body: `Limit at ${fmt(old.entry)} never filled.` };
     const icon = now.status === 'won' ? '✅' : now.status === 'lost' ? '🛑' : '⏹';
-    const why = now.status === 'lost' && now.tp_hit === 0 ? 'Stop-loss hit' : now.tp_hit === n && n ? `All ${n} targets hit` : now.tp_hit ? `Stopped after TP${now.tp_hit}` : 'Closed';
+    const why = now.status === 'lost' && now.tp_hit === 0 ? 'Stop-loss hit' : now.tp_hit === n && n ? `All ${n} targets hit` : now.tp_hit ? `Trailing stop hit after TP${now.tp_hit}` : 'Closed';
     return { title: `${icon} ${name} closed ${usd(Number(now.pnl_usdt))}`, body: `${why}. Exit ${fmt(now.last_price)}.` };
   }
   if (old.status === 'pending' && now.status === 'open') {
@@ -279,7 +279,8 @@ function describeChange(old, now) {
   if ((now.tp_hit || 0) > (old.tp_hit || 0) && now.status === 'open') {
     const k = now.tp_hit;
     const banked = partialRealized({ ...old, tp_hit: k });
-    return { title: `🎯 ${name} TP${k} hit at ${fmt(old.take_profits[k - 1])}`, body: `${k}/${n} targets done, ${usd(banked)} banked so far.${k < n ? ` Next TP${k + 1} ${fmt(old.take_profits[k])}.` : ''}` };
+    const moved = old.source !== 'Manual' && old.stop_loss != null ? ` SL moved to ${k === 1 ? 'entry' : `TP${k - 1}`} (${fmt(trailStop(old.entry, old.stop_loss, (old.take_profits || []).map(Number), k))}).` : '';
+    return { title: `🎯 ${name} TP${k} hit at ${fmt(old.take_profits[k - 1])}`, body: `${k}/${n} targets done, ${usd(banked)} banked so far.${moved}${k < n ? ` Next TP${k + 1} ${fmt(old.take_profits[k])}.` : ''}` };
   }
   return null;
 }

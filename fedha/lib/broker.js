@@ -11,7 +11,7 @@ const PENDING_MAX_MS = 6 * 3600e3; // a limit order that has not filled in 6 h i
 
 export const DEFAULT_ACCOUNT_SETTINGS = { enabled: false, risk_pct: 1, min_confidence: 0, daily_loss_pct: 5 };
 export const DEFAULT_BROKER_SETTINGS = {
-  breakeven: true,      // move the SL of the remaining legs to entry once TP1 is hit
+  breakeven: true,      // trailing stop: entry after TP1, then the previous TP after each later TP
   allow_real: false,    // never trade a real-money account unless switched on explicitly
   paper_too: false,     // keep Fedha's own paper trades running alongside the demo accounts
   xm: { ...DEFAULT_ACCOUNT_SETTINGS },
@@ -163,7 +163,7 @@ export async function placeSignalOnBrokers({ userId, parsed, source, signalKey, 
 }
 
 // ── SYNC ──────────────────────────────────────────────────────────────────
-// Every minute (via /api/trading/tick): mark fills, closes (TP / SL), cancel stale limits, move SL to break-even.
+// Every minute (via /api/trading/tick): mark fills, closes (TP / SL), cancel stale limits, trail the SL.
 const REASON = { DEAL_REASON_TP: 'tp', DEAL_REASON_SL: 'sl', DEAL_REASON_SO: 'stop-out' };
 
 export async function syncBrokerTrades(userId) {
@@ -223,16 +223,24 @@ export async function syncBrokerTrades(userId) {
       }, `broker-close-${r.id}`);
     }
 
-    // Break-even: once any leg of a signal hits its TP, move the SL of that signal's open legs to their entry.
+    // Trailing stop, same rule as the paper trades: after TP1 the open legs' SL moves to the entry,
+    // after TP2 to TP1's price, and so on (k TP legs hit -> SL at the TP of leg k-1).
     if (settings.breakeven) {
-      const { data: hit } = await supabaseAdmin.from('broker_trades').select('signal_key').eq('user_id', userId).eq('account', key).eq('close_reason', 'tp').in('signal_key', [...new Set(rows.map((r) => r.signal_key))]);
-      const hitKeys = new Set((hit || []).map((h) => h.signal_key));
+      const keys = [...new Set(rows.map((r) => r.signal_key))];
+      const { data: all } = await supabaseAdmin.from('broker_trades').select('signal_key, leg, take_profit, close_reason').eq('user_id', userId).eq('account', key).in('signal_key', keys);
       for (const r of rows) {
-        if (r.status !== 'open' || r.breakeven || !hitKeys.has(r.signal_key)) continue;
+        if (r.status !== 'open') continue;
+        const legs = (all || []).filter((l) => l.signal_key === r.signal_key).sort((x, y) => x.leg - y.leg);
+        const k = legs.filter((l) => l.close_reason === 'tp').length;
+        if (!k) continue;
+        const target = k === 1 ? Number(r.entry) : Number(legs[k - 2]?.take_profit);
+        if (!Number.isFinite(target) || Number(r.stop_loss) === target) continue;
+        const better = r.side === 'BUY' ? target > Number(r.stop_loss) : target < Number(r.stop_loss);
+        if (!better) continue; // never loosen a stop
         try {
-          const res = await mt.trade(id, { actionType: 'POSITION_MODIFY', positionId: r.order_id, stopLoss: Number(r.entry), takeProfit: Number(r.take_profit) });
-          if (tradeOk(res)) { await supabaseAdmin.from('broker_trades').update({ breakeven: true, stop_loss: r.entry }).eq('id', r.id); changed++; }
-        } catch { /* price may be too close to entry right now; retry next minute */ }
+          const res = await mt.trade(id, { actionType: 'POSITION_MODIFY', positionId: r.order_id, stopLoss: target, takeProfit: Number(r.take_profit) });
+          if (tradeOk(res)) { await supabaseAdmin.from('broker_trades').update({ breakeven: true, stop_loss: target }).eq('id', r.id); changed++; }
+        } catch { /* price may be too close to the new stop right now; retry next minute */ }
       }
     }
   }
