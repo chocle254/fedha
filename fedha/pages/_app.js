@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { AppProvider } from '../context/AppContext';
 import SavingsPrompt from '../components/SavingsPrompt';
+import { MusicProvider } from '../context/MusicContext';
+import MiniPlayer from '../components/MiniPlayer';
 import WelcomeIntro from '../components/WelcomeIntro';
 import { isSupabaseEnabled, getSession, onAuthChange } from '../lib/supabase';
 import '../styles/globals.css';
@@ -259,7 +261,10 @@ function AppBody({ Component, pageProps }) {
   return (
     <AppProvider>
       <NotificationScheduler />
-      <Component {...pageProps} />
+      <MusicProvider>
+        <Component {...pageProps} />
+        <MiniPlayer />
+      </MusicProvider>
       <SavingsPrompt />
     </AppProvider>
   );
