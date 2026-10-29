@@ -175,6 +175,16 @@ export async function recentSms(userId, limit = 120) {
     .eq('user_id', userId).order('received_at', { ascending: false }).limit(limit);
   const items = data || [];
   if (!items.length) return { items, needsMigration: !!error, own: {} };
+  // Re-read messages that still have their text with the current parser (it keeps improving), keeping your picks.
+  for (const r of items) {
+    if (!r.body) continue;
+    const fresh = parseSms(r.body, r.sender);
+    if (fresh && r.parsed?.category) Object.assign(fresh, { category: r.parsed.category, category_auto: r.parsed.category_auto });
+    if (JSON.stringify(fresh) !== JSON.stringify(r.parsed)) {
+      r.parsed = fresh;
+      await supabaseAdmin.from('sms_inbox').update({ parsed: fresh, code: fresh?.code || r.code || null, status: r.status === 'unparsed' && fresh ? 'captured' : r.status }).eq('id', r.id);
+    }
+  }
   const ctx = await planContext(userId, items);
   for (const r of items) r.plan = planMessage(r, ctx);
   return { items, needsMigration: !!error, own: ctx.own, ownGuessed: ctx.ownGuessed };
