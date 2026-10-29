@@ -97,6 +97,18 @@ export default function BrokerPanel({ onData, flash }) {
                 {a.info.real && !data.settings.allow_real ? ' · real trading is OFF, so nothing will be placed here' : ''}
               </div>
             )}
+            {a.goldFit && (() => {
+              const g = a.goldFit;
+              const short = g.typicalStop != null && g.maxStop < g.typicalStop;
+              return (
+                <div className="tx-muted font-num" style={{ color: short ? '#F59E0B' : undefined }}>
+                  Gold: the smallest trade (0.01 lot) fits stops up to ${g.maxStop.toFixed(2)} at this balance and risk.
+                  {g.typicalStop != null && (short
+                    ? ` Your channels' typical stop is $${g.typicalStop.toFixed(2)}, so most gold signals are skipped until the balance reaches about $${g.needed}.`
+                    : ` Your channels' typical stop is $${g.typicalStop.toFixed(2)}, so gold signals fit.`)}
+                </div>
+              );
+            })()}
             {a.configured && (
               <>
                 <div className="tx-set-row">

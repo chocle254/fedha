@@ -304,5 +304,18 @@ export async function brokerOverview(userId) {
     }
   }));
   const { data: trades } = await supabaseAdmin.from('broker_trades').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(300);
+  // Gold fit: the smallest gold trade (0.01 lot = 1 oz, so $1 per $1 move) may risk up to twice the planned
+  // risk (splitLots). So this balance can only take signals whose stop is within maxStop dollars, and the
+  // channels' typical stop needs `needed` dollars of balance.
+  const { data: golds } = await supabaseAdmin.from('paper_trades').select('entry, stop_loss').eq('user_id', userId)
+    .like('symbol', 'XAU%').not('stop_loss', 'is', null).order('created_at', { ascending: false }).limit(60);
+  const stops = (golds || []).map((g) => Math.abs(Number(g.entry) - Number(g.stop_loss))).filter((d) => d > 0).sort((a, b) => a - b);
+  const typicalStop = stops.length ? stops[Math.floor(stops.length / 2)] : null;
+  for (const a of accounts) {
+    if (!a.info) continue;
+    const pct = Number(a.settings?.risk_pct || 1) / 100;
+    const maxStop = 2 * Number(a.info.balance) * pct; // dollars of gold move one 0.01 lot can take
+    a.goldFit = { maxStop: Math.round(maxStop * 100) / 100, typicalStop: typicalStop && Math.round(typicalStop * 100) / 100, needed: typicalStop ? Math.ceil(typicalStop / (2 * pct)) : null };
+  }
   return { configured: metaapiConfigured(), settings, accounts, trades: trades || [] };
 }
