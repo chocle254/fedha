@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { formatCurrency } from '../lib/utils';
-import { KIND_LABEL } from '../lib/sms-parser';
+import { formatCurrency, INCOME_CATEGORIES, EXPENSE_CATEGORIES, getCategoryById } from '../lib/utils';
+import { KIND_LABEL, partyKey, FIXED_CATEGORY } from '../lib/sms-parser';
 
 // Luxe → Wallets: link the Android app so it reads M-Pesa and Ziidi texts (like Truecaller), pick which SIM is
 // which M-Pesa account, and see how each captured message was read. Server: lib/sms-capture.js.
@@ -69,11 +69,11 @@ export default function SmsCapture({ wallets }) {
       {items.length > 0 && (
         <>
           <button type="button" className="tx-link" style={{ marginTop: 10, fontSize: 12.5, background: 'none', border: 0, color: 'var(--text-2)', padding: 0 }} onClick={() => setOpen((o) => !o)}>
-            {open ? '▴' : '▾'} {items.length} captured · {items.filter((x) => !x.parsed).length} not understood · {items.filter((x) => x.parsed && !x.wallet_id).length} need an account
+            {open ? '▴' : '▾'} {items.length} captured · {items.filter((x) => partyKey(x.parsed) && !x.parsed.category).length} need a category · {items.filter((x) => x.parsed && !x.wallet_id).length} need an account · {items.filter((x) => !x.parsed).length} not understood{data?.learned ? ` · ${data.learned} names learned` : ''}
           </button>
           {open && (
             <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
-              <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>Checking how Luxe reads your messages; nothing is recorded yet. Message text is deleted once recorded, or after 7 days.</div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>Checking how Luxe reads your messages; nothing is recorded yet. Pick a category the first time a name shows up, and every later message from that name uses it. Message text is deleted once recorded, or after 7 days.</div>
               {items.map((x) => {
                 const p = x.parsed;
                 const ziidi = p?.kind === 'ziidi' || p?.ziidiMove;
@@ -93,6 +93,18 @@ export default function SmsCapture({ wallets }) {
                         {wallets.filter((w) => w.type === 'mobile' && (ziidi ? w.pocket === 'ziidi' || !w.pocket : !w.pocket)).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
                       </select>
                     </div>
+                    {partyKey(p) && !FIXED_CATEGORY[p.kind] && (
+                      <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center', fontSize: 11.5 }}>
+                        {p.category
+                          ? <span style={{ color: getCategoryById(p.category).color }}>{getCategoryById(p.category).icon} {getCategoryById(p.category).label}{p.category_auto ? ' · auto' : ''}</span>
+                          : <span style={{ color: '#F59E0B' }}>First time from {p.party}: pick a category, Luxe remembers it</span>}
+                        <span style={{ flex: 1 }} />
+                        <select className="input" style={{ width: 'auto', padding: '2px 6px', fontSize: 11.5 }} value={p.category || ''} onChange={(e) => put({ id: x.id, category: e.target.value })}>
+                          <option value="">{p.category ? 'Change…' : 'Category…'}</option>
+                          {(p.kind === 'received' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).map((c) => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+                        </select>
+                      </div>
+                    )}
                     {x.body && !p && <div style={{ marginTop: 4, fontSize: 11.5, color: 'var(--text-2)' }}>{x.body}</div>}
                   </div>
                 );

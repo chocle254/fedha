@@ -95,3 +95,24 @@ export const KIND_LABEL = {
   sent: 'Sent', paybill: 'Pay Bill', paid: 'Buy Goods', received: 'Received', withdraw: 'Withdrawn', deposit: 'Deposited',
   airtime: 'Airtime', reversal: 'Reversal', fuliza_loan: 'Fuliza loan', fuliza_repay: 'Fuliza repaid', ziidi: 'Ziidi',
 };
+
+// ── Categories learned per name ─────────────────────────────────────────────
+// The first time a name appears you pick a category; every later message with that name (same direction) uses it.
+// Rules live in settings 'sms_categories' as { "in|JOHN DOE": "business", "out|NAIVAS SUPERMARKET": "food" }.
+const NEEDS_CATEGORY = { sent: 'out', paybill: 'out', paid: 'out', received: 'in' };
+export const FIXED_CATEGORY = { airtime: 'airtime' };
+
+export function partyKey(p) {
+  const dir = p && !p.ziidiMove ? NEEDS_CATEGORY[p.kind] : null;
+  if (!dir || !p.party) return null;
+  const name = String(p.party).toUpperCase().replace(/\b(0|254)\d{8,9}\b/g, '').replace(/[^A-Z0-9&' -]/g, ' ').replace(/\s+/g, ' ').trim();
+  return name ? `${dir}|${name}` : null;
+}
+
+// The category for a message: fixed ones (airtime), else the learned rule, else null (= ask).
+export function categoryFor(p, rules = {}) {
+  if (!p) return null;
+  if (FIXED_CATEGORY[p.kind]) return FIXED_CATEGORY[p.kind];
+  const k = partyKey(p);
+  return k ? rules[k] || null : null;
+}

@@ -11,9 +11,10 @@
 // duplicates.
 import crypto from 'crypto';
 import { supabaseAdmin } from './supabaseAdmin';
-import { parseSms, isMoneySender } from './sms-parser';
+import { parseSms, isMoneySender, categoryFor, partyKey } from './sms-parser';
 
 const KEY = 'sms_device';
+const RULES = 'sms_categories';
 const BODY_DAYS = 7;
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
@@ -23,6 +24,32 @@ async function getDevice(userId) {
 }
 async function putDevice(userId, value) {
   await supabaseAdmin.from('settings').upsert({ user_id: userId, key: KEY, value, updated_at: new Date().toISOString() }, { onConflict: 'user_id,key' });
+}
+
+export async function getRules(userId) {
+  const { data } = await supabaseAdmin.from('settings').select('value').eq('user_id', userId).eq('key', RULES).maybeSingle();
+  return data?.value || {};
+}
+
+// You picked a category for this message: remember it for the name, and apply it to every captured message from
+// the same name (same direction) that has none yet.
+export async function setCategory(userId, id, category) {
+  const { data: row } = await supabaseAdmin.from('sms_inbox').select('parsed').eq('user_id', userId).eq('id', id).maybeSingle();
+  const key = partyKey(row?.parsed);
+  if (!row?.parsed) return;
+  if (key) {
+    const rules = { ...(await getRules(userId)), [key]: category || undefined };
+    if (!category) delete rules[key];
+    await supabaseAdmin.from('settings').upsert({ user_id: userId, key: RULES, value: rules, updated_at: new Date().toISOString() }, { onConflict: 'user_id,key' });
+    const { data: same } = await supabaseAdmin.from('sms_inbox').select('id, parsed').eq('user_id', userId).neq('status', 'recorded');
+    for (const r of same || []) {
+      if (partyKey(r.parsed) === key && (r.id === id || !r.parsed.category || r.parsed.category_auto)) {
+        await supabaseAdmin.from('sms_inbox').update({ parsed: { ...r.parsed, category: category || null, category_auto: r.id !== id } }).eq('id', r.id);
+      }
+    }
+  } else {
+    await supabaseAdmin.from('sms_inbox').update({ parsed: { ...row.parsed, category: category || null } }).eq('user_id', userId).eq('id', id);
+  }
 }
 
 // Default SIM map: the first two M-Pesa (mobile, non-pocket) wallets, oldest first, as SIM 1 and SIM 2.
@@ -75,6 +102,7 @@ export async function ingest(token, messages) {
   if (!who) return { error: 'This phone is not linked. Link it again from Luxe → Wallets.' };
   const { userId, device } = who;
   const sims = device.sims || {};
+  const rules = await getRules(userId);
   let stored = 0, skipped = 0;
   for (const m of (Array.isArray(messages) ? messages : []).slice(0, 300)) {
     const sender = String(m.sender || '').slice(0, 40);
@@ -83,6 +111,7 @@ export async function ingest(token, messages) {
     const at = new Date(Number(m.at) || Date.now()).toISOString();
     const slot = [1, 2].includes(Number(m.slot)) ? Number(m.slot) : null;
     const parsed = parseSms(body, sender);
+    if (parsed) { const c = categoryFor(parsed, rules); if (c) Object.assign(parsed, { category: c, category_auto: true }); }
     let wallet = null;
     if (parsed?.kind === 'ziidi') wallet = await walletForZiidi(userId, at, parsed);
     else if (slot) wallet = sims[slot] || null;
