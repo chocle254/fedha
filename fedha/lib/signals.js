@@ -30,6 +30,16 @@ export async function createSignal({ userId, source, text, externalId = null }) 
     const buy = parsed.side === 'BUY';
     if (Math.abs(price - entry) / price > 0.02) return { ok: false, error: `${parsed.symbol} is more than 2% away from the signal's price, so it was skipped.` };
     entry = buy ? (price > entryHigh ? entryHigh : price) : (price < entryLow ? entryLow : price);
+    // "BUY NOW": take the market price now, unless it has already run most of the way to TP1 (too late to chase).
+    if (parsed.now) {
+      const tp1 = Number(takeProfits?.[0]);
+      const quoted = buy ? entryHigh : entryLow;
+      if (Number.isFinite(tp1) && Math.abs(tp1 - quoted) > 0) {
+        const ran = (buy ? price - quoted : quoted - price) / Math.abs(tp1 - quoted);
+        if (ran > 0.6) return { ok: false, error: `Price already ran ${Math.round(ran * 100)}% of the way to TP1 (now ${price}), too late to chase.` };
+      }
+      entry = price;
+    }
   } else if (parsed.proxyOf) {
     const rb = rebaseToMarket(parsed, price);
     if (rb.error) return { ok: false, error: rb.error };
@@ -39,7 +49,7 @@ export async function createSignal({ userId, source, text, externalId = null }) 
   if (bad) return { ok: false, error: bad };
 
   // On the spot feed the entry is exact (market price, or the zone edge as a limit order).
-  const needsFill = parsed.proxyOf && spotToken(parsed.symbol) ? entry !== price : Math.abs(entry - price) / price > FILL_TOLERANCE;
+  const needsFill = parsed.now ? false : parsed.proxyOf && spotToken(parsed.symbol) ? entry !== price : Math.abs(entry - price) / price > FILL_TOLERANCE;
   const row = {
     user_id: userId,
     source: String(source || 'Unknown').slice(0, 60),

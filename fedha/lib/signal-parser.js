@@ -101,7 +101,10 @@ export function parseSignal(text) {
   if (sm) stopLoss = num(sm[1]);
 
   if (!tps.length && !stopLoss) return { ok: false, error: 'Needs at least one take-profit (TP) or a stop-loss (SL).' };
-  return { ok: true, symbol, proxyOf, side, entryLow, entryHigh, takeProfits: tps, stopLoss };
+  // "BUY NOW", "SELL NOW @ 4040", "market execution", "CMP", "instant": enter at the market straight away, not a
+  // limit at the quoted price (these run immediately and rarely come back to it). "BUY LIMIT" never counts as now.
+  const now = !/\b(LIMIT|PENDING)\b/.test(up) && /\b(BUY|SELL|LONG|SHORT)\s*NOW\b|\bNOW\s*(@|AT|:)|\bMARKET(\s*(EXECUTION|ORDER|PRICE))?\b|\bCMP\b|\bINSTANT\b/.test(up);
+  return { ok: true, symbol, proxyOf, side, entryLow, entryHigh, takeProfits: tps, stopLoss, now };
 }
 
 // For MT5 markets: the signal's prices are a broker's quotes, while the feed (futures, or Yahoo's forex rate) sits a little
