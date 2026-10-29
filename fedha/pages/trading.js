@@ -10,6 +10,7 @@ import WalletPanel from '../components/trading/WalletPanel';
 import BrokerPanel from '../components/trading/BrokerPanel';
 import NewsStrip from '../components/trading/NewsStrip';
 import GrowthCard from '../components/trading/GrowthCard';
+import PotentialCard from '../components/trading/PotentialCard';
 import { ensurePushSubscription } from '../lib/push';
 import { groupReport, brokerResults, GROUP_MIN_TRADES, TRAIL_LABEL, TRAIL_DEFAULT } from '../lib/trading-core';
 import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST, lotsLabel, rrPlan, rrText, rrDetail, resultR, isMt5, pipSize, moveLabel, bankedPipsLabel, netPipsLabel } from '../components/trading/util';
@@ -555,6 +556,7 @@ export default function TradingPage() {
               {activeSignals.length ? activeSignals.map((s) => signalRow(s, true)) : (
                 <div className="tx-empty">No active signals. New ones appear here the moment the Telegram listener forwards them. Check the Telegram tab to see every message that came in and why any were skipped.</div>
               )}
+              <PotentialCard trades={trades} settings={settings} />
               {groups.length > 0 && (
                 <div className="tx-board">
                   <div className="tx-sub">Group report card</div>
