@@ -154,6 +154,7 @@ export async function ingest(token, messages) {
     }
     const { error } = await supabaseAdmin.from('sms_inbox').upsert(row, { onConflict: 'user_id,fingerprint', ignoreDuplicates: true });
     if (!error && row.status === 'captured' && parsed?.kind === 'received' && parsed.phone) await customerPaid(userId, parsed, at).catch(() => {});
+    if (!error && row.status === 'captured' && parsed?.kind === 'ziidi' && parsed.action === 'lock' && parsed.amount > 0) await savingsLocked(userId, parsed, at).catch(() => {});
     if (error) {
       if (/relation .* does not exist|sms_inbox/i.test(error.message)) return { error: 'Run supabase-migration-sms-inbox.sql first.' };
       skipped++;
@@ -186,6 +187,40 @@ async function customerPaid(userId, p, at) {
     }).catch(() => {});
     return;
   }
+}
+
+// Ziidi "You have successfully locked Ksh.X": confirm the save that was waiting for it (Savings prompt → Save on a
+// Ziidi wallet leaves an entry in 'savings_pending'). One waiting save of that amount, or all the waiting saves on
+// one account adding up to it. The app records the move and the goal progress when it sees the confirmation
+// ('savings_confirmed'), so its offline copy of the goals is never overwritten from here.
+async function savingsLocked(userId, p, at) {
+  const get = async (key) => (await supabaseAdmin.from('settings').select('value').eq('user_id', userId).eq('key', key).maybeSingle()).data?.value;
+  const [pending, confirmed] = await Promise.all([get('savings_pending'), get('savings_confirmed')]);
+  const done = new Set((Array.isArray(confirmed) ? confirmed : []).map((c) => c.id));
+  const waiting = (Array.isArray(pending) ? pending : []).filter((x) => !done.has(x.id));
+  if (!waiting.length) return;
+  const near = (a, b) => Math.abs(Number(a) - Number(b)) <= 1;
+  let hit = waiting.filter((x) => near(x.amount, p.amount)).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).slice(0, 1);
+  if (!hit.length) {
+    const byWallet = new Map();
+    for (const x of waiting) byWallet.set(x.wallet_id, [...(byWallet.get(x.wallet_id) || []), x]);
+    hit = [...byWallet.values()].find((list) => near(list.reduce((s2, x) => s2 + Number(x.amount), 0), p.amount)) || [];
+  }
+  if (!hit.length) return;
+  const next = [...(Array.isArray(confirmed) ? confirmed : []), ...hit.map((x) => ({ id: x.id, at, amount: x.amount }))].slice(-300);
+  await supabaseAdmin.from('settings').upsert({ user_id: userId, key: 'savings_confirmed', value: next, updated_at: new Date().toISOString() }, { onConflict: 'user_id,key' });
+
+  // "🔒 KES 1,500 locked for PS5 + Screen · KES 26,500 of 108,000 (25%)"
+  const names = [...new Set(hit.flatMap((x) => (x.goals || []).map((g) => g.name)))];
+  let progress = '';
+  const goalId = hit[0].goals?.[0]?.id;
+  if (goalId) {
+    const { data: g } = await supabaseAdmin.from('goals').select('*').eq('id', goalId).maybeSingle();
+    const cur = Number(g?.current ?? g?.data?.current) || 0; const target = Number(g?.target ?? g?.data?.target) || 0;
+    const add = hit.reduce((s2, x) => s2 + ((x.goals || []).find((y) => y.id === goalId)?.amount || 0), 0);
+    if (target) progress = ` · KES ${Math.round(cur + add).toLocaleString('en-KE')} of ${Math.round(target).toLocaleString('en-KE')} (${Math.min(100, Math.round(((cur + add) / target) * 100))}%)`;
+  }
+  await pushToAll({ title: `🔒 KES ${Number(p.amount).toLocaleString('en-KE')} locked for ${names.join(', ') || 'your goal'}`, body: `Ziidi confirmed the lock, so Luxe recorded it${progress}.`, tag: `earn-save-${at}`, url: '/goals' }).catch(() => {});
 }
 
 // Space and privacy:

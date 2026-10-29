@@ -4,6 +4,7 @@ import TransactionModal from '../components/TransactionModal';
 import SavingsPlanCard from '../components/SavingsPlanCard';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatShort, formatDate, getDaysUntil, genId } from '../lib/utils';
+import { summarize } from '../lib/earnings';
 
 const GOAL_ICONS = ['🎯','🏠','🚗','✈️','💻','📱','💍','🎓','👶','🏋️','🌍','💰','🏦','🎁','🛥️','🎮'];
 const GOAL_COLORS = ['#10B981','#3B82F6','#F59E0B','#EF4444','#8B5CF6','#EC4899','#06B6D4','#F97316'];
@@ -15,6 +16,7 @@ function GoalForm({ initial, onSave, onClose }) {
   const [deadline, setDeadline] = useState(initial?.deadline || '');
   const [icon, setIcon] = useState(initial?.icon || '🎯');
   const [color, setColor] = useState(initial?.color || '#10B981');
+  const [cutPct, setCutPct] = useState(initial?.cut_pct ?? 30);
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -55,6 +57,11 @@ function GoalForm({ initial, onSave, onClose }) {
             <input className="input" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
           </div>
           <div>
+            <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Save from each deposit: {cutPct}%</label>
+            <input type="range" min="10" max="90" step="5" value={cutPct} onChange={(e) => setCutPct(Number(e.target.value))} style={{ width: '100%' }} />
+            <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>When it's this goal's turn, the savings question suggests this much of the deposit (you still confirm every time).</div>
+          </div>
+          <div>
             <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Colour</label>
             <div style={{ display: 'flex', gap: 8 }}>
               {GOAL_COLORS.map((c) => (
@@ -62,7 +69,7 @@ function GoalForm({ initial, onSave, onClose }) {
               ))}
             </div>
           </div>
-          <button className="btn-primary" disabled={!name || !target} onClick={() => onSave({ ...initial, name, target: Number(target), current: Number(current), deadline: deadline || null, icon, color, id: initial?.id || genId(), created_at: initial?.created_at || new Date().toISOString() })}>
+          <button className="btn-primary" disabled={!name || !target} onClick={() => onSave({ ...initial, name, target: Number(target), current: Number(current), deadline: deadline || null, icon, color, cut_pct: Number(cutPct) || 30, id: initial?.id || genId(), created_at: initial?.created_at || new Date().toISOString() })}>
             {initial ? 'Save Changes' : 'Create Goal'}
           </button>
         </div>
@@ -109,6 +116,10 @@ export default function GoalsPage() {
   const [contributeGoal, setContributeGoal] = useState(null);
   const [showTxn, setShowTxn] = useState(false);
 
+  const { savingsWaiting = [], confirmLockByHand, cancelWaitingSave, transactions, wallets } = useApp();
+  // Pace: what comes in per week (last 2 weeks of earned income, lib/earnings.js) × the goal's save %.
+  const earn = summarize(transactions || []);
+  const weeklyIn = earn.days14.reduce((s2, d) => s2 + d.amount, 0) / 2;
   const activeGoals = goals.filter((g) => (g.current || 0) < g.target);
   const completedGoals = goals.filter((g) => (g.current || 0) >= g.target);
   const totalTarget = goals.reduce((s, g) => s + g.target, 0);
@@ -147,6 +158,22 @@ export default function GoalsPage() {
         </div>
 
         <div style={{ padding: '0 20px' }}>
+          {savingsWaiting.length > 0 && (
+            <div className="card" style={{ padding: '14px 16px', marginBottom: 12, borderColor: 'rgba(245,158,11,0.4)' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: '#F59E0B' }}>🔒 WAITING FOR THE ZIIDI LOCK</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4, lineHeight: 1.5 }}>Recorded the moment Ziidi's "successfully locked" SMS for this amount arrives.</div>
+              {savingsWaiting.map((w) => (
+                <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                  <div style={{ flex: 1, fontSize: 13 }}>
+                    <b className="font-num">{formatCurrency(w.amount, currency)}</b> for {(w.goals || []).map((g) => g.name).join(', ')}
+                    <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{(wallets || []).find((x) => x.id === w.wallet_id)?.name || 'M-Pesa'} · since {new Date(w.created_at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</div>
+                  </div>
+                  <button className="btn-primary" style={{ width: 'auto', padding: '8px 12px', fontSize: 12.5 }} onClick={() => confirmLockByHand(w)}>I locked it</button>
+                  <button className="btn-ghost" style={{ width: 'auto', padding: '8px 10px', fontSize: 12.5 }} onClick={() => cancelWaitingSave(w)}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
           <SavingsPlanCard remaining={totalTarget - totalSaved} />
           {activeGoals.length === 0 && completedGoals.length === 0 ? (
             <div className="empty-state" style={{ paddingTop: 60 }}>
@@ -187,10 +214,27 @@ export default function GoalsPage() {
                       <div className="progress-bar" style={{ height: 10, marginBottom: 8 }}>
                         <div className="progress-fill" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${g.color}99, ${g.color})` }} />
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-3)', marginBottom: 14 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-3)', marginBottom: 8 }}>
                         <span>{pct.toFixed(1)}% saved</span>
                         <span>{formatShort(remaining, currency)} to go</span>
                       </div>
+                      {(() => {
+                        // Honest pace: at the goal's save % of what has come in per week lately, when it gets there.
+                        const cut = (Number(g.cut_pct) || 30) / 100;
+                        const perWeek = weeklyIn * cut;
+                        if (!(perWeek > 0)) return null;
+                        const weeks = remaining / perWeek;
+                        const eta = new Date(Date.now() + weeks * 7 * 864e5);
+                        const onTime = g.deadline ? eta <= new Date(`${g.deadline}T23:59:59`) : null;
+                        const needPct = g.deadline && days > 0 ? Math.round((remaining / (days / 7)) / weeklyIn * 100) : null;
+                        return (
+                          <div style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 14, padding: '8px 10px', borderRadius: 10, background: onTime === false ? 'rgba(245,158,11,0.08)' : 'rgba(16,185,129,0.08)', color: 'var(--text-2)' }}>
+                            At {Math.round(cut * 100)}% of ~{formatShort(weeklyIn, currency)}/week coming in: <b>{formatShort(perWeek, currency)}/week</b>, done by <b>{eta.toLocaleDateString([], { day: 'numeric', month: 'short', year: eta.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined })}</b>.
+                            {onTime === false && needPct != null && <> To make {formatDate ? formatDate(g.deadline) : g.deadline} you'd need to save {needPct > 100 ? 'more than you earn' : `${needPct}% of income`}{needPct > 100 ? ' at this pace' : ''}.</>}
+                            {onTime === true && <> On track ✓</>}
+                          </div>
+                        );
+                      })()}
 
                       {/* Actions */}
                       <div style={{ display: 'flex', gap: 8 }}>

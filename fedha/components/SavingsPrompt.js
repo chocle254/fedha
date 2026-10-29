@@ -6,7 +6,8 @@ import { formatCurrency, goalsInTurnOrder, fillGoalsInOrder, DEPOSIT_SAVINGS_CUT
 // to save 30% of it for the goal whose turn it is. Amounts in the input are in
 // the display currency; everything stored is in the base currency.
 export default function SavingsPrompt() {
-  const { pendingSavings: deposit, confirmSavingsCut, skipSavingsCut, goals, currency, lastSavedGoalId } = useApp();
+  const { pendingSavings: deposit, confirmSavingsCut, skipSavingsCut, goals, currency, lastSavedGoalId, wallets } = useApp();
+  const [lockStep, setLockStep] = useState(null); // after Save on a Ziidi wallet: { amount, wallet, goal }
   const queue = useMemo(() => goalsInTurnOrder(goals, lastSavedGoalId), [goals, lastSavedGoalId]);
   const [amount, setAmount] = useState('');
   const [saving, setSaving] = useState(false);
@@ -15,12 +16,39 @@ export default function SavingsPrompt() {
   const totalNeeded = queue.reduce((s, g) => s + (g.target - (g.current || 0)), 0);
   const maxBase = Math.max(0, Math.min(depositBase, totalNeeded));
 
-  // Each new deposit starts at 30%.
+  // Each new deposit starts at the turn goal's own % (set on the goal), or 30%.
+  const cutPct = Number(queue[0]?.cut_pct) > 0 ? Number(queue[0].cut_pct) / 100 : DEPOSIT_SAVINGS_CUT;
   useEffect(() => {
     if (!deposit) return;
-    const suggested = Math.min(maxBase, depositBase * DEPOSIT_SAVINGS_CUT);
+    const suggested = Math.min(maxBase, depositBase * cutPct);
     setAmount(String(Math.round(convertAmount(suggested, currency) * 100) / 100));
   }, [deposit?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // After Save on a Ziidi wallet: what to do on the phone; Luxe records it when Ziidi's "locked" SMS arrives.
+  if (lockStep) {
+    return (
+      <div className="modal-overlay" style={{ zIndex: 1000 }} onClick={(e) => e.target === e.currentTarget && setLockStep(null)}>
+        <div className="modal-sheet">
+          <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
+          <div className="modal-header"><span style={{ fontSize: 16, fontWeight: 700 }}>🔒 Now lock it in Ziidi</span><button className="btn-icon" onClick={() => setLockStep(null)}>✕</button></div>
+          <div className="modal-body">
+            <div style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
+              On <b style={{ color: 'var(--text)' }}>{lockStep.wallet?.name || 'M-Pesa'}</b>:
+              <ol style={{ margin: '8px 0 0 18px', padding: 0 }}>
+                <li>Push <b className="font-num" style={{ color: 'var(--green)' }}>{formatCurrency(lockStep.amount, currency)}</b> from M-Pesa to Ziidi</li>
+                <li>Lock <b className="font-num">{formatCurrency(lockStep.amount, currency)}</b> in Ziidi</li>
+              </ol>
+            </div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.5, background: 'var(--card-2)', borderRadius: 10, padding: '10px 12px' }}>
+              Luxe records it for {lockStep.goal?.icon} {lockStep.goal?.name} the moment Ziidi's "successfully locked" SMS arrives. Until then it waits on the Savings Goals page, where you can also tap "I locked it".
+            </div>
+            <a className="btn-primary" href="tel:*334%23" style={{ textAlign: 'center', textDecoration: 'none' }}>Dial *334# (M-Pesa)</a>
+            <button className="btn-ghost" onClick={() => setLockStep(null)}>Done, I'll lock it now</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!deposit || !queue.length) return null;
 
@@ -31,7 +59,11 @@ export default function SavingsPrompt() {
 
   async function save() {
     setSaving(true);
-    try { await confirmSavingsCut(cutBase); } finally { setSaving(false); }
+    const ziidiWallet = (wallets || []).some((w) => w.parent_id === deposit.wallet_id && w.pocket === 'ziidi_locked');
+    try {
+      await confirmSavingsCut(cutBase);
+      if (ziidiWallet) setLockStep({ amount: cutBase, wallet: (wallets || []).find((w) => w.id === deposit.wallet_id), goal: turnGoal });
+    } finally { setSaving(false); }
   }
 
   return (
@@ -39,7 +71,7 @@ export default function SavingsPrompt() {
       <div className="modal-sheet">
         <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '12px auto' }} />
         <div className="modal-header">
-          <span style={{ fontSize: 16, fontWeight: 700 }}>🏦 Save 30%?</span>
+          <span style={{ fontSize: 16, fontWeight: 700 }}>🏦 Save {Math.round(cutPct * 100)}%?</span>
           <button className="btn-icon" onClick={skipSavingsCut}>✕</button>
         </div>
         <div className="modal-body">

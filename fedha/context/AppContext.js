@@ -125,7 +125,12 @@ export function AppProvider({ children }) {
   // Goals take turns: one goal per deposit, spilling to the next goal if the
   // current one needs less. The cut is its own "savings" expense with id
   // <deposit id>_save, so deleting the deposit can find it and undo it.
-  const saveCutFromDeposit = useCallback(async (deposit, amount) => {
+  //
+  // Ziidi wallets: Save does NOT record straight away. It leaves a "waiting for the lock" entry (setting
+  // 'savings_pending'); when Ziidi's "You have successfully locked Ksh.X" SMS arrives, the server confirms it
+  // ('savings_confirmed', lib/sms-capture.js) and applyConfirmedSavings below records the move and the goal
+  // progress. "I locked it" (lockedByHand) does the same by hand. Wallets without Ziidi record at once, as before.
+  const saveCutFromDeposit = useCallback(async (deposit, amount, { lockedByHand = false } = {}) => {
     const [allGoals, lastId] = await Promise.all([getGoals(), getSetting('last_saved_goal_id', null)]);
     const queue = goalsInTurnOrder(allGoals, lastId);
     if (!queue.length) return null;
@@ -137,6 +142,15 @@ export function AppProvider({ children }) {
     // If this wallet has Ziidi, the savings go into Ziidi Locked (a transfer, so the money is still yours,
     // just locked). Otherwise it is recorded as a savings expense like before.
     const lockedPocket = (await getWallets()).find((w) => w.parent_id === deposit.wallet_id && w.pocket === 'ziidi_locked');
+    if (lockedPocket && !lockedByHand) {
+      const pending = (await getSetting('savings_pending', [])) || [];
+      const item = { id: `${deposit.id}_save`, deposit: { id: deposit.id, wallet_id: deposit.wallet_id, date: deposit.date || todayISO(), currency: deposit.currency, amount: deposit.amount }, amount: total, goals: fills.map((a) => ({ id: a.id, name: a.name, amount: a.allocated })), wallet_id: deposit.wallet_id, locked_id: lockedPocket.id, created_at: new Date().toISOString() };
+      await setSetting('savings_pending', [...pending.filter((x) => x.id !== item.id), item]);
+      await setSetting('last_saved_goal_id', queue[0].id);
+      setLastSavedGoalIdState(queue[0].id);
+      setSavingsWaiting((w) => [...w.filter((x) => x.id !== item.id), item]);
+      return null;
+    }
     const saveTx = await saveTransaction({
       id: `${deposit.id}_save`,
       type: lockedPocket ? 'transfer' : 'expense',
@@ -160,6 +174,51 @@ export function AppProvider({ children }) {
     setGoals(await getGoals());
     return saveTx;
   }, []);
+
+  // Savings waiting for their Ziidi lock, and applying the ones Ziidi's SMS (or "I locked it") confirmed.
+  const [savingsWaiting, setSavingsWaiting] = useState([]);
+  const recordLockedSave = useCallback(async (item, lockedAt) => {
+    const allGoals = await getGoals();
+    const fills = (item.goals || []).map((g) => ({ ...g, allocated: g.amount }));
+    const existing = await getTransaction(item.id);
+    if (!existing) {
+      const tx = await saveTransaction({
+        id: item.id, type: 'transfer', wallet_id: item.wallet_id, to_wallet_id: item.locked_id, amount: item.amount, category: 'savings',
+        description: `Saved for ${fills.map((a) => a.name).join(', ')} (locked in Ziidi)`, date: String(lockedAt || new Date().toISOString()).slice(0, 10),
+        currency: item.deposit?.currency, created_at: new Date().toISOString(), savings_allocations: fills.map((a) => ({ goal_id: a.id, amount: a.allocated })),
+      });
+      setTransactions((prev) => [tx, ...prev.filter((x) => x.id !== tx.id)]);
+      for (const a of fills) {
+        const g = allGoals.find((x) => x.id === a.id);
+        if (g) await saveGoal({ ...g, current: (Number(g.current) || 0) + a.allocated });
+      }
+    }
+    const pending = (await getSetting('savings_pending', [])) || [];
+    await setSetting('savings_pending', pending.filter((x) => x.id !== item.id));
+    setSavingsWaiting((w) => w.filter((x) => x.id !== item.id));
+    setGoals(await getGoals());
+    const [ws] = await Promise.all([getWallets()]); setWallets(ws);
+  }, []);
+  const applyConfirmedSavings = useCallback(async () => {
+    const [pending, confirmed] = await Promise.all([getSetting('savings_pending', []), getSetting('savings_confirmed', [])]);
+    const done = new Map((Array.isArray(confirmed) ? confirmed : []).map((c) => [c.id, c]));
+    for (const item of Array.isArray(pending) ? pending : []) if (done.has(item.id)) await recordLockedSave(item, done.get(item.id).at);
+    setSavingsWaiting(((await getSetting('savings_pending', [])) || []).filter((x) => !done.has(x.id)));
+  }, [recordLockedSave]);
+  const confirmLockByHand = useCallback(async (item) => recordLockedSave(item, new Date().toISOString()), [recordLockedSave]);
+  const cancelWaitingSave = useCallback(async (item) => {
+    const pending = (await getSetting('savings_pending', [])) || [];
+    await setSetting('savings_pending', pending.filter((x) => x.id !== item.id));
+    setSavingsWaiting((w) => w.filter((x) => x.id !== item.id));
+  }, []);
+  useEffect(() => {
+    if (loading) return undefined;
+    applyConfirmedSavings();
+    const on = () => document.visibilityState === 'visible' && applyConfirmedSavings();
+    document.addEventListener('visibilitychange', on);
+    const t = setInterval(on, 60e3);
+    return () => { document.removeEventListener('visibilitychange', on); clearInterval(t); };
+  }, [loading, applyConfirmedSavings]);
 
   // Undo a savings cut: take each goal's share back off it.
   const undoSavingsCut = useCallback(async (tx) => {
@@ -357,7 +416,7 @@ export function AppProvider({ children }) {
     <AppContext.Provider value={{
       loading, isOnline, pendingSyncCount, currency, setCurrency, fxVersion,
       savingsPlanDays, setSavingsPlanDays, lastSavedGoalId, setLastSavedGoalId,
-      pendingSavings, confirmSavingsCut, skipSavingsCut,
+      pendingSavings, confirmSavingsCut, skipSavingsCut, savingsWaiting, confirmLockByHand, cancelWaitingSave,
       wallets, addWallet, updateWallet, removeWallet,
       transactions, addTransaction, removeTransaction,
       budgets, addBudget, updateBudget, removeBudget,
