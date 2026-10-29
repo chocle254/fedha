@@ -95,7 +95,7 @@ export default function Music() {
       </div>
 
       <style jsx global>{`
-        .mr { background: #000; color: #f5f5f7; min-height: 100vh; padding-bottom: 60px; font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif; }
+        .mr { background: #000; color: #f5f5f7; min-height: 100vh; padding-bottom: calc(110px + env(safe-area-inset-bottom)); font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif; }
         .mr-top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: rgba(0,0,0,0.6); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
         .mr-top h1 { flex: 1; margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -0.4px; white-space: nowrap; }
         .mr-chip { border: 0; border-radius: 999px; padding: 7px 12px; font-size: 12.5px; font-weight: 600; background: rgba(255,255,255,0.1); color: #f5f5f7; cursor: pointer; font-family: inherit; white-space: nowrap; }

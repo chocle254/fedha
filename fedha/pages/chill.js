@@ -257,7 +257,7 @@ export default function Chill() {
       )}
 
       <style jsx global>{`
-        .cr { background: #000; color: #f5f5f7; min-height: 100vh; padding-bottom: 48px; font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif; }
+        .cr { background: #000; color: #f5f5f7; min-height: 100vh; padding-bottom: calc(150px + env(safe-area-inset-bottom)); font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif; }
         .cr-top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: rgba(0,0,0,0.6); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
         .cr-top h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.4px; margin: 0; flex: 1; white-space: nowrap; }
         .cr-pill { border: 0; font-family: inherit; cursor: pointer; font-size: 12px; font-weight: 600; padding: 6px 11px; border-radius: 999px; background: rgba(255,255,255,0.1); color: #d1d1d6; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -304,8 +304,8 @@ export default function Chill() {
         .cr-empty .big { font-size: 54px; }
         .cr-empty h2 { font-size: 24px; margin: 10px 0 8px; letter-spacing: -0.5px; }
         .cr-empty p { color: #8e8e93; font-size: 14px; line-height: 1.5; max-width: 380px; margin: 0 auto 20px; }
-        .cr-sheet { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.6); backdrop-filter: blur(6px); display: flex; align-items: flex-end; justify-content: center; }
-        .cr-panel { width: 100%; max-width: 720px; max-height: 92vh; overflow-y: auto; background: #1c1c1e; color: #f5f5f7; border-radius: 18px 18px 0 0; font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif; }
+        .cr-sheet { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.6); backdrop-filter: blur(6px); display: flex; align-items: flex-end; justify-content: center; }
+        .cr-panel { width: 100%; max-width: 720px; max-height: 92vh; padding-bottom: env(safe-area-inset-bottom); overflow-y: auto; background: #1c1c1e; color: #f5f5f7; border-radius: 18px 18px 0 0; font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif; }
         .cr-pHead { position: relative; height: 220px; background: #2c2c2e center / cover; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 16px 14px; }
         .cr-pHead h2, .cr-pHead .cr-meta { position: relative; }
         .cr-pHead h2 { font-size: 24px; font-weight: 800; margin: 0 0 4px; letter-spacing: -0.5px; }
@@ -314,7 +314,7 @@ export default function Chill() {
         .cr-tabs button { border: 0; border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 600; background: rgba(255,255,255,0.08); color: #d1d1d6; white-space: nowrap; cursor: pointer; font-family: inherit; }
         .cr-tabs button.on { background: #f5f5f7; color: #000; }
         .cr-miss { margin: 8px 16px 0; font-size: 12.5px; color: #ff9f0a; }
-        .cr-eps { padding: 6px 16px 24px; display: grid; gap: 12px; }
+        .cr-eps { padding: 6px 16px 40px; display: grid; gap: 12px; }
         .cr-epRow { display: flex; gap: 12px; align-items: center; width: 100%; }
         .cr-thumb { position: relative; flex: 0 0 132px; aspect-ratio: 16 / 9; border-radius: 8px; background: #2c2c2e center / cover; }
         .cr-thumb em { position: absolute; inset: 0; margin: auto; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: rgba(0,0,0,0.55); font-style: normal; font-size: 12px; }

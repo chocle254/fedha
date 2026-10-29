@@ -101,7 +101,7 @@ export default function Asmr() {
       </div>
 
       <style jsx global>{`
-        .as { position: relative; min-height: calc(100vh - 60px); background: radial-gradient(ellipse at 50% 40%, #12091f 0%, #05030a 60%, #000 100%); color: #f5f5f7; overflow: hidden; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif; user-select: none; }
+        .as { position: relative; min-height: calc(100vh - 70px - env(safe-area-inset-bottom)); background: radial-gradient(ellipse at 50% 40%, #12091f 0%, #05030a 60%, #000 100%); color: #f5f5f7; overflow: hidden; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif; user-select: none; }
         .as-glow { position: absolute; width: 140vmin; height: 140vmin; border-radius: 50%; background: radial-gradient(circle, rgba(139,92,246,0.18), transparent 60%); animation: asBreath 9s ease-in-out infinite; pointer-events: none; }
         .as.on .as-glow { background: radial-gradient(circle, rgba(167,139,250,0.24), transparent 60%); }
         @keyframes asBreath { 0%, 100% { transform: scale(0.92); opacity: 0.7; } 50% { transform: scale(1.06); opacity: 1; } }
@@ -112,7 +112,7 @@ export default function Asmr() {
         @keyframes asBeat { 0% { transform: scale(calc(1 + var(--p) * 0.09)); box-shadow: 0 0 calc(60px + var(--p) * 90px) rgba(167,139,250,0.75), inset 0 0 40px rgba(255,255,255,0.25); } 100% { transform: scale(1); } }
         .as-name { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; text-align: center; }
         .as-sub { font-size: 13px; color: rgba(255,255,255,0.55); text-align: center; max-width: 300px; line-height: 1.45; }
-        .as-ctrls { position: absolute; bottom: 30px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 14px; transition: opacity 0.6s; }
+        .as-ctrls { position: absolute; bottom: calc(96px + env(safe-area-inset-bottom)); left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 14px; transition: opacity 0.6s; }
         .as-ctrls.gone { opacity: 0; pointer-events: none; }
         .as-row { display: flex; align-items: center; gap: 22px; }
         .as-row button { all: unset; cursor: pointer; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font-size: 20px; background: rgba(255,255,255,0.08); color: #f5f5f7; }

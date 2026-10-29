@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioManager;
 import android.media.audiofx.BassBoost;
 import android.media.audiofx.Equalizer;
 import android.media.audiofx.LoudnessEnhancer;
@@ -19,7 +20,10 @@ import android.os.Looper;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.util.TypedValue;
+import android.view.GestureDetector;
 import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -34,6 +38,7 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
 import org.json.JSONArray;
@@ -68,6 +73,14 @@ public class PlayerActivity extends Activity {
     private int nextCountdown = -1;
     private long lastSave = 0;
     private long lastCount = 0;
+
+    // Gestures: pinch = fill / fit, vertical swipe right = volume, left = brightness, double-tap edges = ±10 s.
+    private GestureDetector gestures;
+    private ScaleGestureDetector pinch;
+    private AudioManager audio;
+    private int swipe = 0; // 0 none, 1 volume, 2 brightness
+    private float swipeStartY, swipeStartValue;
+    private boolean taken; // a gesture took over this touch (the controls don't get it)
 
     private Equalizer eq;
     private BassBoost bass;
@@ -119,8 +132,95 @@ public class PlayerActivity extends Activity {
             @Override public void onPlaybackStateChanged(int s) { if (s == Player.STATE_ENDED) { markWatched(); if (hasNext()) playAt(idx + 1); else finish(); } }
             @Override public void onPlayerError(PlaybackException e) { openElsewhere(); }
         });
+        view.setResizeMode(getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("fill", false) ? AspectRatioFrameLayout.RESIZE_MODE_ZOOM : AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+        setupGestures();
         playAt(0);
         h.post(tick);
+    }
+
+    private void setupGestures() {
+        pinch = new ScaleGestureDetector(this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            float total = 1f;
+            @Override public boolean onScaleBegin(ScaleGestureDetector d) { total = 1f; return true; }
+            @Override public boolean onScale(ScaleGestureDetector d) { total *= d.getScaleFactor(); return true; }
+            @Override public void onScaleEnd(ScaleGestureDetector d) {
+                if (total > 1.08f) setFill(true); else if (total < 0.92f) setFill(false);
+            }
+        });
+        gestures = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onDown(MotionEvent e) {
+                swipe = 0; swipeStartY = e.getY();
+                return false;
+            }
+            @Override public boolean onScroll(MotionEvent e1, MotionEvent e2, float dx, float dy) {
+                if (e1 == null || pinch.isInProgress()) return false;
+                float moved = e1.getY() - e2.getY();
+                if (swipe == 0) {
+                    if (Math.abs(moved) < dp(24) || Math.abs(moved) < Math.abs(e2.getX() - e1.getX())) return false;
+                    boolean right = e1.getX() > view.getWidth() / 2f;
+                    swipe = right ? 1 : 2;
+                    swipeStartY = e2.getY();
+                    swipeStartValue = right ? volumeFraction() : brightness();
+                }
+                float delta = (swipeStartY - e2.getY()) / (view.getHeight() * 0.7f);
+                float v = Math.max(0f, Math.min(1f, swipeStartValue + delta));
+                if (swipe == 1) setVolume(v); else setBrightness(v);
+                return true;
+            }
+            @Override public boolean onDoubleTap(MotionEvent e) {
+                float x = e.getX(), w = view.getWidth();
+                if (x < w * 0.35f) { player.seekTo(Math.max(0, player.getCurrentPosition() - 10_000)); showPill("⏪ 10 s", 700); return true; }
+                if (x > w * 0.65f) { player.seekTo(player.getCurrentPosition() + 10_000); showPill("10 s ⏩", 700); return true; }
+                return false;
+            }
+        });
+    }
+
+    // Every touch goes past the gestures first; once a pinch or swipe takes over, the controls don't see the rest.
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (pinch == null) return super.dispatchTouchEvent(ev);
+        pinch.onTouchEvent(ev);
+        boolean g = gestures.onTouchEvent(ev);
+        if (!taken && (pinch.isInProgress() || swipe != 0 || ev.getPointerCount() > 1)) {
+            taken = true;
+            MotionEvent cancel = MotionEvent.obtain(ev); cancel.setAction(MotionEvent.ACTION_CANCEL);
+            super.dispatchTouchEvent(cancel); cancel.recycle();
+        }
+        if (ev.getActionMasked() == MotionEvent.ACTION_UP || ev.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+            boolean was = taken; taken = false; swipe = 0;
+            if (was) return true;
+        }
+        if (taken || (g && ev.getActionMasked() != MotionEvent.ACTION_DOWN)) return true;
+        return super.dispatchTouchEvent(ev);
+    }
+
+    private void setFill(boolean fill) {
+        view.setResizeMode(fill ? AspectRatioFrameLayout.RESIZE_MODE_ZOOM : AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("fill", fill).apply();
+        showPill(fill ? "Fill screen" : "Fit to screen", 1000);
+    }
+
+    private float volumeFraction() {
+        int max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+        return max > 0 ? audio.getStreamVolume(AudioManager.STREAM_MUSIC) / (float) max : 0f;
+    }
+    private void setVolume(float f) {
+        int max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+        try { audio.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(f * max), 0); } catch (SecurityException ignored) { }
+        showPill("🔊 " + Math.round(f * 100) + "%", 700);
+    }
+    private float brightness() {
+        float b = getWindow().getAttributes().screenBrightness;
+        if (b >= 0) return b;
+        try { return android.provider.Settings.System.getInt(getContentResolver(), android.provider.Settings.System.SCREEN_BRIGHTNESS) / 255f; } catch (Exception e) { return 0.5f; }
+    }
+    private void setBrightness(float f) {
+        WindowManager.LayoutParams lp = getWindow().getAttributes();
+        lp.screenBrightness = Math.max(0.01f, f);
+        getWindow().setAttributes(lp);
+        showPill("☀️ " + Math.round(f * 100) + "%", 700);
     }
 
     private void readIntent(Intent i) {
