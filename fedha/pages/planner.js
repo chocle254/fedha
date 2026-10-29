@@ -29,7 +29,12 @@ const DINNER_AT = 19 * 60;           // dinner starts exactly here
 // Work blocks soak up every spare minute between the fixed things, within these limits.
 const WORK_MIN = 45;                 // a work block is never shorter than this
 const WORK_MAX = 150;                // ...and never longer than this without a break
-const WORK_SQUEEZE = 25;             // in a tight stretch a work block may shrink this far before it is dropped
+const WORK_SQUEEZE = 25;
+// Watch time (series and movies, in the Chill Room): always right after a smoke break.
+// Weekdays one 2 h session in the evening; weekends 4 h, as an afternoon and an evening session of 2 h each.
+const WATCH_MIN = 120;
+// Scheduled scrolling, so it has a time and an end instead of leaking into the whole day.
+const SCROLL_MIN = { weekday: 30, weekend: 45 };             // in a tight stretch a work block may shrink this far before it is dropped
 
 const TYPE_COLORS = {
   routine:  { bg:'rgba(99,102,241,0.12)',  border:'rgba(99,102,241,0.35)',  text:'#818CF8', dot:'#6366F1' },
@@ -298,6 +303,8 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
   }
 
   // AFTERNOON — the long work stretch, then the workout(s) well clear of lunch AND dinner.
+  // Right after lunch: the day's scrolling, with a start and an end.
+  want('pm', 'scroll', 'Scroll Time 📱', 'personal', '📱', 'TikTok, Instagram, X — guilt-free until the block ends. Then the phone goes down.', PRIORITY.social, 15, isWeekend ? SCROLL_MIN.weekend : SCROLL_MIN.weekday);
   if (researchItem) want('pm', 'research', researchItem.label, 'research', researchItem.emoji, researchItem.note, PRIORITY.work, 30, 60, { grow: true, max: 90, squeeze: 20 });
   // The top-priority item gets a second run after lunch, so it ends up with the biggest share of the day.
   work('pm', 'work3', continued(pickWork(workItems, 0)), 120);
@@ -318,6 +325,13 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
     want('pm', 'freshen', 'Quick Wash & Change', 'health', '🚿', 'Rinse off and change before cooking dinner.', PRIORITY.essential, 5, 10);
   }
 
+  // Weekend afternoon watch session (the first 2 of the weekend's 4 hours), after its own smoke break —
+  // last thing before dinner, so the workout and wash come first.
+  if (isWeekend) {
+    want('pm', 'smoke_pm', 'Smoke Break 🌿', 'personal', '🌿', 'Roll up, step out. The Chill Room is next.', PRIORITY.essential, 15, 15);
+    want('pm', 'movies', 'Chill Room — Movie 🎬', 'personal', '🎬', 'Open the Chill Room: a movie or a run of episodes. 2 hours.', PRIORITY.essential, WATCH_MIN, WATCH_MIN);
+  }
+
   // DINNER — pinned to DINNER_AT.
   if (!pastDinner) {
     want('din', 'dinner_prep', 'Prepare Dinner', 'meal', '🍲', 'Start cooking. Check Meals tab for tonight.', PRIORITY.essential, 15, isWeekend ? 30 : 20, { role: 'prep' });
@@ -327,12 +341,11 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
 
   // EVENING — wind down to bed.
   if (dayPlan.evening.isRest && (!small || dayPlan.morning.isRest)) want('eve', 'recovery', 'Active Recovery — Stretch', 'workout', '🧘', 'Rest day evening — light stretching, no heavy sets.', PRIORITY.essential, 10, 15);
-  // Evenings are productive: a work run after dinner, a smoke break, a second run,
-  // then an episode of whatever series is on before bed.
+  // Evenings: a work run after dinner, then the smoke break, then straight into 2 hours of series / movies
+  // in the Chill Room (essential: it is never squeezed or dropped; work gives way instead).
   work('eve', 'work_eve1', continued(pickWork(workItems, 1)), 60);
-  want('eve', 'smoke', 'Smoke Break 🌿', 'personal', '🌿', 'Step out, stretch, drink some water. Back to it after.', PRIORITY.social, 15, 20);
-  work('eve', 'work_eve2', pickWork(workItems, 3), 45);
-  want('eve', 'series', 'Series Episode 📺', 'personal', '📺', 'One episode (Breaking Bad or whatever is on). Earned — enjoy it.', PRIORITY.leisure, 20, 50);
+  want('eve', 'smoke', 'Smoke Break 🌿', 'personal', '🌿', 'Roll up, step out, drink some water. The Chill Room opens next.', PRIORITY.essential, 15, 20);
+  want('eve', 'series', 'Chill Room — Series & Movies 📺', 'personal', '📺', `Open the Chill Room and pick up where you left off. ${WATCH_MIN / 60} hours, then wind down.`, PRIORITY.essential, WATCH_MIN, WATCH_MIN);
   want('eve', 'review', 'Daily Review', 'routine', '📝', 'What did you learn today? What to do differently? Write 3 lines.', PRIORITY.chores, 5, 15);
   want('eve', 'night_prep', 'Night Prep', 'routine', '🌙', 'Set clothes, pack bag, set alarm. Drink milk before bed.', PRIORITY.essential, 10, 15);
 
@@ -1214,6 +1227,7 @@ export default function PlannerPage() {
                           <div style={{ width:6, height:6, borderRadius:'50%', background:c.dot, flexShrink:0 }} />
                         </div>
                         {isNow && <div style={{ fontSize:12, color:'var(--text-2)', marginTop:6, lineHeight:1.5, borderTop:'1px solid var(--border)', paddingTop:6 }}>{block.note}</div>}
+                        {/^(series|movies)/.test(String(block.id)) && <a href="/chill" onClick={(e)=>e.stopPropagation()} style={{ display:'inline-block', marginTop:8, padding:'7px 14px', borderRadius:10, background:'#f5f5f7', color:'#000', fontSize:12.5, fontWeight:700, textDecoration:'none' }}>🍿 Open Chill Room</a>}
                       </div>
                     </div>
                   );
@@ -1233,7 +1247,7 @@ export default function PlannerPage() {
                 { label:'Workout Time', v: blocks.filter(b=>b.type==='workout').reduce((s,b)=>s+b.duration,0), color:'#EF4444', emoji:'🏋️' },
                 { label:'Chores', v: blocks.filter(b=>b.type==='chores').reduce((s,b)=>s+b.duration,0), color:'#EAB308', emoji:'🏠', showIfZero:false },
                 { label:'Meals', v: blocks.filter(b=>b.type==='meal'&&b.label.includes('Eat')).length, color:'#F59E0B', emoji:'🍽️', isCount:true },
-                { label:'Series', v: blocks.filter(b=>b.id==='series').reduce((s,b)=>s+b.duration,0), color:'#A78BFA', emoji:'📺' },
+                { label:'Series', v: blocks.filter(b=>b.id==='series'||b.id==='movies').reduce((s,b)=>s+b.duration,0), color:'#A78BFA', emoji:'📺' },
                 { label:'Sleep', v: blocks.filter(b=>b.type==='sleep').reduce((s,b)=>s+b.duration,0), color:'#475569', emoji:'😴' },
               ].filter(s => s.showIfZero!==false || s.v>0).map(s => (
                 <div key={s.label} className="card" style={{ padding:'14px 16px', display:'flex', alignItems:'center', gap:14 }}>

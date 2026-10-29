@@ -102,7 +102,7 @@ export async function deviceInfo(userId) {
   return d ? { paired_at: d.paired_at, last_seen: d.last_seen, sims: d.sims } : null;
 }
 
-async function userForToken(token) {
+export async function userForToken(token) {
   if (!token) return null;
   const { data } = await supabaseAdmin.from('settings').select('user_id, value').eq('key', KEY).filter('value->>hash', 'eq', sha(token)).maybeSingle();
   return data ? { userId: data.user_id, device: data.value } : null;

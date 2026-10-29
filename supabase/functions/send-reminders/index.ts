@@ -66,7 +66,7 @@ function fmt12(t: string): string {
 
 // `tag` matches the tag the open app uses for the same reminder
 // (lib/notifications.js), so if both fire, the phone shows ONE notification.
-type Notif = { key: string; tag?: string; title: string; body: string; requireInteraction?: boolean; vibrate?: number[] };
+type Notif = { key: string; tag?: string; title: string; body: string; requireInteraction?: boolean; vibrate?: number[]; url?: string };
 
 // Push block ids are "<id>@<time>" (unique per slot for de-duping); the app's
 // tags use the plain id.
@@ -107,6 +107,8 @@ function buildMealNotifs(mealPlan: any, dayIdx: number, nowMins: number, dateKey
 // ─── PLANNER REMINDER RULES (mirrors schedulePlannerReminders) ──────────────
 function blockTitle(block: any): string {
   const label = String(block.label ?? '');
+  if (/^(series|movies)/.test(String(block.id))) return `🍿 ${label.replace(/\s*[📺🎬]\s*$/u, '')}`;
+  if (/^smoke/.test(String(block.id))) return `🌿 Smoke break`;
   const titles: Record<string, string> = {
     meal: /^prepare/i.test(label) ? `🍳 Start cooking — ${label.replace(/^prepare\s+/i, '')}` : `🍽️ ${label}`,
     study: `📚 Study time — ${label}`,
@@ -165,8 +167,10 @@ function buildPlannerNotifs(blocks: any[], nowMins: number, dateKey: string): No
         title: blockTitle(block),
         body: block.note,
         requireInteraction: ['study', 'coding', 'learning', 'sleep', 'meal', 'event'].includes(block.type),
+        // Watch time opens the Chill Room straight away.
+        url: /^(series|movies)/.test(String(block.id)) ? '/chill' : undefined,
       });
-      out.push(liveNotif(blocks, block, dateKey));
+      out.push({ ...liveNotif(blocks, block, dateKey), url: /^(series|movies)/.test(String(block.id)) ? '/chill' : undefined });
     }
 
     // No "start cooking in 25 min" warning: every meal has its own "Prepare …"
@@ -280,7 +284,7 @@ Deno.serve(async () => {
             tag: n.tag,
             requireInteraction: !!n.requireInteraction,
             vibrate: n.vibrate ?? [200, 100, 200],
-            url: '/planner',
+            url: n.url || '/planner',
           })
         );
         sent++;

@@ -40,6 +40,7 @@ const MORE_GROUPS = [
   ]},
   { title: 'Life', items: [
     { href:'/planner', label:'Planner', emoji:'📅', desc:'Schedule, tasks & activities' },
+    { href:'/chill', label:'Chill Room', emoji:'🍿', desc:'Your series & movies' },
     { href:'/health', label:'Health & Fitness', emoji:'❤️', desc:'Wellness & workouts' },
   ]},
   { title: 'Grow & earn', items: [
@@ -115,6 +116,7 @@ const SIDE_GROUPS = [
   { title: 'Life', items: [
     { href: '/planner', label: 'Planner', icon: 'planner' },
     { href: '/activities', label: 'Activities', icon: 'planner' },
+    { href: '/chill', label: 'Chill Room', icon: 'planner' },
     { href: '/meals', label: 'Food', icon: 'food' },
     { href: '/workout', label: 'Workout', icon: 'workout' },
     { href: '/health', label: 'Health', icon: 'health' },

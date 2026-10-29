@@ -64,14 +64,24 @@ final class SmsUploader {
 
     // Blocking: call from a background thread. Returns true when Luxe accepted the batch.
     static boolean post(Context c, JSONArray messages) {
-        String token = token(c);
-        if (token == null || messages.length() == 0) return false;
-        HttpURLConnection conn = null;
+        if (messages.length() == 0) return false;
         try {
             JSONObject payload = new JSONObject();
             payload.put("messages", messages);
+            return postJson(c, URL_INGEST, payload);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // POST a JSON body to a Luxe endpoint with this phone's device token (also used by the Chill Room scan).
+    static boolean postJson(Context c, String url, JSONObject payload) {
+        String token = token(c);
+        if (token == null) return false;
+        HttpURLConnection conn = null;
+        try {
             byte[] bytes = payload.toString().getBytes(StandardCharsets.UTF_8);
-            conn = (HttpURLConnection) new URL(URL_INGEST).openConnection();
+            conn = (HttpURLConnection) new URL(url).openConnection();
             conn.setRequestMethod("POST");
             conn.setConnectTimeout(15000);
             conn.setReadTimeout(30000);
