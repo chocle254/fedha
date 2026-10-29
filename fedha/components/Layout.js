@@ -5,6 +5,7 @@ import { useApp } from '../context/AppContext';
 import { signOut, getSession } from '../lib/supabase';
 import JarvisWidget from './JarvisWidget';
 import NestLinkCredits from './NestLinkCredits';
+import SmsAutoRecorder from './SmsAutoRecorder';
 import ServiceWalletWatch from './ServiceWalletWatch';
 
 const NAV = [
@@ -258,6 +259,7 @@ export default function Layout({ children, fab, onFab }) {
 
       <JarvisWidget />
       <NestLinkCredits />
+      <SmsAutoRecorder />
       <ServiceWalletWatch />
 
       {/* More menu sheet */}

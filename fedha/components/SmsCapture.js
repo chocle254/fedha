@@ -90,6 +90,16 @@ export default function SmsCapture({ wallets }) {
         </div>
       )}
       {d && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>Money between these two numbers is a transfer between your M-Pesa accounts, recorded once.</div>}
+      {d && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, padding: '10px 12px', borderRadius: 10, background: d.auto?.on ? 'rgba(34,197,94,0.08)' : 'var(--card-2)' }}>
+          <div style={{ flex: 1, fontSize: 12.5, lineHeight: 1.45 }}>
+            <b>Automatic recording {d.auto?.on ? 'on' : 'off'}</b>
+            <div style={{ color: 'var(--text-3)', fontSize: 11.5 }}>{d.auto?.on ? `New messages since ${when(d.auto.since)} are recorded when Luxe is open. Older ones never are.` : 'Messages are only read and shown here.'}</div>
+          </div>
+          <button type="button" className={d.auto?.on ? 'btn-ghost' : 'btn-primary'} style={{ width: 'auto', padding: '8px 12px', fontSize: 12.5 }}
+            onClick={async () => { const r = await fetch('/api/sms/ready', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: !d.auto?.on }) }); if (r.ok) load(); }}>{d.auto?.on ? 'Turn off' : 'Turn on'}</button>
+        </div>
+      )}
 
       {items.length > 0 && (
         <>
@@ -112,7 +122,7 @@ export default function SmsCapture({ wallets }) {
                     </div>
                     {x.plan && (
                       <div style={{ marginTop: 3, fontSize: 12, color: x.plan.action === 'record' ? '#22C55E' : x.plan.action === 'ask' ? '#F59E0B' : 'var(--text-3)' }}>
-                        {x.plan.action === 'record' ? (x.status === 'history' ? '✓ Would record: ' : '✓ Will record: ') : x.plan.action === 'ask' ? '? ' : '⏭ Skip: '}{x.plan.summary}
+                        {x.status === 'recorded' ? '✅ Recorded: ' : x.status === 'ignored' ? '⏭ Skipped: ' : x.plan.action === 'record' ? (x.status === 'history' || !d?.auto?.on || new Date(x.received_at) < new Date(d.auto.since) ? '✓ Would record: ' : '⏳ Recording: ') : x.plan.action === 'ask' ? '? ' : '⏭ Skip: '}{x.plan.summary}
                       </div>
                     )}
                     <div style={{ display: 'flex', gap: 8, marginTop: 4, alignItems: 'center', color: 'var(--text-3)', fontSize: 11.5 }}>

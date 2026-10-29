@@ -182,8 +182,13 @@ export function AppProvider({ children }) {
     const fills = (item.goals || []).map((g) => ({ ...g, allocated: g.amount }));
     const existing = await getTransaction(item.id);
     if (!existing) {
+      // With automatic SMS recording on, the "sent to ZIIDI" message has already moved this money from M-Pesa
+      // into Ziidi, so the lock is Ziidi → Ziidi Locked. Without it, it goes straight from M-Pesa as before.
+      const device = await getSetting('sms_device', null);
+      const ziidi = (await getWallets()).find((w) => w.parent_id === item.wallet_id && w.pocket === 'ziidi');
+      const from = device?.auto?.on && ziidi && new Date(item.created_at) >= new Date(device.auto.since) ? ziidi.id : item.wallet_id;
       const tx = await saveTransaction({
-        id: item.id, type: 'transfer', wallet_id: item.wallet_id, to_wallet_id: item.locked_id, amount: item.amount, category: 'savings',
+        id: item.id, type: 'transfer', wallet_id: from, to_wallet_id: item.locked_id, amount: item.amount, category: 'savings',
         description: `Saved for ${fills.map((a) => a.name).join(', ')} (locked in Ziidi)`, date: String(lockedAt || new Date().toISOString()).slice(0, 10),
         currency: item.deposit?.currency, created_at: new Date().toISOString(), savings_allocations: fills.map((a) => ({ goal_id: a.id, amount: a.allocated })),
       });

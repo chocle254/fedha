@@ -65,6 +65,9 @@ public class LuxeDelegationService extends DelegationService {
         if (g.contains("nestlink") || t.startsWith("Funds withdrawn")) return NESTLINK;
         // Money in: earnings milestones (earn-*) and customer payments (startup-pay-*) get the success sound.
         if (g.contains("earn-") || g.contains("startup-pay")) return MONEY;
+        // M-Pesa messages recorded by Luxe: money in gets the success sound, the rest the quiet one.
+        if (g.contains("sms-in-")) return MONEY;
+        if (g.contains("sms-ask-") || g.contains("sms-")) return OTHER;
         if (g.contains("block_") || g.contains("meal_") || g.contains("missed_blocks") || g.contains("break")
                 || g.contains("planner_active")) return PLANNER;
         if (t.startsWith("🛑")) return SL;

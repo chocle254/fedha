@@ -64,6 +64,9 @@ export function planMessage(row, ctx) {
   if (p.kind === 'ziidi') {
     if (p.action === 'invest' || p.action === 'withdraw') return skip(`Ziidi confirmation of ${p.mpesaCode || 'an M-Pesa move'} (recorded from the M-Pesa text)`);
     if (p.action === 'lock') {
+      // A lock that confirmed a savings goal is recorded by the goal (Savings Goals), not again here.
+      const saved = (ctx.savingsConfirmed || []).find((c) => near(c.amount, p.amount, 1) && Math.abs(new Date(c.at) - new Date(at)) < 2 * 864e5);
+      if (saved) return skip('Recorded as goal savings (Savings Goals)');
       // Which account: the one whose Locked pocket ends at the stated balance.
       const lockedW = ctx.wallets.filter((w) => w.pocket === 'ziidi_locked').find((w) => near(w.balance, p.lockedAfter, 1) || near(Number(w.balance) + p.amount, p.lockedAfter, 1))
         || pocket(ctx, ctx.sims?.[row.sim_slot], 'ziidi_locked');

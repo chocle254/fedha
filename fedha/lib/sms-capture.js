@@ -100,7 +100,7 @@ export async function setSims(userId, sims) {
 
 export async function deviceInfo(userId) {
   const d = await getDevice(userId);
-  return d ? { paired_at: d.paired_at, last_seen: d.last_seen, sims: d.sims } : null;
+  return d ? { paired_at: d.paired_at, last_seen: d.last_seen, sims: d.sims, auto: d.auto || null } : null;
 }
 
 export async function userForToken(token) {
@@ -155,6 +155,7 @@ export async function ingest(token, messages) {
     const { error } = await supabaseAdmin.from('sms_inbox').upsert(row, { onConflict: 'user_id,fingerprint', ignoreDuplicates: true });
     if (!error && row.status === 'captured' && parsed?.kind === 'received' && parsed.phone) await customerPaid(userId, parsed, at).catch(() => {});
     if (!error && row.status === 'captured' && parsed?.kind === 'ziidi' && parsed.action === 'lock' && parsed.amount > 0) await savingsLocked(userId, parsed, at).catch(() => {});
+    if (!error && row.status === 'captured' && device.auto?.on && at >= device.auto.since) await announce(userId, row).catch(() => {});
     if (error) {
       if (/relation .* does not exist|sms_inbox/i.test(error.message)) return { error: 'Run supabase-migration-sms-inbox.sql first.' };
       skipped++;
@@ -187,6 +188,33 @@ async function customerPaid(userId, p, at) {
     }).catch(() => {});
     return;
   }
+}
+
+// A new message once automatic recording is on: tell you what it was (or ask about a new person). The app records
+// it when it is next open. Money in also shows today's total and the streak.
+async function announce(userId, row) {
+  const { data: around } = await supabaseAdmin.from('sms_inbox').select('id, sim_slot, received_at, parsed').eq('user_id', userId)
+    .gte('received_at', new Date(new Date(row.received_at).getTime() - 864e5).toISOString()).limit(200);
+  const { data: me } = await supabaseAdmin.from('sms_inbox').select('id').eq('user_id', userId).eq('fingerprint', row.fingerprint).maybeSingle();
+  const r = { ...row, id: me?.id || row.fingerprint };
+  const plan = planMessage(r, await planContext(userId, [...(around || []), r]));
+  const p = row.parsed;
+  if (plan.action === 'skip') return;
+  if (plan.action === 'ask') {
+    await pushToAll({ title: `🙋 ${p.kind === 'received' ? 'Money from' : 'Paid to'} ${p.party || 'someone new'}: what is it?`, body: `${plan.summary}. Pick it once in Wallets and Luxe remembers.`, tag: `sms-ask-${r.id}`, url: '/wallets' });
+    return;
+  }
+  const income = (plan.entries || []).some((e) => e.type === 'income');
+  let body = plan.summary;
+  if (income) {
+    try {
+      const { earningsNow } = await import('./earnings-server');
+      const { incomeLine } = await import('./earnings');
+      const amt = (plan.entries || []).filter((e) => e.type === 'income').reduce((s2, e) => s2 + Number(e.amount), 0);
+      body += ` · ${incomeLine((await earningsNow({ extra: amt })).summary)}`;
+    } catch { /* totals are a bonus */ }
+  }
+  await pushToAll({ title: income ? `💸 +KES ${Number(p.amount).toLocaleString('en-KE')}${p.party ? ` from ${p.party}` : ''}` : `✓ ${plan.summary}`, body: income ? `${body}. Luxe adds it the next time it's open.` : "From your M-Pesa message. Luxe adds it the next time it's open.", tag: `${income ? 'sms-in' : 'sms'}-${r.id}`, url: '/transactions' });
 }
 
 // Ziidi "You have successfully locked Ksh.X": confirm the save that was waiting for it (Savings prompt → Save on a
@@ -265,20 +293,67 @@ export async function planContext(userId, rows) {
   const times = rows.map((r) => new Date(r.received_at).getTime());
   const from = new Date(Math.min(...times) - 864e5).toISOString();
   const to = new Date(Math.max(...times) + 864e5).toISOString();
-  const [w, t, l, device, rules] = await Promise.all([
+  const [w, t, l, device, rules, saved] = await Promise.all([
     supabaseAdmin.from('wallets').select('id, name, type, pocket, parent_id, balance').eq('user_id', userId),
     supabaseAdmin.from('transactions').select('id, type, wallet_id, to_wallet_id, amount, category, description, date').eq('user_id', userId).gte('date', from).lte('date', to),
     supabaseAdmin.from('loans').select('id, type, contact_name, amount, remaining, status').eq('user_id', userId),
     getDevice(userId),
     getRules(userId),
+    supabaseAdmin.from('settings').select('value').eq('user_id', userId).eq('key', 'savings_confirmed').maybeSingle().then((r) => r.data?.value || []),
   ]);
   const loans = l.data || [];
   const guessed = suggestOwn(rows);
   const own = { 1: device?.own?.[1] || guessed[1] || null, 2: device?.own?.[2] || guessed[2] || null };
   return {
     wallets: w.data || [], txns: t.data || [], loans, activeLoanIds: loans.filter((x) => x.status !== 'settled').map((x) => x.id),
-    sims: device?.sims || {}, own, ownGuessed: !device?.own, rules, rows,
+    sims: device?.sims || {}, own, ownGuessed: !device?.own, rules, rows, savingsConfirmed: Array.isArray(saved) ? saved : [],
   };
+}
+
+// ── Automatic recording ──────────────────────────────────────────────────────
+// Switched on once (device.auto = { on, since }). Only messages received AFTER `since` are ever recorded; the
+// ones before it (including everything caught up at linking) stay as history. The server only decides what each
+// message means (lib/sms-plan.js); the app records it (components/SmsAutoRecorder.js) with the same code as a
+// hand-typed transaction, so its offline copy of your balances stays right.
+export async function autoState(userId) {
+  const d = await getDevice(userId);
+  if (!d) return null;
+  if (!d.auto) {
+    d.auto = { on: true, since: new Date().toISOString() };
+    await putDevice(userId, d);
+  }
+  return d.auto;
+}
+export async function setAuto(userId, on) {
+  const d = (await getDevice(userId)) || {};
+  d.auto = { on: !!on, since: on ? (d.auto?.on ? d.auto.since : new Date().toISOString()) : d.auto?.since || null };
+  await putDevice(userId, d);
+  return d.auto;
+}
+
+// Messages to record now: captured after automatic recording was switched on, with a 'record' decision.
+export async function readyToRecord(userId) {
+  const auto = await autoState(userId);
+  if (!auto?.on) return { auto, items: [] };
+  const { data } = await supabaseAdmin.from('sms_inbox').select('id, sender, body, sim_slot, received_at, code, parsed, wallet_id, status')
+    .eq('user_id', userId).eq('status', 'captured').gte('received_at', auto.since).order('received_at', { ascending: true }).limit(50);
+  const rows = data || [];
+  if (!rows.length) return { auto, items: [] };
+  const { data: around } = await supabaseAdmin.from('sms_inbox').select('id, sim_slot, received_at, parsed').eq('user_id', userId)
+    .gte('received_at', new Date(new Date(rows[0].received_at).getTime() - 864e5).toISOString()).limit(300);
+  const ctx = await planContext(userId, around || rows);
+  const items = [];
+  for (const r of rows) {
+    const plan = planMessage(r, ctx);
+    if (plan.action === 'skip') { await supabaseAdmin.from('sms_inbox').update({ status: 'ignored', body: null }).eq('id', r.id); continue; }
+    if (plan.action === 'record') items.push({ id: r.id, received_at: r.received_at, sim_slot: r.sim_slot, parsed: r.parsed, plan });
+  }
+  return { auto, items };
+}
+
+// The app recorded it: keep only the code (duplicates) and what it became, drop the text.
+export async function markRecorded(userId, id, transactionIds) {
+  await supabaseAdmin.from('sms_inbox').update({ status: 'recorded', body: null, transaction_id: (transactionIds || []).join(',').slice(0, 500) || null }).eq('user_id', userId).eq('id', id);
 }
 
 export async function setOwn(userId, own) {
