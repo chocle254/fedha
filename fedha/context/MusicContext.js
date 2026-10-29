@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { streamUrl } from '../lib/audius';
 import { videoFor, findArtist, related, artistTop } from '../lib/popular';
+import { songRadio } from '../lib/music-mixes';
 import { Decks, speak } from '../lib/yt-decks';
 import { getSetting, setSetting } from '../lib/db';
 
@@ -21,7 +22,7 @@ const MODES = {
   off: { low: 0, punch: 0, mid: 0, air: 0, gain: 1 },
 };
 export const SOUND_LABEL = { theater: '🔊 Theater', max: '💥 Max bass', off: '🔈 Plain' };
-const BLEND = 8;
+const readBlend = () => { try { const v = Number(localStorage.getItem('luxe_crossfade')); return Number.isFinite(v) && v >= 0 ? v : 8; } catch { return 8; } };
 const readSound = () => { try { return localStorage.getItem('luxe_sound') || 'theater'; } catch { return 'theater'; } };
 
 export function MusicProvider({ children }) {
@@ -45,6 +46,13 @@ export function MusicProvider({ children }) {
   const [note, setNote] = useState('');
   const [dock, setDock] = useState(true);
   const [deck, setDeck] = useState(0); // which YouTube deck is showing
+  const [blendSecs, setBlendSecs] = useState(8); // crossfade (Spotify's Automix / crossfade), 0 = off
+  const [tracksPlayed, setTracksPlayed] = useState({}); // id -> { t, n, last }: On Repeat, Recently played
+  const [sleepAt, setSleepAt] = useState(null); // ms timestamp, or 'end' (end of this song)
+  const blendRef = useRef(8);
+  const sleepRef = useRef(null);
+  sleepRef.current = sleepAt;
+  blendRef.current = blendSecs;
   const track = idx >= 0 ? queue[idx] : null;
   state.current = { queue, idx, shuffle, track };
 
@@ -52,6 +60,8 @@ export function MusicProvider({ children }) {
     setSoundState(readSound());
     getSetting('music_likes', []).then((l) => setLikes(Array.isArray(l) ? l : [])).catch(() => {});
     getSetting('music_plays', {}).then((p) => setPlays(p && typeof p === 'object' ? p : {})).catch(() => {});
+    getSetting('music_tracks', {}).then((p) => setTracksPlayed(p && typeof p === 'object' ? p : {})).catch(() => {});
+    setBlendSecs(readBlend());
     const a = new Audio(); a.crossOrigin = 'anonymous'; a.preload = 'auto'; audio.current = a;
     a.addEventListener('play', () => setPlaying(true));
     a.addEventListener('pause', () => setPlaying(false));
@@ -63,6 +73,13 @@ export function MusicProvider({ children }) {
   const countPlay = useCallback((t) => {
     if (!t?.artist) return;
     setPlays((p) => { const n = { ...p, [t.artist]: (p[t.artist] || 0) + 1 }; setSetting('music_plays', n).catch(() => {}); return n; });
+    setTracksPlayed((p) => {
+      const { dj: _dj, smart: _s, ...lean } = t;
+      const n = { ...p, [t.id]: { t: lean, n: (p[t.id]?.n || 0) + 1, last: Date.now() } };
+      const trimmed = Object.fromEntries(Object.entries(n).sort((a, b) => b[1].last - a[1].last).slice(0, 400));
+      setSetting('music_tracks', trimmed).catch(() => {});
+      return trimmed;
+    });
   }, []);
 
   // ── indie: bass chain ──────────────────────────────────────────────────────
@@ -131,12 +148,15 @@ export function MusicProvider({ children }) {
   }, [ensureDecks, ensureGraph, applySound, nextIndex, countPlay]);
 
   // Blend into the next YouTube song (with DJ Luxe's line over it if the set has one).
-  const advance = useCallback(async (dir = 1, seconds = BLEND) => {
+  const advance = useCallback(async (dir = 1, secs = null) => {
+    const seconds = secs ?? blendRef.current;
+    // Sleep timer "end of this song": stop instead of moving on.
+    if (sleepRef.current === 'end' && dir > 0 && secs == null) { decks.current?.pause(); audio.current?.pause(); setSleepAt(null); sleepRef.current = null; return; }
     const { queue: list, idx: i } = state.current;
     const n = nextIndex(list, i, dir); const t = list[n];
     if (!t) return;
     const d = decks.current;
-    if (t.source === 'yt' && d && list[i]?.source === 'yt' && dir > 0) {
+    if (t.source === 'yt' && d && list[i]?.source === 'yt' && dir > 0 && seconds > 0) {
       const vid = await videoFor(t);
       if (!vid) { setIdx(n); return advance(1, seconds); }
       blending.current = true;
@@ -155,10 +175,11 @@ export function MusicProvider({ children }) {
   useEffect(() => {
     const iv = setInterval(() => {
       const { track: t } = state.current;
+      if (typeof sleepRef.current === 'number' && Date.now() >= sleepRef.current) { decks.current?.pause(); audio.current?.pause(); sleepRef.current = null; setSleepAt(null); }
       if (t?.source !== 'yt' || !decks.current) return;
       const tm = decks.current.time();
       setTime({ cur: tm.cur, dur: tm.dur }); setPlaying(tm.playing || blending.current);
-      if (!blending.current && tm.playing && tm.dur > 30 && tm.dur - tm.cur <= BLEND + 0.5) advance(1);
+      if (!blending.current && tm.playing && tm.dur > 30 && blendRef.current > 0 && tm.dur - tm.cur <= blendRef.current + 0.5) advance(1);
       if (ducking.current < 1 && !blending.current) decks.current.setDuck(ducking.current);
       else if (!blending.current && tm.playing) decks.current.setDuck(1);
     }, 500);
@@ -188,6 +209,32 @@ export function MusicProvider({ children }) {
     setLikes(nextLikes); await setSetting('music_likes', nextLikes);
   }, [likes]);
 
+  // Queue (Spotify's Play next / Add to queue), song radio, crossfade, sleep timer.
+  const playNext = useCallback((t) => {
+    const { queue: list, idx: i } = state.current;
+    if (i < 0) { playList([t], 0); return; }
+    const n = [...list.slice(0, i + 1), { ...t, dj: null }, ...list.slice(i + 1)];
+    setQueue(n); state.current.queue = n; flash(`Playing next: ${t.title}`);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const addToQueue = useCallback((t) => {
+    const { queue: list, idx: i } = state.current;
+    if (i < 0) { playList([t], 0); return; }
+    const n = [...list, { ...t, dj: null }];
+    setQueue(n); state.current.queue = n; flash(`Added to queue: ${t.title}`);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const startRadio = useCallback(async (t) => {
+    flash(`${t.title} radio…`);
+    try { const list = await songRadio(t); if (list.length) { setDj(null); setShuffle(false); playList(list, 0); } } catch { flash("Couldn't start that radio."); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const setCrossfade = useCallback((v) => { setBlendSecs(v); try { localStorage.setItem('luxe_crossfade', String(v)); } catch { /* ignore */ } }, []);
+  const setSleep = useCallback((m) => { const v = m === 'end' ? 'end' : m ? Date.now() + m * 60e3 : null; setSleepAt(v); if (v) flash(m === 'end' ? 'Stopping after this song' : `Stopping in ${m} min`); }, []);
+  const removeFromQueue = useCallback((k) => {
+    const { queue: list, idx: i } = state.current;
+    if (k === i) return;
+    const n = list.filter((_, x) => x !== k);
+    setQueue(n); state.current.queue = n; if (k < i) setIdx(i - 1);
+  }, []);
+
   // Who you love most: likes count double, plays once.
   const topArtists = useCallback(() => {
     const score = { ...plays };
@@ -196,19 +243,21 @@ export function MusicProvider({ children }) {
   }, [plays, likes]);
 
   // DJ Luxe: a fresh set, an intro, and lines between songs.
-  const startDj = useCallback(async (mood = null) => {
-    setDj({ on: true, loading: true, talking: false, text: '' });
+  // opts: { mood, request, switchUp } (a string is treated as a mood, for older callers)
+  const startDj = useCallback(async (opts = {}) => {
+    const o = typeof opts === 'string' ? { mood: opts } : opts || {};
+    setDj((x) => ({ ...(x || {}), on: true, loading: true, talking: false, text: o.switchUp ? 'Switching it up…' : o.request ? `Finding: ${o.request}` : o.mood ? `Building a ${o.mood} set…` : 'Building your set…' }));
     try {
-      const recent = state.current.queue.slice(-30).map((t) => t.id);
-      const r = await fetch('/api/music/dj', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ artists: topArtists().length ? topArtists() : ['Lil Wayne'], recent, mood }) });
+      const recent = [...state.current.queue.map((t) => t.id), ...Object.keys(tracksPlayed).slice(0, 40)].slice(-80);
+      const r = await fetch('/api/music/dj', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ artists: topArtists().length ? topArtists() : ['Lil Wayne'], plays, recent, mood: o.mood || null, request: o.request || null, switchUp: !!o.switchUp, hour: new Date().getHours() }) });
       const j = await r.json();
       if (!r.ok || !j.tracks?.length) throw new Error(j.error || 'No set');
-      setDj({ on: true, loading: false, talking: true, text: j.intro, seeds: j.seeds });
+      setDj({ on: true, loading: false, talking: true, text: j.intro, name: j.name, why: j.why, mood: o.mood || null });
       setShuffle(false);
       speak(j.intro, { onEnd: () => setDj((x) => (x ? { ...x, talking: false } : x)) });
       playList(j.tracks, 0);
     } catch (e) { setDj(null); flash(e.message || 'DJ Luxe is busy. Try again.'); }
-  }, [topArtists, playList]);
+  }, [topArtists, playList, plays, tracksPlayed]);
   const stopDj = useCallback(() => { setDj(null); try { window.speechSynthesis?.cancel(); } catch { /* none */ } }, []);
 
   // Smart Shuffle: your likes, shuffled, with a ✨ song from the artists around them every 3 tracks.
@@ -249,10 +298,10 @@ export function MusicProvider({ children }) {
 
   const yt = track?.source === 'yt';
   return (
-    <Ctx.Provider value={{ queue, idx, track, playing, time, sound, setSound, shuffle, setShuffle, likes, like, playList, next, prev, toggle, seek, dj, startDj, stopDj, smartShuffle, note, topArtists }}>
+    <Ctx.Provider value={{ queue, idx, track, playing, time, sound, setSound, shuffle, setShuffle, likes, like, playList, next, prev, toggle, seek, dj, startDj, stopDj, smartShuffle, note, topArtists, playNext, addToQueue, removeFromQueue, startRadio, blendSecs, setCrossfade, sleepAt, setSleep, tracksPlayed, plays }}>
       {children}
       {/* The YouTube decks: a small floating card while popular music plays (YouTube requires it to be visible). */}
-      <div style={{ position: 'fixed', right: 10, bottom: 'calc(140px + env(safe-area-inset-bottom))', width: dock ? 200 : 1, height: dock ? 113 : 1, zIndex: 45, borderRadius: 12, overflow: 'hidden', boxShadow: yt && dock ? '0 10px 30px rgba(0,0,0,0.5)' : 'none', opacity: yt ? 1 : 0, pointerEvents: yt ? 'auto' : 'none', background: '#000', transition: 'opacity 0.3s' }}>
+      <div style={{ position: 'fixed', right: 10, bottom: 'calc(140px + env(safe-area-inset-bottom))', width: dock ? 128 : 1, height: dock ? 72 : 1, zIndex: 45, borderRadius: 12, overflow: 'hidden', boxShadow: yt && dock ? '0 10px 30px rgba(0,0,0,0.5)' : 'none', opacity: yt ? 1 : 0, pointerEvents: yt ? 'auto' : 'none', background: '#000', transition: 'opacity 0.3s' }}>
         <div style={{ position: 'absolute', inset: 0, opacity: deck === 0 ? 1 : 0, zIndex: deck === 0 ? 1 : 0, pointerEvents: deck === 0 ? 'auto' : 'none' }}><div ref={hostA} /></div>
         <div style={{ position: 'absolute', inset: 0, opacity: deck === 1 ? 1 : 0, zIndex: deck === 1 ? 1 : 0, pointerEvents: deck === 1 ? 'auto' : 'none' }}><div ref={hostB} /></div>
         {yt && <button type="button" onClick={() => setDock((v) => !v)} aria-label="Hide video" style={{ position: 'absolute', top: 4, right: 4, zIndex: 2, width: 22, height: 22, borderRadius: '50%', border: 0, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 11 }}>{dock ? '–' : '+'}</button>}

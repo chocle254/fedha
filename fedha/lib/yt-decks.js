@@ -30,7 +30,8 @@ export class Decks {
     await Promise.all([0, 1].map((i) => new Promise((resolve) => {
       this.players[i] = new YT.Player(this.hosts[i], {
         width: '100%', height: '100%',
-        playerVars: { autoplay: 0, controls: 0, playsinline: 1, modestbranding: 1, rel: 0, iv_load_policy: 3, fs: 0, disablekb: 1 },
+        // Data saver: a small player makes YouTube stream a low resolution; vq asks for the lowest too.
+        playerVars: { autoplay: 0, controls: 0, playsinline: 1, modestbranding: 1, rel: 0, iv_load_policy: 3, fs: 0, disablekb: 1, vq: 'tiny' },
         events: {
           onReady: () => resolve(),
           onStateChange: (e) => { if (e.data === YT.PlayerState.ENDED && i === this.active) this.onEnded(); },
@@ -54,7 +55,8 @@ export class Decks {
     const p = this.player;
     this.base[this.active] = Decks.volumeFor(gain);
     p.setVolume(this.base[this.active]);
-    p.loadVideoById(videoId);
+    p.loadVideoById({ videoId, suggestedQuality: 'tiny' });
+    try { p.setPlaybackQuality?.('tiny'); } catch { /* not supported any more on some builds */ }
     p.playVideo();
     this.players[this.other]?.pauseVideo();
   }
@@ -65,7 +67,7 @@ export class Decks {
     const from = this.active; const to = this.other;
     const a = this.players[from]; const b = this.players[to];
     this.base[to] = Decks.volumeFor(gain);
-    b.setVolume(0); b.loadVideoById(videoId); b.playVideo();
+    b.setVolume(0); b.loadVideoById({ videoId, suggestedQuality: 'tiny' }); try { b.setPlaybackQuality?.('tiny'); } catch { /* ignore */ } b.playVideo();
     const steps = Math.max(8, Math.round(seconds * 10));
     for (let i = 1; i <= steps; i++) {
       await new Promise((r) => setTimeout(r, (seconds * 1000) / steps));
