@@ -1,7 +1,7 @@
 // Signal tracking (PAPER ONLY — nothing here places an order).
 import { supabaseAdmin } from './supabaseAdmin';
 import { parseSignal, rebaseToMarket } from './signal-parser';
-import { klines, lastPrice } from './market';
+import { klines, lastPrice, spotToken } from './market';
 
 const FILL_TOLERANCE = 0.003; // entry within 0.3% of market counts as a market entry
 const MAX_PENDING_MS = 3 * 86400e3;
@@ -24,7 +24,13 @@ export async function createSignal({ userId, source, text, externalId = null }) 
 
   let { entryLow, entryHigh, takeProfits, stopLoss } = parsed;
   let entry = parsed.entryLow != null ? (parsed.entryLow + parsed.entryHigh) / 2 : price;
-  if (parsed.proxyOf) {
+  if (parsed.proxyOf && spotToken(parsed.symbol) && parsed.entryLow != null) {
+    // Spot-tracking feed (gold via XAUT): the channel's own levels, no shifting. Inside the zone (or past it on
+    // the good side) = enter now; on the bad side = a limit order at the zone edge, like on the broker.
+    const buy = parsed.side === 'BUY';
+    if (Math.abs(price - entry) / price > 0.02) return { ok: false, error: `${parsed.symbol} is more than 2% away from the signal's price, so it was skipped.` };
+    entry = buy ? (price > entryHigh ? entryHigh : price) : (price < entryLow ? entryLow : price);
+  } else if (parsed.proxyOf) {
     const rb = rebaseToMarket(parsed, price);
     if (rb.error) return { ok: false, error: rb.error };
     ({ entry, entryLow, entryHigh, takeProfits, stopLoss } = rb);
@@ -32,7 +38,8 @@ export async function createSignal({ userId, source, text, externalId = null }) 
   const bad = levelsError(parsed.side, entry, takeProfits, stopLoss);
   if (bad) return { ok: false, error: bad };
 
-  const needsFill = Math.abs(entry - price) / price > FILL_TOLERANCE;
+  // On the spot feed the entry is exact (market price, or the zone edge as a limit order).
+  const needsFill = parsed.proxyOf && spotToken(parsed.symbol) ? entry !== price : Math.abs(entry - price) / price > FILL_TOLERANCE;
   const row = {
     user_id: userId,
     source: String(source || 'Unknown').slice(0, 60),

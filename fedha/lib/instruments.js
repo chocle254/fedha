@@ -6,8 +6,11 @@
 //   lot     units per standard broker lot (gold 100 oz, silver 5000 oz, FX 100,000, oil 1000 bbl, indices 1)
 //   step    smallest paper position step, in units
 //   aliases how signals write it
+//   binance a Binance token that tracks the spot price (gold: XAUT, within about $1 of spot; Yahoo's gold is
+//           futures, $10-15 above spot). Used for everything created from `since` on, so channel levels need no
+//           shifting; older trades keep the Yahoo feed their levels were shifted onto.
 export const MT5 = {
-  XAUUSD: { name: 'Gold', group: 'Metals', yahoo: 'GC=F', base: 'XAU', quote: 'USD', pip: 0.1, spread: 0.3, lot: 100, unit: 'oz', step: 0.01, aliases: ['XAU\\s*[/-]?\\s*USD', 'GOLD'] },
+  XAUUSD: { name: 'Gold', group: 'Metals', yahoo: 'GC=F', binance: 'XAUTUSDT', since: '2026-10-29T13:45:46Z', base: 'XAU', quote: 'USD', pip: 0.1, spread: 0.3, lot: 100, unit: 'oz', step: 0.01, aliases: ['XAU\\s*[/-]?\\s*USD', 'GOLD'] },
   XAGUSD: { name: 'Silver', group: 'Metals', yahoo: 'SI=F', base: 'XAG', quote: 'USD', pip: 0.01, spread: 0.03, lot: 5000, unit: 'oz', step: 0.1, aliases: ['XAG\\s*[/-]?\\s*USD', 'SILVER'] },
   EURUSD: { name: 'Euro / US Dollar', group: 'Forex', yahoo: 'EURUSD=X', pip: 0.0001, spread: 0.00012, lot: 100000, step: 1 },
   GBPUSD: { name: 'Pound / US Dollar', group: 'Forex', yahoo: 'GBPUSD=X', pip: 0.0001, spread: 0.00015, lot: 100000, step: 1 },

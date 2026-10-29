@@ -45,7 +45,7 @@ export async function trailProfiles(userId) {
 
 // Volatility at a moment: ATR of the 14 fifteen-minute candles before it.
 export async function atrBefore(symbol, ms) {
-  const candles = await klines(symbol, { interval: '15m', endTime: Math.floor(ms), limit: 15 });
+  const candles = await klines(symbol, { interval: '15m', endTime: Math.floor(ms), limit: 15, at: ms });
   return candles && candles.length > 1 ? atrOf(candles) : null;
 }
 
