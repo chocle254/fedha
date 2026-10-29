@@ -132,6 +132,10 @@ export function partyKey(p) {
 //   'loanadd:<id>'   more on top of that loan (lent more to them / borrowed more from them)
 //   'loan_new'       a new loan: money out = you lent it, money in = you borrowed it
 // A rule pointing at a loan that is settled or deleted is dropped, so Luxe asks again.
+// A name set to ASK is never guessed: every message from it waits for you (e.g. someone you sometimes help and
+// sometimes lend to).
+export const ASK = 'ask';
+
 export const isLoanChoice = (c) => typeof c === 'string' && (c.startsWith('loan:') || c.startsWith('loanadd:') || c === 'loan_new');
 export const loanIdOf = (c) => (typeof c === 'string' && /^loan(add)?:/.test(c) ? c.slice(c.indexOf(':') + 1) : null);
 
@@ -142,6 +146,7 @@ export function categoryFor(p, rules = {}, activeLoanIds = null) {
   if (FIXED_CATEGORY[p.kind]) return FIXED_CATEGORY[p.kind];
   const k = partyKey(p);
   const c = k ? rules[k] || null : null;
+  if (c === ASK) return null;
   if (c && loanIdOf(c) && activeLoanIds && !activeLoanIds.includes(loanIdOf(c))) return null;
   return c;
 }

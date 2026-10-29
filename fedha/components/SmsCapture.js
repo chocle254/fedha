@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { formatCurrency, INCOME_CATEGORIES, EXPENSE_CATEGORIES, getCategoryById } from '../lib/utils';
-import { KIND_LABEL, partyKey, FIXED_CATEGORY, loanIdOf } from '../lib/sms-parser';
+import { KIND_LABEL, partyKey, FIXED_CATEGORY, loanIdOf, ASK } from '../lib/sms-parser';
 import { useApp } from '../context/AppContext';
 import { loanBalance } from '../lib/finance-actions';
 
@@ -87,7 +87,7 @@ export default function SmsCapture({ wallets }) {
           </button>
           {open && (
             <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
-              <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>Checking how Luxe reads your messages; nothing is recorded yet. Pick a category the first time a name shows up, and every later message from that name uses it. Message text is deleted once recorded, or after 7 days.</div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>Checking how Luxe reads your messages; nothing is recorded yet. Pick a category the first time a name shows up, and every later message from that name uses it. Changing a later one changes just that message (say, a loan to someone you usually just help). Message text is deleted once recorded, or after 7 days.</div>
               {items.map((x) => {
                 const p = x.parsed;
                 const ziidi = p?.kind === 'ziidi' || p?.ziidiMove;
@@ -115,11 +115,15 @@ export default function SmsCapture({ wallets }) {
                     {p?.kind === 'fuliza_repay' && (
                       <div style={{ marginTop: 4, fontSize: 11.5, color: '#22C55E' }}>{p.fully ? 'Fuliza fully paid off' : 'Part of Fuliza paid'}{p.limit != null ? ` · limit now ${formatCurrency(p.limit, 'KES')}` : ''}</div>
                     )}
-                    {partyKey(p) && !FIXED_CATEGORY[p.kind] && (
-                      <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center', fontSize: 11.5 }}>
+                    {partyKey(p) && !FIXED_CATEGORY[p.kind] && (() => {
+                      const rule = data?.rules?.[partyKey(p)];
+                      const oneOff = p.category && rule && rule !== ASK && rule !== p.category && !p.category_auto;
+                      return (
+                      <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center', fontSize: 11.5, flexWrap: 'wrap' }}>
                         {p.category
-                          ? (() => { const c = choiceLabel(p.category, p); return <span style={{ color: c.color }}>{c.icon} {c.label}{p.category_auto ? ' · auto' : ''}</span>; })()
-                          : <span style={{ color: '#F59E0B' }}>First time from {p.party}: pick a category, Luxe remembers it</span>}
+                          ? (() => { const c = choiceLabel(p.category, p); return <span style={{ color: c.color }}>{c.icon} {c.label}{p.category_auto ? ' · auto' : oneOff ? ' · just this one' : ''}</span>; })()
+                          : <span style={{ color: '#F59E0B' }}>{rule === ASK ? `You choose each time for ${p.party}` : `First time from ${p.party}: pick a category, Luxe remembers it`}</span>}
+                        {oneOff && <button type="button" onClick={() => put({ id: x.id, category: p.category, scope: 'all' })} style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-3)', textDecoration: 'underline' }}>use for all from {p.party}</button>}
                         <span style={{ flex: 1 }} />
                         <select className="input" style={{ width: 'auto', padding: '2px 6px', fontSize: 11.5 }} value={p.category || ''} onChange={(e) => put({ id: x.id, category: e.target.value })}>
                           <option value="">{p.category ? 'Change…' : 'Category…'}</option>
@@ -136,9 +140,13 @@ export default function SmsCapture({ wallets }) {
                             ))}
                             <option value="loan_new">🤝 {p.kind === 'received' ? 'Borrowed: new loan' : 'Lent: new loan'}</option>
                           </optgroup>
+                          <optgroup label={p.party}>
+                            <option value={ASK}>❓ Ask me every time for {p.party}</option>
+                          </optgroup>
                         </select>
                       </div>
-                    )}
+                      );
+                    })()}
                     {x.body && !p && <div style={{ marginTop: 4, fontSize: 11.5, color: 'var(--text-2)' }}>{x.body}</div>}
                   </div>
                 );

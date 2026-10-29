@@ -11,7 +11,7 @@
 // duplicates.
 import crypto from 'crypto';
 import { supabaseAdmin } from './supabaseAdmin';
-import { parseSms, isMoneySender, categoryFor, partyKey } from './sms-parser';
+import { parseSms, isMoneySender, categoryFor, partyKey, ASK } from './sms-parser';
 
 const KEY = 'sms_device';
 const RULES = 'sms_categories';
@@ -31,25 +31,44 @@ export async function getRules(userId) {
   return data?.value || {};
 }
 
-// You picked a category for this message: remember it for the name, and apply it to every captured message from
-// the same name (same direction) that has none yet.
-export async function setCategory(userId, id, category) {
+// You picked a category for one message.
+//   The first choice for a name becomes its rule, and fills in that name's other captured messages.
+//   Once a name has a rule, a different choice changes only this message (a one-off, e.g. a loan to someone you
+//   usually just help), unless scope is 'all', which replaces the rule and updates the rest too.
+//   category ASK ('ask') means: never guess for this name, always ask.
+export async function setCategory(userId, id, category, scope = 'auto') {
+  const { data: row } = await supabaseAdmin.from('sms_inbox').select('parsed').eq('user_id', userId).eq('id', id).maybeSingle();
+  if (!row?.parsed) return;
+  const key = partyKey(row.parsed);
+  const one = async (rid, parsed, c, auto) => supabaseAdmin.from('sms_inbox').update({ parsed: { ...parsed, category: c || null, category_auto: auto } }).eq('id', rid);
+  if (!key) return one(id, row.parsed, category, false);
+
+  const rules = await getRules(userId);
+  const hasRule = key in rules;
+  const setRule = category === ASK || scope === 'all' || !hasRule;
+  if (setRule) {
+    const next = { ...rules };
+    if (category) next[key] = category; else delete next[key];
+    await supabaseAdmin.from('settings').upsert({ user_id: userId, key: RULES, value: next, updated_at: new Date().toISOString() }, { onConflict: 'user_id,key' });
+  }
+  if (category === ASK) {
+    // Clear the guesses on this name's waiting messages; keep anything you picked by hand.
+    const { data: same } = await supabaseAdmin.from('sms_inbox').select('id, parsed').eq('user_id', userId).neq('status', 'recorded');
+    for (const r of same || []) if (partyKey(r.parsed) === key && r.parsed.category_auto) await one(r.id, r.parsed, null, false);
+    return;
+  }
+  await one(id, row.parsed, category, false);
+  if (!setRule) return;
+  const { data: same } = await supabaseAdmin.from('sms_inbox').select('id, parsed').eq('user_id', userId).neq('status', 'recorded').neq('id', id);
+  for (const r of same || []) {
+    if (partyKey(r.parsed) === key && (!r.parsed.category || r.parsed.category_auto)) await one(r.id, r.parsed, category, true);
+  }
+}
+
+export async function ruleFor(userId, id) {
   const { data: row } = await supabaseAdmin.from('sms_inbox').select('parsed').eq('user_id', userId).eq('id', id).maybeSingle();
   const key = partyKey(row?.parsed);
-  if (!row?.parsed) return;
-  if (key) {
-    const rules = { ...(await getRules(userId)), [key]: category || undefined };
-    if (!category) delete rules[key];
-    await supabaseAdmin.from('settings').upsert({ user_id: userId, key: RULES, value: rules, updated_at: new Date().toISOString() }, { onConflict: 'user_id,key' });
-    const { data: same } = await supabaseAdmin.from('sms_inbox').select('id, parsed').eq('user_id', userId).neq('status', 'recorded');
-    for (const r of same || []) {
-      if (partyKey(r.parsed) === key && (r.id === id || !r.parsed.category || r.parsed.category_auto)) {
-        await supabaseAdmin.from('sms_inbox').update({ parsed: { ...r.parsed, category: category || null, category_auto: r.id !== id } }).eq('id', r.id);
-      }
-    }
-  } else {
-    await supabaseAdmin.from('sms_inbox').update({ parsed: { ...row.parsed, category: category || null } }).eq('user_id', userId).eq('id', id);
-  }
+  return key ? (await getRules(userId))[key] ?? null : null;
 }
 
 // Default SIM map: the first two M-Pesa (mobile, non-pocket) wallets, oldest first, as SIM 1 and SIM 2.
