@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import Head from 'next/head';
 import Layout from '../components/Layout';
+import Link from 'next/link';
+import { prefetchReels } from '../lib/reels';
 import { fetchLibrary, organise, loadArt, getProgress, markPlayed, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback, connection, trailerFor, trailerSrc } from '../lib/chill';
 
 // Chill Room: your downloaded movies and series (Download / Telegram on the phone), laid out like Apple TV.
@@ -113,6 +115,8 @@ export default function Chill() {
     setLib(l); setProg(p); setWindows(w);
   };
   useEffect(() => { load(); const t = setInterval(() => setNow(Date.now()), 30e3); return () => clearInterval(t); }, []);
+  // On Wi-Fi, get Reels ready in the background (the feed + the first 4 trailers looked up). Never on mobile data.
+  useEffect(() => { const t = setTimeout(() => { if (connection().wifi) prefetchReels(); }, 4000); return () => clearTimeout(t); }, []);
   const { shows, movies } = useMemo(() => organise(lib?.files || []), [lib]);
   useEffect(() => { if (lib) fetchSuggest().then(setSug).catch(() => setSug({ items: [] })); }, [lib]);
   useEffect(() => { if (shows.length || movies.length || sug?.items?.length) loadArt({ shows, movies, extra: sug?.items || [] }, setArt); }, [shows, movies, sug]);
@@ -177,6 +181,7 @@ export default function Chill() {
           <h1>Chill Room</h1>
           <Session windows={windows} now={now} />
           <button type="button" className="cr-pill" onClick={cycleSound} aria-label="Sound mode">{SOUNDS.find(([k]) => k === sound)?.[1]}</button>
+          <Link href="/reels" className="cr-pill" style={{ textDecoration: 'none', background: 'linear-gradient(135deg,#e50914,#7c3aed)', color: '#fff' }}>🎬 Reels</Link>
           <a className="cr-scan" href={scanLink} onClick={() => setTimeout(load, 9000)} aria-label="Scan the phone for new downloads">⟳</a>
         </header>
 
