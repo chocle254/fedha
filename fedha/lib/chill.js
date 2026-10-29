@@ -29,6 +29,7 @@ async function showArt(title) {
     poster: s.image?.original || s.image?.medium || null, backdrop: bg?.resolutions?.original?.url || null,
     summary: strip(s.summary), year: (s.premiered || '').slice(0, 4), genres: s.genres || [], rating: s.rating?.average || null,
     names: Object.fromEntries(eps.map((e) => [epCode(e.season, e.number), e.name])),
+    stills: Object.fromEntries(eps.filter((e) => e.image).map((e) => [epCode(e.season, e.number), e.image.original || e.image.medium])),
     order: eps.map((e) => epCode(e.season, e.number)),
   };
 }
@@ -48,9 +49,9 @@ export async function loadArt({ shows, movies, extra = [] }, onUpdate) {
   let changed = false;
   for (const [kind, title, year] of jobs) {
     const k = `${kind}:${title}`;
-    if (art[k] && art[k].v === 2) continue;
-    try { art[k] = { v: 2, ...(kind === 'show' ? await showArt(title) : await movieArt(title, year)) }; }
-    catch { art[k] = { v: 2 }; }
+    if (art[k] && art[k].v === 3) continue;
+    try { art[k] = { v: 3, ...(kind === 'show' ? await showArt(title) : await movieArt(title, year)) }; }
+    catch { art[k] = { v: 3 }; }
     changed = true;
     onUpdate({ ...art });
   }
