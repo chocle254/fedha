@@ -111,6 +111,18 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
   const split = splitLots({ riskUsd: plannedRisk, entry, stop: sl, tps, contractSize: spec.contractSize, minVolume: spec.minVolume, volumeStep: spec.volumeStep });
   if (split.error) return { skipped: split.error };
 
+  // Margin check: lots × contract × price ÷ leverage must fit the free margin, or MT5 rejects the order.
+  // Only for USD-quoted markets and USD-base pairs; crosses are left for the broker to check.
+  const lev = Number(info.leverage) || 0;
+  const totalLots = split.legs.reduce((a, l) => a + l.lots, 0);
+  const usdBase = /^USD/.test(parsed.symbol);
+  const usdQuote = /USD$/.test(parsed.symbol) || !/^[A-Z]{6}$/.test(parsed.symbol);
+  if (lev > 0 && (usdBase || usdQuote)) {
+    const margin = (totalLots * Number(spec.contractSize || 1) * (usdBase ? 1 : entry)) / lev;
+    const free = Number(info.freeMargin ?? info.equity ?? info.balance);
+    if (margin > free) return { skipped: `Not enough margin: ${totalLots} lots ${parsed.symbol} needs about $${margin.toFixed(2)} at 1:${lev}, free margin is $${free.toFixed(2)}.` };
+  }
+
   // Smart trailing: the channel's learned style, and volatility from the gold price feed (lib/market.js).
   const trailMode = (await trailProfiles(userId).catch(() => ({})))[source]?.mode || TRAIL_DEFAULT;
   const trailAtr = await atrBefore(parsed.symbol, Date.now());
