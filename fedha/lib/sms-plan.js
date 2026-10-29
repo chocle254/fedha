@@ -22,7 +22,7 @@ const H = 3600e3;
 const near = (a, b, tol = 0.011) => Math.abs(Number(a) - Number(b)) <= tol;
 const fmt = (n) => `KES ${Number(n).toLocaleString('en-KE', { maximumFractionDigits: 2 })}`;
 
-function samePhone(a, b) {
+export function samePhone(a, b) {
   const x = normPhone(a); const y = normPhone(b);
   if (!x || !y) return false;
   if (!x.includes('*') && !y.includes('*')) return x === y;

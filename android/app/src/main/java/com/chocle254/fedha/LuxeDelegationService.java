@@ -44,6 +44,7 @@ public class LuxeDelegationService extends DelegationService {
     private static final Kind TP = new Kind("luxe_tp_v1", "Take-profit hit", new long[]{150, 60, 60, 60, 60, 60}, "sound_success", 0xFF10B981, "🎯", "TAKE PROFIT");
     private static final Kind SL = new Kind("luxe_sl_v1", "Stop-loss hit", new long[]{150, 380, 180, 380}, "sound_alert", 0xFFEF4444, "🛑", "STOP LOSS");
     private static final Kind PLANNER = new Kind("luxe_planner_v1", "Planner reminders", new long[]{150, 100}, "sound_planner", 0xFF8B5CF6, "🗓️", "PLANNER");
+    private static final Kind MONEY = new Kind("luxe_money_v1", "Money in", new long[]{150, 90, 70, 90, 70, 380, 200, 380}, "sound_success", 0xFF22C55E, "💰", "MONEY IN");
     private static final Kind OTHER = new Kind("luxe_jarvis_v1", "Jarvis and other", new long[]{150, 100}, "sound_jarvis", 0xFF64748B, "🔔", "JARVIS");
 
     // The pinned planner card: silent (no sound, no buzz) because the block's own reminder already alerts.
@@ -62,6 +63,8 @@ public class LuxeDelegationService extends DelegationService {
         if (g.contains("upesipay") || t.startsWith("UpesiPay")) return UPESIPAY;
         if (t.startsWith("Withdrawal failed") || g.contains("nestlink-missing") || (g.contains("nestlink") && t.startsWith("Wallet"))) return NESTLINK_FAIL;
         if (g.contains("nestlink") || t.startsWith("Funds withdrawn")) return NESTLINK;
+        // Money in: earnings milestones (earn-*) and customer payments (startup-pay-*) get the success sound.
+        if (g.contains("earn-") || g.contains("startup-pay")) return MONEY;
         if (g.contains("block_") || g.contains("meal_") || g.contains("missed_blocks") || g.contains("break")
                 || g.contains("planner_active")) return PLANNER;
         if (t.startsWith("🛑")) return SL;
@@ -79,7 +82,7 @@ public class LuxeDelegationService extends DelegationService {
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build();
-        for (Kind k : new Kind[]{NESTLINK, NESTLINK_FAIL, UPESIPAY, TRADE, TP, SL, PLANNER, OTHER}) {
+        for (Kind k : new Kind[]{NESTLINK, NESTLINK_FAIL, UPESIPAY, TRADE, TP, SL, PLANNER, MONEY, OTHER}) {
             if (nm.getNotificationChannel(k.id) != null) continue;
             NotificationChannel ch = new NotificationChannel(k.id, k.name, NotificationManager.IMPORTANCE_HIGH);
             ch.enableVibration(true);
@@ -226,7 +229,7 @@ public class LuxeDelegationService extends DelegationService {
                 .setCustomContentView(small)
                 .setCustomHeadsUpContentView(popup)
                 .setCustomBigContentView(expanded);
-        if (kind == NESTLINK || kind == NESTLINK_FAIL || kind == UPESIPAY) b.setCategory(Notification.CATEGORY_STATUS);
+        if (kind == NESTLINK || kind == NESTLINK_FAIL || kind == UPESIPAY || kind == MONEY) b.setCategory(Notification.CATEGORY_STATUS);
         // Block reminders clear themselves after 10 minutes: the pinned live card carries the plan from there.
         if (kind == PLANNER && platformTag != null && platformTag.contains("block_")) b.setTimeoutAfter(10 * 60_000L);
 

@@ -10,6 +10,7 @@ import { museAsk, startupForAI } from '../../components/startup/museApi';
 import PlaybookTab from '../../components/startup/PlaybookTab';
 import NotebookTab from '../../components/startup/NotebookTab';
 import PitchTab from '../../components/startup/PitchTab';
+import CustomersTab from '../../components/startup/CustomersTab';
 import InvestorTab from '../../components/startup/InvestorTab';
 import ReadinessTab from '../../components/startup/ReadinessTab';
 
@@ -40,6 +41,7 @@ function Ring({ pct, color, size = 64 }) {
 const TABS = [
   ['muse', '✨ Muse'],
   ['playbook', '🧭 Playbook'],
+  ['customers', '💰 Customers'],
   ['pitch', '🎤 Pitch'],
   ['investors', '💼 Investors'],
   ['readiness', '🧪 Readiness'],
@@ -646,6 +648,7 @@ export default function StartupDetail() {
         {tab === 'playbook' && (
           <PlaybookTab startup={startup} currentStage={stage} focusStage={playbookStage} save={save} onSchedule={openScheduler} onAsk={ask} />
         )}
+        {tab === 'customers' && <CustomersTab startup={startup} save={save} />}
         {tab === 'pitch' && <PitchTab startup={startup} stages={draft} save={save} onPractice={() => goTab('investors')} />}
         {tab === 'investors' && <InvestorTab startup={startup} stages={draft} save={save} />}
         {tab === 'readiness' && (

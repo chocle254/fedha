@@ -16,7 +16,8 @@
 import crypto from 'crypto';
 import { supabaseAdmin } from './supabaseAdmin';
 import { parseSms, isMoneySender, categoryFor, partyKey, ASK, normPhone } from './sms-parser';
-import { planMessage, suggestOwn } from './sms-plan';
+import { planMessage, suggestOwn, samePhone } from './sms-plan';
+import { pushToAll } from './nestlink-push';
 
 const KEY = 'sms_device';
 const RULES = 'sms_categories';
@@ -152,6 +153,7 @@ export async function ingest(token, messages) {
       if (dup?.length) { skipped++; continue; }
     }
     const { error } = await supabaseAdmin.from('sms_inbox').upsert(row, { onConflict: 'user_id,fingerprint', ignoreDuplicates: true });
+    if (!error && row.status === 'captured' && parsed?.kind === 'received' && parsed.phone) await customerPaid(userId, parsed, at).catch(() => {});
     if (error) {
       if (/relation .* does not exist|sms_inbox/i.test(error.message)) return { error: 'Run supabase-migration-sms-inbox.sql first.' };
       skipped++;
@@ -160,6 +162,30 @@ export async function ingest(token, messages) {
   await putDevice(userId, { ...device, last_seen: new Date().toISOString() });
   await wipeOld(userId);
   return { ok: true, stored, skipped };
+}
+
+// A payment from someone in a startup's customer pipeline (Customers tab): logged in 'startup_payments' (the tab
+// merges it in and moves them to Paid) and announced. Kept apart from the startup record itself so the app's
+// offline copy of the startup can never overwrite it.
+async function customerPaid(userId, p, at) {
+  const { data: rows } = await supabaseAdmin.from('startups').select('id, data').eq('user_id', userId);
+  for (const s of rows || []) {
+    const c = (s.data?.customers || []).find((x) => x.phone && samePhone(x.phone, p.phone));
+    if (!c) continue;
+    const { data: cur } = await supabaseAdmin.from('settings').select('value').eq('user_id', userId).eq('key', 'startup_payments').maybeSingle();
+    const list = Array.isArray(cur?.value) ? cur.value : [];
+    if (p.code && list.some((x) => x.code === p.code)) return;
+    const first = !list.some((x) => x.startupId === s.id) && !(s.data?.customers || []).some((x) => x.stage === 'paid');
+    list.push({ startupId: s.id, customerId: c.id, name: c.name, amount: p.amount, at, code: p.code || null });
+    await supabaseAdmin.from('settings').upsert({ user_id: userId, key: 'startup_payments', value: list.slice(-500), updated_at: new Date().toISOString() }, { onConflict: 'user_id,key' });
+    const name = s.data?.name || 'your startup';
+    await pushToAll({
+      title: first ? `🎉 First paying customer for ${name}!` : `💰 ${c.name} paid ${name}`,
+      body: `${c.name} sent KES ${Number(p.amount).toLocaleString('en-KE')}${first ? '. Your first customer. Ask what made them pay, then find 10 more like them.' : '.'}`,
+      tag: `startup-pay-${p.code || at}`, url: `/startup/${s.id}?tab=customers`,
+    }).catch(() => {});
+    return;
+  }
 }
 
 // Space and privacy:
