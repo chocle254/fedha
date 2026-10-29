@@ -4,15 +4,18 @@ import { getSession } from '../lib/supabase';
 import { getTransaction } from '../lib/db';
 import { showNotif } from '../lib/notifications';
 import { applyCredits } from '../lib/nestlink-credits';
+import { summarize, incomeLine } from '../lib/earnings';
 
 const POLL_MS = 3000;
 
 // Invisible. While Luxe is open it asks the server which NestLink payouts have
 // finished, credits them to the "mpesa 2" wallet and shows a notification.
 export default function NestLinkCredits() {
-  const { wallets, addTransaction } = useApp();
+  const { wallets, addTransaction, transactions } = useApp();
   const walletsRef = useRef(wallets);
   walletsRef.current = wallets;
+  const txRef = useRef(transactions);
+  txRef.current = transactions;
   const busy = useRef(false);
   const warned = useRef(false);
 
@@ -30,7 +33,9 @@ export default function NestLinkCredits() {
       if (!payload || (!payload.completed?.length && !payload.failed?.length)) return;
 
       const { acked, missingWallet } = await applyCredits(payload, {
-        wallets: walletsRef.current, addTransaction, getTransaction, notify: showNotif
+        wallets: walletsRef.current, addTransaction, getTransaction, notify: showNotif,
+        // Totals counted before this payout is added, plus the payout itself.
+        moneyLine: (amount) => incomeLine(summarize(txRef.current, Date.now(), amount)),
       });
       if (missingWallet && !warned.current) {
         warned.current = true;

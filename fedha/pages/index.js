@@ -6,6 +6,7 @@ import SavingsMotivator from '../components/SavingsMotivator';
 import SavingsChallenges from '../components/SavingsChallenges';
 import BalanceHistoryChart from '../components/BalanceHistoryChart';
 import BinancePortfolioCard from '../components/BinancePortfolioCard';
+import MoneyInCard from '../components/MoneyInCard';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatShort, formatDate, formatDateRelative, getCategoryById, groupByDay, monthRange } from '../lib/utils';
 import { format } from 'date-fns';
@@ -159,6 +160,9 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+
+        {/* Money in: what came in today / this week, streak, last 14 days */}
+        <div className="section"><MoneyInCard transactions={transactions} /></div>
 
         {/* Balance over time — right under this month's income and expenses */}
         <div className="section">
@@ -386,6 +390,8 @@ function DesktopDashboard({ wallets, transactions, goals, currency, netWorth, to
           <Panel title="Investments">
             <BinancePortfolioCard />
           </Panel>
+
+          <MoneyInCard transactions={transactions} />
 
           <Panel title="Balance over time">
             <BalanceHistoryChart transactions={transactions} currentBalance={totalBalance} currency={currency} />

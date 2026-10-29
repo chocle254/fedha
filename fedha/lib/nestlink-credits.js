@@ -4,7 +4,8 @@
 export const normName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 export const findMpesa2 = (wallets) => (wallets || []).find((w) => normName(w.name) === 'mpesa2') || null;
 
-export async function applyCredits(payload, { wallets, addTransaction, getTransaction, notify }) {
+// moneyLine(amount): optional extra text for the notification (today / week totals, streak: lib/earnings.js).
+export async function applyCredits(payload, { wallets, addTransaction, getTransaction, notify, moneyLine = null }) {
   const acked = [];
   const applied = [];
   let missingWallet = false;
@@ -28,7 +29,7 @@ export async function applyCredits(payload, { wallets, addTransaction, getTransa
     acked.push(item.reference);
     await notify({
       title: 'Funds withdrawn',
-      body: `KES ${item.payout} sent to your M-Pesa and added to ${wallet.name}.`,
+      body: `💸 KES ${item.payout} sent to your M-Pesa and added to ${wallet.name}.${moneyLine ? ` ${moneyLine(Number(item.payout))}.` : ''}`,
       tag: `nestlink-${item.reference}`
     });
   }
