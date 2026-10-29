@@ -138,7 +138,7 @@ ${foundText}
 
 Return ONLY JSON: { "results": [ ...items ] } (up to 10). Each item has exactly:
 - name, organizer, url (official link from the results),
-- deadline (registration close or event date, YYYY-MM-DD; "" if not stated),
+- deadline (registration close or event date, YYYY-MM-DD). REQUIRED: if the results do not state a date, or the date is before today, or the page is about a past edition (an earlier year), leave the hackathon out.,
 - dates (human text like "14–16 Nov 2026", or ""),
 - mode (venue and city, e.g. "iHub, Nairobi" or "Online (Kenya)"), online (boolean),
 - prize_pool (as stated, e.g. "KSh 500,000", or ""), prize_usd (number, approximate USD; KSh ÷ 130; 0 if none),

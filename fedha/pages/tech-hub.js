@@ -2005,18 +2005,22 @@ export default function TechHubPage() {
   // Real hackathons from Devpost + Devfolio (pages/api/hackathons.js).
   // Kenyan hackathons rarely appear on Devpost/Devfolio, so a web search finds those (cached for 12 hours).
   async function fetchKenyaHackathons(force) {
-    const cached = await getSetting('kenya_hacks', null);
-    if (!force && cached && Date.now() - cached.at < 12 * 3600e3) return cached.results;
+    // Only hackathons with a stated date that has not passed (web pages about past editions have no deadline or
+    // an old one). Applied to the saved copy too, so a result goes the day its deadline passes.
+    const year = new Date().getFullYear();
+    const pastYears = (h) => { const ys = String(h.dates || '').match(/\b20\d\d\b/g) || []; return ys.length > 0 && ys.every((y) => Number(y) < year); };
+    const stillOpen = (h) => !!h.deadline && h.deadline >= todayISO() && !pastYears(h);
+    const cached = await getSetting('kenya_hacks_v2', null);
+    if (!force && cached && Date.now() - cached.at < 12 * 3600e3) return cached.results.filter(stillOpen);
     const home = await getSetting('home_location', null);
     const city = location?.city || (home?.name ? String(home.name).split(',')[0] : 'Nairobi');
     const r = await fetch('/api/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'local_hackathons', location: { city }, nonce: Date.now() }) });
     const j = await r.json();
-    if (!r.ok || j.error) return cached?.results || [];
-    const today = todayISO();
+    if (!r.ok || j.error) return (cached?.results || []).filter(stillOpen);
     const results = (j.results || [])
-      .filter((h) => h.name && h.url && (!h.deadline || h.deadline >= today))
+      .filter((h) => h.name && h.url && stillOpen(h))
       .map((h, i) => ({ ...h, id: `web_${i}_${h.name}`, source: 'Web', kenya: !h.online || /kenya|nairobi/i.test(h.mode || ''), africa: true, registrations: 0, prize_usd: Number(h.prize_usd) || 0 }));
-    await setSetting('kenya_hacks', { at: Date.now(), results });
+    await setSetting('kenya_hacks_v2', { at: Date.now(), results });
     return results;
   }
 
