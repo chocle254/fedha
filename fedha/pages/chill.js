@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Head from 'next/head';
 import Layout from '../components/Layout';
-import { fetchLibrary, organise, loadArt, getProgress, markPlayed, isPlayed, upNext, watchWindow, playLink, scanLink, epCode } from '../lib/chill';
+import { fetchLibrary, organise, loadArt, getProgress, markPlayed, isPlayed, upNext, watchWindow, playLink, scanLink, epCode, fetchSuggest, setFeedback } from '../lib/chill';
 
 // Chill Room: your downloaded movies and series (Download / Telegram on the phone), laid out like Apple TV.
 // Opened from the planner's watch-time block (right after the smoke break). ▶ hands the file to your video player
@@ -37,6 +37,8 @@ export default function Chill() {
   const [now, setNow] = useState(Date.now());
   const [open, setOpen] = useState(null); // { type: 'show' | 'movie', item }
   const [season, setSeason] = useState(null);
+  const [sug, setSug] = useState(null); // { items, taste }
+  const [sugBusy, setSugBusy] = useState(false);
 
   const load = async () => {
     const [l, p, w] = await Promise.all([fetchLibrary(), getProgress(), watchWindow()]);
@@ -44,7 +46,13 @@ export default function Chill() {
   };
   useEffect(() => { load(); const t = setInterval(() => setNow(Date.now()), 30e3); return () => clearInterval(t); }, []);
   const { shows, movies } = useMemo(() => organise(lib?.files || []), [lib]);
-  useEffect(() => { if (shows.length || movies.length) loadArt({ shows, movies }, setArt); }, [shows, movies]);
+  useEffect(() => { if (lib) fetchSuggest().then(setSug).catch(() => setSug({ items: [] })); }, [lib]);
+  useEffect(() => { if (shows.length || movies.length || sug?.items?.length) loadArt({ shows, movies, extra: sug?.items || [] }, setArt); }, [shows, movies, sug]);
+  const refreshSug = async () => { setSugBusy(true); try { setSug(await fetchSuggest(true)); } finally { setSugBusy(false); } };
+  const react = async (title, value) => { setProg(await setFeedback(prog, title, value)); setOpen(null); };
+  const sugArt = (x) => art[`${x.type === 'movie' ? 'movie' : 'show'}:${x.title}`] || {};
+  const forYou = (sug?.items || []).filter((x) => !prog.feedback?.[x.title]);
+  const wanted = Object.entries(prog.feedback || {}).filter(([, v]) => v === 'want').map(([t]) => (sug?.items || []).find((x) => x.title === t) || { title: t, type: 'series' });
 
   const play = async (file) => { setProg(await markPlayed(prog, file)); window.location.href = playLink(file); };
   const showArt = (s) => art[`show:${s.title}`] || {};
@@ -60,7 +68,7 @@ export default function Chill() {
 
   const empty = lib && !shows.length && !movies.length;
   const detail = open?.type === 'show' ? open.item : null;
-  const dArt = detail ? showArt(detail) : open?.type === 'movie' ? movieArt(open.item) : {};
+  const dArt = detail ? showArt(detail) : open?.type === 'movie' ? movieArt(open.item) : open?.type === 'sug' ? sugArt(open.item) : {};
   const dSeason = detail ? (season ?? (upNext(detail, prog, dArt).next?.season || detail.seasons[0])) : null;
 
   return (
@@ -109,6 +117,25 @@ export default function Chill() {
                 const a = showArt(s); const c = epCode(u.next.season, u.next.episode);
                 return <Poster key={s.title} wide img={a.backdrop || a.poster} title={s.title} sub={`${c}${a.names?.[c] ? ` · ${a.names[c]}` : ''}`} onClick={() => play(u.next)} badge="▶" />;
               })}
+            </div>
+          </section>
+        )}
+
+        {(forYou.length > 0 || sug?.taste) && (
+          <section className="row">
+            <div className="rowHead"><h3>For You</h3><button type="button" className="ref" disabled={sugBusy} onClick={refreshSug}>{sugBusy ? '…' : '↻ New picks'}</button></div>
+            {sug?.taste && <p className="taste">{sug.taste}</p>}
+            <div className="scroller">
+              {forYou.map((x) => <Poster key={x.title} img={sugArt(x).poster} title={x.title} sub={x.because ? `Because you like ${x.because}` : x.type} onClick={() => setOpen({ type: 'sug', item: x })} />)}
+            </div>
+          </section>
+        )}
+
+        {wanted.length > 0 && (
+          <section className="row">
+            <h3>Want to Watch</h3>
+            <div className="scroller">
+              {wanted.map((x) => <Poster key={x.title} img={sugArt(x).poster} title={x.title} sub="Download it when you can" onClick={() => setOpen({ type: 'sug', item: x })} />)}
             </div>
           </section>
         )}
@@ -165,6 +192,15 @@ export default function Chill() {
                   })}
                 </div>
               </>
+            ) : open.type === 'sug' ? (
+              <div className="pad2">
+                {open.item.why && <p className="why">{open.item.because ? <b>Because you like {open.item.because}. </b> : null}{open.item.why}</p>}
+                <div className="btns">
+                  <button type="button" className="btnW" onClick={() => react(open.item.title, prog.feedback?.[open.item.title] === 'want' ? null : 'want')}>{prog.feedback?.[open.item.title] === 'want' ? '✓ On your list' : '＋ Want to watch'}</button>
+                  <button type="button" className="btnG" onClick={() => react(open.item.title, 'seen')}>Seen it</button>
+                  <button type="button" className="btnG" onClick={() => react(open.item.title, 'no')}>Not for me</button>
+                </div>
+              </div>
             ) : (
               <div className="btns pad"><button type="button" className="btnW" onClick={() => play(open.item)}>▶ Play</button><span className="meta">{[mins(open.item.duration), gb(open.item.size)].filter(Boolean).join(' · ')}</span></div>
             )}
@@ -205,6 +241,13 @@ export default function Chill() {
         .art em { position: absolute; right: 8px; bottom: 8px; font-style: normal; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); font-size: 12px; }
         .ct { margin-top: 8px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .cs { font-size: 11.5px; color: #8e8e93; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .rowHead { display: flex; align-items: center; justify-content: space-between; margin-right: 16px; }
+        .rowHead h3 { margin-bottom: 10px; }
+        .ref { border: 0; background: rgba(255,255,255,0.1); color: #d1d1d6; border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+        .taste { margin: -4px 16px 12px; font-size: 13px; color: #aeaeb2; line-height: 1.45; font-style: italic; }
+        .pad2 { padding: 12px 16px 22px; }
+        .why { font-size: 14px; line-height: 1.5; color: #d1d1d6; margin: 0; }
+        .why b { color: #fff; }
         .note { font-size: 11.5px; color: #636366; text-align: center; margin: 28px 16px 0; }
         .emptyBox { text-align: center; padding: 70px 24px; }
         .emptyBox .big { font-size: 54px; }
