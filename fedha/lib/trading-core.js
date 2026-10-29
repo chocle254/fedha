@@ -281,7 +281,7 @@ function normCdf(z) {
 }
 
 export const LOT_MIN = 0.25;  // floor while a group is being judged or after a bad patch
-export const LOT_MAX = 3;     // ceiling for a proven group
+export const LOT_MAX = 5;     // ceiling for a proven group (aim: grow fast on what is proven to win)
 
 export function groupReport(trades = []) {
   const map = {};
@@ -312,9 +312,9 @@ export function groupReport(trades = []) {
     const confidence = n ? Math.round(normCdf(z) * 100) : 50;
 
     // Lot multiplier grows with confidence and with the size of the edge, but the ceiling only
-    // opens up as trades pile up (1× + 0.1× per closed trade), so a lucky start cannot jump to 3×.
+    // opens up as trades pile up (1× + 0.2× per closed trade), so a lucky start cannot jump to 5×.
     const edge = Math.max(0, (confidence - 50) / 50) * Math.min(1, Math.max(0, avgR) / 0.5);
-    const cap = Math.min(LOT_MAX, 1 + n * 0.1);
+    const cap = Math.min(LOT_MAX, 1 + n * 0.2);
     let lotMultiplier = Math.min(cap, 0.5 + edge * (LOT_MAX - 0.5));
     let verdict, why;
     if (n < GROUP_MIN_TRADES) {
@@ -416,11 +416,11 @@ export function splitLots({ riskUsd, entry, stop, tps, contractSize, minVolume, 
 //   cap     the most the smallest lot may risk, % of balance; above that the signal is skipped
 //   minConf only channels at least this confident (report card) trade at this stage
 export const GROWTH_TIERS = [
-  { upTo: 20, label: 'Seed', pct: 15, cap: 50, minConf: 60 },
-  { upTo: 50, label: 'Sprout', pct: 8, cap: 25, minConf: 55 },
-  { upTo: 150, label: 'Growing', pct: 4, cap: 12, minConf: 50 },
-  { upTo: 500, label: 'Steady', pct: 2.5, cap: 6, minConf: 0 },
-  { upTo: Infinity, label: 'Full', pct: null, cap: null, minConf: 0 },
+  { upTo: 20, label: 'Seed', pct: 20, cap: 60, minConf: 60 },
+  { upTo: 50, label: 'Sprout', pct: 12, cap: 30, minConf: 55 },
+  { upTo: 150, label: 'Growing', pct: 7, cap: 15, minConf: 50 },
+  { upTo: 500, label: 'Steady', pct: 4, cap: 8, minConf: 0 },
+  { upTo: Infinity, label: 'Full', pct: 3, cap: 6, minConf: 0 },
 ];
 export const GROWTH_LEVERAGE = 1000;
 
