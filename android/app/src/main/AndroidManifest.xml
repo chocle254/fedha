@@ -95,6 +95,21 @@
                 <data android:scheme="luxe" android:host="library" />
             </intent-filter>
         </activity>
+        <!-- Luxe's own player (luxe://watch?q=…&sound=…): theater mode, deep bass, skip intro, autoplay next. -->
+        <activity
+            android:name=".PlayerActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="luxe" android:host="watch" />
+            </intent-filter>
+        </activity>
         <activity
             android:name=".PlayActivity"
             android:exported="true"

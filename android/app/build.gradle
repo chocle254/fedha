@@ -45,6 +45,9 @@ android {
 dependencies {
     implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
+    // Luxe's own video player (PlayerActivity): ExoPlayer engine + its player view.
+    implementation 'androidx.media3:media3-exoplayer:1.4.1'
+    implementation 'androidx.media3:media3-ui:1.4.1'
 }
 
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }

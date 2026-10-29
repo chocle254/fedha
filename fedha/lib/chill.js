@@ -29,6 +29,7 @@ async function showArt(title) {
     poster: s.image?.original || s.image?.medium || null, backdrop: bg?.resolutions?.original?.url || null,
     summary: strip(s.summary), year: (s.premiered || '').slice(0, 4), genres: s.genres || [], rating: s.rating?.average || null,
     names: Object.fromEntries(eps.map((e) => [epCode(e.season, e.number), e.name])),
+    imdb: s.externals?.imdb || null, // for intro / credits times in Luxe's player
     stills: Object.fromEntries(eps.filter((e) => e.image).map((e) => [epCode(e.season, e.number), e.image.original || e.image.medium])),
     order: eps.map((e) => epCode(e.season, e.number)),
   };
@@ -49,9 +50,9 @@ export async function loadArt({ shows, movies, extra = [] }, onUpdate) {
   let changed = false;
   for (const [kind, title, year] of jobs) {
     const k = `${kind}:${title}`;
-    if (art[k] && art[k].v === 3) continue;
-    try { art[k] = { v: 3, ...(kind === 'show' ? await showArt(title) : await movieArt(title, year)) }; }
-    catch { art[k] = { v: 3 }; }
+    if (art[k] && art[k].v === 4) continue;
+    try { art[k] = { v: 4, ...(kind === 'show' ? await showArt(title) : await movieArt(title, year)) }; }
+    catch { art[k] = { v: 4 }; }
     changed = true;
     onUpdate({ ...art });
   }
@@ -63,7 +64,12 @@ export async function loadArt({ shows, movies, extra = [] }, onUpdate) {
 // { played: { "<show>|S04E08": ts, "movie:<title>": ts }, last: { show, code, at },
 //   feedback: { "<title>": 'want' | 'seen' | 'no' } (your reactions to For You picks; the AI learns from them) }
 const ROOM = 'chill_room';
-export async function getProgress() { return (await getSetting(ROOM, { played: {}, last: null })) || { played: {}, last: null }; }
+// What you played from the page, plus what Luxe's player reported as watched ('chill_watched').
+export async function getProgress() {
+  const [room, watched] = await Promise.all([getSetting(ROOM, { played: {}, last: null }), getSetting('chill_watched', {})]);
+  const p = room || { played: {}, last: null };
+  return { ...p, played: { ...(watched || {}), ...(p.played || {}) } };
+}
 export async function markPlayed(prog, item) {
   const key = item.kind === 'episode' ? `${item.show}|${epCode(item.season, item.episode)}` : `movie:${item.title}`;
   const next = { ...prog, played: { ...prog.played, [key]: Date.now() }, last: item.kind === 'episode' ? { show: item.show, code: epCode(item.season, item.episode), at: Date.now() } : { movie: item.title, at: Date.now() } };
@@ -112,4 +118,12 @@ export async function watchWindow() {
 }
 
 export const playLink = (file) => `intent://play?id=${file.id}#Intent;scheme=luxe;package=com.chocle254.fedha;end`;
+
+// Luxe's own player. queue: [{ id, t (title shown), k (progress key), imdb, s, e }]; sound: theater | max | off.
+export function watchLink(queue, sound = 'theater') {
+  const json = JSON.stringify(queue.slice(0, 12));
+  const b64 = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `intent://watch?q=${b64}&sound=${encodeURIComponent(sound)}#Intent;scheme=luxe;package=com.chocle254.fedha;end`;
+}
+export const progressKey = (item) => (item.kind === 'episode' ? `${item.show}|${epCode(item.season, item.episode)}` : `movie:${item.title}`);
 export const scanLink = 'intent://library#Intent;scheme=luxe;package=com.chocle254.fedha;end';

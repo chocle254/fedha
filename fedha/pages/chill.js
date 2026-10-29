@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Head from 'next/head';
 import Layout from '../components/Layout';
-import { fetchLibrary, organise, loadArt, getProgress, markPlayed, isPlayed, upNext, watchWindow, playLink, scanLink, epCode, fetchSuggest, setFeedback } from '../lib/chill';
+import { fetchLibrary, organise, loadArt, getProgress, markPlayed, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback } from '../lib/chill';
 
 // Chill Room: your downloaded movies and series (Download / Telegram on the phone), laid out like Apple TV.
 //   hero      the series you're in the middle of (backdrop, ▶ next episode)
@@ -16,6 +16,9 @@ const mins = (ms) => (ms ? `${Math.round(ms / 60000)} min` : '');
 const clock = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const left = (ms) => { const m = Math.max(0, Math.round(ms / 60000)); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`; };
 const bg = (url) => (url ? { backgroundImage: `url("${url}")` } : undefined);
+// Sound mode for Luxe's player (remembered on this phone).
+const SOUNDS = [['theater', '🔊 Theater'], ['max', '💥 Max bass'], ['off', '🔈 Plain']];
+const getSound = () => { try { return localStorage.getItem('luxe_sound') || 'theater'; } catch { return 'theater'; } };
 
 function Session({ windows, now }) {
   if (!windows.length) return null;
@@ -75,6 +78,9 @@ export default function Chill() {
   const [season, setSeason] = useState(null);
   const [sug, setSug] = useState(null);
   const [sugBusy, setSugBusy] = useState(false);
+  const [sound, setSound] = useState('theater');
+  useEffect(() => { setSound(getSound()); }, []);
+  const cycleSound = () => { const i = SOUNDS.findIndex(([k]) => k === sound); const next = SOUNDS[(i + 1) % SOUNDS.length][0]; setSound(next); try { localStorage.setItem('luxe_sound', next); } catch { /* ignore */ } };
 
   const load = async () => {
     const [l, p, w] = await Promise.all([fetchLibrary(), getProgress(), watchWindow()]);
@@ -85,7 +91,20 @@ export default function Chill() {
   useEffect(() => { if (lib) fetchSuggest().then(setSug).catch(() => setSug({ items: [] })); }, [lib]);
   useEffect(() => { if (shows.length || movies.length || sug?.items?.length) loadArt({ shows, movies, extra: sug?.items || [] }, setArt); }, [shows, movies, sug]);
 
-  const play = async (file) => { setProg(await markPlayed(prog, file)); window.location.href = playLink(file); };
+  // ▶ opens Luxe's own player with this episode and the rest of the downloaded ones after it queued (auto-next),
+  // each with the show's IMDb id so the player can skip intros and spot the credits.
+  const play = async (file) => {
+    setProg(await markPlayed(prog, file));
+    let queue;
+    if (file.kind === 'episode') {
+      const sh = shows.find((x) => x.title === file.show);
+      const a = art[`show:${file.show}`] || {};
+      const from = sh ? sh.episodes.indexOf(sh.episodes.find((e) => e.key === file.key)) : -1;
+      const eps = sh && from >= 0 ? sh.episodes.slice(from) : [file];
+      queue = eps.map((e) => { const c = epCode(e.season, e.episode); return { id: e.id, t: `${e.show} · ${c}${a.names?.[c] ? ` · ${a.names[c]}` : ''}`, k: progressKey(e), imdb: a.imdb || '', s: e.season, e: e.episode }; });
+    } else queue = [{ id: file.id, t: file.title, k: progressKey(file) }];
+    window.location.href = watchLink(queue, sound);
+  };
   const refreshSug = async () => { setSugBusy(true); try { setSug(await fetchSuggest(true)); } finally { setSugBusy(false); } };
   const react = async (title, value) => { setProg(await setFeedback(prog, title, value)); setOpen(null); };
   const showArt = (s) => art[`show:${s.title}`] || {};
@@ -114,6 +133,7 @@ export default function Chill() {
         <header className="cr-top">
           <h1>Chill Room</h1>
           <Session windows={windows} now={now} />
+          <button type="button" className="cr-pill" onClick={cycleSound} aria-label="Sound mode">{SOUNDS.find(([k]) => k === sound)?.[1]}</button>
           <a className="cr-scan" href={scanLink} onClick={() => setTimeout(load, 9000)} aria-label="Scan the phone for new downloads">⟳</a>
         </header>
 
@@ -240,7 +260,7 @@ export default function Chill() {
         .cr { background: #000; color: #f5f5f7; min-height: 100vh; padding-bottom: 48px; font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif; }
         .cr-top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: rgba(0,0,0,0.6); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
         .cr-top h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.4px; margin: 0; flex: 1; white-space: nowrap; }
-        .cr-pill { font-size: 12px; font-weight: 600; padding: 6px 11px; border-radius: 999px; background: rgba(255,255,255,0.1); color: #d1d1d6; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+        .cr-pill { border: 0; font-family: inherit; cursor: pointer; font-size: 12px; font-weight: 600; padding: 6px 11px; border-radius: 999px; background: rgba(255,255,255,0.1); color: #d1d1d6; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
         .cr-pill.live { background: rgba(48,209,88,0.16); color: #30d158; }
         .cr-pill i { width: 7px; height: 7px; border-radius: 50%; background: #30d158; box-shadow: 0 0 8px #30d158; }
         .cr-scan { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,0.1); color: #fff; text-decoration: none; font-size: 17px; flex-shrink: 0; }
