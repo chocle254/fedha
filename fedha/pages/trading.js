@@ -351,7 +351,9 @@ export default function TradingPage() {
           <b className="font-num" style={{ color: pnl >= 0 ? C.up : C.down }}>{fmtUsd(pnl)} <small>({pct >= 0 ? '+' : ''}{pct.toFixed(2)}%)</small></b>
         </div>
         <div className="tx-row-grid font-num">
-          <div><span>Size</span><b>{fmtQty(t.qty)} {base(t.symbol)}</b></div>
+          {isMt5(t.symbol)
+            ? <div><span>Lots</span><b>{lotsLabel(t)}</b></div>
+            : <div><span>Size</span><b>{fmtQty(t.qty)} {base(t.symbol)}</b></div>}
           {isMt5(t.symbol)
             ? <div><span>Margin (1:400)</span><b title={`Position value ${fmtUsd(t.notional, false)}`}>{fmtUsd(Number(t.notional) / MT5_LEV, false)}</b></div>
             : <div><span>Value</span><b>{fmtUsd(t.notional, false)}</b></div>}
@@ -359,7 +361,7 @@ export default function TradingPage() {
           <div><span>Mark</span><b>{mark ? fmtPrice(mark) : '—'}</b></div>
           <div><span>SL{trailed(t) ? ' (trailed)' : ''}</span><b title={t.trail_mode ? `Trailing: ${TRAIL_LABEL[t.trail_mode] || t.trail_mode}` : undefined} style={{ color: trailed(t) ? C.up : C.down }}>{t.stop_loss != null ? fmtPrice(curStop(t)) : '—'}</b></div>
           <div><span>Banked</span><b style={{ color: C.up }}>{t.tp_hit > 0 ? fmtUsd(livePnl(t, Number(t.entry))) : '—'}</b></div>
-          <div><span>Lots</span><b>{lotsLabel(t)}</b></div>
+          <div><span>{isMt5(t.symbol) ? 'Size' : 'Lots'}</span><b>{isMt5(t.symbol) ? `${fmtQty(t.qty)} ${base(t.symbol)}` : lotsLabel(t)}</b></div>
           <div><span>Risk</span><b style={{ color: C.down }}>{t.actual_risk_usdt != null || t.risk_usdt != null ? fmtUsd(Number(t.actual_risk_usdt ?? t.risk_usdt), false) : '—'}</b></div>
           <div><span>R:R (avg)</span><b title={rrDetail(rrPlan(t))}>{rrText(rrPlan(t))}</b></div>
           <div><span>{pipSize(t.symbol) ? 'Pips now' : 'Move now'}</span><b style={{ color: mark && (t.side === 'BUY' ? mark >= Number(t.entry) : mark <= Number(t.entry)) ? C.up : C.down }}>{moveLabel(t, mark)}</b></div>
@@ -410,7 +412,9 @@ export default function TradingPage() {
       </div>
       <div className="tx-row-grid font-num">
         <div><span>Price</span><b>{fmtPrice(t.entry)}</b></div>
-        <div><span>Amount</span><b>{fmtQty(t.qty)}{isMt5(t.symbol) ? ` · ${lotsLabel(t)}` : ''}</b></div>
+        {isMt5(t.symbol)
+          ? <div><span>Lots</span><b>{lotsLabel(t)} <small style={{ color: 'var(--text-3)' }}>({fmtQty(t.qty)} {base(t.symbol)})</small></b></div>
+          : <div><span>Amount</span><b>{fmtQty(t.qty)}</b></div>}
         {isMt5(t.symbol)
           ? <div><span>Margin (1:400)</span><b title={`Position value ${fmtUsd(t.notional, false)}`}>{fmtUsd(Number(t.notional) / MT5_LEV, false)}</b></div>
           : <div><span>Value</span><b>{fmtUsd(t.notional, false)}</b></div>}
