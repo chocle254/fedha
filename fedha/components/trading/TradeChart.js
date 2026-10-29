@@ -69,6 +69,8 @@ export default function TradeChart({ symbol, interval, onInterval, lines = [], m
         });
         const candles = chart.addCandlestickSeries({
           upColor: C.up, downColor: C.down, borderUpColor: C.up, borderDownColor: C.down, wickUpColor: C.up, wickDownColor: C.down,
+          // Live price: solid white, so it never looks like a TP (green dashed) or SL (red dashed) line.
+          priceLineColor: '#F5F7FA', priceLineStyle: LineStyle.Solid, priceLineWidth: 1,
           priceFormat: { type: 'price', precision: dec, minMove: 1 / 10 ** dec }
         });
         const vol = chart.addHistogramSeries({ priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
