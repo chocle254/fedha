@@ -107,6 +107,14 @@ export default function SmsCapture({ wallets }) {
                         {wallets.filter((w) => w.type === 'mobile' && (ziidi ? w.pocket === 'ziidi' || !w.pocket : !w.pocket)).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
                       </select>
                     </div>
+                    {p?.fuliza && (
+                      <div className="font-num" style={{ marginTop: 4, fontSize: 11.5, color: '#F59E0B' }}>
+                        Fuliza covered {formatCurrency(p.fuliza.borrowed, 'KES')}{p.fuliza.fee ? ` · fee ${formatCurrency(p.fuliza.fee, 'KES')}` : ''}{p.fuliza.owed != null ? ` · you owe Fuliza ${formatCurrency(p.fuliza.owed, 'KES')}` : ''}{p.fuliza.due ? ` by ${p.fuliza.due}` : ''}
+                      </div>
+                    )}
+                    {p?.kind === 'fuliza_repay' && (
+                      <div style={{ marginTop: 4, fontSize: 11.5, color: '#22C55E' }}>{p.fully ? 'Fuliza fully paid off' : 'Part of Fuliza paid'}{p.limit != null ? ` · limit now ${formatCurrency(p.limit, 'KES')}` : ''}</div>
+                    )}
                     {partyKey(p) && !FIXED_CATEGORY[p.kind] && (
                       <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center', fontSize: 11.5 }}>
                         {p.category

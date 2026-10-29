@@ -10,7 +10,14 @@
 //   deposit   "... Confirmed. On 29/10/26 at 7:15 PM Give Ksh500.00 cash to AGENT NAME New M-PESA balance is ..."
 //   airtime   "... confirmed.You bought Ksh50.00 of airtime on ..."
 //   reversal  "... Confirmed. Transaction ... has been reversed. Your account balance is now Ksh..."
-//   fuliza    "Ksh... from your M-PESA has been used to fully pay your outstanding Fuliza M-PESA" / "Fuliza M-PESA amount is Ksh..."
+//   fuliza    a payment topped up by Fuliza carries it inside the normal text:
+//             "... Ksh500.00 sent to ... New M-PESA balance is Ksh0.00 ... Fuliza M-PESA amount is Ksh 300.00. Access Fee
+//              charged Ksh 3.00. Total Fuliza M-PESA outstanding amount is Ksh 303.00 due on 28/11/26."
+//             -> the normal kind (sent/paid/...) plus p.fuliza = { borrowed, fee, owed, due }
+//   repay     "Ksh 303.00 from your M-PESA has been used to fully pay your outstanding Fuliza M-PESA. Available Fuliza
+//              M-PESA limit is Ksh 1000.00." -> kind 'fuliza_repay' (fully: true/false)
+// Fuliza is tracked as a 'borrowed' loan per M-Pesa account ("Fuliza · <wallet>"): its balance is set from the
+// outstanding amount Safaricom states, and a full repayment settles it.
 // Anything mentioning Ziidi is marked kind 'ziidi' with the amounts found, for review.
 
 const MONEY = '(?:Ksh|KES)\\s?([\\d,]+(?:\\.\\d{1,2})?)';
@@ -56,7 +63,18 @@ function parseMpesa(t) {
   if (!amount) return null;
 
   if (/has been reversed/i.test(t)) return { ...base, kind: 'reversal' };
-  if (/fuliza/i.test(t)) return { ...base, kind: /used to (?:fully |partially )?pay/i.test(t) ? 'fuliza_repay' : 'fuliza_loan' };
+  if (/used to (?:fully |partially )?pay (?:your )?outstanding Fuliza/i.test(t)) {
+    return { ...base, kind: 'fuliza_repay', fully: /fully pay/i.test(t), limit: num(first(new RegExp(`Fuliza M-?PESA limit is\\s*${MONEY}`, 'i'), t)), owed: num(first(new RegExp(`outstanding amount is\\s*${MONEY}`, 'i'), t)) };
+  }
+  const borrowed = num(first(new RegExp(`Fuliza M-?PESA amount is\\s*${MONEY}`, 'i'), t));
+  if (borrowed != null) {
+    base.fuliza = {
+      borrowed,
+      fee: num(first(new RegExp(`Access Fee charged\\s*${MONEY}`, 'i'), t)) || 0,
+      owed: num(first(new RegExp(`outstanding amount is\\s*${MONEY}`, 'i'), t)),
+      due: first(/due on (\d{1,2}\/\d{1,2}\/\d{2,4})/i, t),
+    };
+  }
   if (/You have received/i.test(t)) {
     const m = t.match(new RegExp(`received ${MONEY} from (.+?)(?:\\s+(0\\d{9}|254\\d{9}|\\d{2,4}\\*+\\d+))? on `, 'i'));
     return { ...base, kind: 'received', party: clean(m?.[2]), phone: m?.[3] || null };
@@ -86,14 +104,14 @@ function parseMpesa(t) {
 // Money in (+) or out (-) of the M-Pesa wallet, including the fee.
 export function signedAmount(p) {
   if (!p || p.amount == null) return null;
-  if (['received', 'deposit', 'reversal', 'fuliza_loan'].includes(p.kind)) return p.amount;
+  if (['received', 'deposit', 'reversal'].includes(p.kind)) return p.amount;
   if (['sent', 'paybill', 'paid', 'withdraw', 'airtime', 'fuliza_repay'].includes(p.kind)) return -(p.amount + (p.cost || 0));
   return null;
 }
 
 export const KIND_LABEL = {
   sent: 'Sent', paybill: 'Pay Bill', paid: 'Buy Goods', received: 'Received', withdraw: 'Withdrawn', deposit: 'Deposited',
-  airtime: 'Airtime', reversal: 'Reversal', fuliza_loan: 'Fuliza loan', fuliza_repay: 'Fuliza repaid', ziidi: 'Ziidi',
+  airtime: 'Airtime', reversal: 'Reversal', fuliza_repay: 'Fuliza repaid', ziidi: 'Ziidi',
 };
 
 // ── Categories learned per name ─────────────────────────────────────────────
