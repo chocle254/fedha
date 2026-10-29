@@ -16,8 +16,16 @@ function same(a, b) {
 }
 
 // Best effort: the inbox is a log, so a missing table (migration not run yet) must not break ingest.
+// It keeps only the newest INBOX_KEEP messages: each new one removes whatever has fallen past that point.
+// (Signals and trades live in their own tables and are never touched by this.)
+const INBOX_KEEP = 100;
 async function logInbox(row) {
-  try { await supabaseAdmin.from('signal_inbox').insert(row); } catch { /* ignore */ }
+  try {
+    await supabaseAdmin.from('signal_inbox').insert(row);
+    const { data: edge } = await supabaseAdmin.from('signal_inbox').select('created_at')
+      .eq('user_id', row.user_id).order('created_at', { ascending: false }).range(INBOX_KEEP - 1, INBOX_KEEP - 1);
+    if (edge?.[0]) await supabaseAdmin.from('signal_inbox').delete().eq('user_id', row.user_id).lt('created_at', edge[0].created_at);
+  } catch { /* ignore */ }
 }
 
 export default async function handler(req, res) {
