@@ -54,7 +54,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete android-latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create android-latest "$RUNNER_TEMP/fedha.apk" \
-            --title "Luxe Android (build ${{ github.run_number }})" \
-            --notes "Download fedha.apk on your phone and open it to install."
+          # Replace the APK in place (no delete first), so the download link never 404s while a build publishes.
+          if gh release view android-latest >/dev/null 2>&1; then
+            gh release upload android-latest "$RUNNER_TEMP/fedha.apk" --clobber
+            gh release edit android-latest --title "Luxe Android (build ${{ github.run_number }})"
+          else
+            gh release create android-latest "$RUNNER_TEMP/fedha.apk" \
+              --title "Luxe Android (build ${{ github.run_number }})" \
+              --notes "Download fedha.apk on your phone and open it to install."
+          fi
