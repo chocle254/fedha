@@ -57,7 +57,8 @@ export function levelsValid(side, entry, tps, sl) {
 //          but never more than K × 0.35 of the trade's own risk (entry to original SL), so a volatile market
 //          cannot leave the stop far behind a tight scalp. Before TP1: once price has run that distance in the
 //          trade's favour, the stop follows half of every further move, up to break-even. After TP1: it trails
-//          the best price at that distance. From TP2 on it also ratchets with the targets: never further back
+//          the best price at that distance, but only once that point is at or past break-even (never inside the
+//          loss zone, where ordinary pullbacks were stopping out winners). From TP2 on it also ratchets with the targets: never further back
 //          than one TP behind the last one hit. atr1 is tight, atr3 loose; each channel learns which.
 //          Never looser than the original SL.
 export const TRAIL_MODES = ['none', 'be2', 'step', 'atr1', 'atr2', 'atr3'];
@@ -88,7 +89,11 @@ export function trailCandidate(mode, { side, entry, sl, tps, tpHit, best, atr })
     early = tighter(stop, buy ? Math.min(moved, e) : Math.max(moved, e));
   }
   if (!tpHit) return early;
-  let trail = tighter(early, tighter(stop, buy ? Number(best) - dist : Number(best) + dist));
+  // After TP1 the ATR trail only takes over once it would lock in break-even or better. Trailing inside the
+  // loss zone got normal pullbacks stopping out winners (replay of 40 trades: -0.277R → -0.232R a trade).
+  let raw = buy ? Number(best) - dist : Number(best) + dist;
+  if (buy ? raw < e : raw > e) raw = stop;
+  let trail = tighter(early, tighter(stop, raw));
   if (tpHit >= 2 && tps[tpHit - 2] != null) trail = tighter(trail, Number(tps[tpHit - 2])); // one TP behind the last hit
   return trail;
 }
