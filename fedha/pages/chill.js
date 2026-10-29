@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Head from 'next/head';
 import Layout from '../components/Layout';
-import { fetchLibrary, organise, loadArt, getProgress, markPlayed, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback } from '../lib/chill';
+import { fetchLibrary, organise, loadArt, getProgress, markPlayed, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback, connection, trailerFor, trailerSrc } from '../lib/chill';
 
 // Chill Room: your downloaded movies and series (Download / Telegram on the phone), laid out like Apple TV.
 //   hero      the series you're in the middle of (backdrop, ▶ next episode)
@@ -95,6 +95,16 @@ export default function Chill() {
   const [sug, setSug] = useState(null);
   const [sugBusy, setSugBusy] = useState(false);
   const [sound, setSound] = useState('theater');
+  const [trailer, setTrailer] = useState(null); // { title, id | null, loading, wifi }
+  // ▶ Trailer: looked up once, played only on a tap, lowest quality on mobile data.
+  const openTrailer = async (name, extra = '') => {
+    const c = connection();
+    setTrailer({ title: name, loading: true, wifi: c.wifi });
+    const id = await trailerFor(name, extra);
+    setTrailer({ title: name, id, loading: false, wifi: c.wifi });
+  };
+  const net = typeof navigator !== 'undefined' ? connection() : { wifi: false };
+  const trailerLabel = net.wifi ? '▶ Trailer' : '▶ Trailer · ~4 MB';
   useEffect(() => { setSound(getSound()); }, []);
   const cycleSound = () => { const i = SOUNDS.findIndex(([k]) => k === sound); const next = SOUNDS[(i + 1) % SOUNDS.length][0]; setSound(next); try { localStorage.setItem('luxe_sound', next); } catch { /* ignore */ } };
 
@@ -145,6 +155,14 @@ export default function Chill() {
   const heroNext = hero?.u.next;
   const forYou = (sug?.items || []).filter((x) => !prog.feedback?.[x.title]);
   const wanted = Object.entries(prog.feedback || {}).filter(([, v]) => v === 'want').map(([t]) => (sug?.items || []).find((x) => x.title === t) || { title: t, type: 'series' });
+
+  // Coming Soon: the next episode of your series and of the AI's picks that are still airing, soonest first.
+  const today = new Date().toISOString().slice(0, 10);
+  const comingSoon = [
+    ...shows.map((sh) => ({ title: sh.title, a: showArt(sh), mine: true })),
+    ...forYou.filter((x) => x.type !== 'movie').map((x) => ({ title: x.title, a: sugArt(x), mine: false, sug: x })),
+  ].filter((x) => x.a.next?.airdate && x.a.next.airdate >= today).sort((a, b) => a.a.next.airdate.localeCompare(b.a.next.airdate)).slice(0, 15);
+  const dayLabel = (d) => new Date(`${d}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
 
   const empty = lib && !shows.length && !movies.length;
   const detail = open?.type === 'show' ? open.item : null;
@@ -214,6 +232,21 @@ export default function Chill() {
           </section>
         )}
 
+        {comingSoon.length > 0 && (
+          <section className="cr-row">
+            <h3>Coming Soon</h3>
+            <div className="cr-scroll">
+              {comingSoon.map((x) => (
+                <button type="button" key={x.title} className="cr-poster" onClick={() => (x.sug ? setOpen({ type: 'sug', item: x.sug }) : openTrailer(x.title, `season ${x.a.next.season}`))}>
+                  <div className="cr-img" style={bg(x.a.poster)}><em className="cr-date">{dayLabel(x.a.next.airdate)}</em></div>
+                  <div className="cr-t">{x.title}</div>
+                  <div className="cr-s">{`S${String(x.a.next.season).padStart(2, '0')}E${String(x.a.next.number).padStart(2, '0')}`}{x.mine ? ' · yours' : ''}</div>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
         {shows.length > 0 && (
           <section className="cr-row">
             <h3>Series</h3>
@@ -261,6 +294,12 @@ export default function Chill() {
               <h2>{detail ? `📁 ${detail.title}` : open.item.title}</h2>
               <div className="cr-meta">{[dArt.year || open.item.year, (dArt.genres || []).slice(0, 3).join(' · ')].filter(Boolean).join('  ·  ')}</div>
             </div>
+            {(detail || open.type === 'movie') && (
+              <div className="cr-pad" style={{ paddingBottom: 0 }}>
+                <button type="button" className="cr-btnG dark" onClick={() => openTrailer(detail ? detail.title : open.item.title, detail ? '' : String(open.item.year || ''))}>{trailerLabel}</button>
+                {dArt.next?.airdate && <span className="cr-meta" style={{ marginLeft: 10 }}>Next: S{String(dArt.next.season).padStart(2, '0')}E{String(dArt.next.number).padStart(2, '0')} · {dayLabel(dArt.next.airdate)}</span>}
+              </div>
+            )}
             {detail ? (
               <>
                 <div className="cr-tabs">{detail.seasons.map((n) => <button type="button" key={n} className={n === dSeason ? 'on' : ''} onClick={() => setSeason(n)}>Season {n}</button>)}</div>
@@ -281,6 +320,7 @@ export default function Chill() {
               <div className="cr-pad">
                 {(dArt.summary || open.item.why) && <p className="cr-sum">{open.item.because ? <b>Because you like {open.item.because}. </b> : null}{open.item.why || dArt.summary}</p>}
                 <div className="cr-btns">
+                  <button type="button" className="cr-btnG dark" onClick={() => openTrailer(open.item.title, open.item.year ? String(open.item.year) : '')}>{trailerLabel}</button>
                   <button type="button" className="cr-btnW" onClick={() => react(open.item.title, prog.feedback?.[open.item.title] === 'want' ? null : 'want')}>{prog.feedback?.[open.item.title] === 'want' ? '✓ On your list' : '＋ Want'}</button>
                   <button type="button" className="cr-btnG dark" onClick={() => react(open.item.title, 'seen')}>Seen it</button>
                   <button type="button" className="cr-btnG dark" onClick={() => react(open.item.title, 'no')}>Not for me</button>
@@ -296,7 +336,25 @@ export default function Chill() {
         </div>
       )}
 
+      {trailer && (
+        <div className="cr-trailer" onClick={() => setTrailer(null)}>
+          <div className="cr-tBox" onClick={(e) => e.stopPropagation()}>
+            {trailer.loading && <div className="cr-note">Finding the {trailer.title} trailer…</div>}
+            {!trailer.loading && !trailer.id && <div className="cr-note">No trailer found for {trailer.title}.</div>}
+            {trailer.id && <iframe title={`${trailer.title} trailer`} src={trailerSrc(trailer.id, { wifi: trailer.wifi })} allow="autoplay; encrypted-media; picture-in-picture" allowFullScreen />}
+            <div className="cr-tBar"><span>{trailer.title} · {trailer.wifi ? 'Wi-Fi, HD' : 'Mobile data: lowest quality, about 3-5 MB'}</span><button type="button" onClick={() => setTrailer(null)}>✕</button></div>
+          </div>
+        </div>
+      )}
+
       <style jsx global>{`
+        .cr-trailer { position: fixed; inset: 0; z-index: 400; background: rgba(0,0,0,0.92); display: flex; align-items: center; justify-content: center; padding: 16px; }
+        .cr-tBox { width: 100%; max-width: 900px; }
+        .cr-tBox iframe { width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 12px; background: #000; }
+        .cr-tBar { display: flex; align-items: center; gap: 10px; margin-top: 10px; color: #8e8e93; font-size: 12.5px; }
+        .cr-tBar span { flex: 1; }
+        .cr-tBar button { border: 0; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.12); color: #fff; font-size: 14px; cursor: pointer; }
+        .cr-date { left: 6px !important; right: auto !important; top: 6px; bottom: auto !important; width: auto !important; height: auto !important; padding: 3px 7px; border-radius: 6px !important; background: #e50914 !important; color: #fff !important; font-size: 10.5px !important; font-weight: 800; }
         .cr { background: #000; color: #f5f5f7; min-height: 100vh; padding-bottom: calc(150px + env(safe-area-inset-bottom)); font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif; }
         .cr-top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: rgba(0,0,0,0.6); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
         .cr-top h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.4px; margin: 0; flex: 1; white-space: nowrap; }

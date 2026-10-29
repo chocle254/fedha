@@ -21,7 +21,8 @@ const big = (u, size) => (u ? u.replace(/\/\d+x\d+(bb)?\.(jpg|png)$/, `/${size}b
 const strip = (h) => String(h || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 
 async function showArt(title) {
-  const s = await (await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(title)}&embed=episodes`)).json();
+  const s = await (await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(title)}&embed[]=episodes&embed[]=nextepisode`)).json();
+  const nx = s._embedded?.nextepisode;
   const imgs = await (await fetch(`https://api.tvmaze.com/shows/${s.id}/images`)).json().catch(() => []);
   const bg = imgs.find((i) => i.type === 'background' && i.main) || imgs.find((i) => i.type === 'background');
   const eps = s._embedded?.episodes || [];
@@ -30,6 +31,8 @@ async function showArt(title) {
     summary: strip(s.summary), year: (s.premiered || '').slice(0, 4), genres: s.genres || [], rating: s.rating?.average || null,
     names: Object.fromEntries(eps.map((e) => [epCode(e.season, e.number), e.name])),
     imdb: s.externals?.imdb || null, // for intro / credits times in Luxe's player
+    status: s.status || null,
+    next: nx ? { season: nx.season, number: nx.number, name: nx.name, airdate: nx.airdate, airstamp: nx.airstamp } : null, // Coming Soon
     stills: Object.fromEntries(eps.filter((e) => e.image).map((e) => [epCode(e.season, e.number), e.image.original || e.image.medium])),
     order: eps.map((e) => epCode(e.season, e.number)),
   };
@@ -50,9 +53,9 @@ export async function loadArt({ shows, movies, extra = [] }, onUpdate) {
   let changed = false;
   for (const [kind, title, year] of jobs) {
     const k = `${kind}:${title}`;
-    if (art[k] && art[k].v === 4) continue;
-    try { art[k] = { v: 4, ...(kind === 'show' ? await showArt(title) : await movieArt(title, year)) }; }
-    catch { art[k] = { v: 4 }; }
+    if (art[k] && art[k].v === 5) continue;
+    try { art[k] = { v: 5, ...(kind === 'show' ? await showArt(title) : await movieArt(title, year)) }; }
+    catch { art[k] = { v: 5 }; }
     changed = true;
     onUpdate({ ...art });
   }
@@ -128,3 +131,25 @@ export function watchLink(queue, sound = 'theater') {
 }
 export const progressKey = (item) => (item.kind === 'episode' ? `${item.show}|${epCode(item.season, item.episode)}` : `movie:${item.title}`);
 export const scanLink = 'intent://library#Intent;scheme=luxe;package=com.chocle254.fedha;end';
+
+// ── Trailers (data-friendly) ────────────────────────────────────────────────
+// Only ever on a tap. On mobile data YouTube is asked for its lowest quality (~3-5 MB a trailer); on Wi-Fi, HD.
+export function connection() {
+  const c = typeof navigator !== 'undefined' ? navigator.connection || navigator.mozConnection || navigator.webkitConnection : null;
+  const wifi = c?.type === 'wifi' || c?.type === 'ethernet';
+  const cellular = c?.type === 'cellular' || (!wifi && /2g|3g/.test(c?.effectiveType || ''));
+  return { wifi, cellular: cellular || (!wifi && !!c?.saveData), saveData: !!c?.saveData, known: !!c?.type };
+}
+const trailerCache = new Map();
+export async function trailerFor(name, extra = '') {
+  const k = `${name}|${extra}`;
+  if (trailerCache.has(k)) return trailerCache.get(k);
+  const p = fetch(`/api/music/video?${new URLSearchParams({ kind: 'trailer', artist: name, title: extra, key: `tr:${name}|${extra}`.slice(0, 80) })}`)
+    .then((r) => (r.ok ? r.json() : {})).then((j) => j.id || null).catch(() => null);
+  trailerCache.set(k, p);
+  return p;
+}
+export function trailerSrc(id, { wifi }) {
+  const q = new URLSearchParams({ autoplay: '1', playsinline: '1', modestbranding: '1', rel: '0', iv_load_policy: '3', vq: wifi ? 'hd720' : 'tiny' });
+  return `https://www.youtube-nocookie.com/embed/${id}?${q}`;
+}

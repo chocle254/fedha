@@ -22,22 +22,24 @@ export default async function handler(req, res) {
   if (!user) return;
   const artist = String(req.query.artist || '').slice(0, 100);
   const title = String(req.query.title || '').replace(/\s*\((album version|explicit|clean|remaster(ed)?[^)]*)\)/gi, '').slice(0, 140);
-  const key = String(req.query.key || `${artist}|${title}`).slice(0, 80);
-  if (!artist || !title) return res.status(400).json({ error: 'artist and title required' });
+  const trailer = req.query.kind === 'trailer'; // Chill Room trailers: artist = the show / movie name
+  const key = String(req.query.key || `${trailer ? 'tr' : ''}${artist}|${title}`).slice(0, 80);
+  if (!artist || (!title && !trailer)) return res.status(400).json({ error: 'artist and title required' });
 
   const { data } = await supabaseAdmin.from('settings').select('value').eq('user_id', user.id).eq('key', KEY).maybeSingle();
   const map = data?.value || {};
   if (map[key] !== undefined) return res.status(200).json({ id: map[key] || null, cached: true });
 
   let found = null;
-  for (const q of [`${artist} ${title} official audio youtube`, `${artist} ${title} official video youtube`]) {
+  const queries = trailer ? [`${artist} ${title || ''} official trailer youtube`, `${artist} trailer youtube`] : [`${artist} ${title} official audio youtube`, `${artist} ${title} official video youtube`];
+  for (const q of queries) {
     try {
       const hits = await webSearch(q, { limit: 8 });
       const ids = [...new Set(hits.flatMap((h) => idsIn(`${h.url} ${h.snippet || ""} ${h.title || ""}`)))];
       for (const id of ids.slice(0, 5)) {
         const meta = await embeddable(id);
         const t = `${meta?.title || ''} ${meta?.author_name || ''}`.toLowerCase();
-        const words = title.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+        const words = (trailer ? artist : title).toLowerCase().split(/\s+/).filter((w) => w.length > 2);
         if (meta && (words.length === 0 || words.some((w) => t.includes(w)))) { found = id; break; }
       }
     } catch { /* try the next query */ }
