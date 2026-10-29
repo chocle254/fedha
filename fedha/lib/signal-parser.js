@@ -13,6 +13,9 @@ export function normalizeText(text) {
 // Result posts ("TP2 HIT", "590 pips", "1:1.7rr") are follow-ups, not new signals.
 export function isFollowUp(text) {
   const up = normalizeText(text).toUpperCase();
+  // Update posts that repeat the full setup ("TRADE UPDATE", "TARGET HIT SUCCESSFULLY", "STATUS: RUNNING") are
+  // follow-ups even though they show an entry.
+  if (/TRADE\s+UPDATE|RUNNING\s+PROFIT|STATUS\s*:\s*(RUNNING|TAKE\s*PROFIT|TP|TARGET|CLOSED|STOP)|(TARGET|TAKE\s*PROFIT|TP\d?|SL|STOP\s*LOSS)\s+HIT\b/.test(up)) return true;
   const followUp = /\b(HIT|DONE|REACHED|ACHIEVED|BOOKED|SMASHED|SECURED|CLOSED|RUNNING)\b|TPS?\s*\d*\s*HIT|TPHIT|\bPIPS\b|\d\s*RR\b/.test(up);
   return followUp && !/\b(ENTRY|ENTER|ENTRIES|NOW|LIMIT)\b|@/.test(up);
 }
@@ -36,6 +39,13 @@ export function parseSignal(text) {
     for (const x of up.matchAll(/\b([A-Z0-9]{2,10})\s+(USDT|USDC|FDUSD)\b/g)) {
       if (!NOT_COINS.includes(x[1])) { symbol = x[1] + x[2]; break; }
     }
+  }
+  // Broker-style crypto names: "BTCUSD", "BTC/USD", "ETHUSD", "BITCOIN" trade on Binance as BTCUSDT and so on.
+  if (!symbol) {
+    const c = up.match(/\b(BTC|ETH|SOL|XRP|BNB|LTC|ADA|DOGE|DOT|LINK|AVAX|TRX|BCH)\s*\/?\s*USD\b/);
+    if (c) symbol = c[1] + 'USDT';
+    else if (/\bBITCOIN\b/.test(up)) symbol = 'BTCUSDT';
+    else if (/\bETHEREUM\b/.test(up)) symbol = 'ETHUSDT';
   }
   // MT5 markets (gold, silver, forex, oil, indices) are tracked on real prices (lib/market.js), shifted onto
   // the signal's levels at entry.
@@ -64,7 +74,7 @@ export function parseSignal(text) {
   let entryLow = null;
   let entryHigh = null;
   // "ENTRY 4058", "SELL NOW 4058", "BUY LIMIT 65000", "SELL @ 4058", "BUY ZONE 64000-64500", "SELL 4058/4062"
-  const entryRe = new RegExp(`\\b(?:ENTRY|ENTER|(?:BUY|SELL|LONG|SHORT)\\s*(?:NOW|LIMIT|STOP|MARKET|ZONE|AT|BELOW|ABOVE)?)\\s*(?:ZONE|PRICE|RANGE|AT|@)?\\s*[:=@\\-]?\\s*(${NUM})(?:\\s*(?:-|–|—|/|TO)\\s*(${NUM}))?`, 'i');
+  const entryRe = new RegExp(`\\b(?:ENTRY|ENTER|(?:BUY|SELL|LONG|SHORT)\\s*(?:NOW|LIMIT|STOP|MARKET|ZONE|AT|BELOW|ABOVE)?)\\s*(?:ZONE|PRICE|POINT|RANGE|AT|@)?\\s*[:=@\\-]?\\s*(${NUM})(?:\\s*(?:-|–|—|/|TO)\\s*(${NUM}))?`, 'i');
   const em = up.match(entryRe);
   if (em) {
     const a = num(em[1]);
@@ -74,7 +84,7 @@ export function parseSignal(text) {
 
   // Take profits
   const takeProfits = [];
-  const tpRe = new RegExp(`\\b(?:TP|TAKE[\\s-]*PROFIT|TARGET)S?(?:\\s*\\d{1,2}(?![\\d,]|\\.\\d))?\\.?\\s*[:=@\\-]?\\s*(${NUM})((?:\\s*(?:,|/|>|\\|)\\s*(?:${NUM}))*)`, 'gi');
+  const tpRe = new RegExp(`\\b(?:TP|TAKE[\\s-]*PROFIT|TARGET)S?(?:\\s*\\d{1,2}(?![\\d,]|\\.\\d))?\\.?(?:\\s*\\((?:TP|TARGET)S?\\d?\\))?\\s*[:=@\\-]?\\s*(${NUM})((?:\\s*(?:,|/|>|\\|)\\s*(?:${NUM}))*)`, 'gi');
   for (const x of up.matchAll(tpRe)) {
     const first = num(x[1]);
     if (first) takeProfits.push(first);
@@ -87,7 +97,7 @@ export function parseSignal(text) {
 
   // Stop loss
   let stopLoss = null;
-  const sm = up.match(new RegExp(`\\b(?:SL|STOP[\\s-]*LOSS|STOP)\\s*[:=@\\-]?\\s*(${NUM})`, 'i'));
+  const sm = up.match(new RegExp(`\\b(?:SL|STOP[\\s-]*LOSS|STOP)(?:\\s*\\(SL\\))?\\s*[:=@\\-]?\\s*(${NUM})`, 'i'));
   if (sm) stopLoss = num(sm[1]);
 
   if (!tps.length && !stopLoss) return { ok: false, error: 'Needs at least one take-profit (TP) or a stop-loss (SL).' };

@@ -15,6 +15,7 @@ import { groupReport, brokerResults, GROUP_MIN_TRADES, TRAIL_LABEL, TRAIL_DEFAUL
 import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST, lotsLabel, rrPlan, rrText, rrDetail, resultR, isMt5, pipSize, moveLabel, bankedPipsLabel, netPipsLabel } from '../components/trading/util';
 
 const MT5_LEV = 400; // matches MT5_LEVERAGE in lib/trading.js
+const MAIN_GOAL = 10000; // the main paper account's target: grow the starting balance to $10k
 
 // The stop in force now: signal trades trail it with their channel's learned style (saved as trail_stop).
 const curStop = (t) => (t.source !== 'Manual' && t.trail_stop != null ? t.trail_stop : t.stop_loss);
@@ -500,6 +501,7 @@ export default function TradingPage() {
           <div><span>Wallet balance</span><b>{account ? fmtUsd(account.equity, false) : '—'}</b></div>
           <div><span>Available</span><b>{account ? fmtUsd(account.available, false) : '—'}</b></div>
           <div><span>In orders</span><b>{account ? fmtUsd(account.locked, false) : '—'}</b></div>
+          {account && <div title={`From the $${Number(settings?.paper_balance) || 0} start to $${MAIN_GOAL.toLocaleString()}. Lots grow with the balance: each trade risks your risk % of what the account holds now.`}><span>Goal ${MAIN_GOAL / 1000}k</span><b style={{ color: C.gold }}>{Math.max(0, (account.equity / MAIN_GOAL) * 100).toFixed(account.equity / MAIN_GOAL < 0.1 ? 2 : 1)}%</b></div>}
           {account?.openRisk > 0 && <div><span>At risk (stops)</span><b>{fmtUsd(account.openRisk, false)}</b></div>}
           <div><span>Unrealized</span><b style={{ color: unrealized >= 0 ? C.up : C.down }}>{fmtUsd(unrealized)}</b></div>
           <div><span>Realized</span><b style={{ color: (account?.realized ?? stats.realized) >= 0 ? C.up : C.down }}>{fmtUsd(account?.realized ?? stats.realized)}</b></div>
