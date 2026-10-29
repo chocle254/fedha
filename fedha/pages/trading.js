@@ -570,7 +570,7 @@ export default function TradingPage() {
                           return (
                             <div className="tx-muted" style={{ marginTop: 2 }}>
                               Trailing stop: <b>{TRAIL_LABEL[p?.mode || TRAIL_DEFAULT]}</b>
-                              {p && p.trades >= 8 && best?.avgR != null ? ` · learned from ${p.trades} trades (${best.avgR >= 0 ? '+' : ''}${best.avgR.toFixed(2)}R avg)` : ' · default until 8 closed trades'}
+                              {p && p.trades >= 5 && best?.avgR != null ? ` · learned from ${p.trades} trades (${best.avgR >= 0 ? '+' : ''}${best.avgR.toFixed(2)}R avg)` : ' · default until 5 closed trades'}
                             </div>
                           );
                         })()}

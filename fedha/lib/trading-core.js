@@ -113,7 +113,7 @@ export function atrOf(candles, n = 14) {
 
 // Choose a channel's style from replayed results: { mode: { n, avgR } }. Needs `minTrades` replays and must
 // beat the default by a margin, so one lucky trade does not flip a channel to a strange style.
-export function pickTrail(scores, minTrades = 8, margin = 0.05) {
+export function pickTrail(scores, minTrades = 5, margin = 0.05) {
   const base = scores?.[TRAIL_DEFAULT];
   if (!base || base.n < minTrades) return TRAIL_DEFAULT;
   let best = TRAIL_DEFAULT;
@@ -318,10 +318,12 @@ export function groupReport(trades = []) {
     let lotMultiplier = Math.min(cap, 0.5 + edge * (LOT_MAX - 0.5));
     let verdict, why;
     if (n < GROUP_MIN_TRADES) {
-      // Too early to judge: small size either way (0.25×–1×), leaning with how it is going so far.
+      // Still being tested: on paper it sizes by its record from the first trade (up to the same ceiling as a
+      // proven channel), so the paper results show what the money would really look like. Real accounts
+      // still wait for GROUP_MIN_TRADES closed trades (lib/broker.js skips 'testing' on real money).
       verdict = 'testing';
-      lotMultiplier = Math.min(1, Math.max(LOT_MIN, lotMultiplier * (confidence / 100) * 1.5));
-      why = `${n} closed trade${n === 1 ? '' : 's'}, ${confidence}% confident. Small lots until ${GROUP_MIN_TRADES} trades, then they grow with its record.`;
+      lotMultiplier = Math.max(LOT_MIN, lotMultiplier);
+      why = `${n} closed trade${n === 1 ? '' : 's'}, ${confidence}% confident: lot ×${(Math.floor(lotMultiplier * 4) / 4).toFixed(2).replace(/\.?0+$/, '')} on paper, growing with its record. Real money after ${GROUP_MIN_TRADES} closed trades.`;
     } else if (confidence < 25 || avgR <= 0) {
       verdict = 'drop'; lotMultiplier = 0;
       why = `Only ${confidence}% confident it makes money (${avgR >= 0 ? '+' : ''}${avgR.toFixed(2)}R per trade over ${n}). No real money; still paper-tracked in case it recovers.`;
