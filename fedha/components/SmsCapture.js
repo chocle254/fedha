@@ -79,11 +79,22 @@ export default function SmsCapture({ wallets }) {
           ))}
         </div>
       )}
+      {d && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          {[1, 2].map((slot) => (
+            <label key={slot} style={{ flex: 1, fontSize: 12, color: 'var(--text-3)' }}>My SIM {slot} number{data?.ownGuessed && data?.own?.[slot] ? ' (guessed)' : ''}
+              <input className="input font-num" style={{ marginTop: 4 }} defaultValue={data?.own?.[slot] || ''} key={data?.own?.[slot] || slot} placeholder="07…"
+                onBlur={(e) => { const v = e.target.value.trim(); if (v !== (data?.own?.[slot] || '')) put({ own: { ...data?.own, [slot]: v } }); }} />
+            </label>
+          ))}
+        </div>
+      )}
+      {d && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>Money between these two numbers is a transfer between your M-Pesa accounts, recorded once.</div>}
 
       {items.length > 0 && (
         <>
           <button type="button" className="tx-link" style={{ marginTop: 10, fontSize: 12.5, background: 'none', border: 0, color: 'var(--text-2)', padding: 0 }} onClick={() => setOpen((o) => !o)}>
-            {open ? '▴' : '▾'} {items.length} captured · {items.filter((x) => partyKey(x.parsed) && !x.parsed.category).length} need a category · {items.filter((x) => x.parsed && !x.wallet_id).length} need an account · {items.filter((x) => !x.parsed).length} not understood{data?.learned ? ` · ${data.learned} names learned` : ''}
+            {open ? '▴' : '▾'} {items.length} captured · {items.filter((x) => x.plan?.action === 'record').length} would record · {items.filter((x) => x.plan?.action === 'skip').length} skipped · {items.filter((x) => x.plan?.action === 'ask').length} need you{data?.learned ? ` · ${data.learned} learned` : ''}
           </button>
           {open && (
             <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
@@ -99,13 +110,18 @@ export default function SmsCapture({ wallets }) {
                       <span style={{ flex: 1, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p?.party || ''}</span>
                       <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{x.status === 'history' ? 'before linking · ' : ''}SIM {x.sim_slot || '?'} · {when(x.received_at)}</span>
                     </div>
+                    {x.plan && (
+                      <div style={{ marginTop: 3, fontSize: 12, color: x.plan.action === 'record' ? '#22C55E' : x.plan.action === 'ask' ? '#F59E0B' : 'var(--text-3)' }}>
+                        {x.plan.action === 'record' ? (x.status === 'history' ? '✓ Would record: ' : '✓ Will record: ') : x.plan.action === 'ask' ? '? ' : '⏭ Skip: '}{x.plan.summary}
+                      </div>
+                    )}
                     <div style={{ display: 'flex', gap: 8, marginTop: 4, alignItems: 'center', color: 'var(--text-3)', fontSize: 11.5 }}>
-                      <span className="font-num">{p?.balance != null ? `balance ${formatCurrency(p.balance, 'KES')}` : ''}{p?.cost ? ` · fee ${formatCurrency(p.cost, 'KES')}` : ''}{x.code ? ` · ${x.code}` : ''}</span>
+                      <span className="font-num">{p?.cost ? `fee ${formatCurrency(p.cost, 'KES')}` : ''}{x.code ? `${p?.cost ? ' · ' : ''}${x.code}` : ''}</span>
                       <span style={{ flex: 1 }} />
-                      <select className="input" style={{ width: 'auto', padding: '2px 6px', fontSize: 11.5 }} value={x.wallet_id || ''} onChange={(e) => put({ id: x.id, wallet_id: e.target.value })}>
+                      {x.plan?.action === 'ask' && /account/i.test(x.plan.summary) && <select className="input" style={{ width: 'auto', padding: '2px 6px', fontSize: 11.5 }} value={x.wallet_id || ''} onChange={(e) => put({ id: x.id, wallet_id: e.target.value })}>
                         <option value="">Which account?</option>
                         {wallets.filter((w) => w.type === 'mobile' && (ziidi ? w.pocket === 'ziidi' || !w.pocket : !w.pocket)).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-                      </select>
+                      </select>}
                     </div>
                     {p?.fuliza && (
                       <div className="font-num" style={{ marginTop: 4, fontSize: 11.5, color: '#F59E0B' }}>
@@ -115,7 +131,7 @@ export default function SmsCapture({ wallets }) {
                     {p?.kind === 'fuliza_repay' && (
                       <div style={{ marginTop: 4, fontSize: 11.5, color: '#22C55E' }}>{p.fully ? 'Fuliza fully paid off' : 'Part of Fuliza paid'}{p.limit != null ? ` · limit now ${formatCurrency(p.limit, 'KES')}` : ''}</div>
                     )}
-                    {partyKey(p) && !FIXED_CATEGORY[p.kind] && (() => {
+                    {partyKey(p) && !FIXED_CATEGORY[p.kind] && x.plan && (x.plan.action === 'ask' ? /category/.test(x.plan.summary) : x.plan.action === 'record' && !x.plan.entries?.some((e) => e.type === 'transfer') && !/airtime|data|Safaricom Offers/i.test(x.plan.summary)) && (() => {
                       const rule = data?.rules?.[partyKey(p)];
                       const oneOff = p.category && rule && rule !== ASK && rule !== p.category && !p.category_auto;
                       return (

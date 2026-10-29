@@ -15,7 +15,8 @@
 // duplicates.
 import crypto from 'crypto';
 import { supabaseAdmin } from './supabaseAdmin';
-import { parseSms, isMoneySender, categoryFor, partyKey, ASK } from './sms-parser';
+import { parseSms, isMoneySender, categoryFor, partyKey, ASK, normPhone } from './sms-parser';
+import { planMessage, suggestOwn } from './sms-plan';
 
 const KEY = 'sms_device';
 const RULES = 'sms_categories';
@@ -167,11 +168,41 @@ export async function wipeOld(userId) {
   await supabaseAdmin.from('sms_inbox').update({ body: null }).eq('user_id', userId).lt('received_at', new Date(Date.now() - BODY_DAYS * 864e5).toISOString()).not('body', 'is', null);
 }
 
-export async function recentSms(userId, limit = 80) {
+// The latest captured messages, each with what Luxe would record for it (lib/sms-plan.js).
+export async function recentSms(userId, limit = 120) {
   await wipeOld(userId);
   const { data, error } = await supabaseAdmin.from('sms_inbox').select('id, sender, body, sim_slot, received_at, code, parsed, wallet_id, status')
     .eq('user_id', userId).order('received_at', { ascending: false }).limit(limit);
-  return { items: data || [], needsMigration: !!error };
+  const items = data || [];
+  if (!items.length) return { items, needsMigration: !!error, own: {} };
+  const ctx = await planContext(userId, items);
+  for (const r of items) r.plan = planMessage(r, ctx);
+  return { items, needsMigration: !!error, own: ctx.own, ownGuessed: ctx.ownGuessed };
+}
+
+export async function planContext(userId, rows) {
+  const times = rows.map((r) => new Date(r.received_at).getTime());
+  const from = new Date(Math.min(...times) - 864e5).toISOString();
+  const to = new Date(Math.max(...times) + 864e5).toISOString();
+  const [w, t, l, device, rules] = await Promise.all([
+    supabaseAdmin.from('wallets').select('id, name, type, pocket, parent_id, balance').eq('user_id', userId),
+    supabaseAdmin.from('transactions').select('id, type, wallet_id, to_wallet_id, amount, category, description, date').eq('user_id', userId).gte('date', from).lte('date', to),
+    supabaseAdmin.from('loans').select('id, type, contact_name, amount, remaining, status').eq('user_id', userId),
+    getDevice(userId),
+    getRules(userId),
+  ]);
+  const loans = l.data || [];
+  const guessed = suggestOwn(rows);
+  const own = { 1: device?.own?.[1] || guessed[1] || null, 2: device?.own?.[2] || guessed[2] || null };
+  return {
+    wallets: w.data || [], txns: t.data || [], loans, activeLoanIds: loans.filter((x) => x.status !== 'settled').map((x) => x.id),
+    sims: device?.sims || {}, own, ownGuessed: !device?.own, rules, rows,
+  };
+}
+
+export async function setOwn(userId, own) {
+  const d = (await getDevice(userId)) || {};
+  await putDevice(userId, { ...d, own: { 1: normPhone(own?.[1]) || null, 2: normPhone(own?.[2]) || null } });
 }
 
 export async function setSmsWallet(userId, id, walletId) {

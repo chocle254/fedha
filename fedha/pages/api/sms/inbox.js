@@ -1,5 +1,5 @@
 import { requireUser } from '../../../lib/require-user';
-import { recentSms, deviceInfo, setSims, setSmsWallet, setCategory, getRules } from '../../../lib/sms-capture';
+import { recentSms, deviceInfo, setSims, setSmsWallet, setCategory, getRules, setOwn } from '../../../lib/sms-capture';
 
 // GET: captured M-Pesa / Ziidi messages and the linked phone. PUT { sims }, { id, wallet_id } or { id, category }
 // (a category is remembered for that name: see setCategory in lib/sms-capture.js).
@@ -9,6 +9,7 @@ export default async function handler(req, res) {
   if (!user) return;
   if (req.method === 'PUT') {
     if (req.body?.sims) await setSims(user.id, req.body.sims);
+    if (req.body?.own) await setOwn(user.id, req.body.own);
     if (req.body?.id && 'wallet_id' in req.body) await setSmsWallet(user.id, req.body.id, req.body.wallet_id);
     if (req.body?.id && 'category' in req.body) await setCategory(user.id, req.body.id, req.body.category, req.body.scope);
   } else if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });

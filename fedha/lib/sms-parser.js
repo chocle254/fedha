@@ -20,7 +20,8 @@
 // outstanding amount Safaricom states, and a full repayment settles it.
 // Anything mentioning Ziidi is marked kind 'ziidi' with the amounts found, for review.
 
-const MONEY = '(?:Ksh|KES)\\s?([\\d,]+(?:\\.\\d{1,2})?)';
+// "Ksh500.00", "Ksh 500.00", "Ksh. 800.00", "KSh 2929.0", "Ksh. 939.4000000000001" (Ziidi writes long decimals).
+const MONEY = '(?:Ksh|KES)\\.?\\s?([\\d,]+(?:\\.\\d+)?)';
 // A phone number, full (0712345678 / 254712345678) or partly hidden by Safaricom (0712***678, 2547****5678).
 const PHONE = '(?:\\+?254|0)\\d{9}|(?:\\+?254|0)\\d{1,5}[*xX]+\\d{2,4}';
 const num = (s) => (s == null ? null : Number(String(s).replace(/,/g, '')));
@@ -47,12 +48,27 @@ export function parseSms(body, sender = '') {
   return null;
 }
 
+// Ziidi's own texts (sender ZIIDI). Seen wordings:
+//   invest   "You have successfully invested Ksh. 800.00 of transaction code UJTC0BKT8G. Your ZIIDI balance is ..."
+//   withdraw "You have successfully withdrawn Ksh. 1,500.00 of transaction code UJTC0BKL1V. ..."
+//   lock     "You have successfully locked Ksh.162.00. Locked Balance is Ksh. 1257.4. Accessible balance is Ksh 6094.84."
+//   echo     "You have succesfully topped up your locked funds. Your new locked balance is Ksh 1257.40" (same lock again)
+//   unlock   "You have successfully unlocked all your funds. Your KSh 2929.0 will be available in 72 hours."
+//   balance  "Your ZIIDI investment balance is Ksh 2,352.24 on ..."            (information)
+// invest/withdraw carry the M-Pesa code, so they pair with the M-Pesa text that already records the move.
 function parseZiidi(t) {
-  const code = first(/^([A-Z0-9]{10})\b/, t);
   const amounts = [...t.matchAll(new RegExp(MONEY, 'gi'))].map((m) => num(m[1]));
-  const dir = /from (?:your )?ziidi|withdr[ae]w.{0,40}ziidi|ziidi.{0,40}to (?:your )?m-?pesa/i.test(t) ? 'out'
-    : /to (?:your )?ziidi|invest(?:ed|ment)|deposit(?:ed)? .{0,30}ziidi|sent to ziidi/i.test(t) ? 'in' : null;
-  return { code, kind: 'ziidi', amount: amounts[0] ?? null, direction: dir, amounts, balance: null, cost: 0, review: true, phoneTail: first(/(?:07|01|2547|2541)\d{2}\**x*\**(\d{3})\b/i, t) };
+  const amount = amounts[0] ?? null;
+  const mpesaCode = first(/transaction code ([A-Z0-9]{10})/i, t);
+  const base = { code: null, kind: 'ziidi', amount, amounts, mpesaCode, balance: null, cost: 0 };
+  if (/successfully invested/i.test(t)) return { ...base, action: 'invest', direction: 'in' };
+  if (/successfully withdrawn/i.test(t)) return { ...base, action: 'withdraw', direction: 'out' };
+  if (/successfully locked/i.test(t)) return { ...base, action: 'lock', lockedAfter: num(first(new RegExp(`Locked Balance is\\s*${MONEY}`, 'i'), t)), accessible: num(first(new RegExp(`Accessible balance is\\s*${MONEY}`, 'i'), t)) };
+  if (/topped up your locked funds/i.test(t)) return { ...base, action: 'lock_echo', lockedAfter: amount };
+  if (/successfully unlocked/i.test(t)) return { ...base, action: 'unlock', all: /all your funds/i.test(t) };
+  if (/investment balance is/i.test(t)) return { ...base, action: 'balance' };
+  if (/^failed|cannot be completed|insufficient/i.test(t)) return { ...base, action: 'failed' };
+  return { ...base, action: 'info' };
 }
 
 function parseMpesa(t) {
@@ -62,7 +78,14 @@ function parseMpesa(t) {
   const cost = num(first(new RegExp(`Transaction cost,?\\s*${MONEY}`, 'i'), t));
   const base = { code, amount, balance, cost: cost || 0 };
 
+  // Nothing moved: "Failed. Insufficient funds ...", "Dear customer, you do not have sufficient funds ...".
+  if (/^Failed\b|do not have sufficient funds|insufficient funds/i.test(t)) {
+    const to = first(/to pay (?:Ksh|KES)\.?\s?[\d,.]+ to (.+?)\.\s*Your M-?PESA/i, t);
+    return { ...base, code: null, kind: 'failed', party: clean(to) };
+  }
   if (!amount) return null;
+  // "UJNC0ATQSU Confirmed. Your account balance was: M-PESA Account : Ksh268.00 ... Transaction cost, Ksh0.00."
+  if (/Your account balance was/i.test(t)) return { ...base, kind: 'balance_check', amount: base.cost || 0, balance: num(first(new RegExp(`M-?PESA Account\\s*:\\s*${MONEY}`, 'i'), t)) };
 
   if (/has been reversed/i.test(t)) return { ...base, kind: 'reversal' };
   if (/used to (?:fully |partially )?pay (?:your )?outstanding Fuliza/i.test(t)) {
@@ -100,6 +123,10 @@ function parseMpesa(t) {
     const m = t.match(new RegExp(`${MONEY} sent to (.+?)(?:\\s+(${PHONE}))? on `, 'i'));
     return { ...base, kind: 'sent', party: clean(m?.[2]), phone: m?.[3] || null };
   }
+  // Fuliza on its own text, right after the payment it topped up:
+  // "UJRF50ACCZ Confirmed. Fuliza M-PESA amount is Ksh 100.00. Access Fee charged Ksh 1.00. Total Fuliza M-PESA
+  //  outstanding amount is Ksh139.87 due on 26/11/26."
+  if (base.fuliza) return { ...base, kind: 'fuliza_draw', amount: base.fuliza.borrowed };
   return null;
 }
 
@@ -113,7 +140,7 @@ export function signedAmount(p) {
 
 export const KIND_LABEL = {
   sent: 'Sent', paybill: 'Pay Bill', paid: 'Buy Goods', received: 'Received', withdraw: 'Withdrawn', deposit: 'Deposited',
-  airtime: 'Airtime', reversal: 'Reversal', fuliza_repay: 'Fuliza repaid', ziidi: 'Ziidi',
+  airtime: 'Airtime', reversal: 'Reversal', fuliza_repay: 'Fuliza repaid', fuliza_draw: 'Fuliza borrowed', failed: 'Failed (nothing moved)', balance_check: 'Balance check', ziidi: 'Ziidi',
 };
 
 // ── Categories learned per name ─────────────────────────────────────────────
