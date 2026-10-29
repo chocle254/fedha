@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { pocketsOf, enableZiidi, move, getUnlocks, requestUnlock, cancelUnlock, walletSplit, releaseDueUnlocks, UNLOCK_HOURS } from '../lib/ziidi';
 import Layout from '../components/Layout';
+import SmsCapture from '../components/SmsCapture';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatDate, getCategoryById, genId, todayISO } from '../lib/utils';
@@ -362,6 +363,8 @@ export default function WalletsPage() {
             </div>
           )}
         </div>
+
+        <div style={{ padding: '0 20px 12px' }}><SmsCapture wallets={wallets} /></div>
 
         <div style={{ padding: '0 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {topWallets.map((w) => {

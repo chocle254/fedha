@@ -5,6 +5,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- SMS capture: only M-Pesa and Ziidi texts are read and forwarded (SmsReceiver, PairActivity). -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
 
     <queries>
         <intent>
@@ -61,6 +64,30 @@
             android:configChanges="orientation|screenSize" />
 
         <activity android:name="com.google.androidbrowserhelper.trusted.NotificationPermissionRequestActivity" />
+
+        <!-- "Link this phone" in Luxe → Wallets opens luxe://pair?token=…: saves the token and asks for SMS access. -->
+        <activity
+            android:name=".PairActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="luxe" android:host="pair" />
+            </intent-filter>
+        </activity>
+
+        <!-- New SMS: forwards M-Pesa / Ziidi ones to Luxe with the SIM they arrived on. -->
+        <receiver
+            android:name=".SmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Shows the site's web push notifications as this app's, each kind on its own buzz channel. -->
         <service
