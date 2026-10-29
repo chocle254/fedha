@@ -21,6 +21,8 @@
 // Anything mentioning Ziidi is marked kind 'ziidi' with the amounts found, for review.
 
 const MONEY = '(?:Ksh|KES)\\s?([\\d,]+(?:\\.\\d{1,2})?)';
+// A phone number, full (0712345678 / 254712345678) or partly hidden by Safaricom (0712***678, 2547****5678).
+const PHONE = '(?:\\+?254|0)\\d{9}|(?:\\+?254|0)\\d{1,5}[*xX]+\\d{2,4}';
 const num = (s) => (s == null ? null : Number(String(s).replace(/,/g, '')));
 const first = (re, t) => { const m = t.match(re); return m ? m[1] : null; };
 const clean = (s) => (s ? s.replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim() : null);
@@ -76,7 +78,7 @@ function parseMpesa(t) {
     };
   }
   if (/You have received/i.test(t)) {
-    const m = t.match(new RegExp(`received ${MONEY} from (.+?)(?:\\s+(0\\d{9}|254\\d{9}|\\d{2,4}\\*+\\d+))? on `, 'i'));
+    const m = t.match(new RegExp(`received ${MONEY} from (.+?)(?:\\s+(${PHONE}))? on `, 'i'));
     return { ...base, kind: 'received', party: clean(m?.[2]), phone: m?.[3] || null };
   }
   if (/Withdraw\s*(?:Ksh|KES)/i.test(t)) {
@@ -95,7 +97,7 @@ function parseMpesa(t) {
   if (/\bsent to\b/i.test(t)) {
     const pay = t.match(new RegExp(`${MONEY} sent to (.+?) for account (.+?) on `, 'i'));
     if (pay) return { ...base, kind: 'paybill', party: clean(pay[2]), account: clean(pay[3]) };
-    const m = t.match(new RegExp(`${MONEY} sent to (.+?)(?:\\s+(0\\d{9}|254\\d{9}))? on `, 'i'));
+    const m = t.match(new RegExp(`${MONEY} sent to (.+?)(?:\\s+(${PHONE}))? on `, 'i'));
     return { ...base, kind: 'sent', party: clean(m?.[2]), phone: m?.[3] || null };
   }
   return null;
@@ -115,8 +117,13 @@ export const KIND_LABEL = {
 };
 
 // ── Categories learned per name ─────────────────────────────────────────────
-// The first time a name appears you pick a category; every later message with that name (same direction) uses it.
-// Rules live in settings 'sms_categories' as { "in|JOHN DOE": "business", "out|NAIVAS SUPERMARKET": "food" }.
+// The first time someone appears you pick a category; every later message from them (same direction) uses it.
+// Who "someone" is, most exact first (people share names, never numbers):
+//   full phone number          "in|tel:0712345678"
+//   hidden number + name       "in|tel:0712***678|JANE DOE"   (Safaricom masks some digits on received money)
+//   Pay Bill + account         "out|KPLC PREPAID|acct:37123456789" (each meter / account on its own)
+//   name (tills, businesses)   "out|NAIVAS SUPERMARKET"
+// Rules live in settings 'sms_categories' as { "<key>": "<category or loan choice>" }.
 const NEEDS_CATEGORY = { sent: 'out', paybill: 'out', paid: 'out', received: 'in' };
 export const FIXED_CATEGORY = { airtime: 'airtime' };
 
@@ -124,7 +131,19 @@ export function partyKey(p) {
   const dir = p && !p.ziidiMove ? NEEDS_CATEGORY[p.kind] : null;
   if (!dir || !p.party) return null;
   const name = String(p.party).toUpperCase().replace(/\b(0|254)\d{8,9}\b/g, '').replace(/[^A-Z0-9&' -]/g, ' ').replace(/\s+/g, ' ').trim();
+  const tel = normPhone(p.phone);
+  if (tel && !/[*X]/.test(tel)) return `${dir}|tel:${tel}`;
+  if (tel) return `${dir}|tel:${tel}|${name}`;
+  if (p.kind === 'paybill' && p.account) return `${dir}|${name}|acct:${String(p.account).toUpperCase().replace(/\s+/g, '')}`;
   return name ? `${dir}|${name}` : null;
+}
+
+// 254712345678 / +254712345678 -> 0712345678; hidden digits kept as '*'.
+export function normPhone(s) {
+  if (!s) return null;
+  const x = String(s).toUpperCase().replace(/X/g, '*').replace(/[^0-9*]/g, '');
+  const local = x.startsWith('254') ? `0${x.slice(3)}` : x;
+  return local.length >= 7 ? local.replace(/\*+/g, '***') : null;
 }
 
 // Besides normal categories, a name can be tied to a loan (lib/finance-actions.js payLoan / addToLoan):
@@ -145,7 +164,14 @@ export function categoryFor(p, rules = {}, activeLoanIds = null) {
   if (!p) return null;
   if (FIXED_CATEGORY[p.kind]) return FIXED_CATEGORY[p.kind];
   const k = partyKey(p);
-  const c = k ? rules[k] || null : null;
+  let c = k ? rules[k] || null : null;
+  // A hidden number (0722***222) can still match a rule made from that person's full number (0722111222).
+  if (!c && k && /^(in|out)\|tel:[0-9]+\*+[0-9]+\|/.test(k)) {
+    const [dir, tel] = k.split('|');
+    const [head, tail] = tel.slice(4).split('***');
+    const hits = Object.keys(rules).filter((r) => { const [d, t, extra] = r.split('|'); return d === dir && !extra && /^tel:\d+$/.test(t) && t.slice(4).startsWith(head) && t.endsWith(tail); });
+    if (hits.length === 1) c = rules[hits[0]];
+  }
   if (c === ASK) return null;
   if (c && loanIdOf(c) && activeLoanIds && !activeLoanIds.includes(loanIdOf(c))) return null;
   return c;
