@@ -7,6 +7,10 @@
 //   Ziidi texts all arrive on one SIM whatever the account, so they are matched to the M-Pesa text for the same
 //   amount within 10 minutes (that one carries the right SIM). Unmatched ones stay unassigned for you to pick.
 //
+// Balances: Luxe's balances are kept by hand and are right, so they are never set from an SMS's "New M-PESA balance".
+// Only messages received AFTER the phone was linked (device.paired_at) can ever be recorded; the 30 days caught up
+// at linking are stored as status 'history' (used only to check the reading and learn names).
+//
 // Privacy: message text is wiped once recorded and after BODY_DAYS at the latest (wipeOld); the code stays for
 // duplicates.
 import crypto from 'crypto';
@@ -138,7 +142,8 @@ export async function ingest(token, messages) {
     else if (slot) wallet = sims[slot] || null;
     const row = {
       user_id: userId, sender, body, sim_slot: slot, received_at: at, code: parsed?.code || null,
-      fingerprint: sha(`${sender}|${at}|${body}`), parsed, wallet_id: wallet, status: parsed ? 'captured' : 'unparsed',
+      fingerprint: sha(`${sender}|${at}|${body}`), parsed, wallet_id: wallet,
+      status: device.paired_at && at < device.paired_at ? 'history' : parsed ? 'captured' : 'unparsed',
     };
     // A message with a code already seen (the same text resent, or caught twice) is a duplicate.
     if (row.code) {

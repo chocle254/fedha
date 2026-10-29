@@ -87,7 +87,7 @@ export default function SmsCapture({ wallets }) {
           </button>
           {open && (
             <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
-              <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>Checking how Luxe reads your messages; nothing is recorded yet. Pick a category the first time a name shows up, and every later message from that name uses it. Changing a later one changes just that message (say, a loan to someone you usually just help). Message text is deleted once recorded, or after 7 days.</div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>Checking how Luxe reads your messages; nothing is recorded yet, and your balances are never changed from an SMS. Messages from before you linked are history only: they will never be recorded. Pick a category the first time a name shows up, and every later message from that name uses it. Changing a later one changes just that message (say, a loan to someone you usually just help). Message text is deleted once recorded, or after 7 days.</div>
               {items.map((x) => {
                 const p = x.parsed;
                 const ziidi = p?.kind === 'ziidi' || p?.ziidiMove;
@@ -97,7 +97,7 @@ export default function SmsCapture({ wallets }) {
                       <b>{p ? (KIND_LABEL[p.kind] || p.kind) : 'Not understood'}{p?.ziidiMove ? ` · ${p.ziidiMove === 'in' ? 'into' : 'out of'} Ziidi` : ''}</b>
                       <span className="font-num">{p?.amount != null ? formatCurrency(p.amount, 'KES') : ''}</span>
                       <span style={{ flex: 1, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p?.party || ''}</span>
-                      <span style={{ color: 'var(--text-3)', fontSize: 11 }}>SIM {x.sim_slot || '?'} · {when(x.received_at)}</span>
+                      <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{x.status === 'history' ? 'before linking · ' : ''}SIM {x.sim_slot || '?'} · {when(x.received_at)}</span>
                     </div>
                     <div style={{ display: 'flex', gap: 8, marginTop: 4, alignItems: 'center', color: 'var(--text-3)', fontSize: 11.5 }}>
                       <span className="font-num">{p?.balance != null ? `balance ${formatCurrency(p.balance, 'KES')}` : ''}{p?.cost ? ` · fee ${formatCurrency(p.cost, 'KES')}` : ''}{x.code ? ` · ${x.code}` : ''}</span>
