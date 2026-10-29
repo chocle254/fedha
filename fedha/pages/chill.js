@@ -53,6 +53,22 @@ function EpisodeCard({ still, fallback, show, code, name, onClick }) {
   );
 }
 
+// Continue Watching: where you stopped, with how far in you are.
+function ResumeCard({ img, title, sub, pct, left, onClick }) {
+  return (
+    <button type="button" className="cr-ep" onClick={onClick} aria-label={`Resume ${title}`}>
+      <div className="cr-img wide" style={bg(img)}>
+        <div className="cr-fade" />
+        <b className="cr-code">{left}</b>
+        <span className="cr-play">▶</span>
+        <div className="cr-bar"><i style={{ width: `${Math.round(pct * 100)}%` }} /></div>
+      </div>
+      <div className="cr-t">{title}</div>
+      {sub && <div className="cr-s">{sub}</div>}
+    </button>
+  );
+}
+
 // Series as a folder: tab on top, poster inside, episode count on it.
 function Folder({ img, title, count, seasons, onClick, note }) {
   return (
@@ -111,11 +127,20 @@ export default function Chill() {
   const movieArt = (m) => art[`movie:${m.title}`] || {};
   const sugArt = (x) => art[`${x.type === 'movie' ? 'movie' : 'show'}:${x.title}`] || {};
 
+  // Unfinished episodes / movies that are still on the phone, most recent first.
+  const resumable = Object.entries(prog.progress || {}).map(([k, v]) => {
+    const file = k.startsWith('movie:') ? movies.find((mv) => `movie:${mv.title}` === k) : shows.flatMap((sh) => sh.episodes).find((e) => `${e.show}|${epCode(e.season, e.episode)}` === k);
+    return file ? { k, v, file } : null;
+  }).filter(Boolean).sort((a, b) => b.v.at - a.v.at);
+  const minsLeft = (v) => `${Math.max(1, Math.round((v.dur - v.pos) / 60))} min left`;
   const continuing = shows.map((s) => ({ s, u: upNext(s, prog, showArt(s)) })).filter((x) => x.u.next);
   const started = continuing.filter((x) => x.u.started);
   const lastShow = prog.last?.show && continuing.find((x) => x.s.title === prog.last.show);
-  const hero = lastShow || started[0] || continuing[0] || null;
-  const heroMovie = !hero && movies[0];
+  const resumeTop = resumable[0] || null;
+  const heroResume = resumeTop?.file.kind === 'episode' ? { s: shows.find((sh) => sh.title === resumeTop.file.show), u: { next: resumeTop.file, started: true } } : null;
+  const hero = heroResume?.s ? heroResume : lastShow || started[0] || continuing[0] || null;
+  const heroMovie = !hero && (resumeTop?.file.kind === 'movie' ? resumeTop.file : movies[0]);
+  const heroProgress = resumeTop && ((hero && resumeTop.file === hero.u.next) || (heroMovie && resumeTop.file === heroMovie)) ? resumeTop.v : null;
   const ha = hero ? showArt(hero.s) : heroMovie ? movieArt(heroMovie) : {};
   const heroNext = hero?.u.next;
   const forYou = (sug?.items || []).filter((x) => !prog.feedback?.[x.title]);
@@ -151,13 +176,28 @@ export default function Chill() {
           <section className="cr-hero" style={bg(ha.backdrop || ha.poster)}>
             <div className="cr-shade" />
             <div className="cr-heroIn">
-              <div className="cr-kick">{hero ? (hero.u.started ? 'CONTINUE' : 'IN YOUR LIBRARY') : 'MOVIE'}</div>
+              <div className="cr-kick">{heroProgress ? 'CONTINUE WATCHING' : hero ? (hero.u.started ? 'UP NEXT' : 'IN YOUR LIBRARY') : 'MOVIE'}</div>
               <h2>{hero ? hero.s.title : heroMovie.title}</h2>
               <div className="cr-meta">{[ha.year || heroMovie?.year, (ha.genres || []).slice(0, 2).join(' · '), typeof ha.rating === 'number' ? `★ ${ha.rating}` : ha.rating].filter(Boolean).join('  ·  ')}</div>
               <div className="cr-btns">
-                <button type="button" className="cr-btnW" onClick={() => play(heroNext || heroMovie)}>▶ {heroNext ? epCode(heroNext.season, heroNext.episode) : 'Play'}</button>
+                <button type="button" className="cr-btnW" onClick={() => play(heroNext || heroMovie)}>▶ {heroProgress ? 'Resume' : 'Play'}{heroNext ? ` ${epCode(heroNext.season, heroNext.episode)}` : ''}</button>
                 {hero && <button type="button" className="cr-btnG" onClick={() => { setSeason(null); setOpen({ type: 'show', item: hero.s }); }}>📁 Episodes</button>}
               </div>
+              {heroProgress && <div className="cr-heroBar"><div className="cr-bar"><i style={{ width: `${Math.round((heroProgress.pos / heroProgress.dur) * 100)}%` }} /></div><span>{minsLeft(heroProgress)}</span></div>}
+            </div>
+          </section>
+        )}
+
+        {resumable.length > 0 && (
+          <section className="cr-row">
+            <h3>Continue Watching</h3>
+            <div className="cr-scroll">
+              {resumable.map(({ k, v, file }) => {
+                const isEp = file.kind === 'episode';
+                const a = isEp ? showArt({ title: file.show }) : movieArt(file);
+                const c = isEp ? epCode(file.season, file.episode) : null;
+                return <ResumeCard key={k} img={isEp ? a.stills?.[c] || a.backdrop || a.poster : a.backdrop || a.poster} title={isEp ? file.show : file.title} sub={isEp ? `${c}${a.names?.[c] ? ` · ${a.names[c]}` : ''}` : null} pct={v.dur ? v.pos / v.dur : 0} left={minsLeft(v)} onClick={() => play(file)} />;
+              })}
             </div>
           </section>
         )}
@@ -292,6 +332,12 @@ export default function Chill() {
         .cr-fade { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.75), transparent 55%); }
         .cr-code { position: absolute; left: 10px; bottom: 8px; font-size: 13px; font-weight: 800; letter-spacing: 0.3px; }
         .cr-play { position: absolute; right: 10px; bottom: 8px; width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,0.92); color: #000; display: grid; place-items: center; font-size: 12px; }
+        .cr-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,0.25); }
+        .cr-bar i { display: block; height: 100%; background: #e50914; border-radius: 0 2px 2px 0; }
+        .cr-ep .cr-code { bottom: 12px; }
+        .cr-heroBar { display: flex; align-items: center; gap: 10px; margin-top: 12px; max-width: 320px; }
+        .cr-heroBar .cr-bar { position: relative; flex: 1; border-radius: 2px; overflow: hidden; }
+        .cr-heroBar span { font-size: 12px; color: rgba(255,255,255,0.75); white-space: nowrap; }
         .cr-t { margin-top: 7px; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .cr-s { font-size: 11.5px; color: #8e8e93; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .cr-s.warn { color: #ff9f0a; }

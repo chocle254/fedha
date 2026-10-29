@@ -66,9 +66,10 @@ export async function loadArt({ shows, movies, extra = [] }, onUpdate) {
 const ROOM = 'chill_room';
 // What you played from the page, plus what Luxe's player reported as watched ('chill_watched').
 export async function getProgress() {
-  const [room, watched] = await Promise.all([getSetting(ROOM, { played: {}, last: null }), getSetting('chill_watched', {})]);
+  const [room, watched, progress] = await Promise.all([getSetting(ROOM, { played: {}, last: null }), getSetting('chill_watched', {}), getSetting('chill_progress', {})]);
   const p = room || { played: {}, last: null };
-  return { ...p, played: { ...(watched || {}), ...(p.played || {}) } };
+  // progress: { "<show>|S04E11" | "movie:<title>": { pos, dur, at } } from Luxe's player (Continue Watching).
+  return { ...p, played: { ...(watched || {}), ...(p.played || {}) }, progress: progress || {} };
 }
 export async function markPlayed(prog, item) {
   const key = item.kind === 'episode' ? `${item.show}|${epCode(item.season, item.episode)}` : `movie:${item.title}`;

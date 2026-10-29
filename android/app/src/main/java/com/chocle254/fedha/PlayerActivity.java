@@ -73,6 +73,7 @@ public class PlayerActivity extends Activity {
     private int nextCountdown = -1;
     private long lastSave = 0;
     private long lastCount = 0;
+    private long lastReport = 0;
 
     // Gestures: pinch = fill / fit, vertical swipe right = volume, left = brightness, double-tap edges = ±10 s.
     private GestureDetector gestures;
@@ -331,6 +332,19 @@ public class PlayerActivity extends Activity {
         SharedPreferences.Editor e = getSharedPreferences(PREFS, MODE_PRIVATE).edit();
         if (dur > 0 && dur - pos < 60_000) e.remove("pos_" + it.optLong("id")); else e.putLong("pos_" + it.optLong("id"), pos);
         e.apply();
+        reportProgress(pos, dur, false);
+    }
+
+    // Where you are, for the Chill Room's "Continue Watching" (at most every 30 s, and when you leave).
+    private void reportProgress(long pos, long dur, boolean force) {
+        JSONObject it = queue.optJSONObject(idx);
+        if (it == null || it.optString("k").isEmpty() || dur <= 0) return;
+        long now = System.currentTimeMillis();
+        if (!force && now - lastReport < 30_000) return;
+        lastReport = now;
+        final JSONObject body = new JSONObject();
+        try { body.put("key", it.optString("k")); body.put("id", it.optLong("id")); body.put("pos", pos / 1000); body.put("dur", dur / 1000); body.put("progress", true); } catch (Exception ignored) { }
+        new Thread(() -> SmsUploader.postJson(getApplicationContext(), URL_WATCHED, body)).start();
     }
 
     private void markWatched() {
@@ -414,7 +428,10 @@ public class PlayerActivity extends Activity {
 
     @Override public void onWindowFocusChanged(boolean hasFocus) { super.onWindowFocusChanged(hasFocus); if (hasFocus) immersive(); }
     @Override protected void onResume() { super.onResume(); immersive(); }
-    @Override protected void onPause() { super.onPause(); saveSpot(); if (player != null) player.pause(); }
+    @Override protected void onPause() {
+        super.onPause();
+        if (player != null) { lastReport = 0; saveSpot(); player.pause(); }
+    }
     @Override protected void onDestroy() {
         h.removeCallbacksAndMessages(null);
         saveSpot();

@@ -209,6 +209,13 @@ export function MusicProvider({ children }) {
     setLikes(nextLikes); await setSetting('music_likes', nextLikes);
   }, [likes]);
 
+  // ✕ on the mini player: stop everything and hide it.
+  const stop = useCallback(() => {
+    decks.current?.pause(); audio.current?.pause();
+    try { window.speechSynthesis?.cancel(); } catch { /* none */ }
+    setDj(null); setIdx(-1); setQueue([]); state.current.queue = []; setPlaying(false);
+  }, []);
+
   // Queue (Spotify's Play next / Add to queue), song radio, crossfade, sleep timer.
   const playNext = useCallback((t) => {
     const { queue: list, idx: i } = state.current;
@@ -298,13 +305,12 @@ export function MusicProvider({ children }) {
 
   const yt = track?.source === 'yt';
   return (
-    <Ctx.Provider value={{ queue, idx, track, playing, time, sound, setSound, shuffle, setShuffle, likes, like, playList, next, prev, toggle, seek, dj, startDj, stopDj, smartShuffle, note, topArtists, playNext, addToQueue, removeFromQueue, startRadio, blendSecs, setCrossfade, sleepAt, setSleep, tracksPlayed, plays }}>
+    <Ctx.Provider value={{ queue, idx, track, playing, time, sound, setSound, shuffle, setShuffle, likes, like, playList, next, prev, toggle, seek, dj, startDj, stopDj, smartShuffle, note, topArtists, playNext, addToQueue, removeFromQueue, startRadio, blendSecs, setCrossfade, sleepAt, setSleep, tracksPlayed, plays, stop }}>
       {children}
       {/* The YouTube decks: a small floating card while popular music plays (YouTube requires it to be visible). */}
-      <div style={{ position: 'fixed', right: 10, bottom: 'calc(140px + env(safe-area-inset-bottom))', width: dock ? 128 : 1, height: dock ? 72 : 1, zIndex: 45, borderRadius: 12, overflow: 'hidden', boxShadow: yt && dock ? '0 10px 30px rgba(0,0,0,0.5)' : 'none', opacity: yt ? 1 : 0, pointerEvents: yt ? 'auto' : 'none', background: '#000', transition: 'opacity 0.3s' }}>
+      <div style={{ position: 'fixed', right: 16, bottom: 'calc(84px + env(safe-area-inset-bottom))', width: 88, height: 50, zIndex: 46, borderRadius: 10, overflow: 'hidden', opacity: yt ? 1 : 0, pointerEvents: 'none', background: '#000', transition: 'opacity 0.3s' }}>
         <div style={{ position: 'absolute', inset: 0, opacity: deck === 0 ? 1 : 0, zIndex: deck === 0 ? 1 : 0, pointerEvents: deck === 0 ? 'auto' : 'none' }}><div ref={hostA} /></div>
         <div style={{ position: 'absolute', inset: 0, opacity: deck === 1 ? 1 : 0, zIndex: deck === 1 ? 1 : 0, pointerEvents: deck === 1 ? 'auto' : 'none' }}><div ref={hostB} /></div>
-        {yt && <button type="button" onClick={() => setDock((v) => !v)} aria-label="Hide video" style={{ position: 'absolute', top: 4, right: 4, zIndex: 2, width: 22, height: 22, borderRadius: '50%', border: 0, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 11 }}>{dock ? '–' : '+'}</button>}
       </div>
       {note && <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(150px + env(safe-area-inset-bottom))', zIndex: 60, background: 'rgba(28,28,30,0.95)', color: '#f5f5f7', padding: '8px 14px', borderRadius: 999, fontSize: 13 }}>{note}</div>}
     </Ctx.Provider>
