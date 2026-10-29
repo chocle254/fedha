@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
-import { refreshTrades } from '../../../lib/trading';
+import { refreshTrades, growthMilestone } from '../../../lib/trading';
 import { syncBrokerTrades } from '../../../lib/broker';
 import { learnTrailProfiles } from '../../../lib/trail-learn';
 
@@ -21,9 +21,10 @@ export default async function handler(req, res) {
   const broker = await syncBrokerTrades(userId).catch((e) => ({ error: e.message }));
   // Re-learns each channel's trailing style every 6 h (cheap no-op otherwise).
   await learnTrailProfiles(userId).catch(() => null);
-  const { data, error } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId).in('status', ['pending', 'open']).limit(30);
+  const { data, error } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId).in('status', ['pending', 'open']).limit(60);
   if (error) return res.status(500).json({ error: 'Could not load trades.' });
   if (!data.length) return res.status(200).json({ ok: true, checked: 0, broker });
   const after = await refreshTrades(userId, data);
+  await growthMilestone(userId).catch(() => null);
   return res.status(200).json({ ok: true, checked: data.length, open: after.filter((t) => t.status === 'open').length, broker });
 }

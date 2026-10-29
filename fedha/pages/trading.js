@@ -96,7 +96,7 @@ export default function TradingPage() {
       const [sj, tj, cj, ibj] = await Promise.all([s.json(), t.json(), c.json(), ib.json().catch(() => ({}))]);
       if (s.ok) setSignals(sj.signals || []);
       if (t.ok) {
-        const list = tj.trades || [];
+        const list = (tj.trades || []).filter((x) => (x.book || 'main') === 'main'); // growth-account trades show in its card
         const before = prevTrades.current;
         if (before) {
           for (const x of list) {

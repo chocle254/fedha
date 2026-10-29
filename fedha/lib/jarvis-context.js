@@ -276,10 +276,11 @@ async function summarizeCareer(message = '') {
 // tells Jarvis which groups earn their place, what lot size to give each on a real account, and which to drop.
 async function summarizeTrading() {
   if (!supabase) return null;
-  const { data, error } = await supabase.from('paper_trades')
-    .select('signal_id, source, status, pnl_usdt, risk_usdt, actual_risk_usdt, closed_at, created_at')
+  const { data: rows, error } = await supabase.from('paper_trades')
+    .select('*')
     .not('signal_id', 'is', null).order('created_at', { ascending: false }).limit(1000);
   if (error) throw error;
+  const data = (rows || []).filter((t) => (t.book || 'main') === 'main'); // the growth account is not a channel record
   // MT5 demo results (XM / LiteFinance) take over once there are finished ones.
   const { data: legs } = await supabase.from('broker_trades')
     .select('account, signal_key, source, status, profit, risk_usd, created_at, closed_at')

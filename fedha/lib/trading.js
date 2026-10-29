@@ -55,6 +55,9 @@ const missingColumn = (e) => e && (e.code === '42703' || e.code === 'PGRST204' |
 const withoutTrail = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => !TRAIL_COLS.includes(k)));
 const withoutQuoteUsd = ({ quote_usd, ...rest }) => rest; // column added by supabase-migration-quote-usd.sql
 const MT5_LEVERAGE = 100;
+// Paper books: 'main' (trades every signal, so every channel is measured; the report cards use only this book)
+// and 'growth' (the small growth-challenge account). Rows from before supabase-migration-paper-books.sql have no book.
+export const isMain = (t) => (t.book || 'main') === 'main';
 
 // US dollars per 1 unit of a market's quote currency (1 for USD-quoted markets and crypto). Yen, CAD and CHF
 // quoted forex pairs need it so profit and risk come out in dollars (stored per trade as quote_usd).
@@ -77,7 +80,7 @@ export async function getAccount(userId, settings) {
   const { data } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId);
   let realized = 0;
   let locked = 0;
-  for (const t of data || []) {
+  for (const t of (data || []).filter(isMain)) {
     if (['won', 'lost', 'expired'].includes(t.status)) realized += Number(t.pnl_usdt) || 0;
     else {
       if (t.status === 'open') realized += partialRealized(t); // TPs already hit pay into the balance straight away
@@ -96,11 +99,12 @@ export async function getAccount(userId, settings) {
 // Growth challenge (broker_settings.growth): a fresh small balance from `since`. Equity = start + every signal
 // trade's profit since then; margin = what its open trades tie up (MT5 markets at 1:1000, crypto in full).
 export async function growthState(userId, g) {
-  const { data } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId)
+  const { data: rows } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId)
     .not('signal_id', 'is', null).gte('created_at', g.since);
+  const data = (rows || []).filter((t) => t.book === 'growth');
   let realized = 0;
   let margin = 0;
-  for (const t of data || []) {
+  for (const t of data) {
     if (['won', 'lost', 'expired'].includes(t.status)) { realized += Number(t.pnl_usdt) || 0; continue; }
     if (t.status === 'open') realized += partialRealized(t);
     const n = (t.take_profits || []).length;
@@ -108,7 +112,33 @@ export async function growthState(userId, g) {
     margin += ((Number(t.notional) || 0) * left) / (isMt5(t.symbol) ? GROWTH_LEVERAGE : 1);
   }
   const equity = Math.round((Number(g.start) + realized) * 100) / 100;
-  return { equity, margin: Math.round(margin * 100) / 100, free: Math.max(0, equity - margin), trades: (data || []).length };
+  const closed = data.filter((t) => ['won', 'lost', 'expired'].includes(t.status));
+  return { equity, margin: Math.round(margin * 100) / 100, free: Math.max(0, equity - margin), trades: data.length, open: data.length - closed.length, wins: closed.filter((t) => Number(t.pnl_usdt) > 0).length, losses: closed.filter((t) => Number(t.pnl_usdt) < 0).length, recent: data.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 8).map((t) => ({ id: t.id, symbol: t.symbol, side: t.side, source: t.source, status: t.status, qty: t.qty, pnl: Number(t.pnl_usdt) || 0, risk: Number(t.actual_risk_usdt) || 0, at: t.created_at })) };
+}
+
+// Growth account milestones: one notification per new stage, and the big one when it reaches the target ($100
+// by default): time for the real account. Recorded in broker_settings.growth.notified so each fires once.
+export async function growthMilestone(userId) {
+  const s = await getSettings(userId);
+  const g = s.broker_settings?.growth;
+  if (!g?.on) return null;
+  const st = await growthState(userId, g);
+  const tier = growthTier(st.equity, s.risk_pct);
+  const target = Number(g.target) || 100;
+  const done = { ...(g.notified || {}) };
+  let msg = null;
+  if (st.equity >= target && !done.target) {
+    done.target = new Date().toISOString();
+    msg = { title: `🎯 Growth account hit $${st.equity.toFixed(2)}`, body: `It grew from $${Number(g.start).toFixed(2)} to your $${target} target (${st.wins} wins, ${st.losses} losses). Time to start the real account with the same rules.` };
+  } else if (tier.index > 0 && !done[tier.label]) {
+    done[tier.label] = new Date().toISOString();
+    msg = { title: `🎯 Growth account reached the ${tier.label} stage`, body: `$${st.equity.toFixed(2)} (from $${Number(g.start).toFixed(2)}). Risk per trade is now ${tier.pct}%${tier.minConf ? `, following channels ${tier.minConf}%+ confident` : ', following every channel'}.` };
+  }
+  if (!msg) return null;
+  const next = { ...s.broker_settings, growth: { ...g, notified: done } };
+  await supabaseAdmin.from('trade_settings').update({ broker_settings: next }).eq('user_id', userId);
+  await notify(msg, `growth-${Object.keys(done).length}`);
+  return msg;
 }
 
 export function riskAmount(settings, equity) {
@@ -128,8 +158,9 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, g
   if (!(risk > 0)) return { ok: false, error: 'Set a paper balance and risk first.' };
   if (risk > equity) return { ok: false, error: `Risk $${risk.toFixed(2)} is more than your paper equity $${equity.toFixed(2)}.` };
 
-  const { data: existing } = await supabaseAdmin.from('paper_trades').select('id').eq('user_id', userId).eq('signal_id', signal.id).maybeSingle();
-  if (existing) return { ok: false, error: 'Already entered.' };
+  const bookName = growth ? 'growth' : 'main';
+  const { data: same } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId).eq('signal_id', signal.id);
+  if ((same || []).some((t) => (t.book || 'main') === bookName)) return { ok: false, error: 'Already entered.' };
 
   const buy = signal.side === 'BUY';
   const book = await fetchBook(signal.symbol);
@@ -198,9 +229,11 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, g
     filled_at: status === 'open' ? new Date().toISOString() : null,
     // Smart trailing: this channel's learned style, and the market's volatility right now.
     trail_mode: (await trailProfiles(userId))[signal.source]?.mode || TRAIL_DEFAULT,
-    trail_atr: await atrBefore(signal.symbol, Date.now())
+    trail_atr: await atrBefore(signal.symbol, Date.now()),
+    ...(growth ? { book: 'growth' } : {})
   };
   let { data, error } = await supabaseAdmin.from('paper_trades').insert(row).select().single();
+  if (growth && error && (missingColumn(error) || error.code === '23505')) return { ok: false, error: 'Run supabase-migration-paper-books.sql to start the growth account.' };
   if (missingColumn(error)) {
     if (conv !== 1) return { ok: false, error: `Run supabase-migration-quote-usd.sql to paper-trade ${signal.symbol} (its profit is in ${instrument(signal.symbol)?.quote || 'another currency'}).` };
     ({ data, error } = await supabaseAdmin.from('paper_trades').insert(withoutQuoteUsd(row)).select().single());
@@ -213,9 +246,9 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, g
 // Lot multiplier for a channel from its closed paper trades (see groupReport in trading-core).
 export async function channelSizing(userId, source) {
   const { data } = await supabaseAdmin.from('paper_trades')
-    .select('signal_id, source, status, pnl_usdt, risk_usdt, actual_risk_usdt, closed_at, created_at')
+    .select('*')
     .eq('user_id', userId).eq('source', source).not('signal_id', 'is', null).limit(1000);
-  const g = groupReport(data || [])[0];
+  const g = groupReport((data || []).filter(isMain))[0];
   if (!g) return { mult: 0.5, confidence: 50, verdict: 'testing' };
   return { mult: g.lotMultiplier > 0 ? g.lotMultiplier : LOT_MIN, confidence: g.confidence, verdict: g.verdict };
 }
@@ -232,30 +265,36 @@ export async function maybeAutoEnter(userId, signal) {
     const { mult, confidence } = await channelSizing(userId, signal.source);
     // News guard: quarter lot right around a high-impact release, half lot in the hour before (lib/news-guard.js).
     const news = await newsCheck(signal.symbol).catch(() => ({ level: 'clear', mult: 1 }));
-    // Growth challenge: the stage for the challenge balance sets risk %, the risk ceiling and who may trade.
-    const g = s.broker_settings?.growth;
-    let growth = null;
-    let tier = null;
-    if (g?.on) {
-      const st = await growthState(userId, g);
-      tier = growthTier(st.equity, s.risk_pct);
-      if (confidence < tier.minConf) return { ok: false, skipped: `${tier.label} stage: ${signal.source} is ${confidence}% confident, needs ${tier.minConf}%.` };
-      growth = { equity: st.equity, free: st.free, cap: (st.equity * tier.cap) / 100 };
-    }
-    const equity = growth ? growth.equity : await getEquity(userId, s);
-    const riskUsdt = Math.round((growth ? (equity * tier.pct) / 100 : riskAmount(s, equity)) * mult * news.mult * 100) / 100;
-    const r = await openPaperTrade({ userId, signal, riskUsdt, auto: true, growth });
+    const equity = await getEquity(userId, s);
+    const riskUsdt = Math.round(riskAmount(s, equity) * mult * news.mult * 100) / 100;
+    // Main book: every signal, never skipped, so every channel keeps being measured.
+    const r = await openPaperTrade({ userId, signal, riskUsdt, auto: true });
+    // Growth book: the same signal again on the small account, only if its balance and stage support it.
+    const g = await growthEnter(userId, s, signal, { mult, confidence, news }).catch((e) => ({ ok: false, error: e.message }));
     if (r.ok) {
       const msg = describeEntry(r.trade);
       msg.body += ` · lot ×${mult} (${confidence}% confident in ${signal.source})`;
-      if (tier) msg.body += ` · 🌱 ${tier.label} stage, $${equity.toFixed(2)}`;
       if (news.level !== 'clear') msg.body += ` · 📰 ${news.level === 'danger' ? 'quarter' : 'half'} lot: ${await newsReason(news, signal.symbol)}`;
+      if (g) msg.body += g.ok ? ` · 🌱 growth account took it: ${g.trade.qty} ${base(signal.symbol)}, risk $${Number(g.trade.actual_risk_usdt).toFixed(2)} of $${g.equity.toFixed(2)}` : ` · 🌱 growth account skipped: ${g.skipped || g.error}`;
       await notify(msg, `trade-${r.trade.id}-new`);
     }
     return r;
   } catch {
     return null;
   }
+}
+
+// Growth challenge (broker_settings.growth): the stage for the growth balance sets risk %, the ceiling for the
+// smallest lot and which channels it follows. Returns null when the challenge is off.
+async function growthEnter(userId, s, signal, { mult, confidence, news }) {
+  const g = s.broker_settings?.growth;
+  if (!g?.on) return null;
+  const st = await growthState(userId, g);
+  const tier = growthTier(st.equity, s.risk_pct);
+  if (confidence < tier.minConf) return { ok: false, skipped: `${tier.label} stage follows channels ${tier.minConf}%+ confident, ${signal.source} is ${confidence}%` };
+  const riskUsdt = Math.round(((st.equity * tier.pct) / 100) * mult * news.mult * 100) / 100;
+  const r = await openPaperTrade({ userId, signal, riskUsdt, auto: true, growth: { equity: st.equity, free: st.free, cap: (st.equity * tier.cap) / 100 } });
+  return { ...r, equity: st.equity, skipped: r.ok ? undefined : r.error };
 }
 
 export async function candlesSince(symbol, startMs) {
@@ -403,7 +442,7 @@ export function describeEntry(t, how = 'Auto-traded') {
 // Re-score open and pending trades against fresh candles, save what changed and notify once per change.
 // The conditional update (matching the old status and TP count) makes sure two callers can't both notify.
 export async function refreshTrades(userId, trades) {
-  const live = trades.filter((t) => t.status === 'pending' || t.status === 'open').slice(0, 30);
+  const live = trades.filter((t) => t.status === 'pending' || t.status === 'open').slice(0, 60);
   const profiles = await trailProfiles(userId).catch(() => ({}));
   const results = await Promise.allSettled(live.map((t) => evaluateLiveTrade(t, profiles)));
   const save = async (q, patch) => {
@@ -417,7 +456,7 @@ export async function refreshTrades(userId, trades) {
     if (!patch) return;
     const old = live[i];
     byId[old.id] = patch;
-    const msg = describeChange(old, patch);
+    const msg = isMain(old) ? describeChange(old, patch) : null; // the growth book reports through its milestones
     if (!msg) { await save((p) => supabaseAdmin.from('paper_trades').update(p).eq('id', old.id).eq('user_id', userId), patch); return; }
     const { data } = await save((p) => supabaseAdmin.from('paper_trades').update(p).eq('id', old.id).eq('user_id', userId).eq('status', old.status).eq('tp_hit', old.tp_hit || 0).select('id'), patch);
     if (data && data.length) await notify(msg, `trade-${old.id}-${patch.status}-${patch.tp_hit}`);

@@ -20,7 +20,7 @@ export async function learnTrailProfiles(userId, { force = false } = {}) {
     .select('*').eq('user_id', userId).not('signal_id', 'is', null).in('status', ['won', 'lost'])
     .not('stop_loss', 'is', null).order('created_at', { ascending: false }).limit(600);
   const bySource = {};
-  for (const t of rows || []) {
+  for (const t of (rows || []).filter((r) => (r.book || 'main') === 'main')) {
     const list = (bySource[t.source] = bySource[t.source] || []);
     if (list.length < PER_CHANNEL) list.push(t);
   }

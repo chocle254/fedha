@@ -2,6 +2,7 @@ import { requireUser } from '../../../lib/require-user';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { BROKER_ACCOUNTS } from '../../../lib/metaapi';
 import { brokerOverview, getBrokerSettings, syncBrokerTrades } from '../../../lib/broker';
+import { fetchRates } from '../../../lib/exchange';
 
 // MT5 accounts (XM, LiteFinance via MetaApi): status, settings and trades for the Trading page.
 // The MetaApi token and account ids live in env vars, so only the signal owner may use this.
@@ -30,10 +31,21 @@ export default async function handler(req, res) {
     if (typeof b.allow_real === 'boolean') next.allow_real = b.allow_real;
     // Growth challenge: { on, start } — start a fresh small balance (from about $7) that steps risk down as it grows.
     if (b.growth && typeof b.growth === 'object') {
+      // The start can be given in KES (start_kes, e.g. 1000): converted to dollars at today's rate.
       const on = !!b.growth.on;
-      const restart = on && (!cur.growth?.on || b.growth.restart);
+      const restart = on && (!cur.growth?.since || b.growth.restart); // switching back on resumes
+      let start = clamp(b.growth.start, 1, 100000, 7);
+      let startKes = null;
+      if (restart && Number(b.growth.start_kes) > 0) {
+        startKes = clamp(b.growth.start_kes, 100, 10000000, 1000);
+        const usd = (await fetchRates('KES'))?.USD;
+        start = Math.round(startKes * (usd > 0 ? usd : 1 / 129) * 100) / 100;
+      }
+      const target = clamp(b.growth.target, 2, 1000000, cur.growth?.target || 100);
       next.growth = on
-        ? { on: true, start: restart ? clamp(b.growth.start, 1, 100000, 7) : cur.growth.start, since: restart ? new Date().toISOString() : cur.growth.since }
+        ? restart
+          ? { on: true, start, start_kes: startKes, target, since: new Date().toISOString(), notified: {} }
+          : { ...cur.growth, on: true, target }
         : { ...(cur.growth || {}), on: false };
     }
     for (const a of BROKER_ACCOUNTS) {

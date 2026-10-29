@@ -38,9 +38,10 @@ export async function brokerSizing(userId, source) {
     .eq('user_id', userId).eq('source', source).limit(2000);
   let results = brokerResults(rows || []);
   if (!results.some((r) => ['won', 'lost'].includes(r.status))) {
-    const { data: paper } = await supabaseAdmin.from('paper_trades')
-      .select('signal_id, source, status, pnl_usdt, risk_usdt, actual_risk_usdt, closed_at, created_at')
+    const { data: paperRows } = await supabaseAdmin.from('paper_trades')
+      .select('*')
       .eq('user_id', userId).eq('source', source).not('signal_id', 'is', null).limit(1000);
+    const paper = (paperRows || []).filter((t) => (t.book || 'main') === 'main');
     results = paper || [];
   }
   const g = groupReport(results)[0];
@@ -75,8 +76,8 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
   if (lossLimit > 0 && (await todaysLoss(userId, acct.key, info)) >= lossLimit) return { skipped: `Daily loss limit (${cfg.daily_loss_pct}%) reached.` };
 
   const sizing = await brokerSizing(userId, source);
-  // Growth challenge (settings.growth.on): the stage for this balance sets the risk and who may trade.
-  const growth = settings.growth?.on ? growthTier(info.balance, cfg.risk_pct) : null;
+  // Growth stages apply to the real account only; demo accounts trade every signal so every channel is measured.
+  const growth = settings.growth?.on && real ? growthTier(info.balance, cfg.risk_pct) : null;
   if (growth && sizing.confidence < growth.minConf) return { skipped: `${growth.label} stage: only channels ${growth.minConf}%+ confident trade, ${source} is ${sizing.confidence}%.` };
   if (sizing.confidence < Number(cfg.min_confidence || 0)) return { skipped: `${source} is ${sizing.confidence}% confident, below this account's ${cfg.min_confidence}% minimum.` };
   let mult = sizing.mult;
