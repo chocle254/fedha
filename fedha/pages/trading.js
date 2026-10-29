@@ -14,6 +14,8 @@ import { ensurePushSubscription } from '../lib/push';
 import { groupReport, brokerResults, GROUP_MIN_TRADES, TRAIL_LABEL, TRAIL_DEFAULT } from '../lib/trading-core';
 import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST, lotsLabel, rrPlan, rrText, rrDetail, resultR, isMt5, pipSize, moveLabel, bankedPipsLabel, netPipsLabel } from '../components/trading/util';
 
+const MT5_LEV = 400; // matches MT5_LEVERAGE in lib/trading.js
+
 // The stop in force now: signal trades trail it with their channel's learned style (saved as trail_stop).
 const curStop = (t) => (t.source !== 'Manual' && t.trail_stop != null ? t.trail_stop : t.stop_loss);
 const trailed = (t) => t.source !== 'Manual' && t.trail_stop != null && t.stop_loss != null && Number(t.trail_stop) !== Number(t.stop_loss);
@@ -350,7 +352,9 @@ export default function TradingPage() {
         </div>
         <div className="tx-row-grid font-num">
           <div><span>Size</span><b>{fmtQty(t.qty)} {base(t.symbol)}</b></div>
-          <div><span>Value</span><b>{fmtUsd(t.notional, false)}</b></div>
+          {isMt5(t.symbol)
+            ? <div><span>Margin (1:400)</span><b title={`Position value ${fmtUsd(t.notional, false)}`}>{fmtUsd(Number(t.notional) / MT5_LEV, false)}</b></div>
+            : <div><span>Value</span><b>{fmtUsd(t.notional, false)}</b></div>}
           <div><span>Entry</span><b>{fmtPrice(t.entry)}</b></div>
           <div><span>Mark</span><b>{mark ? fmtPrice(mark) : '—'}</b></div>
           <div><span>SL{trailed(t) ? ' (trailed)' : ''}</span><b title={t.trail_mode ? `Trailing: ${TRAIL_LABEL[t.trail_mode] || t.trail_mode}` : undefined} style={{ color: trailed(t) ? C.up : C.down }}>{t.stop_loss != null ? fmtPrice(curStop(t)) : '—'}</b></div>
@@ -406,9 +410,11 @@ export default function TradingPage() {
       </div>
       <div className="tx-row-grid font-num">
         <div><span>Price</span><b>{fmtPrice(t.entry)}</b></div>
-        <div><span>Amount</span><b>{fmtQty(t.qty)}</b></div>
-        <div><span>Value</span><b>{fmtUsd(t.notional, false)}</b></div>
-        <div><span>Filled</span><b>0%</b></div>
+        <div><span>Amount</span><b>{fmtQty(t.qty)}{isMt5(t.symbol) ? ` · ${lotsLabel(t)}` : ''}</b></div>
+        {isMt5(t.symbol)
+          ? <div><span>Margin (1:400)</span><b title={`Position value ${fmtUsd(t.notional, false)}`}>{fmtUsd(Number(t.notional) / MT5_LEV, false)}</b></div>
+          : <div><span>Value</span><b>{fmtUsd(t.notional, false)}</b></div>}
+        <div><span>Risk at SL</span><b style={{ color: C.down }}>{t.actual_risk_usdt != null || t.risk_usdt != null ? fmtUsd(Number(t.actual_risk_usdt ?? t.risk_usdt), false) : '—'}</b></div>
         <div><span>TP / SL</span><b>{(t.take_profits || [])[0] ? fmtPrice(t.take_profits[0]) : '—'} / {t.stop_loss != null ? fmtPrice(t.stop_loss) : '—'}</b></div>
         <div><span>Placed</span><b>{ago(t.created_at)}</b></div>
       </div>
