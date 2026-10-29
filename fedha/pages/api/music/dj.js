@@ -65,7 +65,7 @@ export default async function handler(req, res) {
     // Host lines: short, hype, no made-up facts.
     let intro = null; let lines = {};
     try {
-      const prompt = `You are DJ Luxe, a smooth, hype late-night radio DJ for one listener in Kenya who loves ${names.join(', ')}. Speak casually (a little Kenyan slang like "msee", "niaje" is fine, sparingly).
+      const prompt = `You are DJ Luxe, a smooth, confident late-night radio DJ for one listener who loves ${names.join(', ')}. Plain, natural English like a top US hip-hop radio host: no slang from any particular country, no "bro", no clichés about where the listener is from.
 The set, in order:
 ${tracks.map((t, i) => `${i + 1}. ${t.artist} - ${t.title}`).join('\n')}
 Write: one intro line (max 22 words) welcoming them and teasing the first song; and a line for songs 3, 6, 9, 12 and 15 (max 16 words each) that hands over from the previous song to that one. Only use the artist names and song titles given: do NOT invent facts, years, features or stories. Return JSON only: {"intro":"...","lines":{"3":"...","6":"...","9":"...","12":"...","15":"..."}}`;
