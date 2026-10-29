@@ -58,7 +58,7 @@ public class LuxeDelegationService extends DelegationService {
                 || g.contains("planner_active")) return PLANNER;
         if (t.startsWith("🛑")) return SL;
         if (t.startsWith("🎯") || t.startsWith("✅")) return TP;
-        if (t.startsWith("🚀") || t.startsWith("📥") || t.startsWith("⏳") || t.startsWith("💰") || t.startsWith("🧪")) return TRADE;
+        if (t.startsWith("🚀") || t.startsWith("📥") || t.startsWith("⏳") || t.startsWith("💰") || t.startsWith("🧪") || t.startsWith("📰")) return TRADE;
         if (t.startsWith("🤖") || t.startsWith("⌛") || t.startsWith("✖")) return OTHER;
         return PLANNER;
     }

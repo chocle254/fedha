@@ -6,6 +6,7 @@ import { supabaseAdmin } from './supabaseAdmin';
 import { BROKER_ACCOUNTS, accountId, metaapiConfigured, mt, tradeOk, findSymbol } from './metaapi';
 import { groupReport, brokerResults, splitLots, LOT_MIN, trailCandidate, TRAIL_DEFAULT } from './trading-core';
 import { notify, trailProfiles, atrBefore } from './trading';
+import { newsCheck, newsReason } from './news-guard';
 
 const PENDING_MAX_MS = 6 * 3600e3; // a limit order that has not filled in 6 h is cancelled
 
@@ -62,7 +63,7 @@ async function todaysLoss(userId, account, info) {
   return -(closed + floating);
 }
 
-async function placeOnAccount({ userId, acct, settings, parsed, source, signalKey, signalId }) {
+async function placeOnAccount({ userId, acct, settings, parsed, source, signalKey, signalId, news }) {
   const id = accountId(acct.key);
   const cfg = settings[acct.key];
   const info = await mt.accountInfo(id);
@@ -83,6 +84,9 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
   // Real money only follows channels with a proven record (10+ closed trades, positive, Keep or Scale).
   // Channels still being tested keep trading on demo and paper until they earn it.
   if (real && sizing.verdict === 'testing') return { skipped: `${source} is still being tested (fewer than 10 closed trades), so demo only.` };
+  // News guard: skip right around a high-impact release, half lot in the hour before (lib/news-guard.js).
+  if (news?.level === 'danger') return { skipped: `News: ${news.reason}`, news: true };
+  if (news?.level === 'caution') mult = Math.max(LOT_MIN, Math.round(mult * news.mult * 100) / 100);
 
   const symbol = await findSymbol(id, brokerSymbolFor(parsed));
   if (!symbol) return { skipped: `${brokerSymbolFor(parsed)} is not offered on this account.` };
@@ -156,14 +160,18 @@ export async function placeSignalOnBrokers({ userId, parsed, source, signalKey, 
   const settings = await getBrokerSettings(userId);
   const accounts = BROKER_ACCOUNTS.filter((a) => settings[a.key]?.enabled && accountId(a.key));
   if (!accounts.length) return null;
+  const news = await newsCheck(parsed.symbol).catch(() => ({ level: 'clear' }));
+  if (news.level !== 'clear') news.reason = await newsReason(news, parsed.symbol);
   const results = await Promise.all(accounts.map(async (acct) => {
     try {
-      const r = await placeOnAccount({ userId, acct, settings, parsed, source, signalKey, signalId });
+      const r = await placeOnAccount({ userId, acct, settings, parsed, source, signalKey, signalId, news });
       if (r.ok) {
         await notify({
           title: `${r.real ? '💰' : '🧪'} ${acct.name}: ${parsed.side} ${r.symbol} ${r.lots} lots`,
-          body: `${r.legs} position${r.legs > 1 ? 's' : ''} (one per TP) · ${r.orderType} · lot ×${r.mult} (${r.confidence}% confident in ${source}) · risk $${r.riskUsd.toFixed(2)}`,
+          body: `${r.legs} position${r.legs > 1 ? 's' : ''} (one per TP) · ${r.orderType} · lot ×${r.mult} (${r.confidence}% confident in ${source}) · risk $${r.riskUsd.toFixed(2)}${news.level === 'caution' ? ` · 📰 half lot, ${news.reason}` : ''}`,
         }, `broker-${acct.key}-${signalKey}`);
+      } else if (r.news) {
+        await notify({ title: `📰 ${acct.name}: skipped ${parsed.side} ${parsed.symbol} for news`, body: news.reason }, `broker-${acct.key}-${signalKey}-news`);
       }
       return { account: acct.key, ...r };
     } catch (e) {

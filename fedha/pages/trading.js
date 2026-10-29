@@ -8,6 +8,7 @@ import OrderForm from '../components/trading/OrderForm';
 import PairPicker from '../components/trading/PairPicker';
 import WalletPanel from '../components/trading/WalletPanel';
 import BrokerPanel from '../components/trading/BrokerPanel';
+import NewsStrip from '../components/trading/NewsStrip';
 import { ensurePushSubscription } from '../lib/push';
 import { groupReport, brokerResults, GROUP_MIN_TRADES, TRAIL_LABEL, TRAIL_DEFAULT } from '../lib/trading-core';
 import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST, lotsLabel, rrPlan, rrText, rrDetail, resultR, isMt5, pipSize, moveLabel, bankedPipsLabel, netPipsLabel } from '../components/trading/util';
@@ -496,6 +497,8 @@ export default function TradingPage() {
             <button className={`tx-switch ${settings?.auto_enabled ? 'on' : ''}`} onClick={() => saveSettings({ auto_enabled: !settings?.auto_enabled })} aria-label="Auto-trade signals"><i /></button>
           </div>
         </div>
+
+        <NewsStrip symbol={symbol} />
 
         <div className="tx-grid">
           <div className="tx-main">

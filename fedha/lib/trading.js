@@ -4,6 +4,7 @@ import { sizePosition, rewardRisk, levelsValid, evaluateTrade, floorToStep, roun
 import { pushToAll } from './nestlink-push';
 import { klines, bookTicker, lastPrice, isMt5, mt5Filters } from './market';
 import { instrument } from './instruments';
+import { newsCheck, newsReason } from './news-guard';
 
 const BINANCE = 'https://api.binance.com/api/v3';
 const filterCache = new Map();
@@ -191,12 +192,15 @@ export async function maybeAutoEnter(userId, signal) {
     // Size by the channel's track record: proven groups get bigger lots, new or shaky ones smaller.
     // Dropped groups keep trading at the minimum so they are still measured and can earn their way back.
     const { mult, confidence } = await channelSizing(userId, signal.source);
+    // News guard: quarter lot right around a high-impact release, half lot in the hour before (lib/news-guard.js).
+    const news = await newsCheck(signal.symbol).catch(() => ({ level: 'clear', mult: 1 }));
     const equity = await getEquity(userId, s);
-    const riskUsdt = Math.round(riskAmount(s, equity) * mult * 100) / 100;
+    const riskUsdt = Math.round(riskAmount(s, equity) * mult * news.mult * 100) / 100;
     const r = await openPaperTrade({ userId, signal, riskUsdt, auto: true });
     if (r.ok) {
       const msg = describeEntry(r.trade);
       msg.body += ` · lot ×${mult} (${confidence}% confident in ${signal.source})`;
+      if (news.level !== 'clear') msg.body += ` · 📰 ${news.level === 'danger' ? 'quarter' : 'half'} lot: ${await newsReason(news, signal.symbol)}`;
       await notify(msg, `trade-${r.trade.id}-new`);
     }
     return r;
