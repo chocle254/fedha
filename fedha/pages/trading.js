@@ -490,6 +490,7 @@ export default function TradingPage() {
           <div><span>Wallet balance</span><b>{account ? fmtUsd(account.equity, false) : '—'}</b></div>
           <div><span>Available</span><b>{account ? fmtUsd(account.available, false) : '—'}</b></div>
           <div><span>In orders</span><b>{account ? fmtUsd(account.locked, false) : '—'}</b></div>
+          {account?.openRisk > 0 && <div><span>At risk (stops)</span><b>{fmtUsd(account.openRisk, false)}</b></div>}
           <div><span>Unrealized</span><b style={{ color: unrealized >= 0 ? C.up : C.down }}>{fmtUsd(unrealized)}</b></div>
           <div><span>Realized</span><b style={{ color: (account?.realized ?? stats.realized) >= 0 ? C.up : C.down }}>{fmtUsd(account?.realized ?? stats.realized)}</b></div>
           <div><span>Win rate</span><b>{stats.rate == null ? '—' : `${stats.rate}%`}</b></div>

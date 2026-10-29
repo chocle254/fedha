@@ -54,7 +54,7 @@ const TRAIL_COLS = ['trail_mode', 'trail_atr', 'trail_stop'];
 const missingColumn = (e) => e && (e.code === '42703' || e.code === 'PGRST204' || /trail_/.test(e.message || ''));
 const withoutTrail = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => !TRAIL_COLS.includes(k)));
 const withoutQuoteUsd = ({ quote_usd, ...rest }) => rest; // column added by supabase-migration-quote-usd.sql
-const MT5_LEVERAGE = 100;
+const MT5_LEVERAGE = 400; // the broker's leverage for forex, gold and indices (Exness-style 1:400)
 // Paper books: 'main' (trades every signal, so every channel is measured; the report cards use only this book)
 // and 'growth' (the small growth-challenge account). Rows from before supabase-migration-paper-books.sql have no book.
 export const isMain = (t) => (t.book || 'main') === 'main';
@@ -75,25 +75,32 @@ export async function getEquity(userId, settings) {
   return (await getAccount(userId, settings)).equity;
 }
 
-// Like a Binance wallet: equity, the USDT tied up in open positions and resting orders, and what is free to trade.
+// Like a broker account: equity, the money tied up in open positions and resting orders, and what is free.
+//   locked   = margin of every open or pending trade (MT5 markets at 1:MT5_LEVERAGE; manual crypto buys in full)
+//   openRisk = what the open signal trades lose if every one of them hits its stop
+//   riskRoom = equity - openRisk: the most a new signal trade may risk, so the balance can never go below zero
 export async function getAccount(userId, settings) {
   const { data } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId);
   let realized = 0;
   let locked = 0;
+  let openRisk = 0;
   for (const t of (data || []).filter(isMain)) {
     if (['won', 'lost', 'expired'].includes(t.status)) realized += Number(t.pnl_usdt) || 0;
     else {
       if (t.status === 'open') realized += partialRealized(t); // TPs already hit pay into the balance straight away
-      // Signal trades are scored on their own (like a margin position), so they do not tie up the wallet.
-      if (t.signal_id) continue;
       const n = (t.take_profits || []).length;
       const left = n ? Math.max(0, 1 - (t.tp_hit || 0) / n) : 1;
+      if (t.signal_id) {
+        openRisk += (Number(t.actual_risk_usdt) || Number(t.risk_usdt) || 0) * left;
+        if (isMt5(t.symbol)) locked += ((Number(t.notional) || 0) * left) / MT5_LEVERAGE; // crypto signals: risk only
+        continue;
+      }
       locked += ((Number(t.notional) || 0) * left) / (isMt5(t.symbol) ? MT5_LEVERAGE : 1); // CFDs tie up margin only
     }
   }
   const equity = Number(settings.paper_balance) + realized;
   const r2 = (v) => Math.round(v * 100) / 100;
-  return { equity: r2(equity), realized: r2(realized), locked: r2(locked), available: r2(Math.max(0, equity - locked)) };
+  return { equity: r2(equity), realized: r2(realized), locked: r2(locked), available: r2(Math.max(0, equity - locked)), openRisk: r2(openRisk), riskRoom: r2(Math.max(0, equity - openRisk)) };
 }
 
 // Growth challenge (broker_settings.growth): a fresh small balance from `since`. Equity = start + every signal
@@ -153,10 +160,14 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, g
   if (signal.stop_loss == null) return { ok: false, error: 'This signal has no stop-loss, so the risk cannot be sized.' };
 
   const settings = await getSettings(userId);
-  const equity = growth ? growth.equity : await getEquity(userId, settings);
-  const risk = riskUsdt != null && Number(riskUsdt) > 0 ? Number(riskUsdt) : riskAmount(settings, equity);
-  if (!(risk > 0)) return { ok: false, error: 'Set a paper balance and risk first.' };
-  if (risk > equity) return { ok: false, error: `Risk $${risk.toFixed(2)} is more than your paper equity $${equity.toFixed(2)}.` };
+  const acct = growth ? null : await getAccount(userId, settings);
+  const equity = growth ? growth.equity : acct.equity;
+  if (!(equity > 0)) return { ok: false, error: `The paper balance is used up ($${Number(equity).toFixed(2)}). Raise it in Settings.` };
+  const asked = riskUsdt != null && Number(riskUsdt) > 0 ? Number(riskUsdt) : riskAmount(settings, equity);
+  if (!(asked > 0)) return { ok: false, error: 'Set a paper balance and risk first.' };
+  // Main book: never risk more than the balance has left after the open trades' stops (riskRoom).
+  const risk = growth ? Math.min(asked, equity) : Math.min(asked, acct.riskRoom);
+  if (!(risk >= 0.01)) return { ok: false, error: `Balance fully committed: $${equity.toFixed(2)} equity, $${acct.openRisk.toFixed(2)} already at risk in open trades.` };
 
   const bookName = growth ? 'growth' : 'main';
   const { data: same } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId).eq('signal_id', signal.id);
@@ -202,8 +213,22 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, g
     const need = sz.notional / lev;
     if (need > growth.free) return { ok: false, error: `Not enough margin: needs $${need.toFixed(2)} at 1:${lev}, free $${growth.free.toFixed(2)}.` };
   }
-  // Every signal is its own trade at the same risk, whatever else is open. It is never shrunk to fit the
-  // free balance, so each group is scored on equal terms (results are compared in R = profit ÷ risk).
+  // Main book: shrink the trade until it fits the balance, like a real account would. Its risk stays within
+  // riskRoom (checked again because the smallest step can round the risk up) and its margin within what is
+  // free. Channels are still scored fairly: results are compared in R = profit ÷ this trade's own risk.
+  let fit = null;
+  if (!growth) {
+    const need = isMt5(signal.symbol) ? sz.notional / MT5_LEVERAGE : 0;
+    const k = Math.min(1, acct.riskRoom / sz.actualRisk, need > 0 ? acct.available / need : 1);
+    if (k < 1) {
+      const step = Number(filters.stepSize) || 1e-8;
+      const qty = floorToStep(sz.qty * k, step);
+      if (!(qty > 0) || qty < Number(filters.minQty || 0)) return { ok: false, error: `Balance fully committed: $${acct.riskRoom.toFixed(2)} of risk and $${acct.available.toFixed(2)} of margin left, below the smallest ${signal.symbol} order.` };
+      const r = qty / sz.qty;
+      fit = { from: sz.actualRisk, to: sz.actualRisk * r };
+      sz = { ...sz, qty, notional: sz.notional * r, actualRisk: sz.actualRisk * r };
+    } else if (risk < asked) fit = { from: asked, to: sz.actualRisk };
+  }
 
   const row = {
     user_id: userId,
@@ -240,7 +265,7 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, g
     if (missingColumn(error)) ({ data, error } = await supabaseAdmin.from('paper_trades').insert(withoutTrail(withoutQuoteUsd(row))).select().single());
   }
   if (error) return { ok: false, error: error.code === '23505' ? 'Already entered.' : 'Could not save the trade.' };
-  return { ok: true, trade: data };
+  return { ok: true, trade: data, fit, equity };
 }
 
 // Lot multiplier for a channel from its closed paper trades (see groupReport in trading-core).
@@ -274,6 +299,7 @@ export async function maybeAutoEnter(userId, signal) {
     if (r.ok) {
       const msg = describeEntry(r.trade);
       msg.body += ` · lot ×${mult} (${confidence}% confident in ${signal.source})`;
+      if (r.fit) msg.body += ` · sized to fit the $${r.equity.toFixed(2)} balance: risk $${r.fit.to.toFixed(2)} instead of $${r.fit.from.toFixed(2)}`;
       if (news.level !== 'clear') msg.body += ` · 📰 ${news.level === 'danger' ? 'quarter' : 'half'} lot: ${await newsReason(news, signal.symbol)}`;
       if (g) msg.body += g.ok ? ` · 🌱 growth account took it: ${g.trade.qty} ${base(signal.symbol)}, risk $${Number(g.trade.actual_risk_usdt).toFixed(2)} of $${g.equity.toFixed(2)}` : ` · 🌱 growth account skipped: ${g.skipped || g.error}`;
       await notify(msg, `trade-${r.trade.id}-new`);
@@ -345,7 +371,7 @@ export async function openManualOrder({ userId, symbol, side, type, qty, quoteQt
 
   const settings = await getSettings(userId);
   const acct = await getAccount(userId, settings);
-  // MT5 markets are CFDs: they tie up margin (1:100, like a typical broker account), in dollars; crypto ties up the full cost.
+  // MT5 markets are CFDs: they tie up margin (1:400, like the broker account), in dollars; crypto ties up the full cost.
   const conv = await quoteToUsd(symbol, entry);
   if (!(conv > 0)) return { ok: false, error: `Could not convert ${symbol} to US dollars right now.` };
   const cost = isMt5(symbol) ? (q * entry * conv) / MT5_LEVERAGE : q * entry * (1 + FEE_RATE);
