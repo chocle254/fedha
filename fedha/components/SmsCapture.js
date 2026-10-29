@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { formatCurrency, INCOME_CATEGORIES, EXPENSE_CATEGORIES, getCategoryById } from '../lib/utils';
-import { KIND_LABEL, partyKey, FIXED_CATEGORY } from '../lib/sms-parser';
+import { KIND_LABEL, partyKey, FIXED_CATEGORY, loanIdOf } from '../lib/sms-parser';
+import { useApp } from '../context/AppContext';
+import { loanBalance } from '../lib/finance-actions';
 
 // Luxe → Wallets: link the Android app so it reads M-Pesa and Ziidi texts (like Truecaller), pick which SIM is
 // which M-Pesa account, and see how each captured message was read. Server: lib/sms-capture.js.
@@ -13,6 +15,18 @@ export default function SmsCapture({ wallets }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [open, setOpen] = useState(false);
+  const { loans = [] } = useApp();
+  const openLoans = loans.filter((l) => l.status !== 'settled');
+  // How a chosen category reads: a normal one, or a loan link.
+  const choiceLabel = (c, p) => {
+    if (c === 'loan_new') return { icon: '🤝', label: p.kind === 'received' ? 'Borrowed (new loan)' : 'Lent (new loan)', color: '#A78BFA' };
+    if (loanIdOf(c)) {
+      const l = loans.find((x) => x.id === loanIdOf(c));
+      const more = c.startsWith('loanadd:');
+      return { icon: '🤝', label: !l ? 'Loan (removed)' : more ? `${l.type === 'lent' ? 'Lent more to' : 'Borrowed more from'} ${l.contact_name.trim()}` : `Loan ${l.type === 'lent' ? 'repayment from' : 'payment to'} ${l.contact_name.trim()}`, color: '#A78BFA' };
+    }
+    return getCategoryById(c);
+  };
   const mpesa = wallets.filter((w) => w.type === 'mobile' && !w.pocket);
   const nameOf = (id) => wallets.find((w) => w.id === id)?.name || null;
 
@@ -96,12 +110,24 @@ export default function SmsCapture({ wallets }) {
                     {partyKey(p) && !FIXED_CATEGORY[p.kind] && (
                       <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center', fontSize: 11.5 }}>
                         {p.category
-                          ? <span style={{ color: getCategoryById(p.category).color }}>{getCategoryById(p.category).icon} {getCategoryById(p.category).label}{p.category_auto ? ' · auto' : ''}</span>
+                          ? (() => { const c = choiceLabel(p.category, p); return <span style={{ color: c.color }}>{c.icon} {c.label}{p.category_auto ? ' · auto' : ''}</span>; })()
                           : <span style={{ color: '#F59E0B' }}>First time from {p.party}: pick a category, Luxe remembers it</span>}
                         <span style={{ flex: 1 }} />
                         <select className="input" style={{ width: 'auto', padding: '2px 6px', fontSize: 11.5 }} value={p.category || ''} onChange={(e) => put({ id: x.id, category: e.target.value })}>
                           <option value="">{p.category ? 'Change…' : 'Category…'}</option>
-                          {(p.kind === 'received' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).map((c) => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+                          <optgroup label="Category">
+                            {(p.kind === 'received' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).map((c) => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+                          </optgroup>
+                          <optgroup label="Loans">
+                            {/* Money in pays down a loan you gave; money out pays down one you took. */}
+                            {openLoans.filter((l) => (p.kind === 'received' ? l.type === 'lent' : l.type === 'borrowed')).map((l) => (
+                              <option key={l.id} value={`loan:${l.id}`}>🤝 {p.kind === 'received' ? 'Repayment from' : 'Repaying'} {l.contact_name.trim()} ({formatCurrency(loanBalance(l), 'KES')} left)</option>
+                            ))}
+                            {openLoans.filter((l) => (p.kind === 'received' ? l.type === 'borrowed' : l.type === 'lent')).map((l) => (
+                              <option key={`add${l.id}`} value={`loanadd:${l.id}`}>🤝 {p.kind === 'received' ? 'Borrowed more from' : 'Lent more to'} {l.contact_name.trim()} ({formatCurrency(loanBalance(l), 'KES')} so far)</option>
+                            ))}
+                            <option value="loan_new">🤝 {p.kind === 'received' ? 'Borrowed: new loan' : 'Lent: new loan'}</option>
+                          </optgroup>
                         </select>
                       </div>
                     )}

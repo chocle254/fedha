@@ -103,6 +103,8 @@ export async function ingest(token, messages) {
   const { userId, device } = who;
   const sims = device.sims || {};
   const rules = await getRules(userId);
+  const { data: open } = await supabaseAdmin.from('loans').select('id').eq('user_id', userId).neq('status', 'settled');
+  const activeLoans = (open || []).map((l) => l.id);
   let stored = 0, skipped = 0;
   for (const m of (Array.isArray(messages) ? messages : []).slice(0, 300)) {
     const sender = String(m.sender || '').slice(0, 40);
@@ -111,7 +113,7 @@ export async function ingest(token, messages) {
     const at = new Date(Number(m.at) || Date.now()).toISOString();
     const slot = [1, 2].includes(Number(m.slot)) ? Number(m.slot) : null;
     const parsed = parseSms(body, sender);
-    if (parsed) { const c = categoryFor(parsed, rules); if (c) Object.assign(parsed, { category: c, category_auto: true }); }
+    if (parsed) { const c = categoryFor(parsed, rules, activeLoans); if (c) Object.assign(parsed, { category: c, category_auto: true }); }
     let wallet = null;
     if (parsed?.kind === 'ziidi') wallet = await walletForZiidi(userId, at, parsed);
     else if (slot) wallet = sims[slot] || null;

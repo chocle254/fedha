@@ -109,10 +109,21 @@ export function partyKey(p) {
   return name ? `${dir}|${name}` : null;
 }
 
+// Besides normal categories, a name can be tied to a loan (lib/finance-actions.js payLoan / addToLoan):
+//   'loan:<id>'      a payment on that loan (repayment to you if you lent, by you if you borrowed)
+//   'loanadd:<id>'   more on top of that loan (lent more to them / borrowed more from them)
+//   'loan_new'       a new loan: money out = you lent it, money in = you borrowed it
+// A rule pointing at a loan that is settled or deleted is dropped, so Luxe asks again.
+export const isLoanChoice = (c) => typeof c === 'string' && (c.startsWith('loan:') || c.startsWith('loanadd:') || c === 'loan_new');
+export const loanIdOf = (c) => (typeof c === 'string' && /^loan(add)?:/.test(c) ? c.slice(c.indexOf(':') + 1) : null);
+
 // The category for a message: fixed ones (airtime), else the learned rule, else null (= ask).
-export function categoryFor(p, rules = {}) {
+// activeLoanIds: ids of loans still open (rules for closed loans no longer apply).
+export function categoryFor(p, rules = {}, activeLoanIds = null) {
   if (!p) return null;
   if (FIXED_CATEGORY[p.kind]) return FIXED_CATEGORY[p.kind];
   const k = partyKey(p);
-  return k ? rules[k] || null : null;
+  const c = k ? rules[k] || null : null;
+  if (c && loanIdOf(c) && activeLoanIds && !activeLoanIds.includes(loanIdOf(c))) return null;
+  return c;
 }
