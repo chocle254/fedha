@@ -1,6 +1,6 @@
 // Paper trading on top of tracked signals. NOTHING here places a real order.
 import { supabaseAdmin } from './supabaseAdmin';
-import { sizePosition, rewardRisk, levelsValid, evaluateTrade, floorToStep, roundToTick, replayInterval, FEE_RATE, partialRealized, groupReport, LOT_MIN, atrOf, TRAIL_DEFAULT, TRAIL_LABEL } from './trading-core';
+import { sizePosition, rewardRisk, levelsValid, evaluateTrade, floorToStep, roundToTick, replayInterval, FEE_RATE, partialRealized, groupReport, LOT_MIN, atrOf, TRAIL_DEFAULT, TRAIL_LABEL, growthTier, GROWTH_LEVERAGE } from './trading-core';
 import { pushToAll } from './nestlink-push';
 import { klines, bookTicker, lastPrice, isMt5, mt5Filters } from './market';
 import { instrument } from './instruments';
@@ -93,17 +93,37 @@ export async function getAccount(userId, settings) {
   return { equity: r2(equity), realized: r2(realized), locked: r2(locked), available: r2(Math.max(0, equity - locked)) };
 }
 
+// Growth challenge (broker_settings.growth): a fresh small balance from `since`. Equity = start + every signal
+// trade's profit since then; margin = what its open trades tie up (MT5 markets at 1:1000, crypto in full).
+export async function growthState(userId, g) {
+  const { data } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId)
+    .not('signal_id', 'is', null).gte('created_at', g.since);
+  let realized = 0;
+  let margin = 0;
+  for (const t of data || []) {
+    if (['won', 'lost', 'expired'].includes(t.status)) { realized += Number(t.pnl_usdt) || 0; continue; }
+    if (t.status === 'open') realized += partialRealized(t);
+    const n = (t.take_profits || []).length;
+    const left = n ? Math.max(0, 1 - (t.tp_hit || 0) / n) : 1;
+    margin += ((Number(t.notional) || 0) * left) / (isMt5(t.symbol) ? GROWTH_LEVERAGE : 1);
+  }
+  const equity = Math.round((Number(g.start) + realized) * 100) / 100;
+  return { equity, margin: Math.round(margin * 100) / 100, free: Math.max(0, equity - margin), trades: (data || []).length };
+}
+
 export function riskAmount(settings, equity) {
   const v = settings.risk_mode === 'fixed' ? Number(settings.risk_usdt) : (Number(equity) * Number(settings.risk_pct)) / 100;
   return Math.round(v * 100) / 100;
 }
 
-export async function openPaperTrade({ userId, signal, riskUsdt, auto = false }) {
+// growth: { equity, free, cap } when the growth challenge is on — real broker lots (0.01 lot minimum), the
+// stage's risk ceiling, and margin at 1:1000 (crypto spot needs the full amount free).
+export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, growth = null }) {
   if (!signal || ['won', 'lost', 'expired'].includes(signal.status)) return { ok: false, error: 'That signal is already closed.' };
   if (signal.stop_loss == null) return { ok: false, error: 'This signal has no stop-loss, so the risk cannot be sized.' };
 
   const settings = await getSettings(userId);
-  const equity = await getEquity(userId, settings);
+  const equity = growth ? growth.equity : await getEquity(userId, settings);
   const risk = riskUsdt != null && Number(riskUsdt) > 0 ? Number(riskUsdt) : riskAmount(settings, equity);
   if (!(risk > 0)) return { ok: false, error: 'Set a paper balance and risk first.' };
   if (risk > equity) return { ok: false, error: `Risk $${risk.toFixed(2)} is more than your paper equity $${equity.toFixed(2)}.` };
@@ -127,12 +147,30 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false })
 
   let filters;
   try { filters = await getFilters(signal.symbol); } catch { return { ok: false, error: 'Could not load the lot-size rules.' }; }
+  if (growth && isMt5(signal.symbol)) {
+    const lotUnits = instrument(signal.symbol).lot * 0.01; // the broker's smallest lot, e.g. 1 oz of gold
+    filters = { ...filters, minQty: lotUnits, stepSize: lotUnits };
+  }
   const conv = await quoteToUsd(signal.symbol, entry);
   if (!(conv > 0)) return { ok: false, error: `Could not convert ${signal.symbol} to US dollars right now.` };
   // Size in the quote currency (risk ÷ conv), then report risk and value back in dollars.
   const sz0 = sizePosition({ entry, stop: Number(signal.stop_loss), riskUsdt: risk / conv, filters, spread });
   if (!sz0.ok) return sz0;
-  const sz = { ...sz0, notional: sz0.notional * conv, actualRisk: sz0.actualRisk * conv };
+  let sz = { ...sz0, notional: sz0.notional * conv, actualRisk: sz0.actualRisk * conv };
+  if (growth) {
+    const lev = isMt5(signal.symbol) ? GROWTH_LEVERAGE : 1;
+    if (!isMt5(signal.symbol) && sz.notional > growth.free) {
+      // Crypto spot: buy only what the free balance pays for (less risk, never more).
+      const step = Number(filters.stepSize) || 1e-8;
+      const qty = floorToStep((growth.free * 0.98) / (entry * conv), step);
+      if (!(qty > 0) || qty < Number(filters.minQty || 0) || qty * entry < Number(filters.minNotional || 0)) return { ok: false, error: `Not enough free balance ($${growth.free.toFixed(2)}) for the smallest ${signal.symbol} order.` };
+      const per = sz.actualRisk / sz.qty;
+      sz = { ...sz, qty, notional: qty * entry * conv, actualRisk: qty * per };
+    }
+    if (sz.actualRisk > growth.cap) return { ok: false, error: `Smallest lot would risk $${sz.actualRisk.toFixed(2)}, over this stage's $${growth.cap.toFixed(2)} limit.` };
+    const need = sz.notional / lev;
+    if (need > growth.free) return { ok: false, error: `Not enough margin: needs $${need.toFixed(2)} at 1:${lev}, free $${growth.free.toFixed(2)}.` };
+  }
   // Every signal is its own trade at the same risk, whatever else is open. It is never shrunk to fit the
   // free balance, so each group is scored on equal terms (results are compared in R = profit ÷ risk).
 
@@ -194,12 +232,23 @@ export async function maybeAutoEnter(userId, signal) {
     const { mult, confidence } = await channelSizing(userId, signal.source);
     // News guard: quarter lot right around a high-impact release, half lot in the hour before (lib/news-guard.js).
     const news = await newsCheck(signal.symbol).catch(() => ({ level: 'clear', mult: 1 }));
-    const equity = await getEquity(userId, s);
-    const riskUsdt = Math.round(riskAmount(s, equity) * mult * news.mult * 100) / 100;
-    const r = await openPaperTrade({ userId, signal, riskUsdt, auto: true });
+    // Growth challenge: the stage for the challenge balance sets risk %, the risk ceiling and who may trade.
+    const g = s.broker_settings?.growth;
+    let growth = null;
+    let tier = null;
+    if (g?.on) {
+      const st = await growthState(userId, g);
+      tier = growthTier(st.equity, s.risk_pct);
+      if (confidence < tier.minConf) return { ok: false, skipped: `${tier.label} stage: ${signal.source} is ${confidence}% confident, needs ${tier.minConf}%.` };
+      growth = { equity: st.equity, free: st.free, cap: (st.equity * tier.cap) / 100 };
+    }
+    const equity = growth ? growth.equity : await getEquity(userId, s);
+    const riskUsdt = Math.round((growth ? (equity * tier.pct) / 100 : riskAmount(s, equity)) * mult * news.mult * 100) / 100;
+    const r = await openPaperTrade({ userId, signal, riskUsdt, auto: true, growth });
     if (r.ok) {
       const msg = describeEntry(r.trade);
       msg.body += ` · lot ×${mult} (${confidence}% confident in ${signal.source})`;
+      if (tier) msg.body += ` · 🌱 ${tier.label} stage, $${equity.toFixed(2)}`;
       if (news.level !== 'clear') msg.body += ` · 📰 ${news.level === 'danger' ? 'quarter' : 'half'} lot: ${await newsReason(news, signal.symbol)}`;
       await notify(msg, `trade-${r.trade.id}-new`);
     }

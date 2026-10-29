@@ -28,6 +28,14 @@ export default async function handler(req, res) {
     // Real-money trading needs an explicit, typed confirmation from the page.
     if (b.allow_real === true && b.confirm_real !== 'TRADE REAL MONEY') return res.status(400).json({ error: 'Type TRADE REAL MONEY to allow real-money accounts.' });
     if (typeof b.allow_real === 'boolean') next.allow_real = b.allow_real;
+    // Growth challenge: { on, start } — start a fresh small balance (from about $7) that steps risk down as it grows.
+    if (b.growth && typeof b.growth === 'object') {
+      const on = !!b.growth.on;
+      const restart = on && (!cur.growth?.on || b.growth.restart);
+      next.growth = on
+        ? { on: true, start: restart ? clamp(b.growth.start, 1, 100000, 7) : cur.growth.start, since: restart ? new Date().toISOString() : cur.growth.since }
+        : { ...(cur.growth || {}), on: false };
+    }
     for (const a of BROKER_ACCOUNTS) {
       const x = b[a.key];
       if (!x) continue;

@@ -9,6 +9,7 @@ import PairPicker from '../components/trading/PairPicker';
 import WalletPanel from '../components/trading/WalletPanel';
 import BrokerPanel from '../components/trading/BrokerPanel';
 import NewsStrip from '../components/trading/NewsStrip';
+import GrowthCard from '../components/trading/GrowthCard';
 import { ensurePushSubscription } from '../lib/push';
 import { groupReport, brokerResults, GROUP_MIN_TRADES, TRAIL_LABEL, TRAIL_DEFAULT } from '../lib/trading-core';
 import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST, lotsLabel, rrPlan, rrText, rrDetail, resultR, isMt5, pipSize, moveLabel, bankedPipsLabel, netPipsLabel } from '../components/trading/util';
@@ -624,6 +625,7 @@ export default function TradingPage() {
                 <div><b>Auto-trade Telegram signals</b><span>{settings.auto_enabled ? 'On: every new signal with a stop-loss opens a paper trade, sized by your risk.' : 'Off: signals are listed and you enter them yourself.'}</span></div>
                 <button className={`tx-switch ${settings.auto_enabled ? 'on' : ''}`} onClick={() => saveSettings({ auto_enabled: !settings.auto_enabled })} aria-label="Auto-trade"><i /></button>
               </div>
+              <GrowthCard />
               <label className="tx-field"><span>Starting balance</span><input className="font-num" inputMode="decimal" value={form.balance} onChange={(e) => setForm({ ...form, balance: e.target.value })} /><em>USDT</em></label>
               <button className="tx-link" onClick={useBinanceBalance}>Use my real Binance balance</button>
               <div className="tx-tabs small" style={{ margin: '10px 0' }}>

@@ -376,7 +376,7 @@ export function brokerResults(rows = []) {
 
 // Lots for one signal on an MT5 account, split into one leg per TP. Returns { legs: [{ lots, tp }], riskUsd } or { error }.
 // contractSize: units per 1 lot (gold = 100 oz). minVolume / volumeStep come from the broker's symbol spec.
-export function splitLots({ riskUsd, entry, stop, tps, contractSize, minVolume, volumeStep }) {
+export function splitLots({ riskUsd, entry, stop, tps, contractSize, minVolume, volumeStep, maxRiskUsd }) {
   const dist = Math.abs(Number(entry) - Number(stop));
   if (!(dist > 0)) return { error: 'Stop-loss is the same as the entry.' };
   const cs = Number(contractSize) || 1;
@@ -388,7 +388,9 @@ export function splitLots({ riskUsd, entry, stop, tps, contractSize, minVolume, 
   let n = Math.min(tps.length, Math.floor(total / minV + 1e-9));
   if (n < 1) {
     // Even the smallest lot risks more than planned. Allow it only up to twice the planned risk.
-    if (minV * dist * cs > riskUsd * 2) return { error: `Smallest lot (${minV}) would risk $${(minV * dist * cs).toFixed(2)}, over twice the planned $${riskUsd.toFixed(2)}.` };
+    // (Growth challenge: up to maxRiskUsd instead, see growthTier.)
+    const ceiling = maxRiskUsd != null ? Number(maxRiskUsd) : riskUsd * 2;
+    if (minV * dist * cs > ceiling) return { error: maxRiskUsd != null ? `Smallest lot (${minV}) would risk $${(minV * dist * cs).toFixed(2)}, over this stage's $${ceiling.toFixed(2)} limit.` : `Smallest lot (${minV}) would risk $${(minV * dist * cs).toFixed(2)}, over twice the planned $${riskUsd.toFixed(2)}.` };
     n = 1;
   }
   // Hand out whole volume steps; leftovers go to the earliest TPs (they hit most often).
@@ -399,4 +401,30 @@ export function splitLots({ riskUsd, entry, stop, tps, contractSize, minVolume, 
   const legs = tps.slice(0, n).map((tp, i) => ({ lots: fix((each + (i < extra ? 1 : 0)) * step), tp }));
   const lots = legs.reduce((a, l) => a + l.lots, 0);
   return { legs, riskUsd: lots * dist * cs };
+}
+
+// ─── GROWTH CHALLENGE ────────────────────────────────────────────────────────
+// Growing a small account (from about $7): while it is tiny, only the most trusted channels trade and each
+// trade may risk a big share of the balance (the smallest lot is all it can take). As the balance grows the
+// risk per trade steps down, and the extra balance turns into bigger lots instead.
+//   pct     planned risk per trade, % of balance (× the channel's lot multiplier)
+//   cap     the most the smallest lot may risk, % of balance; above that the signal is skipped
+//   minConf only channels at least this confident (report card) trade at this stage
+export const GROWTH_TIERS = [
+  { upTo: 20, label: 'Seed', pct: 15, cap: 50, minConf: 60 },
+  { upTo: 50, label: 'Sprout', pct: 8, cap: 25, minConf: 55 },
+  { upTo: 150, label: 'Growing', pct: 4, cap: 12, minConf: 50 },
+  { upTo: 500, label: 'Steady', pct: 2.5, cap: 6, minConf: 0 },
+  { upTo: Infinity, label: 'Full', pct: null, cap: null, minConf: 0 },
+];
+export const GROWTH_LEVERAGE = 1000;
+
+// The stage for this balance. The last stage uses the account's normal risk (basePct), with the usual
+// "smallest lot may risk up to twice the plan" rule.
+export function growthTier(balance, basePct = 1) {
+  const b = Number(balance) || 0;
+  const i = GROWTH_TIERS.findIndex((t) => b < t.upTo);
+  const t = GROWTH_TIERS[i];
+  const pct = t.pct ?? Number(basePct || 1);
+  return { ...t, index: i, pct, cap: t.cap ?? pct * 2, next: GROWTH_TIERS[i + 1] ? t.upTo : null, nextLabel: GROWTH_TIERS[i + 1]?.label || null };
 }

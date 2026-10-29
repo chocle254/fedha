@@ -4,8 +4,8 @@
 // SAFETY: real-money accounts are refused unless broker_settings.allow_real is true.
 import { supabaseAdmin } from './supabaseAdmin';
 import { BROKER_ACCOUNTS, accountId, metaapiConfigured, mt, tradeOk, findSymbol } from './metaapi';
-import { groupReport, brokerResults, splitLots, LOT_MIN, trailCandidate, TRAIL_DEFAULT } from './trading-core';
-import { notify, trailProfiles, atrBefore } from './trading';
+import { groupReport, brokerResults, splitLots, LOT_MIN, trailCandidate, TRAIL_DEFAULT, growthTier } from './trading-core';
+import { notify, trailProfiles, atrBefore, growthState } from './trading';
 import { newsCheck, newsReason } from './news-guard';
 
 const PENDING_MAX_MS = 6 * 3600e3; // a limit order that has not filled in 6 h is cancelled
@@ -75,6 +75,9 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
   if (lossLimit > 0 && (await todaysLoss(userId, acct.key, info)) >= lossLimit) return { skipped: `Daily loss limit (${cfg.daily_loss_pct}%) reached.` };
 
   const sizing = await brokerSizing(userId, source);
+  // Growth challenge (settings.growth.on): the stage for this balance sets the risk and who may trade.
+  const growth = settings.growth?.on ? growthTier(info.balance, cfg.risk_pct) : null;
+  if (growth && sizing.confidence < growth.minConf) return { skipped: `${growth.label} stage: only channels ${growth.minConf}%+ confident trade, ${source} is ${sizing.confidence}%.` };
   if (sizing.confidence < Number(cfg.min_confidence || 0)) return { skipped: `${source} is ${sizing.confidence}% confident, below this account's ${cfg.min_confidence}% minimum.` };
   let mult = sizing.mult;
   if (sizing.verdict === 'drop') {
@@ -107,8 +110,9 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
   const tps = parsed.takeProfits.filter((tp) => (buy ? tp > entry : tp < entry));
   if (!tps.length) return { skipped: 'Price is already past every take-profit.' };
 
-  const plannedRisk = (Number(info.balance) * Number(cfg.risk_pct || 1) * mult) / 100;
-  const split = splitLots({ riskUsd: plannedRisk, entry, stop: sl, tps, contractSize: spec.contractSize, minVolume: spec.minVolume, volumeStep: spec.volumeStep });
+  const plannedRisk = (Number(info.balance) * Number(growth ? growth.pct : cfg.risk_pct || 1) * mult) / 100;
+  const maxRiskUsd = growth ? (Number(info.balance) * growth.cap) / 100 : undefined;
+  const split = splitLots({ riskUsd: plannedRisk, entry, stop: sl, tps, contractSize: spec.contractSize, minVolume: spec.minVolume, volumeStep: spec.volumeStep, maxRiskUsd });
   if (split.error) return { skipped: split.error };
 
   // Margin check: lots × contract × price ÷ leverage must fit the free margin, or MT5 rejects the order.
@@ -313,9 +317,16 @@ export async function brokerOverview(userId) {
   const typicalStop = stops.length ? stops[Math.floor(stops.length / 2)] : null;
   for (const a of accounts) {
     if (!a.info) continue;
-    const pct = Number(a.settings?.risk_pct || 1) / 100;
-    const maxStop = 2 * Number(a.info.balance) * pct; // dollars of gold move one 0.01 lot can take
-    a.goldFit = { maxStop: Math.round(maxStop * 100) / 100, typicalStop: typicalStop && Math.round(typicalStop * 100) / 100, needed: typicalStop ? Math.ceil(typicalStop / (2 * pct)) : null };
+    const tier = settings.growth?.on ? growthTier(a.info.balance, a.settings?.risk_pct) : null;
+    const capPct = (tier ? tier.cap : 2 * Number(a.settings?.risk_pct || 1)) / 100;
+    const maxStop = Number(a.info.balance) * capPct; // dollars of gold move one 0.01 lot may take
+    a.goldFit = { maxStop: Math.round(maxStop * 100) / 100, typicalStop: typicalStop && Math.round(typicalStop * 100) / 100, needed: typicalStop && !tier ? Math.ceil(typicalStop / capPct) : null, tier };
   }
-  return { configured: metaapiConfigured(), settings, accounts, trades: trades || [] };
+  // The paper side of the growth challenge (the MT5 side uses each account's own balance).
+  let growth = null;
+  if (settings.growth?.on) {
+    const st = await growthState(userId, settings.growth).catch(() => null);
+    if (st) growth = { ...settings.growth, ...st, tier: growthTier(st.equity, 1), typicalStop: typicalStop && Math.round(typicalStop * 100) / 100 };
+  }
+  return { configured: metaapiConfigured(), settings, accounts, trades: trades || [], growth };
 }
