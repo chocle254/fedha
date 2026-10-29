@@ -12,6 +12,8 @@ import android.graphics.Typeface;
 import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import android.widget.RemoteViews;
 
 import com.google.androidbrowserhelper.trusted.DelegationService;
@@ -43,6 +45,12 @@ public class LuxeDelegationService extends DelegationService {
     private static final Kind SL = new Kind("luxe_sl_v1", "Stop-loss hit", new long[]{150, 380, 180, 380}, "sound_alert", 0xFFEF4444, "🛑", "STOP LOSS");
     private static final Kind PLANNER = new Kind("luxe_planner_v1", "Planner reminders", new long[]{150, 100}, "sound_planner", 0xFF8B5CF6, "🗓️", "PLANNER");
     private static final Kind OTHER = new Kind("luxe_jarvis_v1", "Jarvis and other", new long[]{150, 100}, "sound_jarvis", 0xFF64748B, "🔔", "JARVIS");
+
+    // The pinned planner card: silent (no sound, no buzz) because the block's own reminder already alerts.
+    private static final String LIVE_CHANNEL = "luxe_planner_live_v1";
+    private static final String LIVE_TAG = "luxe_planner_live";
+    // Sent by supabase/functions/send-reminders at each block start: planner_live~<startMs>~<endMs>~<n>~<total>.
+    private static final Pattern LIVE = Pattern.compile("planner_live~(\\d+)~(\\d+)~(\\d+)~(\\d+)");
 
     // Every earlier channel (sounds and buzzes are fixed per channel, so changes get new ids).
     private static final String OLD_PREFIX = "fedha_";
@@ -83,6 +91,45 @@ public class LuxeDelegationService extends DelegationService {
             if (k.sound != null) ch.setSound(Uri.parse("android.resource://" + getPackageName() + "/raw/" + k.sound), audio);
             nm.createNotificationChannel(ch);
         }
+        if (nm.getNotificationChannel(LIVE_CHANNEL) == null) {
+            NotificationChannel live = new NotificationChannel(LIVE_CHANNEL, "Planner live card", NotificationManager.IMPORTANCE_LOW);
+            live.setSound(null, null);
+            live.enableVibration(false);
+            live.setShowBadge(false);
+            live.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            nm.createNotificationChannel(live);
+        }
+    }
+
+    // One ongoing card in the drawer for the block running now: a countdown that Android ticks by itself, the day's
+    // progress as a bar, and the next block. Every new block replaces it (same tag and id), so it never stacks up.
+    private boolean showLive(NotificationManager nm, Matcher m, Notification original, CharSequence title, CharSequence text) {
+        long end = Long.parseLong(m.group(2));
+        int n = Integer.parseInt(m.group(3));
+        int total = Integer.parseInt(m.group(4));
+        long now = System.currentTimeMillis();
+        Notification.Builder b = new Notification.Builder(this, LIVE_CHANNEL)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setLargeIcon(badge(PLANNER))
+                .setColor(PLANNER.color)
+                .setContentTitle(title == null ? "Planner" : title)
+                .setContentText(text == null ? "" : text)
+                .setSubText("Block " + n + " of " + total)
+                .setProgress(Math.max(total, 1), Math.min(n, total), false)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setCategory(Notification.CATEGORY_PROGRESS)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setContentIntent(original.contentIntent)
+                .setDeleteIntent(original.deleteIntent);
+        if (end > now) {
+            b.setWhen(end).setShowWhen(true).setUsesChronometer(true).setChronometerCountDown(true)
+                    .setTimeoutAfter(end - now + 60_000); // gone a minute after the block ends unless the next one replaces it
+        } else {
+            b.setShowWhen(false).setTimeoutAfter(3 * 60 * 60_000L);
+        }
+        nm.notify(LIVE_TAG, 1, b.build());
+        return true;
     }
 
     // A round badge in the kind's colour with its emoji, shown as the notification's large icon.
@@ -145,6 +192,11 @@ public class LuxeDelegationService extends DelegationService {
 
         CharSequence title = notification.extras != null ? notification.extras.getCharSequence(Notification.EXTRA_TITLE) : null;
         CharSequence text = notification.extras != null ? notification.extras.getCharSequence(Notification.EXTRA_TEXT) : null;
+        Matcher live = LIVE.matcher(platformTag == null ? "" : platformTag);
+        if (live.find()) {
+            try { return showLive(nm, live, notification, title, text); }
+            catch (RuntimeException e) { /* fall through and show it as a normal planner notification */ }
+        }
         Kind kind = kindOf(platformTag, title == null ? null : title.toString());
 
         // Styled layouts inside Android's own frame (app name, time and actions stay system-drawn):
@@ -175,6 +227,8 @@ public class LuxeDelegationService extends DelegationService {
                 .setCustomHeadsUpContentView(popup)
                 .setCustomBigContentView(expanded);
         if (kind == NESTLINK || kind == NESTLINK_FAIL || kind == UPESIPAY) b.setCategory(Notification.CATEGORY_STATUS);
+        // Block reminders clear themselves after 10 minutes: the pinned live card carries the plan from there.
+        if (kind == PLANNER && platformTag != null && platformTag.contains("block_")) b.setTimeoutAfter(10 * 60_000L);
 
         try {
             nm.notify(platformTag, platformId, b.build());

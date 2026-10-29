@@ -126,7 +126,9 @@ self.addEventListener('push', (event) => {
       // The open app's own timer may have shown this exact reminder already
       // (same tag). Replace it silently instead of buzzing a second time —
       // Chrome still needs a notification shown for every push.
-      const already = tag ? (await self.registration.getNotifications({ tag })).length > 0 : false;
+      // planner_live~… is the pinned live planner card: the Android app draws it itself; anywhere else it is a
+      // quiet duplicate of the block reminder, so never let it buzz.
+      const already = (tag ? (await self.registration.getNotifications({ tag })).length > 0 : false) || String(tag || '').startsWith('planner_live~');
       await self.registration.showNotification(title, {
         body,
         icon,

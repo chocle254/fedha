@@ -126,6 +126,31 @@ function blockTitle(block: any): string {
   return titles[block.type] || `⏰ ${label}`;
 }
 
+// Epoch ms of a local wall-clock minute today (nowLocal() is shifted by the offset, so read it with getUTC*).
+function localMinsToEpoch(mins: number): number {
+  const d = nowLocal();
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, mins) - TZ_OFFSET_MINUTES * 60000;
+}
+
+// The pinned "live" planner card on Android (LuxeDelegationService): one silent notification that is replaced at
+// every block start. Its tag carries what the app needs to draw it: planner_live~<startMs>~<endMs>~<n>~<total>.
+// The app shows a live countdown to the block's end and a progress bar for the day.
+function liveNotif(blocks: any[], block: any, dateKey: string): Notif {
+  const day = [...blocks].sort((a, b) => hhmmToMinutes(a.time) - hhmmToMinutes(b.time));
+  const i = day.findIndex((b) => b.id === block.id);
+  const start = hhmmToMinutes(block.time);
+  const dur = Number(block.duration) > 0 ? Number(block.duration) : 0;
+  const next = day.slice(i + 1).find((b) => hhmmToMinutes(b.time) > start);
+  const endMins = dur ? start + dur : next ? hhmmToMinutes(next.time) : 0;
+  const end = endMins ? localMinsToEpoch(endMins) : 0;
+  return {
+    key: `live_${block.id}_${dateKey}`,
+    tag: `planner_live~${localMinsToEpoch(start)}~${end}~${i + 1}~${day.length}`,
+    title: blockTitle(block),
+    body: next ? `Next: ${next.label} · ${fmt12(next.time)}` : 'Last block today',
+  };
+}
+
 function buildPlannerNotifs(blocks: any[], nowMins: number, dateKey: string): Notif[] {
   if (!blocks?.length) return [];
   const out: Notif[] = [];
@@ -141,6 +166,7 @@ function buildPlannerNotifs(blocks: any[], nowMins: number, dateKey: string): No
         body: block.note,
         requireInteraction: ['study', 'coding', 'learning', 'sleep', 'meal', 'event'].includes(block.type),
       });
+      out.push(liveNotif(blocks, block, dateKey));
     }
 
     // No "start cooking in 25 min" warning: every meal has its own "Prepare …"
