@@ -161,6 +161,9 @@ function buildPlannerNotifs(blocks: any[], nowMins: number, dateKey: string): No
     const blockMins = hhmmToMinutes(block.time);
 
     if (isDueNow(block.time, nowMins)) {
+      // Live card first: on Android it replaces this block's reminder (LuxeDelegationService.coveredByLive);
+      // the reminder below is still sent for browsers and in case the live card fails.
+      out.push({ ...liveNotif(blocks, block, dateKey), url: /^(series|movies)/.test(String(block.id)) ? '/chill' : undefined });
       out.push({
         key: `block_${block.id}_${dateKey}`,
         tag: `block_${baseId(block.id)}`,
@@ -170,7 +173,6 @@ function buildPlannerNotifs(blocks: any[], nowMins: number, dateKey: string): No
         // Watch time opens the Chill Room straight away.
         url: /^(series|movies)/.test(String(block.id)) ? '/chill' : undefined,
       });
-      out.push({ ...liveNotif(blocks, block, dateKey), url: /^(series|movies)/.test(String(block.id)) ? '/chill' : undefined });
     }
 
     // No "start cooking in 25 min" warning: every meal has its own "Prepare …"

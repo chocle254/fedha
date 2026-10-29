@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The pinned planner card (LuxeDelegationService.showLive): block title, a labelled countdown ("14:30 left"),
+     when it ends, the next block, and the day's progress. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root" android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:paddingTop="6dp" android:paddingBottom="6dp" android:orientation="vertical">
+    <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:textAppearance="@style/TextAppearance.Compat.Notification.Title" android:textStyle="bold"
+        android:singleLine="true" android:ellipsize="end" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginTop="2dp">
+        <Chronometer android:id="@+id/timer" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.Compat.Notification" android:textStyle="bold" android:textColor="#8B5CF6" />
+        <TextView android:id="@+id/ends" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:layout_marginStart="6dp" android:textAppearance="@style/TextAppearance.Compat.Notification"
+            android:singleLine="true" android:ellipsize="end" />
+    </LinearLayout>
+    <TextView android:id="@+id/next" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="2dp" android:textAppearance="@style/TextAppearance.Compat.Notification"
+        android:singleLine="true" android:ellipsize="end" />
+    <ProgressBar android:id="@+id/progress" style="@android:style/Widget.ProgressBar.Horizontal"
+        android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="6dp"
+        android:progressTint="#8B5CF6" />
+</LinearLayout>

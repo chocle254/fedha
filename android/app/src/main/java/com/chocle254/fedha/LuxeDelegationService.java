@@ -12,6 +12,9 @@ import android.graphics.Typeface;
 import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
+import android.os.SystemClock;
+import android.text.format.DateFormat;
+import java.util.Date;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import android.widget.RemoteViews;
@@ -48,7 +51,9 @@ public class LuxeDelegationService extends DelegationService {
     private static final Kind OTHER = new Kind("luxe_jarvis_v1", "Jarvis and other", new long[]{150, 100}, "sound_jarvis", 0xFF64748B, "🔔", "JARVIS");
 
     // The pinned planner card: silent (no sound, no buzz) because the block's own reminder already alerts.
-    private static final String LIVE_CHANNEL = "luxe_planner_live_v1";
+    // v2: the live card is now THE planner notification (sound + buzz once per new block); v1 was silent.
+    private static final String LIVE_CHANNEL = "luxe_planner_live_v2";
+    private static final String LIVE_PREFS = "luxe_live";
     private static final String LIVE_TAG = "luxe_planner_live";
     // Sent by supabase/functions/send-reminders at each block start: planner_live~<startMs>~<endMs>~<n>~<total>.
     private static final Pattern LIVE = Pattern.compile("planner_live~(\\d+)~(\\d+)~(\\d+)~(\\d+)");
@@ -97,10 +102,13 @@ public class LuxeDelegationService extends DelegationService {
             if (k.sound != null) ch.setSound(Uri.parse("android.resource://" + getPackageName() + "/raw/" + k.sound), audio);
             nm.createNotificationChannel(ch);
         }
+        if (nm.getNotificationChannel("luxe_planner_live_v1") != null) nm.deleteNotificationChannel("luxe_planner_live_v1");
         if (nm.getNotificationChannel(LIVE_CHANNEL) == null) {
-            NotificationChannel live = new NotificationChannel(LIVE_CHANNEL, "Planner live card", NotificationManager.IMPORTANCE_LOW);
-            live.setSound(null, null);
-            live.enableVibration(false);
+            NotificationChannel live = new NotificationChannel(LIVE_CHANNEL, "Planner (live card)", NotificationManager.IMPORTANCE_HIGH);
+            AudioAttributes a = new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build();
+            live.setSound(Uri.parse("android.resource://" + getPackageName() + "/raw/" + PLANNER.sound), a);
+            live.enableVibration(true);
+            live.setVibrationPattern(PLANNER.pattern);
             live.setShowBadge(false);
             live.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             nm.createNotificationChannel(live);
@@ -114,29 +122,65 @@ public class LuxeDelegationService extends DelegationService {
         int n = Integer.parseInt(m.group(3));
         int total = Integer.parseInt(m.group(4));
         long now = System.currentTimeMillis();
+        String t = title == null ? "Planner" : title.toString();
+
+        // Labelled countdown ("14:30 left · ends 10:45 PM") instead of a bare timer that reads like a clock time.
+        RemoteViews v = new RemoteViews(getPackageName(), R.layout.notif_live);
+        v.setTextViewText(R.id.title, t);
+        v.setTextViewText(R.id.next, text == null ? "" : text);
+        v.setProgressBar(R.id.progress, Math.max(total, 1), Math.min(n, total), false);
+        if (end > now) {
+            v.setChronometer(R.id.timer, SystemClock.elapsedRealtime() + (end - now), "⏱ %s left", true);
+            v.setChronometerCountDown(R.id.timer, true);
+            v.setTextViewText(R.id.ends, "· ends " + DateFormat.getTimeFormat(this).format(new Date(end)));
+        } else {
+            v.setViewVisibility(R.id.timer, android.view.View.GONE);
+            v.setTextViewText(R.id.ends, "Last block today");
+        }
+
         Notification.Builder b = new Notification.Builder(this, LIVE_CHANNEL)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setLargeIcon(badge(PLANNER))
                 .setColor(PLANNER.color)
-                .setContentTitle(title == null ? "Planner" : title)
+                .setContentTitle(t)
                 .setContentText(text == null ? "" : text)
                 .setSubText("Block " + n + " of " + total)
-                .setProgress(Math.max(total, 1), Math.min(n, total), false)
+                .setStyle(new Notification.DecoratedCustomViewStyle())
+                .setCustomContentView(v)
+                .setCustomBigContentView(v)
+                .setCustomHeadsUpContentView(v)
                 .setOngoing(true)
-                .setOnlyAlertOnce(true)
-                .setCategory(Notification.CATEGORY_PROGRESS)
+                .setOnlyAlertOnce(false) // one sound at each new block (each block is one post)
+                .setShowWhen(false)
+                .setCategory(Notification.CATEGORY_REMINDER)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setContentIntent(original.contentIntent)
-                .setDeleteIntent(original.deleteIntent);
-        if (end > now) {
-            b.setWhen(end).setShowWhen(true).setUsesChronometer(true).setChronometerCountDown(true)
-                    .setTimeoutAfter(end - now + 60_000); // gone a minute after the block ends unless the next one replaces it
-        } else {
-            b.setShowWhen(false).setTimeoutAfter(3 * 60 * 60_000L);
-        }
+                .setDeleteIntent(original.deleteIntent)
+                .setTimeoutAfter(end > now ? end - now + 60_000 : 3 * 60 * 60_000L);
         nm.notify(LIVE_TAG, 1, b.build());
+        getSharedPreferences(LIVE_PREFS, MODE_PRIVATE).edit().putLong("at", now).apply();
+        // A block reminder that got here first (e.g. from the open app) is now a duplicate: clear it.
+        try {
+            for (android.service.notification.StatusBarNotification sbn : nm.getActiveNotifications()) {
+                if (isBlockStart(sbn.getTag())) nm.cancel(sbn.getTag(), sbn.getId());
+            }
+        } catch (RuntimeException ignored) { }
         return true;
     }
+
+    // A block-start reminder ("block_<id>", from the server or the open app) that the live card already covers.
+    // Warnings (5 minutes before, wind down, leave for school) still show on their own.
+    private static boolean isBlockStart(String tag) {
+        String g = tag == null ? "" : tag;
+        return g.contains("block_") && !g.contains("block_5min") && !g.contains("sleep_warn") && !g.contains("block_walk") && !g.contains("planner_live");
+    }
+
+    private boolean coveredByLive(String tag) {
+        if (!isBlockStart(tag)) return false;
+        long at = getSharedPreferences(LIVE_PREFS, MODE_PRIVATE).getLong("at", 0);
+        return System.currentTimeMillis() - at < 3 * 60_000L;
+    }
+
 
     // A round badge in the kind's colour with its emoji, shown as the notification's large icon.
     private Bitmap badge(Kind k) {
@@ -204,6 +248,7 @@ public class LuxeDelegationService extends DelegationService {
             catch (RuntimeException e) { /* fall through and show it as a normal planner notification */ }
         }
         Kind kind = kindOf(platformTag, title == null ? null : title.toString());
+        if (kind == PLANNER && coveredByLive(platformTag)) return true; // the live card already shows this block
 
         // Styled layouts inside Android's own frame (app name, time and actions stay system-drawn):
         // accent stripe and badge in the kind's colour, a small label, bold title, the message below.
