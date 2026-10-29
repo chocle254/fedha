@@ -162,8 +162,18 @@ export async function ingest(token, messages) {
   return { ok: true, stored, skipped };
 }
 
-// Privacy: drop the text of anything recorded, and of everything older than BODY_DAYS.
+// Space and privacy:
+//   - messages from before linking (history) are deleted after HISTORY_DAYS (they only teach names and check the
+//     reading; they are never recorded)
+//   - every message row is deleted after KEEP_DAYS (M-Pesa codes never repeat later than that, so duplicates are
+//     still caught); recorded transactions live in Luxe's own transactions table
+//   - the text of anything recorded is dropped at once, and of everything else after BODY_DAYS
+const HISTORY_DAYS = 2;
+const KEEP_DAYS = 14;
 export async function wipeOld(userId) {
+  const ago = (d) => new Date(Date.now() - d * 864e5).toISOString();
+  await supabaseAdmin.from('sms_inbox').delete().eq('user_id', userId).eq('status', 'history').lt('created_at', ago(HISTORY_DAYS));
+  await supabaseAdmin.from('sms_inbox').delete().eq('user_id', userId).lt('received_at', ago(KEEP_DAYS));
   await supabaseAdmin.from('sms_inbox').update({ body: null }).eq('user_id', userId).eq('status', 'recorded').not('body', 'is', null);
   await supabaseAdmin.from('sms_inbox').update({ body: null }).eq('user_id', userId).lt('received_at', new Date(Date.now() - BODY_DAYS * 864e5).toISOString()).not('body', 'is', null);
 }

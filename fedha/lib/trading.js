@@ -55,6 +55,11 @@ const missingColumn = (e) => e && (e.code === '42703' || e.code === 'PGRST204' |
 const withoutTrail = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => !TRAIL_COLS.includes(k)));
 const withoutQuoteUsd = ({ quote_usd, ...rest }) => rest; // column added by supabase-migration-quote-usd.sql
 const MT5_LEVERAGE = 400; // the broker's leverage for forex, gold and indices (Exness-style 1:400)
+// Small accounts get 1:1000 (as brokers give low-equity accounts), so a 0.01 lot fits a balance of a few dollars.
+export const SMALL_ACCOUNT = 1000;
+export const leverageFor = (equity) => (Number(equity) < SMALL_ACCOUNT ? 1000 : MT5_LEVERAGE);
+// The broker's smallest lot for an MT5 market (0.01 lot, e.g. 1 oz of gold). No trade is ever placed below it.
+const minLotUnits = (symbol) => (instrument(symbol)?.lot || 0) * 0.01;
 // Paper books: 'main' (trades every signal, so every channel is measured; the report cards use only this book)
 // and 'growth' (the small growth-challenge account). Rows from before supabase-migration-paper-books.sql have no book.
 export const isMain = (t) => (t.book || 'main') === 'main';
@@ -83,6 +88,7 @@ export async function getAccount(userId, settings) {
   const { data } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId);
   let realized = 0;
   let locked = 0;
+  let mt5Notional = 0; // margin for these is set once the equity (and so the leverage) is known
   let openRisk = 0;
   for (const t of (data || []).filter(isMain)) {
     if (['won', 'lost', 'expired'].includes(t.status)) realized += Number(t.pnl_usdt) || 0;
@@ -92,15 +98,18 @@ export async function getAccount(userId, settings) {
       const left = n ? Math.max(0, 1 - (t.tp_hit || 0) / n) : 1;
       if (t.signal_id) {
         openRisk += (Number(t.actual_risk_usdt) || Number(t.risk_usdt) || 0) * left;
-        if (isMt5(t.symbol)) locked += ((Number(t.notional) || 0) * left) / MT5_LEVERAGE; // crypto signals: risk only
+        if (isMt5(t.symbol)) mt5Notional += (Number(t.notional) || 0) * left; // crypto signals: risk only
         continue;
       }
-      locked += ((Number(t.notional) || 0) * left) / (isMt5(t.symbol) ? MT5_LEVERAGE : 1); // CFDs tie up margin only
+      if (isMt5(t.symbol)) mt5Notional += (Number(t.notional) || 0) * left; // CFDs tie up margin only
+      else locked += (Number(t.notional) || 0) * left;
     }
   }
   const equity = Number(settings.paper_balance) + realized;
+  const leverage = leverageFor(equity);
+  locked += mt5Notional / leverage;
   const r2 = (v) => Math.round(v * 100) / 100;
-  return { equity: r2(equity), realized: r2(realized), locked: r2(locked), available: r2(Math.max(0, equity - locked)), openRisk: r2(openRisk), riskRoom: r2(Math.max(0, equity - openRisk)) };
+  return { equity: r2(equity), realized: r2(realized), locked: r2(locked), available: r2(Math.max(0, equity - locked)), openRisk: r2(openRisk), riskRoom: r2(Math.max(0, equity - openRisk)), leverage };
 }
 
 // Growth challenge (broker_settings.growth): a fresh small balance from `since`. Equity = start + every signal
@@ -189,8 +198,9 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, g
 
   let filters;
   try { filters = await getFilters(signal.symbol); } catch { return { ok: false, error: 'Could not load the lot-size rules.' }; }
-  if (growth && isMt5(signal.symbol)) {
-    const lotUnits = instrument(signal.symbol).lot * 0.01; // the broker's smallest lot, e.g. 1 oz of gold
+  if (isMt5(signal.symbol)) {
+    // Real broker lots on every book: 0.01 lot minimum, in steps of 0.01 lot.
+    const lotUnits = minLotUnits(signal.symbol);
     filters = { ...filters, minQty: lotUnits, stepSize: lotUnits };
   }
   const conv = await quoteToUsd(signal.symbol, entry);
@@ -214,20 +224,29 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, g
     if (need > growth.free) return { ok: false, error: `Not enough margin: needs $${need.toFixed(2)} at 1:${lev}, free $${growth.free.toFixed(2)}.` };
   }
   // Main book: shrink the trade until it fits the balance, like a real account would. Its risk stays within
-  // riskRoom (checked again because the smallest step can round the risk up) and its margin within what is
-  // free. Channels are still scored fairly: results are compared in R = profit ÷ this trade's own risk.
+  // riskRoom (what is left after the open trades' stops) and its margin within what is free, at the account's
+  // leverage (1:1000 while small). Never below the broker's 0.01 lot: if even that doesn't fit, no trade.
+  // A 0.01 lot can risk more than the planned %, which is accepted while the balance can carry it.
+  // Channels are still scored fairly: results are compared in R = profit ÷ this trade's own risk.
   let fit = null;
   if (!growth) {
-    const need = isMt5(signal.symbol) ? sz.notional / MT5_LEVERAGE : 0;
+    const lev = acct.leverage || MT5_LEVERAGE;
+    const need = isMt5(signal.symbol) ? sz.notional / lev : 0;
     const k = Math.min(1, acct.riskRoom / sz.actualRisk, need > 0 ? acct.available / need : 1);
     if (k < 1) {
       const step = Number(filters.stepSize) || 1e-8;
       const qty = floorToStep(sz.qty * k, step);
-      if (!(qty > 0) || qty < Number(filters.minQty || 0)) return { ok: false, error: `Balance fully committed: $${acct.riskRoom.toFixed(2)} of risk and $${acct.available.toFixed(2)} of margin left, below the smallest ${signal.symbol} order.` };
+      if (!(qty > 0) || qty < Number(filters.minQty || 0) - 1e-9) {
+        const minRisk = (Number(filters.minQty) / sz.qty) * sz.actualRisk;
+        return { ok: false, error: isMt5(signal.symbol)
+          ? `Not tradable: 0.01 lot ${signal.symbol} risks $${minRisk.toFixed(2)} and needs $${((Number(filters.minQty) / sz.qty) * need).toFixed(2)} margin at 1:${lev}; $${acct.riskRoom.toFixed(2)} risk room and $${acct.available.toFixed(2)} margin free. Below 0.01 is not traded.`
+          : `Balance fully committed: $${acct.riskRoom.toFixed(2)} of risk and $${acct.available.toFixed(2)} of margin left, below the smallest ${signal.symbol} order.` };
+      }
       const r = qty / sz.qty;
       fit = { from: sz.actualRisk, to: sz.actualRisk * r };
       sz = { ...sz, qty, notional: sz.notional * r, actualRisk: sz.actualRisk * r };
     } else if (risk < asked) fit = { from: asked, to: sz.actualRisk };
+    if (sz.minForced && !fit) fit = { from: risk, to: sz.actualRisk, minLot: true };
   }
 
   const row = {
@@ -299,7 +318,8 @@ export async function maybeAutoEnter(userId, signal) {
     if (r.ok) {
       const msg = describeEntry(r.trade);
       msg.body += ` · lot ×${mult} (${confidence}% confident in ${signal.source})`;
-      if (r.fit) msg.body += ` · sized to fit the $${r.equity.toFixed(2)} balance: risk $${r.fit.to.toFixed(2)} instead of $${r.fit.from.toFixed(2)}`;
+      if (r.fit?.minLot) msg.body += ` · 0.01 lot minimum: risk $${r.fit.to.toFixed(2)} (planned $${r.fit.from.toFixed(2)}) of the $${r.equity.toFixed(2)} balance`;
+      else if (r.fit) msg.body += ` · sized to fit the $${r.equity.toFixed(2)} balance: risk $${r.fit.to.toFixed(2)} instead of $${r.fit.from.toFixed(2)}`;
       if (news.level !== 'clear') msg.body += ` · 📰 ${news.level === 'danger' ? 'quarter' : 'half'} lot: ${await newsReason(news, signal.symbol)}`;
       if (g) msg.body += g.ok ? ` · 🌱 growth account took it: ${g.trade.qty} ${base(signal.symbol)}, risk $${Number(g.trade.actual_risk_usdt).toFixed(2)} of $${g.equity.toFixed(2)}` : ` · 🌱 growth account skipped: ${g.skipped || g.error}`;
       await notify(msg, `trade-${r.trade.id}-new`);
@@ -371,10 +391,10 @@ export async function openManualOrder({ userId, symbol, side, type, qty, quoteQt
 
   const settings = await getSettings(userId);
   const acct = await getAccount(userId, settings);
-  // MT5 markets are CFDs: they tie up margin (1:400, like the broker account), in dollars; crypto ties up the full cost.
+  // MT5 markets are CFDs: they tie up margin (1:400, or 1:1000 while the account is small), in dollars; crypto ties up the full cost.
   const conv = await quoteToUsd(symbol, entry);
   if (!(conv > 0)) return { ok: false, error: `Could not convert ${symbol} to US dollars right now.` };
-  const cost = isMt5(symbol) ? (q * entry * conv) / MT5_LEVERAGE : q * entry * (1 + FEE_RATE);
+  const cost = isMt5(symbol) ? (q * entry * conv) / (acct.leverage || MT5_LEVERAGE) : q * entry * (1 + FEE_RATE);
   if (cost > acct.available + 1e-6) return { ok: false, error: `Insufficient balance: needs $${cost.toFixed(2)}${isMt5(symbol) ? ' margin' : ''}, $${acct.available.toFixed(2)} available.` };
 
   const sl = Number(stopLoss) > 0 ? roundToTick(Number(stopLoss), filters.tickSize) : null;

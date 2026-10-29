@@ -14,7 +14,7 @@ import { ensurePushSubscription } from '../lib/push';
 import { groupReport, brokerResults, GROUP_MIN_TRADES, TRAIL_LABEL, TRAIL_DEFAULT } from '../lib/trading-core';
 import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST, lotsLabel, rrPlan, rrText, rrDetail, resultR, isMt5, pipSize, moveLabel, bankedPipsLabel, netPipsLabel } from '../components/trading/util';
 
-const MT5_LEV = 400; // matches MT5_LEVERAGE in lib/trading.js
+const MT5_LEV = 400; // fallback; the account reports its own leverage (1:1000 while under $1,000, lib/trading.js)
 const MAIN_GOAL = 10000; // the main paper account's target: grow the starting balance to $10k
 
 // The stop in force now: signal trades trail it with their channel's learned style (saved as trail_stop).
@@ -356,7 +356,7 @@ export default function TradingPage() {
             ? <div><span>Lots</span><b>{lotsLabel(t)}</b></div>
             : <div><span>Size</span><b>{fmtQty(t.qty)} {base(t.symbol)}</b></div>}
           {isMt5(t.symbol)
-            ? <div><span>Margin (1:400)</span><b title={`Position value ${fmtUsd(t.notional, false)}`}>{fmtUsd(Number(t.notional) / MT5_LEV, false)}</b></div>
+            ? <div><span>Margin (1:{account?.leverage || MT5_LEV})</span><b title={`Position value ${fmtUsd(t.notional, false)}`}>{fmtUsd(Number(t.notional) / (account?.leverage || MT5_LEV), false)}</b></div>
             : <div><span>Value</span><b>{fmtUsd(t.notional, false)}</b></div>}
           <div><span>Entry</span><b>{fmtPrice(t.entry)}</b></div>
           <div><span>Mark</span><b>{mark ? fmtPrice(mark) : '—'}</b></div>
@@ -417,7 +417,7 @@ export default function TradingPage() {
           ? <div><span>Lots</span><b>{lotsLabel(t)} <small style={{ color: 'var(--text-3)' }}>({fmtQty(t.qty)} {base(t.symbol)})</small></b></div>
           : <div><span>Amount</span><b>{fmtQty(t.qty)}</b></div>}
         {isMt5(t.symbol)
-          ? <div><span>Margin (1:400)</span><b title={`Position value ${fmtUsd(t.notional, false)}`}>{fmtUsd(Number(t.notional) / MT5_LEV, false)}</b></div>
+          ? <div><span>Margin (1:{account?.leverage || MT5_LEV})</span><b title={`Position value ${fmtUsd(t.notional, false)}`}>{fmtUsd(Number(t.notional) / (account?.leverage || MT5_LEV), false)}</b></div>
           : <div><span>Value</span><b>{fmtUsd(t.notional, false)}</b></div>}
         <div><span>Risk at SL</span><b style={{ color: C.down }}>{t.actual_risk_usdt != null || t.risk_usdt != null ? fmtUsd(Number(t.actual_risk_usdt ?? t.risk_usdt), false) : '—'}</b></div>
         <div><span>TP / SL</span><b>{(t.take_profits || [])[0] ? fmtPrice(t.take_profits[0]) : '—'} / {t.stop_loss != null ? fmtPrice(t.stop_loss) : '—'}</b></div>
