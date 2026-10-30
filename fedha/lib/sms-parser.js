@@ -183,6 +183,8 @@ export function normPhone(s) {
 export const ASK = 'ask';
 
 export const isLoanChoice = (c) => typeof c === 'string' && (c.startsWith('loan:') || c.startsWith('loanadd:') || c === 'loan_new');
+// 'client:<id>'  money in from a Tech Hub client: Freelance income that also pays down that client project.
+export const clientIdOf = (c) => (typeof c === 'string' && c.startsWith('client:') ? c.slice(7) : null);
 export const loanIdOf = (c) => (typeof c === 'string' && /^loan(add)?:/.test(c) ? c.slice(c.indexOf(':') + 1) : null);
 
 // The category for a message: fixed ones (airtime), else the learned rule, else null (= ask).

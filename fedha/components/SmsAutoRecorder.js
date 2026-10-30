@@ -5,6 +5,7 @@ import { payLoan, addToLoan, loanBalance } from '../lib/finance-actions';
 import { requestUnlock } from '../lib/ziidi';
 import { loanIdOf } from '../lib/sms-parser';
 import { showNotif } from '../lib/notifications';
+import { applyClientPayment } from '../lib/client-pay';
 
 // Invisible. While Luxe is open it records the M-Pesa / Ziidi messages that arrived since automatic recording was
 // switched on (the server decides what each one is: lib/sms-plan.js, /api/sms/ready), with the same code as a
@@ -52,6 +53,14 @@ export default function SmsAutoRecorder() {
         // Paid more than was owed: the rest is ordinary money in / out.
         if (amount - owed > 0.5) await tx(n++, { type: loan.type === 'lent' ? 'income' : 'expense', wallet_id: walletId, amount: Math.round((amount - owed) * 100) / 100, category: 'other', description: `${party} (over the loan)` });
       }
+    }
+
+    // A client's payment: the Freelance income above, also taken off what that Tech Hub client owes.
+    if (plan.client) {
+      const { clientProjects = [], updateClientProject } = ref.current;
+      const project = clientProjects.find((c) => c.id === plan.client.projectId);
+      const incomeId = ids[0] || null;
+      if (project && updateClientProject) await applyClientPayment(project, { amount: plan.client.amount, walletId: plan.entries?.[0]?.wallet_id, txId: incomeId, updateClientProject }).catch(() => null);
     }
 
     // Fuliza: a 'borrowed' loan per M-Pesa account, its balance set from what Safaricom says is outstanding.

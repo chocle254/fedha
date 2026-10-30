@@ -16,7 +16,7 @@
 //   - NestLink payouts and UpesiPay top-ups are already recorded by Luxe's own NestLink / UpesiPay connections.
 //   - Anything that matches a transaction already in Luxe (same wallet, amount and direction within 6 hours,
 //     e.g. one you typed in yourself) is linked to it instead of added again.
-import { categoryFor, normPhone, loanIdOf, ASK } from './sms-parser';
+import { categoryFor, normPhone, loanIdOf, clientIdOf, ASK } from './sms-parser';
 
 const H = 3600e3;
 const near = (a, b, tol = 0.011) => Math.abs(Number(a) - Number(b)) <= tol;
@@ -150,6 +150,15 @@ export function planMessage(row, ctx) {
   if (loanIdOf(choice) || choice === 'loan_new') {
     const loan = (ctx.loans || []).find((l) => l.id === loanIdOf(choice));
     return { action: 'record', summary: loan ? `${choice.startsWith('loanadd:') ? (loan.type === 'lent' ? 'Lent more to' : 'Borrowed more from') : 'Loan payment:'} ${loan.contact_name.trim()} ${fmt(p.amount)}` : `New loan ${fmt(p.amount)} ${p.kind === 'received' ? 'from' : 'to'} ${who}`, entries: feeEntry(wallet), loan: { choice, walletId: wallet, amount: p.amount, party: who } };
+  }
+  // A client's payment: Freelance income tagged with the client project; the app also takes it off what they owe.
+  if (clientIdOf(choice) && p.kind === 'received') {
+    return {
+      action: 'record',
+      summary: `Client payment ${fmt(p.amount)} from ${who}`,
+      entries: [{ type: 'income', wallet_id: wallet, amount: p.amount, category: 'freelance', description: `${who} · client payment`, client_project_id: clientIdOf(choice) }, ...feeEntry(wallet)],
+      client: { projectId: clientIdOf(choice), amount: p.amount },
+    };
   }
   const type = p.kind === 'received' ? 'income' : 'expense';
   return {

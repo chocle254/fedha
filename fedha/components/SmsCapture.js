@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { formatCurrency, INCOME_CATEGORIES, EXPENSE_CATEGORIES, getCategoryById } from '../lib/utils';
-import { KIND_LABEL, partyKey, FIXED_CATEGORY, loanIdOf, ASK } from '../lib/sms-parser';
+import { KIND_LABEL, partyKey, FIXED_CATEGORY, loanIdOf, clientIdOf, ASK } from '../lib/sms-parser';
+import { clientTotals, applyClientPayment } from '../lib/client-pay';
+import { getTransaction } from '../lib/db';
 import { useApp } from '../context/AppContext';
 import { loanBalance } from '../lib/finance-actions';
 
@@ -15,10 +17,15 @@ export default function SmsCapture({ wallets }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [open, setOpen] = useState(false);
-  const { loans = [] } = useApp();
+  const { loans = [], clientProjects = [], updateClientProject, addTransaction, removeTransaction } = useApp();
+  const owingClients = clientProjects.filter((c) => c.status !== 'completed' && clientTotals(c).remaining > 0);
   const openLoans = loans.filter((l) => l.status !== 'settled');
   // How a chosen category reads: a normal one, or a loan link.
   const choiceLabel = (c, p) => {
+    if (clientIdOf(c)) {
+      const cp = clientProjects.find((x) => x.id === clientIdOf(c));
+      return { icon: '💼', label: cp ? `Client payment: ${cp.client_name} — ${cp.name}` : 'Client payment (Freelance)', color: '#0EA5E9' };
+    }
     if (c === 'loan_new') return { icon: '🤝', label: p.kind === 'received' ? 'Borrowed (new loan)' : 'Lent (new loan)', color: '#A78BFA' };
     if (loanIdOf(c)) {
       const l = loans.find((x) => x.id === loanIdOf(c));
@@ -32,6 +39,19 @@ export default function SmsCapture({ wallets }) {
 
   const load = () => fetch('/api/sms/inbox', { cache: 'no-store' }).then((r) => r.json()).then(setData).catch(() => setData({ items: [] }));
   useEffect(() => { load(); }, []);
+
+  // A message already recorded under another category, now marked as a client's payment: relabel its income
+  // (same id, so it is never added twice; the balance nets out) and take it off what the client owes.
+  const markClient = async (x, choice) => {
+    const project = clientProjects.find((c) => c.id === clientIdOf(choice));
+    const id = `sms_${x.id}_0`;
+    const t = await getTransaction(id).catch(() => null);
+    if (t && t.type === 'income' && !t.client_project_id && removeTransaction && addTransaction) {
+      await removeTransaction(id);
+      await addTransaction({ ...t, category: 'freelance', description: `${project ? project.client_name : x.parsed?.party || 'Client'} · client payment`, client_project_id: project?.id || null, skipSavingsCut: true });
+      if (project) await applyClientPayment(project, { amount: t.amount, walletId: t.wallet_id, txId: id, updateClientProject }).catch(() => null);
+    }
+  };
 
   const put = async (body) => {
     const r = await fetch('/api/sms/inbox', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -151,11 +171,16 @@ export default function SmsCapture({ wallets }) {
                           : <span style={{ color: '#F59E0B' }}>{rule === ASK ? `You choose each time for ${p.party}` : `First time from ${p.party}: pick a category, Luxe remembers it`}</span>}
                         {oneOff && <button type="button" onClick={() => put({ id: x.id, category: p.category, scope: 'all' })} style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-3)', textDecoration: 'underline' }}>use for all from {p.party}</button>}
                         <span style={{ flex: 1 }} />
-                        <select className="input" style={{ width: 'auto', padding: '2px 6px', fontSize: 11.5 }} value={p.category || ''} onChange={(e) => put({ id: x.id, category: e.target.value })}>
+                        <select className="input" style={{ width: 'auto', padding: '2px 6px', fontSize: 11.5 }} value={p.category || ''} onChange={async (e) => { const v = e.target.value; if (x.status === 'recorded' && clientIdOf(v)) await markClient(x, v); put({ id: x.id, category: v }); }}>
                           <option value="">{p.category ? 'Change…' : 'Category…'}</option>
                           <optgroup label="Category">
                             {(p.kind === 'received' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).map((c) => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
                           </optgroup>
+                          {p.kind === 'received' && owingClients.length > 0 && (
+                            <optgroup label="Client work (Tech Hub)">
+                              {owingClients.map((c) => <option key={c.id} value={`client:${c.id}`}>💼 {c.client_name} — {c.name} ({formatCurrency(clientTotals(c).remaining, 'KES')} left)</option>)}
+                            </optgroup>
+                          )}
                           <optgroup label="Loans">
                             {/* Money in pays down a loan you gave; money out pays down one you took. */}
                             {openLoans.filter((l) => (p.kind === 'received' ? l.type === 'lent' : l.type === 'borrowed')).map((l) => (
