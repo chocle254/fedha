@@ -17,7 +17,8 @@ function levelsError(side, entry, tps, sl) {
 }
 
 export async function createSignal({ userId, source, text, externalId = null }) {
-  const parsed = parseSignal(text);
+  // Every signal goes in at market, straight away (no limit orders waiting for the price to come back).
+  const parsed = { ...parseSignal(text), now: true };
   if (!parsed.ok) return { ok: false, error: parsed.error };
   const price = await fetchPrice(parsed.symbol);
   if (!price) return { ok: false, error: parsed.proxyOf ? `Could not get the ${parsed.symbol} price right now.` : `${parsed.symbol} is not a Binance Spot pair.` };
@@ -45,6 +46,7 @@ export async function createSignal({ userId, source, text, externalId = null }) 
     if (rb.error) return { ok: false, error: rb.error };
     ({ entry, entryLow, entryHigh, takeProfits, stopLoss } = rb);
   }
+  if (!parsed.proxyOf) entry = price; // market entry for pairs tracked directly too
   const bad = levelsError(parsed.side, entry, takeProfits, stopLoss);
   if (bad) return { ok: false, error: bad };
 

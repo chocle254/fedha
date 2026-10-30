@@ -98,18 +98,12 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
   const buy = parsed.side === 'BUY';
   const market = buy ? Number(px.ask) : Number(px.bid);
 
-  // Market if the price is inside (or better than) the signal's zone, otherwise a limit order at the zone edge.
-  // "BUY NOW" / "SELL NOW" signals always go in at market (they run straight away and rarely come back), unless the
-  // price has already covered most of the way to TP1.
-  let orderType = 'market';
-  let entry = market;
-  if (parsed.now) {
-    const tp1 = Number(parsed.takeProfits?.[0]); const quoted = buy ? parsed.entryHigh : parsed.entryLow;
-    if (quoted != null && Number.isFinite(tp1) && Math.abs(tp1 - quoted) > 0 && (buy ? market - quoted : quoted - market) / Math.abs(tp1 - quoted) > 0.6) return { skipped: 'Price already ran most of the way to TP1: too late to chase.' };
-  } else if (parsed.entryLow != null) {
-    if (buy && market > parsed.entryHigh) { orderType = 'limit'; entry = parsed.entryHigh; }
-    if (!buy && market < parsed.entryLow) { orderType = 'limit'; entry = parsed.entryLow; }
-  }
+  // Every signal goes in at market straight away (no limit orders), unless the price has already covered most of
+  // the way to TP1 (too late to chase).
+  const orderType = 'market';
+  const entry = market;
+  const tp1 = Number(parsed.takeProfits?.[0]); const quoted = buy ? parsed.entryHigh : parsed.entryLow;
+  if (quoted != null && Number.isFinite(tp1) && Math.abs(tp1 - quoted) > 0 && (buy ? market - quoted : quoted - market) / Math.abs(tp1 - quoted) > 0.6) return { skipped: 'Price already ran most of the way to TP1: too late to chase.' };
   const sl = parsed.stopLoss;
   if (sl == null) return { skipped: 'No stop-loss in the signal, so the risk cannot be sized.' };
   if (buy ? sl >= entry : sl <= entry) return { skipped: 'Price is already past the stop-loss.' };
