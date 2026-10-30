@@ -44,14 +44,29 @@ async function movieArt(title, year) {
   return m ? { poster: big(m.artworkUrl100, '600x900'), backdrop: big(m.artworkUrl100, '1200x675'), summary: m.longDescription || '', genres: [m.primaryGenreName].filter(Boolean), rating: m.contentAdvisoryRating || null, year: (m.releaseDate || '').slice(0, 4) } : {};
 }
 
+// A title whose type isn't known (saved from Reels before the type was kept): a movie if Apple has a film with that
+// exact title, otherwise a series. Remembered as art['any:<title>'] = { kind }.
+async function guessKind(title) {
+  const d = await (await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(title)}&entity=movie&limit=5`)).json().catch(() => ({}));
+  const t = sameTitle(title);
+  return (d.results || []).some((r) => sameTitle(r.trackName) === t) ? 'movie' : 'show';
+}
+// Titles compared loosely: case, punctuation and a leading "The" don't matter ("The Office" = "Office").
+export const sameTitle = (t) => String(t || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim().replace(/^the /, '');
+
 // Artwork for everything in the library; fetches what is missing and saves it. onUpdate(art) after each one.
-// extra: suggested titles [{ type: 'series' | 'movie', title, year }] to fetch artwork for too.
+// extra: suggested titles [{ type: 'series' | 'movie' | undefined, title, year }] to fetch artwork for too.
 export async function loadArt({ shows, movies, extra = [] }, onUpdate) {
   const art = { ...((await getSetting(ART, {})) || {}) };
   onUpdate({ ...art });
-  const jobs = [...shows.map((s) => ['show', s.title]), ...movies.map((m) => ['movie', m.title, m.year]), ...extra.map((x) => [x.type === 'movie' ? 'movie' : 'show', x.title, x.year])];
+  const kindOf = (x) => (x.type === 'movie' ? 'movie' : x.type === 'series' ? 'show' : 'any');
+  const jobs = [...shows.map((s) => ['show', s.title]), ...movies.map((m) => ['movie', m.title, m.year]), ...extra.map((x) => [kindOf(x), x.title, x.year])];
   let changed = false;
-  for (const [kind, title, year] of jobs) {
+  for (let [kind, title, year] of jobs) { // eslint-disable-line prefer-const
+    if (kind === 'any') {
+      if (!art[`any:${title}`]?.kind) { art[`any:${title}`] = { kind: await guessKind(title).catch(() => 'show') }; changed = true; }
+      kind = art[`any:${title}`].kind;
+    }
     const k = `${kind}:${title}`;
     if (art[k] && art[k].v === 5) continue;
     try { art[k] = { v: 5, ...(kind === 'show' ? await showArt(title) : await movieArt(title, year)) }; }
@@ -80,10 +95,13 @@ export async function markPlayed(prog, item) {
   await setSetting(ROOM, next);
   return next;
 }
-export async function setFeedback(prog, title, value) {
+// item (optional): { type, year } so Want to Watch knows a movie from a series and can show its poster.
+export async function setFeedback(prog, title, value, item = null) {
   const fb = { ...(prog.feedback || {}) };
+  const meta = { ...(prog.meta || {}) };
   if (value) fb[title] = value; else delete fb[title];
-  const next = { ...prog, feedback: fb };
+  if (value && item?.type) meta[title] = { type: item.type === 'movie' ? 'movie' : 'series', year: item.year || null }; else if (!value) delete meta[title];
+  const next = { ...prog, feedback: fb, meta };
   await setSetting(ROOM, next);
   return next;
 }

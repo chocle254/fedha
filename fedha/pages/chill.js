@@ -3,7 +3,7 @@ import Head from 'next/head';
 import Layout from '../components/Layout';
 import Link from 'next/link';
 import { prefetchReels } from '../lib/reels';
-import { fetchLibrary, organise, loadArt, getProgress, markPlayed, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback, connection, trailerFor, trailerSrc } from '../lib/chill';
+import { fetchLibrary, organise, loadArt, getProgress, markPlayed, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback, sameTitle, connection, trailerFor, trailerSrc } from '../lib/chill';
 
 // Chill Room: your downloaded movies and series (Download / Telegram on the phone), laid out like Apple TV.
 //   hero      the series you're in the middle of (backdrop, ▶ next episode)
@@ -119,7 +119,13 @@ export default function Chill() {
   useEffect(() => { const t = setTimeout(() => { if (connection().wifi) prefetchReels(); }, 4000); return () => clearTimeout(t); }, []);
   const { shows, movies } = useMemo(() => organise(lib?.files || []), [lib]);
   useEffect(() => { if (lib) fetchSuggest().then(setSug).catch(() => setSug({ items: [] })); }, [lib]);
-  useEffect(() => { if (shows.length || movies.length || sug?.items?.length) loadArt({ shows, movies, extra: sug?.items || [] }, setArt); }, [shows, movies, sug]);
+  // Artwork for the library, the AI's picks and Want to Watch (titles saved from Reels too).
+  const wantKey = Object.keys(prog.feedback || {}).filter((t) => prog.feedback[t] === 'want').join('|');
+  useEffect(() => {
+    const items = sug?.items || [];
+    const wants = wantKey ? wantKey.split('|').filter((t) => !items.some((x) => x.title === t)).map((t) => ({ title: t, ...(prog.meta?.[t] || {}) })) : [];
+    if (shows.length || movies.length || items.length || wants.length) loadArt({ shows, movies, extra: [...items, ...wants] }, setArt);
+  }, [shows, movies, sug, wantKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ▶ opens Luxe's own player with this episode and the rest of the downloaded ones after it queued (auto-next),
   // each with the show's IMDb id so the player can skip intros and spot the credits.
@@ -136,10 +142,11 @@ export default function Chill() {
     window.location.href = watchLink(queue, sound);
   };
   const refreshSug = async () => { setSugBusy(true); try { setSug(await fetchSuggest(true)); } finally { setSugBusy(false); } };
-  const react = async (title, value) => { setProg(await setFeedback(prog, title, value)); setOpen(null); };
+  const react = async (title, value) => { setProg(await setFeedback(prog, title, value, open?.item)); setOpen(null); };
   const showArt = (s) => art[`show:${s.title}`] || {};
   const movieArt = (m) => art[`movie:${m.title}`] || {};
-  const sugArt = (x) => art[`${x.type === 'movie' ? 'movie' : 'show'}:${x.title}`] || {};
+  const kindOf = (x) => (x.type === 'movie' ? 'movie' : x.type === 'series' ? 'show' : art[`any:${x.title}`]?.kind || 'show');
+  const sugArt = (x) => art[`${kindOf(x)}:${x.title}`] || {};
 
   // Unfinished episodes / movies that are still on the phone, most recent first.
   const resumable = Object.entries(prog.progress || {}).map(([k, v]) => {
@@ -157,8 +164,12 @@ export default function Chill() {
   const heroProgress = resumeTop && ((hero && resumeTop.file === hero.u.next) || (heroMovie && resumeTop.file === heroMovie)) ? resumeTop.v : null;
   const ha = hero ? showArt(hero.s) : heroMovie ? movieArt(heroMovie) : {};
   const heroNext = hero?.u.next;
-  const forYou = (sug?.items || []).filter((x) => !prog.feedback?.[x.title]);
-  const wanted = Object.entries(prog.feedback || {}).filter(([, v]) => v === 'want').map(([t]) => (sug?.items || []).find((x) => x.title === t) || { title: t, type: 'series' });
+  // Anything already downloaded drops out of For You and Want to Watch (it's in Series / Movies now).
+  const owned = new Set([...shows.map((x) => sameTitle(x.title)), ...movies.map((x) => sameTitle(x.title))]);
+  const notOwned = (x) => !owned.has(sameTitle(x.title));
+  const forYou = (sug?.items || []).filter((x) => !prog.feedback?.[x.title] && notOwned(x));
+  const wanted = Object.entries(prog.feedback || {}).filter(([, v]) => v === 'want')
+    .map(([t]) => (sug?.items || []).find((x) => x.title === t) || { title: t, ...(prog.meta?.[t] || {}) }).filter(notOwned);
 
   // Coming Soon: the next episode of your series and of the AI's picks that are still airing, soonest first.
   const today = new Date().toISOString().slice(0, 10);

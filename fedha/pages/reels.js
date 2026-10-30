@@ -88,7 +88,7 @@ export default function Reels() {
   const save = async (item) => {
     const on = fb[item.title] !== 'want';
     setSignals(await saveSignal(signals, item, { saved: on }));
-    const p = await setFeedback({ ...(await getProgress()), feedback: fb }, item.title, on ? 'want' : null).catch(() => null);
+    const p = await setFeedback({ ...(await getProgress()), feedback: fb }, item.title, on ? 'want' : null, item).catch(() => null);
     if (p) setFb(p.feedback || {});
   };
 
