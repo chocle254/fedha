@@ -1,14 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { coachAsk, hackForAI } from '../../lib/hack-coach';
+import PitchTrainer from '../pitch/PitchTrainer';
 
 // Pitch coach for a nervous presenter.
 //  1. Calm: a short guided breathing drill before practising (or before going on stage).
 //  2. Kit: an autopilot opener, short cue cards (say / show / seconds), a closer, recovery lines, likely Q&A.
-//  3. Rehearse: a full-screen teleprompter that steps through the cues on a timer while the phone listens
-//     (speech-to-text in Chrome). "I'm lost" shows a recovery line and the cue in big text, to practise
-//     coming back from a blank. Afterwards the mentor scores the run: pace, fillers, missed cues, better lines.
+//  3. Train: components/pitch/PitchTrainer (scored on evidence, Q&A grill, drills, progress).
 const LENGTHS = [[60, '1 min'], [120, '2 min'], [180, '3 min'], [300, '5 min']];
-const FILLERS = /\b(um+|uh+|erm|like|you know|basically|actually|sort of|kind of|i mean)\b/gi;
 const BREATH = [['Breathe in', 4], ['Hold', 4], ['Breathe out slowly', 6]];
 
 function Breathing({ onDone }) {
@@ -40,26 +38,6 @@ export default function PitchCoach({ hack, saveCoach }) {
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const [calm, setCalm] = useState(false);
-  const [run, setRun] = useState(null); // { start, cue, cueStart, lost }
-  const [feedback, setFeedback] = useState(null);
-  const recRef = useRef(null);
-  const textRef = useRef('');
-  const liveRef = useRef(false);
-  const [heard, setHeard] = useState('');
-  const [, force] = useState(0);
-
-  // Teleprompter clock: re-render every 250 ms and auto-advance cues on their time.
-  useEffect(() => {
-    if (!run) return undefined;
-    const t = setInterval(() => {
-      force((x) => x + 1);
-      const cue = kit.cues[run.cue];
-      if (cue && !run.lost && Date.now() - run.cueStart > cue.seconds * 1000 && run.cue < kit.cues.length - 1) {
-        setRun((r) => ({ ...r, cue: r.cue + 1, cueStart: Date.now() }));
-      }
-    }, 250);
-    return () => clearInterval(t);
-  }, [run, kit]);
 
   const buildKit = async () => {
     setBusy('kit'); setErr('');
@@ -69,112 +47,12 @@ export default function PitchCoach({ hack, saveCoach }) {
     } catch (e) { setErr(e.message); } finally { setBusy(''); }
   };
 
-  const startListening = () => {
-    const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
-    textRef.current = '';
-    setHeard('');
-    if (!SR) return false;
-    const rec = new SR();
-    rec.lang = 'en-US';
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.onresult = (e) => {
-      let finalText = '';
-      let interim = '';
-      for (let i = 0; i < e.results.length; i++) (e.results[i].isFinal ? (finalText += `${e.results[i][0].transcript} `) : (interim += e.results[i][0].transcript));
-      rec._final = finalText;
-      setHeard(`${(rec._prev || '') + finalText}${interim}`.slice(-160));
-    };
-    // Android stops listening after a pause: keep restarting while the run is live, keeping what was heard.
-    rec.onend = () => {
-      rec._prev = `${rec._prev || ''}${rec._final || ''}`;
-      rec._final = '';
-      textRef.current = rec._prev;
-      if (liveRef.current) { try { rec.start(); } catch { /* already starting */ } }
-    };
-    rec.onerror = () => {};
-    try { rec.start(); } catch { return false; }
-    recRef.current = rec;
-    return true;
-  };
-
-  const start = () => {
-    setFeedback(null); setErr('');
-    liveRef.current = true;
-    const listening = startListening();
-    setRun({ start: Date.now(), cue: 0, cueStart: Date.now(), lost: false, listening });
-  };
-
-  const stop = async () => {
-    const r = run;
-    liveRef.current = false;
-    const rec = recRef.current;
-    if (rec) { rec._prev = `${rec._prev || ''}${rec._final || ''}`; textRef.current = rec._prev; try { rec.stop(); } catch { /* stopped */ } }
-    setRun(null);
-    const seconds = Math.round((Date.now() - r.start) / 1000);
-    const transcript = (textRef.current || '').trim();
-    const words = transcript ? transcript.split(/\s+/).length : 0;
-    const wpm = seconds ? Math.round((words / seconds) * 60) : 0;
-    const fillers = (transcript.match(FILLERS) || []).length;
-    const entry = { at: new Date().toISOString(), seconds, words, wpm, fillers };
-    if (!transcript || seconds < 10) {
-      await saveCoach({ rehearsals: [entry, ...(coach.rehearsals || [])].slice(0, 12) });
-      setErr(transcript ? 'That run was under 10 seconds. Try a full run.' : 'The phone did not hear any speech (allow the microphone, or rehearse in Chrome). Your time was still saved.');
-      return;
-    }
-    setBusy('score');
-    try {
-      const res = await coachAsk('hack_rehearse', { hack: { name: hack.name, coach: { idea: coach.idea } }, cues: kit.cues, target: kit.seconds, seconds, wpm, fillers, transcript });
-      setFeedback({ ...res.feedback, seconds, wpm, fillers });
-      await saveCoach({ rehearsals: [{ ...entry, score: res.feedback.score }, ...(coach.rehearsals || [])].slice(0, 12) });
-    } catch (e) {
-      setErr(e.message);
-      await saveCoach({ rehearsals: [entry, ...(coach.rehearsals || [])].slice(0, 12) });
-    } finally { setBusy(''); }
-  };
-
-  const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-  const best = (coach.rehearsals || []).filter((x) => x.score != null).reduce((m, x) => Math.max(m, x.score), 0);
+  const context = [`Project: ${hack.name}`, coach.idea ? `Idea: ${coach.idea.title}. ${coach.idea.pitch || coach.idea.summary || ''}` : '', kit?.one_liner ? `One-liner: ${kit.one_liner}` : '', kit?.qa?.length ? `Facts from their Q&A prep: ${kit.qa.map((x) => x.a).join(' ')}` : ''].filter(Boolean).join('\n');
 
   return (
     <div className="muse-grid"><div className="muse-col">
       <style>{CSS}</style>
       {calm && <Breathing onDone={() => setCalm(false)} />}
-
-      {run && kit && (() => {
-        const cue = kit.cues[run.cue];
-        const el = (Date.now() - run.start) / 1000;
-        const cueEl = (Date.now() - run.cueStart) / 1000;
-        const recovery = kit.recovery?.[run.cue % Math.max(1, kit.recovery.length)];
-        return (
-          <div className="pc-full pc-prompter">
-            <div className="pc-top"><span>{fmt(el)} / {fmt(kit.seconds)}</span><span>{run.cue + 1}/{kit.cues.length}</span><span>{run.listening ? '🎙 listening' : '🔇 no mic'}</span></div>
-            <div className="pc-cuebar"><div style={{ width: `${Math.min(100, (cueEl / cue.seconds) * 100)}%` }} /></div>
-            {run.cue === 0 && !run.lost && <div className="pc-opener">“{kit.opener}”</div>}
-            {run.lost ? (
-              <>
-                <div className="pc-kicker">SAY THIS, THEN CARRY ON</div>
-                <div className="pc-big">“{recovery || 'Let me show you instead.'}”</div>
-                <div className="pc-title" style={{ marginTop: 24 }}>{cue.title}</div>
-                <div className="pc-say">{cue.say}</div>
-              </>
-            ) : (
-              <>
-                <div className="pc-title">{cue.title}</div>
-                <div className="pc-say">{cue.say}</div>
-                {cue.show && <div className="pc-show">On screen: {cue.show}</div>}
-              </>
-            )}
-            {heard && <div className="pc-heard">…{heard}</div>}
-            <div className="pc-actions">
-              <button type="button" onClick={() => setRun((r) => ({ ...r, cue: Math.max(0, r.cue - 1), cueStart: Date.now(), lost: false }))}>◀</button>
-              <button type="button" className="pc-lost" onClick={() => setRun((r) => ({ ...r, lost: !r.lost }))}>{run.lost ? 'Back on track' : "I'm lost"}</button>
-              <button type="button" onClick={() => setRun((r) => ({ ...r, cue: Math.min(kit.cues.length - 1, r.cue + 1), cueStart: Date.now(), lost: false }))}>▶</button>
-            </div>
-            <button type="button" className="btn-primary pc-stop" onClick={stop}>{run.cue === kit.cues.length - 1 ? `Finish: “${kit.closer.slice(0, 40)}…”` : 'Stop and get feedback'}</button>
-          </div>
-        );
-      })()}
 
       <section className="card muse-card">
         <div className="muse-label">🎤 PITCH COACH</div>
@@ -198,26 +76,13 @@ export default function PitchCoach({ hack, saveCoach }) {
           <div className="muse-label">YOUR FIRST LINE (SAY IT ON AUTOPILOT)</div>
           <div style={{ fontSize: 17, fontWeight: 700, marginTop: 6, lineHeight: 1.4 }}>“{kit.opener}”</div>
           {kit.one_liner && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 6 }}>In one line: {kit.one_liner}</div>}
-          <button className="btn-primary" style={{ marginTop: 12, width: '100%' }} onClick={start} disabled={!!busy}>{busy === 'score' ? 'Scoring your run…' : '▶ Rehearse now (full screen)'}</button>
-          <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 6 }}>Speak out loud; the phone listens so the mentor can score you. Record a backup demo video too, in case the live demo breaks.</div>
-          {(coach.rehearsals || []).length > 0 && <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 8 }}>Rehearsals: {coach.rehearsals.length}{best ? ` · best score ${best}/100` : ''} · last {fmt(coach.rehearsals[0].seconds)} at {coach.rehearsals[0].wpm} wpm</div>}
+          <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 8 }}>Record a backup demo video too, in case the live demo breaks.</div>
         </section>
       )}
 
-      {feedback && (
-        <section className="card muse-card">
-          <div className="muse-label">HOW THAT RUN WENT</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6 }}>
-            <span className="font-num" style={{ fontSize: 30, fontWeight: 800, color: feedback.score >= 75 ? '#10B981' : feedback.score >= 50 ? '#F59E0B' : '#EF4444' }}>{feedback.score}</span>
-            <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{feedback.headline}</span>
-          </div>
-          <div className="font-num" style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>{fmt(feedback.seconds)} · {feedback.wpm} wpm{feedback.pace ? ` (${feedback.pace})` : ''} · {feedback.fillers} filler word{feedback.fillers === 1 ? '' : 's'}</div>
-          {feedback.strong?.length > 0 && <><div className="muse-label" style={{ marginTop: 10, color: 'var(--green)' }}>WHAT WORKED</div><ul className="muse-how">{feedback.strong.map((x) => <li key={x}>{x}</li>)}</ul></>}
-          {feedback.fix?.length > 0 && <><div className="muse-label" style={{ marginTop: 10 }}>CHANGE NEXT TIME</div><ul className="muse-how">{feedback.fix.map((x) => <li key={x}>{x}</li>)}</ul></>}
-          {feedback.missed?.length > 0 && <div style={{ fontSize: 12.5, color: '#F59E0B', marginTop: 6 }}>Skipped or rushed: {feedback.missed.join(', ')}</div>}
-          {feedback.better_lines?.map((l) => <div key={l.was} style={{ fontSize: 12.5, marginTop: 8, lineHeight: 1.5 }}><span style={{ color: 'var(--text-3)', textDecoration: 'line-through' }}>{l.was}</span><br /><span style={{ color: 'var(--green)' }}>→ {l.try}</span></div>)}
-          {feedback.next_drill && <div className="muse-bubble" style={{ marginTop: 10 }}><div className="muse-bubble-kicker">NEXT DRILL</div>{feedback.next_drill}</div>}
-        </section>
+      {kit && (
+        <PitchTrainer audience="judges" context={context} cues={kit.cues || []} opener={kit.opener} oneLiner={kit.one_liner} defaultTarget={kit.seconds || 180}
+          runs={coach.trainer || []} saveRuns={(runs) => saveCoach({ trainer: runs })} storeKey={`hack_${hack.id}`} />
       )}
 
       {kit && (

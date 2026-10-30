@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { todayISO } from '../../lib/utils';
 import { PITCH_SLIDES, JUDGE_CRITERIA } from '../../lib/founder-playbook';
 import { museAsk, startupForAI, ScoreBar, scoreColor } from './museApi';
+import PitchTrainer from '../pitch/PitchTrainer';
 
 const EMPTY = { one_liner: '', elevator: '', slides: {} };
 
@@ -30,6 +31,15 @@ export default function PitchTab({ startup, stages, save, onPractice }) {
   const words = (p.elevator || '').trim().split(/\s+/).filter(Boolean).length;
   const filled = PITCH_SLIDES.filter((s) => (p.slides?.[s.key] || '').trim()).length;
   const gaps = PITCH_SLIDES.filter((s) => /\[ADD:/i.test(p.slides?.[s.key] || '')).length;
+
+  // Spoken practice: the opening + each filled slide is a cue (first ~2 sentences of it).
+  const short = (t) => String(t || '').replace(/\s+/g, ' ').split(/(?<=[.!?])\s/).slice(0, 2).join(' ').slice(0, 260);
+  const trainerCues = [
+    ...(p.one_liner || p.elevator ? [{ title: 'Opening', say: short(p.elevator || p.one_liner), seconds: 20 }] : []),
+    ...PITCH_SLIDES.filter((x) => (p.slides?.[x.key] || '').trim()).map((x) => ({ title: x.title, say: short(p.slides[x.key]), seconds: 16 })),
+  ];
+  const trainerContext = [`Startup: ${startup.name}`, startup.mission ? `Mission: ${startup.mission}` : '', p.one_liner ? `One-liner: ${p.one_liner}` : '', p.elevator ? `Elevator: ${p.elevator}` : '',
+    ...PITCH_SLIDES.filter((x) => (p.slides?.[x.key] || '').trim()).map((x) => `${x.title}: ${String(p.slides[x.key]).slice(0, 300)}`)].filter(Boolean).join('\n');
 
   const set = (patch) => { setP((x) => ({ ...x, ...patch })); setDirty(true); };
   const setSlide = (k, v) => { setP((x) => ({ ...x, slides: { ...(x.slides || {}), [k]: v } })); setDirty(true); };
@@ -127,9 +137,12 @@ export default function PitchTab({ startup, stages, save, onPractice }) {
         </section>
       ))}
 
+      <PitchTrainer audience="investors" context={trainerContext} cues={trainerCues} opener={short(p.elevator).split(/(?<=[.!?])\s/)[0] || ''} oneLiner={p.one_liner || ''} defaultTarget={180}
+        runs={startup.pitch_trainer || []} saveRuns={(runs) => save({ pitch_trainer: runs })} storeKey={`startup_${startup.id}`} />
+
       <section className="card muse-card muse-agent" style={{ '--stage': '#7B61FF' }}>
         <div className="muse-label">⚖️ JUDGING PANEL</div>
-        <div style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '8px 0 12px', lineHeight: 1.5 }}>A strict demo-day panel scores your pitch on {JUDGE_CRITERIA.length} criteria, tells you the 3 fixes that matter most, and the questions they'd grill you with.</div>
+        <div style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '8px 0 12px', lineHeight: 1.5 }}>A strict demo-day panel scores what's written on {JUDGE_CRITERIA.length} criteria, tells you the 3 fixes that matter most, and the questions they'd grill you with.</div>
         <button className="btn-primary muse-send" onClick={judge} disabled={!!busy || (!p.one_liner && !filled)}>{busy === 'judge' ? 'Judges are scoring…' : '⚖️ Judge my pitch'}</button>
       </section>
 
