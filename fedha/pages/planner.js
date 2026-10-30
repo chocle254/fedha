@@ -5,6 +5,7 @@ import { getSetting, setSetting, getFoodLogs } from '../lib/db';
 import { useFloatingCash } from '../lib/floating';
 import { todayISO, computeJobProgress } from '../lib/utils';
 import { hackStatus, isUrgent, projectStatus } from './tech-hub';
+import { blockLink } from '../lib/block-links';
 import { weekdayPlanIndex, estimateWorkoutMinutes, exerciseSummary, planForDay, microMinutes } from './workout';
 import { planAnchors, getDayPrefs, getHomeLocation, askDeviceLocation, getTodayWeather, searchPlace, saveHomeLocation, setSoapBatches, weatherLabel } from '../lib/day-anchors';
 import { showNotif, VIBRATE } from '../lib/notifications';
@@ -779,6 +780,8 @@ export default function PlannerPage() {
   // reminder, both the in-app timers and the server push copy, with ones for
   // exactly these blocks. Nothing else in this file schedules notifications.
   async function syncPlannerBlocksSetting(effectiveBlocks) {
+    // Each block remembers where it leads, so its notification opens that section (Food, the startup, ...).
+    effectiveBlocks = (effectiveBlocks || []).map((b) => { const l = blockLink(b, { startups, hackathons }); return l ? { ...b, link: l.href } : b; });
     await setSetting('planner_blocks', effectiveBlocks);
     await setSetting('planner_blocks_date', todayISO());
     // Stamp the save so the app-start scheduler in _app.js can tell its copy
@@ -1227,7 +1230,7 @@ export default function PlannerPage() {
                           <div style={{ width:6, height:6, borderRadius:'50%', background:c.dot, flexShrink:0 }} />
                         </div>
                         {isNow && <div style={{ fontSize:12, color:'var(--text-2)', marginTop:6, lineHeight:1.5, borderTop:'1px solid var(--border)', paddingTop:6 }}>{block.note}</div>}
-                        {/^(series|movies)/.test(String(block.id)) && <a href="/chill" onClick={(e)=>e.stopPropagation()} style={{ display:'inline-block', marginTop:8, padding:'7px 14px', borderRadius:10, background:'#f5f5f7', color:'#000', fontSize:12.5, fontWeight:700, textDecoration:'none' }}>🍿 Open Chill Room</a>}
+                        {(() => { const l = blockLink(block, { startups, hackathons }); return l && <a href={l.href} onClick={(e)=>e.stopPropagation()} style={{ display:'inline-block', marginTop:8, padding:'7px 14px', borderRadius:10, background:'#f5f5f7', color:'#000', fontSize:12.5, fontWeight:700, textDecoration:'none' }}>{l.text}</a>; })()}
                       </div>
                     </div>
                   );

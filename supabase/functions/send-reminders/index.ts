@@ -163,15 +163,16 @@ function buildPlannerNotifs(blocks: any[], nowMins: number, dateKey: string): No
     if (isDueNow(block.time, nowMins)) {
       // Live card first: on Android it replaces this block's reminder (LuxeDelegationService.coveredByLive);
       // the reminder below is still sent for browsers and in case the live card fails.
-      out.push({ ...liveNotif(blocks, block, dateKey), url: /^(series|movies)/.test(String(block.id)) ? '/chill' : undefined });
+      // Where the block leads (Food, the startup, Chill Room...), saved on the block by the planner (lib/block-links.js).
+      const link = typeof block.link === 'string' && block.link.startsWith('/') ? block.link : /^(series|movies)/.test(String(block.id)) ? '/chill' : undefined;
+      out.push({ ...liveNotif(blocks, block, dateKey), url: link });
       out.push({
         key: `block_${block.id}_${dateKey}`,
         tag: `block_${baseId(block.id)}`,
         title: blockTitle(block),
         body: block.note,
         requireInteraction: ['study', 'coding', 'learning', 'sleep', 'meal', 'event'].includes(block.type),
-        // Watch time opens the Chill Room straight away.
-        url: /^(series|movies)/.test(String(block.id)) ? '/chill' : undefined,
+        url: link,
       });
     }
 
