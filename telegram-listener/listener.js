@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import { NewMessage } from 'telegram/events/index.js';
+import { EditedMessage } from 'telegram/events/EditedMessage.js';
 
 const { TG_API_ID, TG_API_HASH, TG_SESSION, INGEST_URL, INGEST_SECRET } = process.env;
 if (!TG_API_ID || !TG_API_HASH || !TG_SESSION || !INGEST_URL || !INGEST_SECRET) {
@@ -61,16 +62,20 @@ const handled = new Set();
 const lastId = new Map(); // chat id -> newest message id we have looked at
 
 // Shared by the live feed and the backup poll.
-async function forward({ chatId, id, date, text, title }) {
+// edited: the channel changed the post (many post "GOLD SELL 4057" first and add SL / TPs a few seconds later).
+// The edit is sent with the SAME id, so Luxe never trades one post twice: if the first version already became a
+// signal, the edit is a duplicate; if it was missing its levels, the edit is the one that gets traded.
+async function forward({ chatId, id, date, text, title, edited = false }) {
   const key = `${chatId}:${id}`;
-  if (handled.has(key)) return;
-  handled.add(key);
+  const seenKey = edited ? `${key}:${text.length}:${text.slice(-24)}` : key;
+  if (handled.has(seenKey)) return;
+  handled.add(seenKey);
   if (handled.size > 5000) handled.delete(handled.values().next().value);
   if (Number(id) > (lastId.get(String(chatId)) || 0)) lastId.set(String(chatId), Number(id));
   if (!looksLikeSignal(text)) return;
   if (watch.length && !watch.some((w) => title.toLowerCase().includes(w))) return;
   forwarded++;
-  const out = await send({ source: title, text, externalId: key, messageDate: new Date(date * 1000).toISOString() });
+  const out = await send({ source: title, text, externalId: key, messageDate: new Date(date * 1000).toISOString(), edited });
   console.log(new Date().toISOString(), title, '->', out ? JSON.stringify(out) : 'failed');
 }
 
@@ -90,6 +95,22 @@ client.addEventHandler(async (event) => {
   }
 }, new NewMessage({}));
 
+// Edited posts: only within 20 minutes of the original (later edits are usually "TP1 hit ✅" results).
+client.addEventHandler(async (event) => {
+  try {
+    const msg = event.message;
+    if (!msg || (msg.out && process.env.ALLOW_OWN === '0')) return;
+    if (!(event.isGroup || event.isChannel)) return;
+    const text = msg.message || '';
+    if (!looksLikeSignal(text)) return;
+    if (Date.now() / 1000 - Number(msg.date) > 20 * 60) return;
+    const chat = await msg.getChat();
+    await forward({ chatId: msg.chatId, id: msg.id, date: msg.editDate || Math.floor(Date.now() / 1000), text, title: chat?.title || 'Telegram group', edited: true });
+  } catch (e) {
+    console.error('edit handler error:', e.message);
+  }
+}, new EditedMessage({}));
+
 // BACKUP POLL: Telegram's live feed silently skips posts from some channels (busy ones, or ones the
 // account rarely opens, including "restrict saving content" channels). Every 45 s, look at the newest
 // message in each group/channel and fetch anything we have not handled yet.
@@ -99,7 +120,8 @@ async function pollChats() {
   if (polling) return;
   polling = true;
   try {
-    const dialogs = await client.getDialogs({ limit: 200 });
+    // All chats (not just the 200 most recent), so a quiet channel's post can't slip past.
+    const dialogs = await client.getDialogs({ limit: 1000 });
     for (const d of dialogs) {
       if (!(d.isGroup || d.isChannel) || !d.message) continue;
       const chatId = String(d.id);

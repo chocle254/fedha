@@ -73,8 +73,9 @@ export function parseSignal(text) {
   // Entry (single price or range)
   let entryLow = null;
   let entryHigh = null;
-  // "ENTRY 4058", "SELL NOW 4058", "BUY LIMIT 65000", "SELL @ 4058", "BUY ZONE 64000-64500", "SELL 4058/4062"
-  const entryRe = new RegExp(`\\b(?:ENTRY|ENTER|(?:BUY|SELL|LONG|SHORT)\\s*(?:NOW|LIMIT|STOP|MARKET|ZONE|AT|BELOW|ABOVE)?)\\s*(?:ZONE|PRICE|POINT|RANGE|AT|@)?\\s*[:=@\\-]?\\s*(${NUM})(?:\\s*(?:-|–|—|/|TO)\\s*(${NUM}))?`, 'i');
+  // "ENTRY 4058", "SELL NOW 4058", "BUY LIMIT 65000", "SELL @ 4058", "BUY ZONE 64000-64500", "SELL 4058/4062",
+  // "SELL 4057 OR 4061" (a zone too)
+  const entryRe = new RegExp(`\\b(?:ENTRY|ENTER|(?:BUY|SELL|LONG|SHORT)\\s*(?:NOW|LIMIT|STOP|MARKET|ZONE|AT|BELOW|ABOVE)?)\\s*(?:ZONE|PRICE|POINT|RANGE|AT|@)?\\s*[:=@\\-]?\\s*(${NUM})(?:\\s*(?:-|–|—|/|TO|OR|&|AND)\\s*(${NUM}))?`, 'i');
   const em = up.match(entryRe);
   if (em) {
     const a = num(em[1]);
