@@ -1687,3 +1687,5 @@ label { color: var(--text-2); }
 .wo-ex { background: radial-gradient(110% 100% at 0% 0%, color-mix(in srgb, var(--ex) 11%, transparent), transparent 55%), linear-gradient(170deg, rgba(255,246,232,0.07), rgba(255,246,232,0.012) 45%), var(--card) !important; }
 .wo-ex-ic { width: 48px; height: 48px; flex-shrink: 0; border-radius: 15px; display: grid; place-items: center; font-size: 24px;
   background: color-mix(in srgb, var(--ex) 16%, rgba(255,246,232,0.04)); border: 1px solid color-mix(in srgb, var(--ex) 30%, transparent); }
+/* Startup and hackathon workspaces: same serif title voice as every page */
+.muse-title { font-family: 'Young Serif', Georgia, serif; font-weight: 400; font-size: 28px; letter-spacing: -0.02em; line-height: 1.1; white-space: normal; text-wrap: balance; }

@@ -325,19 +325,19 @@ export default function ActivitiesPage() {
         {/* Header */}
         <div className="page-top" style={{ padding: '52px 20px 0' }}>
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Activities 🎉</div>
+            <h1 className="lx-h1" style={{ marginBottom: 6 }}>Activities</h1>
             <div style={{ fontSize: 13, color: 'var(--text-3)' }}>Find things to do and plan your free time</div>
           </div>
 
           {/* Floating cash card */}
           <div className="hero-card" style={{ padding: '18px 20px', marginBottom: 16 }}>
-            <div style={{ fontSize: 11, color: 'rgba(237,242,255,0.5)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>
               Floating Cash (Free to Spend)
             </div>
             <div className="font-num" style={{ fontSize: 30, fontWeight: 700, color: floating >= 0 ? 'var(--green)' : 'var(--red)', marginBottom: 12 }}>
               {formatCurrency(Math.max(0, floating), currency)}
             </div>
-            <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'rgba(237,242,255,0.4)' }}>
+            <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-3)' }}>
               <span>Total: {formatShort(totalBalance, currency)}</span>
               <span>Budgeted: −{formatShort(totalBudgeted, currency)}</span>
               {totalOwed > 0 && <span>Owed: −{formatShort(totalOwed, currency)}</span>}

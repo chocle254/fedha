@@ -163,33 +163,40 @@ export default function HealthPage() {
           <h1 className="lx-h1" style={{ marginBottom: 16 }}>Finance health</h1>
 
           {/* Health score */}
-          <div className="hero-card" style={{ padding:'24px 20px', marginBottom:16, textAlign:'center' }}>
-            <div style={{ fontSize:12, color:'rgba(237,242,255,0.5)', fontWeight:600, letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>Your Health Score</div>
-            <div style={{ position:'relative', width:120, height:120, margin:'0 auto 16px' }}>
-              <svg viewBox="0 0 120 120" style={{ width:120, height:120, transform:'rotate(-90deg)' }}>
-                <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="10" />
-                <circle cx="60" cy="60" r="50" fill="none" stroke={scoreColor} strokeWidth="10"
-                  strokeDasharray={`${score * 3.14} ${314 - score * 3.14}`} strokeLinecap="round" />
-              </svg>
-              <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
-                <div className="font-num" style={{ fontSize:28, fontWeight:700, color:scoreColor }}>{score}</div>
-                <div style={{ fontSize:10, color:'rgba(237,242,255,0.5)' }}>/ 100</div>
-              </div>
-            </div>
-            <div style={{ fontSize:16, fontWeight:700, color:scoreColor }}>{scoreLabel}</div>
+          <div className="hero-card" style={{ padding:'20px 20px 18px', marginBottom:16, textAlign:'center' }}>
+            {(() => {
+              // Half-circle gauge: 0 on the left, 100 on the right, with the bands it is judged by.
+              const r = 84, cx = 110, cy = 100, a0 = Math.PI, pt = (v) => { const a = a0 - (v / 100) * Math.PI; return [cx + r * Math.cos(a), cy - r * Math.sin(a)]; };
+              const arc = (v1, v2) => { const [x1, y1] = pt(v1); const [x2, y2] = pt(v2); return `M ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2}`; };
+              const [nx, ny] = pt(Math.max(0, Math.min(100, score)));
+              return (
+                <svg viewBox="0 0 220 116" width="100%" style={{ maxWidth: 300, display: 'block', margin: '0 auto' }} role="img" aria-label={`Health score ${score} out of 100, ${scoreLabel}`}>
+                  <path d={arc(0, 100)} fill="none" stroke="rgba(255,246,232,0.08)" strokeWidth="14" strokeLinecap="round" />
+                  {[[0, 40, '#F87171'], [40, 60, '#F5B54A'], [60, 80, '#A3E635'], [80, 100, '#34D399']].map(([v1, v2, c]) => <path key={v1} d={arc(v1 + 1, v2 - 1)} fill="none" stroke={c} strokeOpacity="0.28" strokeWidth="14" />)}
+                  <path d={arc(0, Math.max(1, Math.min(100, score)))} fill="none" stroke={scoreColor} strokeWidth="14" strokeLinecap="round" />
+                  <circle cx={nx} cy={ny} r="9" fill="#141210" stroke={scoreColor} strokeWidth="4" />
+                  <text x="110" y="86" textAnchor="middle" fontSize="38" fontWeight="700" fill="var(--text)" className="font-num">{score}</text>
+                  <text x="110" y="106" textAnchor="middle" fontSize="11" fill="var(--text-3)">out of 100</text>
+                  <text x="22" y="114" textAnchor="middle" fontSize="9.5" fill="var(--text-3)">Poor</text>
+                  <text x="198" y="114" textAnchor="middle" fontSize="9.5" fill="var(--text-3)">Great</text>
+                </svg>
+              );
+            })()}
+            <div style={{ fontSize:17, fontWeight:650, color:scoreColor, marginTop:8 }}>{scoreLabel}</div>
+            <div style={{ fontSize:12.5, color:'var(--text-2)', marginTop:3 }}>Built from your savings rate, cash cushion, debt and spending habits</div>
           </div>
 
           {/* Key metrics */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:16 }}>
             {[
-              { label:'Net Worth', value:netWorth, color: netWorth>=0 ? 'var(--green)' : 'var(--red)' },
-              { label:'Savings Rate', value:null, display:`${savingsRate.toFixed(1)}%`, color: savingsRate>=20 ? 'var(--green)' : savingsRate>=0 ? '#F59E0B' : 'var(--red)' },
-              { label:'Floating Cash', value:floating, color:'var(--blue)' },
-              { label:'Ziidi Saved', value:ziidiSaved, color:ZIIDI_COLOR },
+              { label:'Net worth', value:netWorth, color: netWorth>=0 ? 'var(--green)' : 'var(--red)' },
+              { label:'Savings rate', value:null, display:`${savingsRate.toFixed(1)}%`, color: savingsRate>=20 ? 'var(--green)' : savingsRate>=0 ? '#F59E0B' : 'var(--red)' },
+              { label:'Floating cash', value:floating, color:'var(--blue)' },
+              { label:'Ziidi saved', value:ziidiSaved, color:ZIIDI_COLOR },
             ].map(m => (
-              <div key={m.label} className="card-2" style={{ padding:'12px 14px' }}>
-                <div style={{ fontSize:11, color:'var(--text-3)', fontWeight:600, textTransform:'uppercase', letterSpacing:0.8, marginBottom:6 }}>{m.label}</div>
-                <div className="font-num" style={{ fontSize:16, fontWeight:700, color:m.color }}>
+              <div key={m.label} className="card" style={{ padding:'13px 14px' }}>
+                <div style={{ fontSize:12.5, color:'var(--text-2)', fontWeight:500, marginBottom:5 }}>{m.label}</div>
+                <div className="font-num" style={{ fontSize:19, fontWeight:700, color:m.color }}>
                   {m.display || formatShort(m.value, currency)}
                 </div>
               </div>

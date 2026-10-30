@@ -165,19 +165,20 @@ export default function ReportsPage() {
       <div className="page">
         <div className="page-header">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <h1 className="lx-h1" style={{ fontSize: 22, fontWeight: 700 }}>Reports</h1>
+            <h1 className="lx-h1">Reports</h1>
             {/* Currency switcher */}
             <select
               value={currency}
               onChange={(e) => setCurrency(e.target.value)}
-              style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 13, padding: '6px 10px', fontFamily: 'Onest', cursor: 'pointer' }}
+              aria-label="Currency"
+              style={{ background: 'rgba(255,246,232,0.06)', border: '1px solid var(--border)', borderRadius: 999, color: 'var(--text)', fontSize: 14, padding: '8px 14px', fontFamily: 'Onest', cursor: 'pointer', minHeight: 38 }}
             >
               {Object.keys(CURRENCIES).map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
-            {[['overview', '📊 Overview'], ['categories', '🍩 Categories'], ['networth', '📈 Net Worth']].map(([v, l]) => (
-              <button key={v} className={`chip ${tab === v ? 'active' : ''}`} onClick={() => setTab(v)}>{l}</button>
+          <div className="lx-segbar" role="tablist" aria-label="Report">
+            {[['overview', 'Overview'], ['categories', 'Categories'], ['networth', 'Net worth']].map(([v, l]) => (
+              <button key={v} role="tab" aria-selected={tab === v} className={tab === v ? 'on' : ''} onClick={() => setTab(v)}>{l}</button>
             ))}
           </div>
         </div>
@@ -191,11 +192,11 @@ export default function ReportsPage() {
                 { label: 'Income', val: totalIncome, color: 'var(--green)' },
                 { label: 'Expenses', val: totalExpense, color: 'var(--red)' },
                 { label: 'Savings', val: savings, color: savings >= 0 ? 'var(--green)' : 'var(--red)' },
-                { label: 'Savings Rate', val: null, display: `${savingsRate.toFixed(1)}%`, color: savingsRate >= 20 ? 'var(--green)' : savingsRate >= 10 ? '#F59E0B' : 'var(--red)' },
+                { label: 'Savings rate', val: null, display: `${savingsRate.toFixed(1)}%`, color: savingsRate >= 20 ? 'var(--green)' : savingsRate >= 10 ? '#F59E0B' : 'var(--red)' },
               ].map((s) => (
-                <div key={s.label} className="card-2" style={{ padding: '14px 16px' }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>{s.label}</div>
-                  <div className="font-num" style={{ fontSize: 17, fontWeight: 700, color: s.color }}>
+                <div key={s.label} className="card" style={{ padding: '14px 16px' }}>
+                  <div style={{ fontSize: 12.5, color: 'var(--text-2)', fontWeight: 500, marginBottom: 5 }}>{s.label}</div>
+                  <div className="font-num" style={{ fontSize: 20, fontWeight: 700, color: s.color }}>
                     {s.display || formatShort(s.val, currency)}
                   </div>
                 </div>
@@ -208,7 +209,7 @@ export default function ReportsPage() {
                 <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 12, padding: '14px 16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                     <span style={{ fontSize: 22 }}>⚡</span>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: '#F59E0B' }}>Impulse Spending This Month</div>
+                    <div style={{ fontSize: 15, fontWeight: 650, color: '#F5B54A' }}>Impulse spending this month</div>
                   </div>
                   <div style={{ display: 'flex', gap: 20, fontSize: 13 }}>
                     <div><span style={{ color: 'var(--text-3)' }}>Transactions: </span><span style={{ color: '#F59E0B', fontWeight: 600 }}>{impulseData.length}</span></div>
@@ -221,21 +222,21 @@ export default function ReportsPage() {
 
             {/* Monthly 6-month bar chart */}
             <div className="section">
-              <div className="section-title">6-Month Trend</div>
+              <div className="section-title">Six months</div>
               <div className="card" style={{ padding: '16px 4px 8px' }}>
                 <ResponsiveContainer width="100%" height={180}>
                   <BarChart data={monthData} margin={{ top: 0, right: 8, left: -20, bottom: 0 }} barSize={18} barGap={4}>
-                    <CartesianGrid stroke="#1F2D45" strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fill: '#3D5070', fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#3D5070', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
+                    <CartesianGrid stroke="rgba(255,244,228,0.07)" strokeDasharray="4 4" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fill: 'rgba(246,240,230,0.5)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: 'rgba(246,240,230,0.5)', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
                     <Tooltip content={<CustomBarTooltip currency={currency} />} />
-                    <Bar dataKey="income" fill="#10B981" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="expense" fill="#EF4444" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="income" fill="#34D399" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="expense" fill="#F87171" radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
                 <div style={{ display: 'flex', justifyContent: 'center', gap: 20, padding: '4px 0 4px', fontSize: 12, color: 'var(--text-3)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 10, background: '#10B981', display: 'inline-block', borderRadius: 2 }} /> Income</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 10, background: '#EF4444', display: 'inline-block', borderRadius: 2 }} /> Expenses</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 10, background: '#34D399', display: 'inline-block', borderRadius: 3 }} /> Income</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 10, background: '#F87171', display: 'inline-block', borderRadius: 3 }} /> Expenses</div>
                 </div>
               </div>
             </div>
@@ -259,7 +260,7 @@ export default function ReportsPage() {
         {tab === 'categories' && (
           <div>
             <div className="section">
-              <div className="section-title">{monthLabel} — Spending by Category</div>
+              <div className="section-title">Where it went in {monthLabel}</div>
               {catData.length === 0 ? (
                 <div className="empty-state">
                   <div className="icon">🍩</div>
@@ -310,11 +311,11 @@ export default function ReportsPage() {
           <div style={{ padding: '0 20px' }}>
             {/* Net worth number */}
             <div className="hero-card" style={{ padding: '24px 20px', marginBottom: 20 }}>
-              <div style={{ fontSize: 12, color: 'rgba(237,242,255,0.5)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Net Worth</div>
+              <div style={{ fontSize: 12, color: 'var(--text-2)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Net Worth</div>
               <div className="font-num" style={{ fontSize: 36, fontWeight: 700, color: netWorth >= 0 ? 'var(--green)' : 'var(--red)', marginBottom: 4 }}>
                 {formatCurrency(netWorth, currency)}
               </div>
-              <div style={{ fontSize: 13, color: 'rgba(237,242,255,0.4)' }}>Assets − Liabilities</div>
+              <div style={{ fontSize: 13, color: 'var(--text-3)' }}>Assets − Liabilities</div>
             </div>
 
             {/* Breakdown */}

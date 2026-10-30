@@ -207,7 +207,7 @@ function BreakOverlay({ brk, now, onEnd }) {
       {done ? (
         <button className="btn-primary" onClick={onEnd} style={{ background: 'var(--green)', color: '#000', maxWidth: 280 }}>I’m rebooted — back to work</button>
       ) : (
-        <button onClick={onEnd} style={{ background: 'none', border: 'none', color: 'rgba(237,242,255,0.4)', fontSize: 12, cursor: 'pointer', fontFamily: 'Onest', textDecoration: 'underline' }}>
+        <button onClick={onEnd} style={{ background: 'none', border: 'none', color: 'var(--text-3)', fontSize: 12, cursor: 'pointer', fontFamily: 'Onest', textDecoration: 'underline' }}>
           Skip break (not recommended)
         </button>
       )}
@@ -402,11 +402,11 @@ function JobDetail({ job, onBack }) {
       {/* Progress hero */}
       <div className="hero-card" style={{ padding: '18px 20px', marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-          <div style={{ fontSize: 11, color: 'rgba(237,242,255,0.5)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase' }}>This Lock Period · {p.period.label}</div>
-          <div style={{ fontSize: 11, color: 'rgba(237,242,255,0.5)', fontWeight: 600 }}>{job.multiplier}× goal</div>
+          <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase' }}>This Lock Period · {p.period.label}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600 }}>{job.multiplier}× goal</div>
         </div>
         <div className="font-num" style={{ fontSize: 30, fontWeight: 700, color: 'var(--green)', marginBottom: 2 }}>
-          {fmt(p.earnedTotal, sym)} <span style={{ fontSize: 15, color: 'rgba(237,242,255,0.5)', fontWeight: 600 }}>/ {fmt(p.target, sym)}</span>
+          {fmt(p.earnedTotal, sym)} <span style={{ fontSize: 15, color: 'var(--text-2)', fontWeight: 600 }}>/ {fmt(p.target, sym)}</span>
         </div>
         {p.carryover > 0 && <div style={{ fontSize: 12, color: '#F59E0B', fontWeight: 600, marginBottom: 8 }}>Includes {fmt(p.carryover, sym)} carried over from last period</div>}
         {/* progress bar */}

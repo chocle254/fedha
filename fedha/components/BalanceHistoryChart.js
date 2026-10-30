@@ -14,7 +14,7 @@ const RANGES = [
   { id: 'ALL', label: 'All', days: null },
 ];
 
-const LINE = '#10B981';
+const LINE = '#34D399';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // Money in or out of your total. Transfers between your own wallets don't
@@ -155,12 +155,12 @@ export default function BalanceHistoryChart({ transactions, currentBalance, curr
                   <stop offset="100%" stopColor={LINE} stopOpacity={0.02} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke="#1F2D45" strokeDasharray="4 4" vertical={false} />
+              <CartesianGrid stroke="rgba(255,244,228,0.07)" strokeDasharray="4 4" vertical={false} />
               <XAxis dataKey="date" ticks={ticks} interval={0} tickFormatter={(iso) => (spansYears ? `${MONTHS[parse(iso).getMonth()]} '${String(parse(iso).getFullYear()).slice(2)}` : dayLabel(iso))}
                 tick={{ fill: '#8496B8', fontSize: 10 }} axisLine={false} tickLine={false} minTickGap={4} />
               <YAxis width={44} tick={{ fill: '#8496B8', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => axisNum(v, currency)} />
-              {data.some((d) => d.balance < 0) && <ReferenceLine y={0} stroke="#3D5070" />}
-              <Tooltip content={<ChartTooltip currency={currency} />} cursor={{ stroke: '#8496B8', strokeWidth: 1, strokeDasharray: '3 3' }} />
+              {data.some((d) => d.balance < 0) && <ReferenceLine y={0} stroke="rgba(246,240,230,0.5)" />}
+              <Tooltip content={<ChartTooltip currency={currency} />} cursor={{ stroke: 'rgba(246,240,230,0.35)', strokeWidth: 1, strokeDasharray: '3 3' }} />
               <Area type="monotone" dataKey="balance" stroke={LINE} strokeWidth={2} fill="url(#gBalanceHistory)" dot={false}
                 activeDot={{ r: 5, fill: LINE, stroke: 'var(--card)', strokeWidth: 2 }} isAnimationActive={false} />
             </AreaChart>
