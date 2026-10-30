@@ -1538,3 +1538,23 @@ button:focus:not(:focus-visible) { outline: none; }
 .lx-row:active { background: rgba(255,255,255,0.05); }
 .lx-h1 { font-size: 32px !important; font-weight: 700 !important; letter-spacing: -0.035em; line-height: 1.08; color: var(--text); }
 @media (max-width: 380px) { .lx-h1, .page-header h1 { font-size: 28px !important; } }
+
+/* ═══ PERFORMANCE MODE (phones) — smooth scrolling over looks. Things that repaint while you scroll are off. ═══ */
+@media (max-width: 959px) {
+  /* Blur behind moving content is re-computed every scroll frame on Android: none on phones. */
+  *, *::before, *::after { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+  .bottom-nav { background: rgba(13, 14, 19, 0.96) !important; }
+  .muse-tabs { background: rgba(6, 7, 10, 0.97) !important; }
+  /* Big soft shadows cost paint on every card: keep only the inner light edge. */
+  .card, .hero-card, .lx-wcard { box-shadow: inset 0 1px 0 rgba(255,255,255,0.06) !important; }
+  .chip.active { box-shadow: none; }
+  .nav-item.active svg { filter: none; }
+  /* Page change: one quick fade of the page, no per-section choreography. */
+  .page > .section, .page > div > .section, .page > .card { animation: none !important; }
+  .hero-card::after { display: none; }
+}
+/* The grain texture is blended over the whole screen: removed everywhere (the wallpapers don't need it). */
+.lx-grain { display: none !important; }
+/* Background lives on its own layer and never repaints while the page scrolls. */
+.lx-ambience { transform: translateZ(0); contain: strict; }
+.lx-nav-pill { will-change: auto; }
