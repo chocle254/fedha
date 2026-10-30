@@ -115,6 +115,18 @@ export default function Chill() {
     setLib(l); setProg(p); setWindows(w);
   };
   useEffect(() => { load(); const t = setInterval(() => setNow(Date.now()), 30e3); return () => clearInterval(t); }, []);
+  // Auto-scan: in the Luxe app, if the last scan is over 20 min old, ask the app to scan the phone again (it takes
+  // a second and comes straight back), then reload the library. Once per visit; ⟳ still does it by hand.
+  const scanNow = () => { [5000, 10000, 18000].forEach((ms) => setTimeout(load, ms)); window.location.href = scanLink; };
+  useEffect(() => {
+    if (!lib) return;
+    const inApp = /Android/i.test(navigator.userAgent) && (document.referrer.startsWith('android-app://') || window.matchMedia?.('(display-mode: standalone)').matches);
+    const old = !lib.scanned_at || Date.now() - new Date(lib.scanned_at).getTime() > 20 * 60e3;
+    let done = false; try { done = sessionStorage.getItem('luxe_chill_scanned') === '1'; } catch { /* private */ }
+    if (!inApp || !old || done) return;
+    try { sessionStorage.setItem('luxe_chill_scanned', '1'); } catch { /* private */ }
+    scanNow();
+  }, [lib]); // eslint-disable-line react-hooks/exhaustive-deps
   // On Wi-Fi, get Reels ready in the background (the feed + the first 4 trailers looked up). Never on mobile data.
   useEffect(() => { const t = setTimeout(() => { if (connection().wifi) prefetchReels(); }, 4000); return () => clearTimeout(t); }, []);
   const { shows, movies } = useMemo(() => organise(lib?.files || []), [lib]);
@@ -189,11 +201,15 @@ export default function Chill() {
       <Head><title>Chill Room · Luxe</title></Head>
       <div className="cr">
         <header className="cr-top">
-          <h1>Chill Room</h1>
-          <Session windows={windows} now={now} />
-          <button type="button" className="cr-pill" onClick={cycleSound} aria-label="Sound mode">{SOUNDS.find(([k]) => k === sound)?.[1]}</button>
-          <Link href="/reels" className="cr-pill" style={{ textDecoration: 'none', background: 'linear-gradient(135deg,#e50914,#7c3aed)', color: '#fff' }}>🎬 Reels</Link>
-          <a className="cr-scan" href={scanLink} onClick={() => setTimeout(load, 9000)} aria-label="Scan the phone for new downloads">⟳</a>
+          <div className="cr-topRow">
+            <h1>Chill Room</h1>
+            <button type="button" className="cr-scan" onClick={scanNow} aria-label="Scan the phone for new downloads">⟳</button>
+          </div>
+          <div className="cr-pills">
+            <Session windows={windows} now={now} />
+            <button type="button" className="cr-pill" onClick={cycleSound} aria-label="Sound mode">{SOUNDS.find(([k]) => k === sound)?.[1]}</button>
+            <Link href="/reels" className="cr-pill" style={{ textDecoration: 'none', background: 'linear-gradient(135deg,#e50914,#7c3aed)', color: '#fff' }}>🎬 Reels</Link>
+          </div>
         </header>
 
         {!lib && <div className="cr-note">Loading your library…</div>}
@@ -202,7 +218,7 @@ export default function Chill() {
             <div className="big">🍿</div>
             <h2>Your movies, on one screen</h2>
             <p>Luxe looks in Download and Telegram on this phone for series and movies (personal videos are skipped). Videos stay on the phone.</p>
-            <a className="cr-btnW" href={scanLink} onClick={() => setTimeout(load, 9000)}>Scan my downloads</a>
+            <button type="button" className="cr-btnW" onClick={scanNow}>Scan my downloads</button>
           </div>
         )}
 
@@ -298,7 +314,7 @@ export default function Chill() {
           </section>
         )}
 
-        {lib?.scanned_at && <div className="cr-note">Scanned {new Date(lib.scanned_at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · ⟳ after new downloads</div>}
+        {lib?.scanned_at && <div className="cr-note">Scanned {new Date(lib.scanned_at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · rescans by itself when you open the Chill Room</div>}
       </div>
 
       {open && (
@@ -372,12 +388,16 @@ export default function Chill() {
         .cr-tBar button { border: 0; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.12); color: #fff; font-size: 14px; cursor: pointer; }
         .cr-date { left: 6px !important; right: auto !important; top: 6px; bottom: auto !important; width: auto !important; height: auto !important; padding: 3px 7px; border-radius: 6px !important; background: #e50914 !important; color: #fff !important; font-size: 10.5px !important; font-weight: 800; }
         .cr { background: #000; color: #f5f5f7; min-height: 100vh; padding-bottom: calc(150px + env(safe-area-inset-bottom)); font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif; }
-        .cr-top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: rgba(0,0,0,0.6); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
+        .cr-top { position: sticky; top: 0; z-index: 5; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px; background: rgba(0,0,0,0.6); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
         .cr-top h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.4px; margin: 0; flex: 1; white-space: nowrap; }
         .cr-pill { border: 0; font-family: inherit; cursor: pointer; font-size: 12px; font-weight: 600; padding: 6px 11px; border-radius: 999px; background: rgba(255,255,255,0.1); color: #d1d1d6; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
         .cr-pill.live { background: rgba(48,209,88,0.16); color: #30d158; }
         .cr-pill i { width: 7px; height: 7px; border-radius: 50%; background: #30d158; box-shadow: 0 0 8px #30d158; }
-        .cr-scan { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,0.1); color: #fff; text-decoration: none; font-size: 17px; flex-shrink: 0; }
+        .cr-topRow { display: flex; align-items: center; gap: 10px; }
+        .cr-pills { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
+        .cr-pills::-webkit-scrollbar { display: none; }
+        .cr-pills > * { flex-shrink: 0; }
+        .cr-scan { border: 0; cursor: pointer; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,0.1); color: #fff; text-decoration: none; font-size: 17px; flex-shrink: 0; }
         .cr-hero { position: relative; height: 56vh; min-height: 320px; background: #111 center top / cover no-repeat; display: flex; align-items: flex-end; }
         .cr-shade { position: absolute; inset: 0; background: linear-gradient(to top, #000 2%, rgba(0,0,0,0.7) 32%, rgba(0,0,0,0.1) 65%, rgba(0,0,0,0.3)); pointer-events: none; }
         .cr-heroIn { position: relative; padding: 0 16px 20px; width: 100%; }
