@@ -564,7 +564,7 @@ export default function TradingPage() {
                     {groupsFromBroker ? 'Scored from the MT5 demo accounts (each signal on each account counts once). ' : 'Every signal is paper-traded on its own. '}R = profit ÷ risk (+1R made what it risked, −1R hit the stop). Confidence grows as a group keeps winning, and its lot size grows with it (up to ×3). New groups stay small until {GROUP_MIN_TRADES} closed trades; 3 stop-losses in a row halve the size.
                   </div>
                   {groups.map((g) => {
-                    const v = { scale: [C.up, `Lots ×${g.lotMultiplier}`], keep: ['#EAECEF', `Lots ×${g.lotMultiplier}`], testing: [C.gold, `Testing ×${g.lotMultiplier}`], drop: [C.down, 'Drop'] }[g.verdict];
+                    const v = g.verdict === 'testing' && g.realOk ? [C.up, `Early real ×${Math.min(1, g.lotMultiplier)}`] : { scale: [C.up, `Lots ×${g.lotMultiplier}`], keep: ['#EAECEF', `Lots ×${g.lotMultiplier}`], testing: [C.gold, `Testing ×${g.lotMultiplier}`], drop: [C.down, 'Drop'] }[g.verdict];
                     return (
                       <div key={g.source} className="tx-group font-num">
                         <div className="tx-group-top">

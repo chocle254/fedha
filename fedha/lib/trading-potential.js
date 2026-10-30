@@ -69,10 +69,10 @@ export function potentialReport(rows, { start = 1000, riskPct = 1, goal = 10000 
   const avgAll = closed.reduce((s, t) => s + t.r, 0) / closed.length;
 
   // Go-real checklist from the data.
-  const proven = channels.filter((c) => c.n >= 10 && c.avgR >= 0.2);
+  const proven = channels.filter((c) => c.n >= 5 && c.avgR >= 0.2); // same early bar as REAL_EARLY_* in trading-core
   const checks = [
     { ok: closed.length >= 30, text: `30+ closed trades to judge from (${closed.length} so far)` },
-    { ok: proven.length >= 1, text: `At least one channel with 10+ trades and avg R ≥ +0.2 (${proven.length ? proven.map((c) => c.source).join(', ') : 'none yet'})` },
+    { ok: proven.length >= 1, text: `At least one channel with 5+ trades and avg R ≥ +0.2 (${proven.length ? proven.map((c) => c.source).join(', ') : 'none yet'})` },
     { ok: avgAll > 0, text: `All signals together make money (avg ${avgAll >= 0 ? '+' : ''}${avgAll.toFixed(2)}R per trade)` },
     { ok: best.maxDd < 40 && nBest >= 10, text: `Following the winners, the worst drop stays under 40% (${nBest >= 10 ? `${best.maxDd}%` : 'not enough trades'})` },
   ];

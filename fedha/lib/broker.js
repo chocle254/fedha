@@ -4,7 +4,7 @@
 // SAFETY: real-money accounts are refused unless broker_settings.allow_real is true.
 import { supabaseAdmin } from './supabaseAdmin';
 import { BROKER_ACCOUNTS, accountId, metaapiConfigured, mt, tradeOk, findSymbol } from './metaapi';
-import { groupReport, brokerResults, splitLots, LOT_MIN, trailCandidate, TRAIL_DEFAULT, growthTier } from './trading-core';
+import { groupReport, brokerResults, splitLots, LOT_MIN, REAL_EARLY_TRADES, trailCandidate, TRAIL_DEFAULT, growthTier } from './trading-core';
 import { notify, trailProfiles, atrBefore, growthState } from './trading';
 import { newsCheck, newsReason } from './news-guard';
 
@@ -46,7 +46,7 @@ export async function brokerSizing(userId, source) {
   }
   const g = groupReport(results)[0];
   if (!g) return { mult: 0.5, confidence: 50, verdict: 'testing' };
-  return { mult: g.lotMultiplier, confidence: g.confidence, verdict: g.verdict };
+  return { mult: g.lotMultiplier, confidence: g.confidence, verdict: g.verdict, realOk: g.realOk };
 }
 
 function brokerSymbolFor(parsed) {
@@ -85,9 +85,12 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
     if (real) return { skipped: `${source} is marked Drop.` };
     mult = LOT_MIN; // demo keeps measuring dropped channels at the smallest size
   }
-  // Real money only follows channels with a proven record (10+ closed trades, positive, Keep or Scale).
-  // Channels still being tested keep trading on demo and paper until they earn it.
-  if (real && sizing.verdict === 'testing') return { skipped: `${source} is still being tested (fewer than 10 closed trades), so demo only.` };
+  // Real money only follows channels with a proven record: Keep or Scale (10+ closed trades, positive), or
+  // winning early (5+ trades, see REAL_EARLY_* in trading-core) at up to 1x lots. The rest stay on demo and paper.
+  if (real && sizing.verdict === 'testing') {
+    if (!sizing.realOk) return { skipped: `${source} is still being tested (needs ${REAL_EARLY_TRADES}+ closed trades and a clear winning record), so demo only.` };
+    mult = Math.min(mult, 1);
+  }
   // News guard: skip right around a high-impact release, half lot in the hour before (lib/news-guard.js).
   if (news?.level === 'danger') return { skipped: `News: ${news.reason}`, news: true };
   if (news?.level === 'caution') mult = Math.max(LOT_MIN, Math.round(mult * news.mult * 100) / 100);

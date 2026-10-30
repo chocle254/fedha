@@ -269,6 +269,12 @@ export function partialRealized(t) {
 // (R = profit ÷ the amount risked; +2R means the trade made twice what it risked, -1R is a full stop-out).
 // The verdict is what the AI and the Trading page use to size real-account lots and to drop groups.
 export const GROUP_MIN_TRADES = 10; // fewer closed trades than this is too little to judge
+// Early real money: a channel still being tested can trade real money from 5 closed trades if it is clearly
+// winning (avg +0.2R or better, 70%+ confident, not on a 3-stop-loss run). Its real lots stay at 1x or less
+// until it reaches GROUP_MIN_TRADES, so a lucky start can't size up on real money.
+export const REAL_EARLY_TRADES = 5;
+export const REAL_EARLY_MIN_R = 0.2;
+export const REAL_EARLY_MIN_CONF = 70;
 
 export function tradeR(t) {
   const risk = Number(t.actual_risk_usdt) || Number(t.risk_usdt) || 0;
@@ -320,6 +326,7 @@ export function groupReport(trades = []) {
     const cap = Math.min(LOT_MAX, 1 + n * 0.2);
     let lotMultiplier = Math.min(cap, 0.5 + edge * (LOT_MAX - 0.5));
     let verdict, why;
+    let realOk = false;
     if (n < GROUP_MIN_TRADES) {
       // Still being tested: on paper it sizes by its record from the first trade (up to the same ceiling as a
       // proven channel), so the paper results show what the money would really look like. Real accounts
@@ -327,6 +334,10 @@ export function groupReport(trades = []) {
       verdict = 'testing';
       lotMultiplier = Math.max(LOT_MIN, lotMultiplier);
       why = `${n} closed trade${n === 1 ? '' : 's'}, ${confidence}% confident: lot ×${(Math.floor(lotMultiplier * 4) / 4).toFixed(2).replace(/\.?0+$/, '')} on paper, growing with its record. Real money after ${GROUP_MIN_TRADES} closed trades.`;
+      if (n >= REAL_EARLY_TRADES && avgR >= REAL_EARLY_MIN_R && confidence >= REAL_EARLY_MIN_CONF && g.streak < 3) {
+        realOk = true;
+        why = `${n} closed trades, ${confidence}% confident, ${avgR >= 0 ? '+' : ''}${avgR.toFixed(2)}R per trade: winning early, so it trades real money at up to 1x lots until ${GROUP_MIN_TRADES} trades.`;
+      }
     } else if (confidence < 25 || avgR <= 0) {
       verdict = 'drop'; lotMultiplier = 0;
       why = `Only ${confidence}% confident it makes money (${avgR >= 0 ? '+' : ''}${avgR.toFixed(2)}R per trade over ${n}). No real money; still paper-tracked in case it recovers.`;
@@ -343,7 +354,8 @@ export function groupReport(trades = []) {
       why += ` Halved for now: ${g.streak} stop-losses in a row.`;
     }
     if (lotMultiplier > 0) lotMultiplier = Math.max(LOT_MIN, Math.floor(lotMultiplier * 4) / 4);
-    return { ...g, avgR, winRate, confidence, verdict, lotMultiplier, why };
+    if (verdict === 'keep' || verdict === 'scale') realOk = true;
+    return { ...g, avgR, winRate, confidence, verdict, lotMultiplier, why, realOk };
   }).sort((a, b) => b.confidence - a.confidence || b.avgR - a.avgR);
 }
 
