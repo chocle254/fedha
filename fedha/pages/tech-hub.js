@@ -1803,7 +1803,7 @@ export default function TechHubPage() {
     certificates: certificatesRaw, addCertificate, updateCertificate, removeCertificate,
     research: researchRaw, addResearch, updateResearch, removeResearch,
     onlineJobs: onlineJobsRaw,
-    clientProjects, addClientProject, updateClientProject, removeClientProject, wallets, addTransaction,
+    clientProjects, addClientProject, updateClientProject, removeClientProject, wallets, addTransaction, transactions, removeTransaction,
     loading: appLoading,
   } = useApp();
   // useApp() should always return these as arrays (AppContext.js defaults
@@ -1854,18 +1854,34 @@ export default function TechHubPage() {
     if (!project || !Number.isFinite(amount) || amount <= 0) return;
     const outstanding = clientProjectTotals(project).remaining;
     if (amount > outstanding) return;
-    await addTransaction({
-      type: 'income',
-      amount,
-      category: 'Freelance',
-      wallet_id: walletId,
-      description: note ? project.client_name + ' — ' + project.name + ' — ' + note : project.client_name + ' — ' + project.name + ' — client payment',
-      client_project_id: project.id,
-      client_name: project.client_name,
-    });
+    const description = note ? project.client_name + ' — ' + project.name + ' — ' + note : project.client_name + ' — ' + project.name + ' — client payment';
+    // If the M-Pesa SMS for this payment was already recorded automatically (same wallet, same amount, last 3 days),
+    // relabel that one as this client's payment instead of adding the money a second time. Same id, so the SMS
+    // recorder never adds it back; the balance nets out unchanged.
+    const smsTx = (transactions || []).find((t) => String(t.id).startsWith('sms_') && t.type === 'income' && t.wallet_id === walletId
+      && Math.abs(Number(t.amount) - amount) < 1 && !t.client_project_id
+      && Math.abs(new Date(t.date).getTime() - new Date(todayISO()).getTime()) <= 3 * 864e5);
+    let txId = null;
+    if (smsTx && removeTransaction) {
+      await removeTransaction(smsTx.id);
+      const { client_project_id: _a, client_name: _b, ...rest } = smsTx;
+      await addTransaction({ ...rest, category: 'freelance', description, client_project_id: project.id, client_name: project.client_name, skipSavingsCut: true });
+      txId = smsTx.id;
+    } else {
+      const tx = await addTransaction({
+        type: 'income',
+        amount,
+        category: 'freelance',
+        wallet_id: walletId,
+        description,
+        client_project_id: project.id,
+        client_name: project.client_name,
+      });
+      txId = tx?.id || null;
+    }
     await updateClientProject({
       ...project,
-      payments: [{ id: genId(), amount, date: todayISO(), wallet_id: walletId, note: note || '', transaction_category: 'Freelance' }, ...(project.payments || [])],
+      payments: [{ id: genId(), amount, date: todayISO(), wallet_id: walletId, note: note || '', transaction_category: 'freelance', transaction_id: txId, from_sms: !!smsTx }, ...(project.payments || [])],
     });
     setClientPayment(null);
   }
