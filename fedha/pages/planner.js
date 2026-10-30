@@ -1154,80 +1154,126 @@ export default function PlannerPage() {
           {/* TODAY */}
           {tab === 'today' && (
             <>
-              {currentBlock && (
-                <div style={{ marginBottom:16 }}>
-                  <div className="section-title">Right now</div>
-                  <div style={{ background:colorsFor(currentBlock.type).bg, border:`2px solid ${colorsFor(currentBlock.type).border}`, borderRadius:16, padding:16 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:10 }}>
-                      <span style={{ fontSize:28 }}>{currentBlock.emoji}</span>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:16, fontWeight:700, color:colorsFor(currentBlock.type).text }}>{currentBlock.label}</div>
-                        <div style={{ fontSize:12, color:'var(--text-3)', marginTop:2 }}>
-                          {currentBlock.duration<60 ? `${currentBlock.duration} min block` : `${Math.floor(currentBlock.duration/60)}h${currentBlock.duration%60>0?' '+currentBlock.duration%60+'m':''} block`}
+              {(() => {
+                // The day at a glance: every block as a segment sized by its length, coloured by type, with "now".
+                const day = blocks.filter((x) => x.type !== 'sleep');
+                if (!day.length) return null;
+                const start = Math.min(...day.map((x) => t2m(x.time)));
+                const end = Math.max(...day.map((x) => t2m(x.time) + x.duration));
+                const span = Math.max(1, end - start);
+                const nowPct = Math.min(100, Math.max(0, ((nowMins - start) / span) * 100));
+                const missed = day.filter((x) => nowMins >= t2m(x.time) + x.duration && !completedIds.includes(x.id)).length;
+                const left = day.filter((x) => nowMins < t2m(x.time) + x.duration && !completedIds.includes(x.id)).length;
+                const R = 26, C = 2 * Math.PI * R;
+                return (
+                  <div className="card pl-day" style={{ padding: 16, marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <svg width="64" height="64" viewBox="0 0 64 64" role="img" aria-label={`${pct}% of today done`} style={{ flexShrink: 0 }}>
+                        <circle cx="32" cy="32" r={R} fill="none" stroke="rgba(255,246,232,0.08)" strokeWidth="6" />
+                        <circle cx="32" cy="32" r={R} fill="none" stroke="var(--accent)" strokeWidth="6" strokeLinecap="round" transform="rotate(-90 32 32)" strokeDasharray={`${(pct / 100) * C} ${C}`} />
+                        <text x="32" y="36.5" textAnchor="middle" fontSize="14" fontWeight="700" fill="var(--text)" className="font-num">{pct}%</text>
+                      </svg>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 16, fontWeight: 650 }}>{pct >= 100 ? 'Everything done today' : left === 0 ? 'Day wrapped up' : `${left} block${left === 1 ? '' : 's'} still ahead`}</div>
+                        <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 12.5, color: 'var(--text-2)' }}>
+                          <span><b className="font-num" style={{ color: 'var(--green)' }}>{completedIds.length}</b> done</span>
+                          <span><b className="font-num" style={{ color: 'var(--text)' }}>{left}</b> left</span>
+                          {missed > 0 && <span><b className="font-num" style={{ color: '#F5B54A' }}>{missed}</b> missed</span>}
                         </div>
                       </div>
                     </div>
-                    <div className="progress-bar" style={{ height:8, marginBottom:10 }}>
-                      <div className="progress-fill" style={{ width:`${currentProgress}%`, background:colorsFor(currentBlock.type).dot }} />
+                    <div className="pl-strip" aria-hidden="true">
+                      {day.map((x) => {
+                        const done = completedIds.includes(x.id);
+                        const past = nowMins >= t2m(x.time) + x.duration;
+                        return <span key={x.id} style={{ flexGrow: x.duration, background: colorsFor(x.type).dot, opacity: done ? 1 : past ? 0.28 : 0.55 }} />;
+                      })}
+                      {nowMins >= start && nowMins <= end && <i style={{ left: `${nowPct}%` }} />}
                     </div>
-                    <div style={{ fontSize:13, color:'var(--text-2)', lineHeight:1.5 }}>{currentBlock.note}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-3)', marginTop: 6 }} className="font-num">
+                      <span>{fmt12(day[0].time)}</span><span>{fmt12(`${String(Math.floor(end / 60) % 24).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`)}</span>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
-              {nextBlock && nextBlock.id !== currentBlock?.id && (
-                <div style={{ marginBottom:16 }}>
+              {currentBlock && (() => {
+                const c = colorsFor(currentBlock.type);
+                const endM = t2m(currentBlock.time) + currentBlock.duration;
+                const leftM = Math.max(0, endM - nowMins);
+                const endLabel = fmt12(`${String(Math.floor(endM / 60) % 24).padStart(2, '0')}:${String(endM % 60).padStart(2, '0')}`);
+                return (
+                  <div style={{ marginBottom: 16 }}>
+                    <div className="section-title">Right now</div>
+                    <div className="pl-now" style={{ '--blk': c.dot, borderColor: c.border }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+                        <span className="pl-now-emoji">{currentBlock.emoji}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 19, fontWeight: 650, letterSpacing: '-0.015em', lineHeight: 1.25 }}>{currentBlock.label}</div>
+                          <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 4 }}>
+                            <b className="font-num" style={{ color: c.text }}>{leftM >= 60 ? `${Math.floor(leftM / 60)}h ${leftM % 60}m` : `${leftM} min`}</b> left · until {endLabel}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="progress-bar" style={{ height: 8, margin: '14px 0 12px' }}>
+                        <div className="progress-fill" style={{ width: `${currentProgress}%`, background: c.dot }} />
+                      </div>
+                      {currentBlock.note && <div style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.55 }}>{currentBlock.note}</div>}
+                      {nextBlock && nextBlock.id !== currentBlock.id && (
+                        <div className="pl-next">
+                          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Then</span>
+                          <span style={{ fontSize: 16 }}>{nextBlock.emoji}</span>
+                          <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nextBlock.label}</span>
+                          <span className="font-num" style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{fmt12(nextBlock.time)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {!currentBlock && nextBlock && (
+                <div style={{ marginBottom: 16 }}>
                   <div className="section-title">Up next</div>
-                  <div className="card" style={{ padding:'12px 14px', display:'flex', alignItems:'center', gap:12 }}>
-                    <span style={{ fontSize:22 }}>{nextBlock.emoji}</span>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:14, fontWeight:600 }}>{nextBlock.label}</div>
-                      <div style={{ fontSize:12, color:'var(--text-3)' }}>Starts {fmt12(nextBlock.time)}</div>
+                  <div className="card" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontSize: 24 }}>{nextBlock.emoji}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 15, fontWeight: 600 }}>{nextBlock.label}</div>
+                      <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>Starts {fmt12(nextBlock.time)}</div>
                     </div>
-                    <div style={{ width:10, height:10, borderRadius:'50%', background:colorsFor(nextBlock.type).dot, flexShrink:0 }} />
                   </div>
                 </div>
               )}
-
-              <div style={{ marginBottom:16 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
-                  <div className="section-title" style={{ marginBottom:0 }}>Progress</div>
-                  <div style={{ fontSize:13, color:'var(--green)', fontWeight:600 }}>{completedIds.length}/{totalNonSleep} · {pct}%</div>
-                </div>
-                <div className="progress-bar" style={{ height:8 }}>
-                  <div className="progress-fill" style={{ width:`${pct}%`, background:'var(--green)' }} />
-                </div>
-              </div>
 
               <div className="section-title">Full schedule {isWeekend ? '(weekend)' : '(weekday)'}</div>
-              <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:24 }}>
+              <div style={{ display:'flex', flexDirection:'column', marginBottom:24 }}>
                 {blocks.map(block => {
                   const isNow = nowMins>=t2m(block.time) && nowMins<t2m(block.time)+block.duration;
                   const isPast = nowMins >= t2m(block.time)+block.duration && !(block.type==='sleep');
                   const isDone = completedIds.includes(block.id);
                   const c = colorsFor(block.type);
                   return (
-                    <div key={block.id} style={{ display:'flex', alignItems:'flex-start', gap:8, opacity: isPast&&!isDone ? 0.45 : 1 }}>
+                    <div key={block.id} style={{ display:'flex', alignItems:'stretch', gap:10, opacity: isPast&&!isDone ? 0.5 : 1 }}>
                       <div style={{ width:56, flexShrink:0, paddingTop:11, textAlign:'right' }}>
                         <div className="font-num" style={{ fontSize:11, color: isNow ? c.text : 'var(--text-3)', fontWeight: isNow ? 700 : 400, lineHeight:1.3, whiteSpace:'pre-line' }}>
                           {fmt12(block.time).replace(' ','\n')}
                         </div>
                       </div>
-                      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:11 }}>
-                        <div style={{ width:12, height:12, borderRadius:'50%', background: isNow ? c.dot : isDone ? 'var(--green)' : 'var(--border)', flexShrink:0, boxShadow: isNow ? `0 0 8px ${c.dot}70` : 'none' }} />
-                        <div style={{ width:2, flex:1, background:'var(--border)', minHeight:16, marginTop:4 }} />
+                      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:13, width:14, flexShrink:0 }}>
+                        <div className={`pl-node ${isNow ? 'now' : isDone ? 'done' : ''}`} style={{ '--blk': c.dot }}>{isDone && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#0b0b0b" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7" /></svg>}</div>
+                        <div className="pl-rail" />
                       </div>
-                      <div style={{ flex:1, background: isNow ? c.bg : isDone ? 'rgba(16,185,129,0.06)' : 'var(--card)', border:`1px solid ${isNow ? c.border : isDone ? 'rgba(16,185,129,0.2)' : 'var(--border)'}`, borderRadius:10, padding:'10px 12px', marginBottom:2, cursor:'pointer' }}
+                      <div className={`pl-blk lx-row ${isNow ? 'now' : ''} ${isDone ? 'done' : ''}`} style={{ '--blk': c.dot, borderColor: isNow ? c.border : undefined }}
                         onClick={() => toggleDone(block.id)}>
                         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                          <span style={{ fontSize:16, flexShrink:0 }}>{isDone ? '✅' : block.emoji}</span>
+                          <span style={{ fontSize:17, flexShrink:0, filter: isDone ? 'grayscale(0.6)' : 'none' }}>{block.emoji}</span>
                           <div style={{ flex:1 }}>
                             <div style={{ fontSize:13, fontWeight:600, color: isNow ? c.text : isDone ? 'var(--text-3)' : 'var(--text)', textDecoration: isDone ? 'line-through' : 'none' }}>{block.label}</div>
                             <div style={{ fontSize:11, color:'var(--text-3)', marginTop:1 }}>
                               {block.duration<60 ? `${block.duration} min` : `${Math.floor(block.duration/60)}h${block.duration%60>0?' '+block.duration%60+'m':''}`}
                             </div>
                           </div>
-                          <div style={{ width:6, height:6, borderRadius:'50%', background:c.dot, flexShrink:0 }} />
+                          <span className="pl-type" style={{ background: c.dot }} />
                         </div>
                         {isNow && <div style={{ fontSize:12, color:'var(--text-2)', marginTop:6, lineHeight:1.5, borderTop:'1px solid var(--border)', paddingTop:6 }}>{block.note}</div>}
                         {(() => { const l = blockLink(block, { startups, hackathons }); return l && <a href={l.href} onClick={(e)=>e.stopPropagation()} style={{ display:'inline-block', marginTop:8, padding:'7px 14px', borderRadius:10, background:'#f5f5f7', color:'#000', fontSize:12.5, fontWeight:700, textDecoration:'none' }}>{l.text}</a>; })()}

@@ -152,12 +152,12 @@ export default function FoodDiaryPage() {
         <div className="page">
           <div className="page-header">
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-              <h1 className="lx-h1" style={{fontSize:22,fontWeight:700}}>Food</h1>
+              <h1 className="lx-h1">Food</h1>
               <button className="btn-icon" onClick={() => setFoodMode('diary')} aria-label="Food diary">📖</button>
             </div>
-            <div style={{display:'flex',gap:8,overflowX:'auto',marginTop:14}}>
-              <button className="chip" onClick={() => setFoodMode('diary')}>Diary</button>
-              <button className="chip active">Explore</button>
+            <div className="lx-segbar" role="tablist" aria-label="Food view" style={{ marginTop: 14 }}>
+              <button role="tab" aria-selected="false" onClick={() => setFoodMode('diary')}>Diary</button>
+              <button role="tab" aria-selected="true" className="on">Explore</button>
             </div>
           </div>
           <div style={{padding:'0 20px 30px'}}>
@@ -231,7 +231,7 @@ export default function FoodDiaryPage() {
       <div className="page">
         <div className="page-header">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <h1 className="lx-h1" style={{ fontSize: 22, fontWeight: 700 }}>Food Diary</h1>
+            <h1 className="lx-h1">Food diary</h1>
             {streak > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 100 }}>
                 <span style={{ fontSize: 14 }}>🔥</span>
@@ -240,15 +240,15 @@ export default function FoodDiaryPage() {
             )}
           </div>
 
-          <div style={{display:'flex',gap:8,overflowX:'auto',marginBottom:12}}>
-            <button className="chip active">Diary</button>
-            <button className="chip" onClick={() => setFoodMode('explore')}>Explore</button>
+          <div className="lx-segbar" role="tablist" aria-label="Food view" style={{ marginBottom: 14 }}>
+            <button role="tab" aria-selected="true" className="on">Diary</button>
+            <button role="tab" aria-selected="false" onClick={() => setFoodMode('explore')}>Explore</button>
           </div>
 
           {/* Date navigation */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div className="fd-date">
             <button className="btn-icon" onClick={() => setDate(addDays(date, -1))} aria-label="Previous day">‹</button>
-            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)' }}>{prettyDate(date)}</div>
+            <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--text)' }}>{prettyDate(date)}</div>
             <button
               className="btn-icon"
               onClick={() => setDate(addDays(date, 1))}
@@ -261,10 +261,10 @@ export default function FoodDiaryPage() {
 
         <div style={{ padding: '0 20px' }}>
           {/* Calorie ring summary */}
-          <div className="card" style={{ padding: '20px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 18 }}>
+          <div className="card hero-card" style={{ padding: '20px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 18 }}>
             <div style={{ position: 'relative', width: 120, height: 120, flexShrink: 0 }}>
               <svg width="120" height="120" viewBox="0 0 120 120" style={{ transform: 'rotate(-90deg)' }}>
-                <circle cx="60" cy="60" r="52" fill="none" stroke="var(--border)" strokeWidth="10" />
+                <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,246,232,0.08)" strokeWidth="10" />
                 <circle
                   cx="60" cy="60" r="52" fill="none" stroke={ringColor} strokeWidth="10" strokeLinecap="round"
                   strokeDasharray={circumference}
@@ -297,7 +297,7 @@ export default function FoodDiaryPage() {
 
               <button
                 onClick={() => setEditingGoal(true)}
-                style={{ marginTop: 12, fontSize: 12, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Onest', textDecoration: 'underline' }}
+                className="fd-link"
               >
                 Edit goals
               </button>
@@ -364,31 +364,25 @@ export default function FoodDiaryPage() {
             </div>
           )}
 
-          {/* Water tracker */}
+          {/* Water: tap a glass to fill up to it */}
           <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 16 }}>💧</span>
-                <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Water</span>
-              </div>
-              <span className="font-num" style={{ fontSize: 13, color: 'var(--text-2)' }}>{water} / {WATER_GOAL} glasses</span>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+              <span style={{ fontSize: 16, fontWeight: 650 }}>Water</span>
+              <span style={{ fontSize: 13, color: 'var(--text-2)' }}><b className="font-num" style={{ color: '#7CC4FF' }}>{water}</b> of {WATER_GOAL} glasses</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ display: 'flex', gap: 5, flex: 1, flexWrap: 'wrap' }}>
-                {[...Array(WATER_GOAL)].map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => changeWater(i < water ? -(water - i) : (i + 1 - water))}
-                    aria-label={`Set water to ${i + 1}`}
-                    style={{
-                      width: 26, height: 32, borderRadius: 6, cursor: 'pointer',
-                      border: `1px solid ${i < water ? '#3B82F6' : 'var(--border)'}`,
-                      background: i < water ? 'rgba(59,130,246,0.25)' : 'var(--card-2)',
-                      fontSize: 14, lineHeight: 1, transition: 'all 0.15s',
-                    }}
-                  >{i < water ? '💧' : ''}</button>
-                ))}
-              </div>
+            <div className="fd-glasses">
+              {[...Array(WATER_GOAL)].map((_, i) => {
+                const full = i < water;
+                return (
+                  <button key={i} className={`fd-glass ${full ? 'full' : ''}`} onClick={() => changeWater(i < water ? -(water - i) : (i + 1 - water))} aria-label={`Set water to ${i + 1} glasses`}>
+                    <svg viewBox="0 0 24 32" width="100%" height="100%" aria-hidden="true">
+                      <defs><clipPath id={`g${i}`}><path d="M3 3h18l-2.2 25.2a2 2 0 0 1-2 1.8H7.2a2 2 0 0 1-2-1.8z" /></clipPath></defs>
+                      <rect className="fd-water" x="0" y={full ? 9 : 32} width="24" height="24" clipPath={`url(#g${i})`} />
+                      <path d="M3 3h18l-2.2 25.2a2 2 0 0 1-2 1.8H7.2a2 2 0 0 1-2-1.8z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -398,24 +392,22 @@ export default function FoodDiaryPage() {
               const items = logs.filter((l) => l.slot === s.id);
               const slotCal = items.reduce((sum, l) => sum + l.cal * (l.qty || 1), 0);
               return (
-                <div key={s.id} className="card" style={{ padding: '14px 16px', borderLeft: `1px solid ${s.color}` }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: items.length ? 10 : 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 11, color: s.color, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase' }}>{s.icon} {s.label}</span>
-                      {slotCal > 0 && <span className="font-num" style={{ fontSize: 12, color: 'var(--text-3)' }}>{slotCal.toLocaleString()} cal</span>}
+                <div key={s.id} className="card fd-slot" style={{ '--slot': s.color }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: items.length ? 8 : 0 }}>
+                    <span className="fd-slot-ic">{s.icon}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 16, fontWeight: 650 }}>{s.label}</div>
+                      <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 1 }}>{slotCal > 0 ? <><b className="font-num" style={{ color: 'var(--text)' }}>{slotCal.toLocaleString()}</b> cal · {items.length} item{items.length === 1 ? '' : 's'}</> : 'Nothing logged yet'}</div>
                     </div>
-                    <button
-                      onClick={() => openLog(s.id)}
-                      style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 12px', fontSize: 13, color: s.color, cursor: 'pointer', fontFamily: 'Onest', fontWeight: 600 }}
-                    >+ Add</button>
+                    <button onClick={() => openLog(s.id)} className="fd-add" aria-label={`Add to ${s.label}`}>+ Add</button>
                   </div>
 
                   {items.length === 0 ? (
-                    <div style={{ fontSize: 13, color: 'var(--text-3)', paddingTop: 6 }}>Nothing logged yet</div>
+                    <button className="fd-empty" onClick={() => openLog(s.id)}>Add {String(s.label).toLowerCase()}</button>
                   ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
                       {items.map((l) => (
-                        <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}>
+                        <div key={l.id} className="fd-item">
                           <span style={{ fontSize: 17, flexShrink: 0 }}>{l.icon || '🍽️'}</span>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 14, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

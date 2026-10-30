@@ -238,18 +238,18 @@ function ExerciseCard({ ex, sessionKey, completedSets, onStartSet, onManualSet }
   const totalReps = ex.sets * ex.reps;
 
   return (
-    <div className="card" style={{ padding: '14px 16px', borderLeft: `1px solid ${ex.color}`, opacity: isComplete ? 0.6 : 1 }}>
+    <div className="card wo-ex" style={{ '--ex': ex.color, padding: '14px 16px', opacity: isComplete ? 0.62 : 1 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ width: 44, height: 44, borderRadius: 12, background: `${ex.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>
+        <div className="wo-ex-ic">
           {isComplete ? '✅' : ex.emoji}
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: isComplete ? 'var(--text-3)' : 'var(--text)', textDecoration: isComplete ? 'line-through' : 'none' }}>
+          <div style={{ fontSize: 15, fontWeight: 650, color: isComplete ? 'var(--text-3)' : 'var(--text)', textDecoration: isComplete ? 'line-through' : 'none' }}>
             {ex.name}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 1 }}>{ex.muscle}</div>
-          <div style={{ fontSize: 12, color: ex.color, fontWeight: 600, marginTop: 2 }}>
-            {ex.sets} set{ex.sets > 1 ? 's' : ''} × {ex.reps} {ex.unit === 'sec' ? 'seconds' : 'reps'}{ex.unit === 'sec' ? '' : ` = ${totalReps} total`}
+          <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 4 }}>
+            <b className="font-num" style={{ fontSize: 16, color: ex.color }}>{ex.sets} × {ex.reps}</b> {ex.unit === 'sec' ? 'seconds' : 'reps'}{ex.unit === 'sec' ? '' : <span style={{ color: 'var(--text-3)' }}> · {totalReps} total</span>}
           </div>
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -349,7 +349,7 @@ export default function WorkoutPage() {
       <div className="page">
         <div className="page-header">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-            <h1 className="lx-h1" style={{ fontSize: 22, fontWeight: 700 }}>Workout</h1>
+            <h1 className="lx-h1">Workout</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 20 }}>
               <span style={{ fontSize: 16 }}>🔥</span>
               <span style={{ fontSize: 13, fontWeight: 700, color: '#F59E0B' }}>{streak} day streak</span>
@@ -360,9 +360,9 @@ export default function WorkoutPage() {
           </div>
 
           {/* Mode */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button className={`chip ${mode === 'small' ? 'active' : ''}`} onClick={() => changeMode('small')}>🏠 Small space · 20+ min</button>
-            <button className={`chip ${mode === 'full' ? 'active' : ''}`} onClick={() => changeMode('full')}>Full plan</button>
+          <div className="lx-segbar" role="tablist" aria-label="Plan" style={{ marginBottom: 12 }}>
+            <button role="tab" aria-selected={mode === 'small'} className={mode === 'small' ? 'on' : ''} onClick={() => changeMode('small')}>🏠 Small space · 20+ min</button>
+            <button role="tab" aria-selected={mode === 'full'} className={mode === 'full' ? 'on' : ''} onClick={() => changeMode('full')}>Full plan</button>
           </div>
           {mode === 'small' && (
             <div className="card" style={{ padding: '12px 14px', marginBottom: 12, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>
@@ -389,20 +389,20 @@ export default function WorkoutPage() {
           </details>
 
           {/* Day selector */}
-          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, marginBottom: 12 }}>
-            {weekPlans.map((p, i) => (
-              <button key={p.day} className={`chip ${activeDay === i ? 'active' : ''}`} onClick={() => setActiveDay(i)} style={{ flexShrink: 0,
-                ...(activeDay === i ? { background: `${p.theme}20`, borderColor: p.theme, color: p.theme } : {}) }}>
-                {p.day.slice(0, 3)}
-              </button>
-            ))}
+          <div className="wo-week" role="tablist" aria-label="Day">
+            {weekPlans.map((p, i) => {
+              const d = new Date(); d.setDate(d.getDate() + (i - todayIdx));
+              return (
+                <button key={p.day} role="tab" aria-selected={activeDay === i} className={`wo-day ${activeDay === i ? 'on' : ''} ${i === todayIdx ? 'today' : ''}`} style={{ '--th': p.theme }} onClick={() => setActiveDay(i)}>
+                  <span>{p.day.slice(0, 1)}</span>
+                  <b className="font-num">{d.getDate()}</b>
+                </button>
+              );
+            })}
           </div>
 
           {/* Focus badge */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: `${plan.theme}12`, border: `1px solid ${plan.theme}30`, borderRadius: 10, marginBottom: 14 }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: plan.theme }} />
-            <div style={{ fontSize: 14, fontWeight: 700, color: plan.theme }}>{plan.focus}</div>
-          </div>
+
 
           {/* Morning / Evening toggle */}
           {mode === 'full' && <div style={{ display: 'flex', gap: 8 }}>
@@ -423,23 +423,29 @@ export default function WorkoutPage() {
         </div>
 
         <div style={{ padding: '0 20px' }}>
-          {/* Session progress */}
-          {!sessionData.isRest && totalSets > 0 && (
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-2)' }}>{sessionData.title}</div>
-                <div style={{ fontSize: 13, color: 'var(--green)', fontWeight: 600 }}>{doneSets}/{totalSets} sets · {sessionPct}%</div>
+          {/* Session: today's focus, sets done, and the finish line */}
+          <div className="card hero-card wo-session" style={{ '--th': plan.theme, marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              {!sessionData.isRest && totalSets > 0 && (() => { const R = 28, C = 2 * Math.PI * R; return (
+                <svg width="70" height="70" viewBox="0 0 70 70" role="img" aria-label={`${doneSets} of ${totalSets} sets done`} style={{ flexShrink: 0 }}>
+                  <circle cx="35" cy="35" r={R} fill="none" stroke="rgba(255,246,232,0.08)" strokeWidth="7" />
+                  <circle cx="35" cy="35" r={R} fill="none" stroke={sessionComplete ? 'var(--green)' : plan.theme} strokeWidth="7" strokeLinecap="round" transform="rotate(-90 35 35)" strokeDasharray={`${(sessionPct / 100) * C} ${C}`} style={{ transition: 'stroke-dasharray .5s var(--ease-out)' }} />
+                  <text x="35" y="33" textAnchor="middle" fontSize="15" fontWeight="700" fill="var(--text)" className="font-num">{doneSets}/{totalSets}</text>
+                  <text x="35" y="46" textAnchor="middle" fontSize="9" fill="var(--text-3)">sets</text>
+                </svg>
+              ); })()}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: 'var(--th)', fontWeight: 650 }}>{weekPlans[activeDay]?.day}{activeDay === todayIdx ? ' · today' : ''}</div>
+                <div style={{ fontSize: 20, fontWeight: 650, letterSpacing: '-0.015em', lineHeight: 1.2, marginTop: 2 }}>{plan.focus}</div>
+                {!sessionData.isRest && <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 4 }}>{sessionData.title} · {sessionData.exercises.length} moves</div>}
               </div>
-              <div style={{ background: 'var(--border)', borderRadius: 100, height: 6, overflow: 'hidden' }}>
-                <div style={{ height: '100%', borderRadius: 100, background: sessionComplete ? 'var(--green)' : plan.theme, width: `${sessionPct}%`, transition: 'width 0.4s' }} />
-              </div>
-              {sessionComplete && (
-                <div style={{ marginTop: 10, padding: '10px 14px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10, fontSize: 14, fontWeight: 600, color: 'var(--green)', textAlign: 'center' }}>
-                  🎉 Session complete! Rest and eat your protein.
-                </div>
-              )}
             </div>
-          )}
+            {sessionComplete && (
+              <div style={{ marginTop: 14, padding: '10px 14px', background: 'var(--green-dim)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 12, fontSize: 14, fontWeight: 600, color: 'var(--green)', textAlign: 'center' }}>
+                🎉 Session complete. Rest and eat your protein.
+              </div>
+            )}
+          </div>
 
           {/* Exercise list */}
           {sessionData.isRest ? (
