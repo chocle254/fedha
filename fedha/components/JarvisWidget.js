@@ -435,7 +435,7 @@ export default function JarvisWidget() {
                         style={{
                           padding: '8px 14px', borderRadius: 16, background: 'var(--card-2)',
                           border: '1px solid var(--border)', color: 'var(--text-2)', fontSize: 13,
-                          cursor: 'pointer', fontFamily: 'Inter',
+                          cursor: 'pointer', fontFamily: 'Onest',
                         }}
                       >
                         {suggestion}
@@ -463,7 +463,7 @@ export default function JarvisWidget() {
                   {m.undoMealId && (
                     <button
                       onClick={() => undoMeal(m.undoMealId)}
-                      style={{ marginLeft: 8, padding: '2px 10px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 999, color: 'var(--text-2)', fontSize: 12, cursor: 'pointer', fontFamily: 'Inter' }}
+                      style={{ marginLeft: 8, padding: '2px 10px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 999, color: 'var(--text-2)', fontSize: 12, cursor: 'pointer', fontFamily: 'Onest' }}
                     >
                       Undo
                     </button>
@@ -484,13 +484,13 @@ export default function JarvisWidget() {
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button
                       onClick={() => confirmAction(action)}
-                      style={{ flex: 1, padding: '8px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, color: 'var(--green)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter', fontWeight: 600 }}
+                      style={{ flex: 1, padding: '8px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, color: 'var(--green)', fontSize: 13, cursor: 'pointer', fontFamily: 'Onest', fontWeight: 600 }}
                     >
                       ✓ Confirm
                     </button>
                     <button
                       onClick={() => rejectAction(action.id)}
-                      style={{ flex: 1, padding: '8px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter', fontWeight: 600 }}
+                      style={{ flex: 1, padding: '8px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Onest', fontWeight: 600 }}
                     >
                       Dismiss
                     </button>
@@ -525,7 +525,7 @@ export default function JarvisWidget() {
                 placeholder="Talk to Jarvis…"
                 style={{
                   flex: 1, background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 22,
-                  padding: '0 16px', color: 'var(--text)', fontSize: 14, fontFamily: 'Inter',
+                  padding: '0 16px', color: 'var(--text)', fontSize: 14, fontFamily: 'Onest',
                 }}
               />
               <button

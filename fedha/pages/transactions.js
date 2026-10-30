@@ -64,8 +64,7 @@ export default function TransactionsPage() {
     <Layout onFab={() => setShowAdd(true)}>
       <div className="page">
         <div className="page-header">
-          <div className="lx-eyebrow">Money</div>
-          <h1 className="lx-h1" style={{ marginTop: 4, marginBottom: 16 }}>Activity</h1>
+          <h1 className="lx-h1" style={{ marginBottom: 16 }}>Activity</h1>
 
           {/* Search */}
           <div style={{ position: 'relative', marginBottom: 12 }}>

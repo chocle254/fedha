@@ -87,18 +87,18 @@ const CSS = `
 .wi-intro{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;
   background:radial-gradient(120% 90% at 50% 38%,#171B22 0%,#090B0F 45%,#040507 100%);
   transition:opacity ${LEAVE_MS}ms cubic-bezier(.4,0,.2,1),transform ${LEAVE_MS}ms cubic-bezier(.4,0,.2,1),filter ${LEAVE_MS}ms;cursor:pointer;
-  font-family:'Inter',system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
+  font-family:'Onest',system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
 .wi-leave{opacity:0;transform:scale(1.06);filter:blur(6px)}
 .wi-stage{display:flex;flex-direction:column;align-items:center;gap:14px;transform:translateY(-4vh)}
 .wi-mark{filter:drop-shadow(0 18px 40px rgba(159,216,232,.18))}
 .wi-glow{opacity:0;animation:wiFade 1.4s .2s ease-out forwards}
-.wi-facet{opacity:0;transform-box:fill-box;transform-origin:center;transform:translateY(-6px) scale(.6);animation:wiFacet .55s calc(.2s + var(--i) * .07s) cubic-bezier(.2,1.2,.4,1) forwards}
+.wi-facet{opacity:0;transform-box:fill-box;transform-origin:center;transform:translateY(-6px) scale(.6);animation:wiFacet .55s calc(.2s + var(--i) * .07s) cubic-bezier(.16,1,.3,1) forwards}
 .wi-edge{stroke-dasharray:240;stroke-dashoffset:240;animation:wiDraw 1s .55s cubic-bezier(.65,0,.35,1) forwards}
 .wi-hair{opacity:0;animation:wiFade .6s 1.1s ease-out forwards}
 .wi-sweep{transform:skewX(-20deg);animation:wiSweep .9s 1.35s cubic-bezier(.4,0,.2,1) forwards}
-.wi-glint{transform-box:fill-box;transform-origin:center;transform:scale(0) rotate(-90deg);animation:wiGlint .7s 1.3s cubic-bezier(.2,1.4,.4,1) forwards}
+.wi-glint{transform-box:fill-box;transform-origin:center;transform:scale(0) rotate(-90deg);animation:wiGlint .7s 1.3s cubic-bezier(.16,1,.3,1) forwards}
 .wi-word{color:#EDEFF5;font-weight:300;font-size:30px;letter-spacing:.95em;padding-left:.95em;opacity:0;filter:blur(8px);
-  background:linear-gradient(90deg,#9AA4B8,#FFFFFF 45%,#9FD8E8 60%,#9AA4B8);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  color:#EEF2F7;
   animation:wiWord 1.1s 1.45s cubic-bezier(.2,.8,.2,1) forwards}
 .wi-line{height:1px;width:0;background:linear-gradient(90deg,transparent,#9FD8E8,transparent);animation:wiLine .9s 1.8s ease-out forwards}
 .wi-hello{color:rgba(235,235,245,.62);font-size:13px;letter-spacing:.18em;text-transform:uppercase;opacity:0;transform:translateY(8px);animation:wiUp .8s 2.0s ease-out forwards}

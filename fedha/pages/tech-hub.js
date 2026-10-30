@@ -102,7 +102,7 @@ function RepoPicker({ onPick }) {
       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
         <input className="input" placeholder="github username or URL" value={username} onChange={(e) => setUsername(e.target.value)} style={{ flex: 1 }} />
         <button onClick={load} disabled={loading || !username.trim()}
-          style={{ padding: '0 16px', background: 'var(--blue)', border: 'none', borderRadius: 'var(--radius-sm)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>
+          style={{ padding: '0 16px', background: 'var(--blue)', border: 'none', borderRadius: 'var(--radius-sm)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>
           {loading ? '…' : 'Load'}
         </button>
       </div>
@@ -216,7 +216,7 @@ function HackathonModal({ initial, onClose, onSave }) {
               </div>
             ) : (
               <button onClick={() => fileRef.current?.click()} disabled={imgBusy}
-                style={{ width: '100%', padding: '14px', background: 'var(--card-2)', border: '1px dashed var(--border)', borderRadius: 12, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter' }}>
+                style={{ width: '100%', padding: '14px', background: 'var(--card-2)', border: '1px dashed var(--border)', borderRadius: 12, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Onest' }}>
                 {imgBusy ? 'Processing…' : '📷 Add a project picture'}
               </button>
             )}
@@ -245,7 +245,7 @@ function HackathonModal({ initial, onClose, onSave }) {
               ].map((s) => (
                 <button key={s.id} type="button" onClick={() => setForm((f) => ({ ...f, status: s.id }))}
                   style={{
-                    flex: 1, padding: '9px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter',
+                    flex: 1, padding: '9px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest',
                     background: form.status === s.id ? 'var(--green-dim)' : 'var(--card-2)',
                     border: `1px solid ${form.status === s.id ? 'var(--green)' : 'var(--border)'}`,
                     color: form.status === s.id ? 'var(--green)' : 'var(--text-2)',
@@ -268,7 +268,7 @@ function HackathonModal({ initial, onClose, onSave }) {
                 </div>
               ) : (
                 <button onClick={() => certFileRef.current?.click()} disabled={certBusy}
-                  style={{ width: '100%', padding: '14px', background: 'var(--gold-dim)', border: '1px dashed rgba(245,197,107,0.4)', borderRadius: 12, color: 'var(--gold)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter' }}>
+                  style={{ width: '100%', padding: '14px', background: 'var(--gold-dim)', border: '1px dashed rgba(245,197,107,0.4)', borderRadius: 12, color: 'var(--gold)', fontSize: 13, cursor: 'pointer', fontFamily: 'Onest' }}>
                   {certBusy ? 'Processing…' : '🎓 Add your certificate'}
                 </button>
               )}
@@ -448,7 +448,7 @@ function CoachSection({ hackathons, onStart, onOpen }) {
   }
   return (
     <div style={{ marginBottom: 8 }}>
-      <div className="section-title">🧭 Hackathon Coach</div>
+      <div className="section-title">Hackathon Coach</div>
       <div className="card" style={{ padding: 16, marginBottom: 12, background: 'linear-gradient(135deg, rgba(10,132,255,0.10), rgba(123,97,255,0.10) 50%, rgba(230,79,180,0.10))', borderColor: 'rgba(123,97,255,0.3)' }}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10 }}>
           <div className="muse-orb" style={{ width: 34, height: 34, flexShrink: 0 }} aria-hidden="true" />
@@ -465,7 +465,7 @@ function CoachSection({ hackathons, onStart, onOpen }) {
         const left = hoursLeft(h);
         return (
           <button key={h.id} onClick={() => onOpen(h.id)}
-            style={{ width: '100%', display: 'flex', gap: 12, alignItems: 'flex-start', textAlign: 'left', padding: '12px 14px', marginBottom: 8, background: 'var(--card)', border: `1px solid ${n?.tone === 'warn' ? 'rgba(245,158,11,0.35)' : 'var(--border)'}`, borderRadius: 14, color: 'var(--text)', cursor: 'pointer', fontFamily: 'Inter' }}>
+            style={{ width: '100%', display: 'flex', gap: 12, alignItems: 'flex-start', textAlign: 'left', padding: '12px 14px', marginBottom: 8, background: 'var(--card)', border: `1px solid ${n?.tone === 'warn' ? 'rgba(245,158,11,0.35)' : 'var(--border)'}`, borderRadius: 14, color: 'var(--text)', cursor: 'pointer', fontFamily: 'Onest' }}>
             <span style={{ fontSize: 22, lineHeight: 1 }}>{phase.emoji}</span>
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ display: 'block', fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
@@ -545,7 +545,7 @@ function DiscoverCard({ item, kind, onAdd }) {
         )}
         {kind === 'hack' && (
           <button onClick={() => onAdd(item)}
-            style={{ flex: 1, padding: '10px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10, color: 'var(--green)', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>
+            style={{ flex: 1, padding: '10px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10, color: 'var(--green)', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>
             ➕ I'm registering
           </button>
         )}
@@ -825,7 +825,7 @@ function CertificatesRoom({ hackathons, certificates, onAdd, onOpen }) {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <div className="section-title" style={{ marginBottom: 0 }}>My Certificates</div>
-        <button onClick={onAdd} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>+ Add</button>
+        <button onClick={onAdd} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>+ Add</button>
       </div>
 
       {total > 0 && (
@@ -840,7 +840,7 @@ function CertificatesRoom({ hackathons, certificates, onAdd, onOpen }) {
       {total > 0 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           <input className="input" placeholder="Search certificates…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: 1 }} />
-          <button onClick={() => setShowFilter(true)} style={{ position: 'relative', padding: '0 16px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 12, color: 'var(--text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter' }}>
+          <button onClick={() => setShowFilter(true)} style={{ position: 'relative', padding: '0 16px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 12, color: 'var(--text-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Onest' }}>
             ⚙ Filter
             {activeFilterCount > 0 && <span style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: '50%', background: 'var(--green)', color: '#000', fontSize: 9, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{activeFilterCount}</span>}
           </button>
@@ -1160,7 +1160,7 @@ function ProjectModal({ initial, onClose, onSave }) {
         <div className="modal-body" style={{ overflowY: 'auto' }}>
           <Field label="Project Name"><input className="input" placeholder="e.g. Arena 2.0" value={form.name} onChange={set('name')} autoFocus /></Field>
           <Field label="Short Documentation">
-            <textarea className="input" placeholder="e.g. Competitive gaming tournament platform built natively on AWS" value={form.description} onChange={set('description')} rows={3} maxLength={220} style={{ resize: 'vertical', fontFamily: 'Inter' }} />
+            <textarea className="input" placeholder="e.g. Competitive gaming tournament platform built natively on AWS" value={form.description} onChange={set('description')} rows={3} maxLength={220} style={{ resize: 'vertical', fontFamily: 'Onest' }} />
           </Field>
 
           <div>
@@ -1174,7 +1174,7 @@ function ProjectModal({ initial, onClose, onSave }) {
               </div>
             ) : (
               <button onClick={() => fileRef.current?.click()} disabled={imgBusy}
-                style={{ width: '100%', padding: '14px', background: 'var(--card-2)', border: '1px dashed var(--border)', borderRadius: 12, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter' }}>
+                style={{ width: '100%', padding: '14px', background: 'var(--card-2)', border: '1px dashed var(--border)', borderRadius: 12, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Onest' }}>
                 {imgBusy ? 'Processing…' : '📷 Add a thumbnail'}
               </button>
             )}
@@ -1202,7 +1202,7 @@ function ProjectModal({ initial, onClose, onSave }) {
               {PROJECT_STATUSES.map((s) => (
                 <button key={s.id} type="button" onClick={() => setForm((f) => ({ ...f, status: s.id, progress: s.id === 'done' ? 100 : f.progress }))}
                   style={{
-                    flex: '1 1 45%', padding: '9px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter',
+                    flex: '1 1 45%', padding: '9px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest',
                     background: form.status === s.id ? 'var(--green-dim)' : 'var(--card-2)',
                     border: `1px solid ${form.status === s.id ? 'var(--green)' : 'var(--border)'}`,
                     color: form.status === s.id ? 'var(--green)' : 'var(--text-2)',
@@ -1273,7 +1273,7 @@ function ShowroomCard({ project, onEdit, onDelete, onOpenHack }) {
         </div>
         {project.hackathon_id && (
           <button onClick={() => onOpenHack?.(project.hackathon_id)}
-            style={{ alignSelf: 'flex-start', margin: '2px 0 4px', background: 'var(--gold-dim)', border: '1px solid rgba(245,197,107,0.3)', color: 'var(--gold)', fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 100, cursor: 'pointer', fontFamily: 'Inter', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            style={{ alignSelf: 'flex-start', margin: '2px 0 4px', background: 'var(--gold-dim)', border: '1px solid rgba(245,197,107,0.3)', color: 'var(--gold)', fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 100, cursor: 'pointer', fontFamily: 'Onest', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             🏁 {project.hackathon_name || 'Hackathon'}
           </button>
         )}
@@ -1308,7 +1308,7 @@ function ShowroomSection({ projects, onAdd, onEdit, onDelete, onOpenHack }) {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <div className="section-title" style={{ marginBottom: 0 }}>Project Showroom</div>
-        <button onClick={onAdd} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>+ Add</button>
+        <button onClick={onAdd} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>+ Add</button>
       </div>
       {projects.length === 0 ? (
         <div className="empty-state"><div className="icon">🗂️</div><h3>No projects yet</h3><p>Add what you&apos;ve built — a link and a couple lines are enough</p></div>
@@ -1363,7 +1363,7 @@ function ClientProjectModal({ initial, onClose, onSave }) {
           </div>
           <Field label="Client Name"><input className="input" placeholder="e.g. Brian" value={form.client_name} onChange={set('client_name')} autoFocus /></Field>
           <Field label="Project Name"><input className="input" placeholder="e.g. E-commerce website" value={form.name} onChange={set('name')} /></Field>
-          <Field label="Project Description"><textarea className="input" rows={3} placeholder="What are you building?" value={form.description} onChange={set('description')} style={{ resize: 'vertical', fontFamily: 'Inter' }} /></Field>
+          <Field label="Project Description"><textarea className="input" rows={3} placeholder="What are you building?" value={form.description} onChange={set('description')} style={{ resize: 'vertical', fontFamily: 'Onest' }} /></Field>
           <div style={{ display: 'flex', gap: 10 }}>
             <Field label="Agreed Amount"><input className="input font-num" type="number" min="0" value={form.agreed_amount} onChange={set('agreed_amount')} /></Field>
             <Field label="Previously Paid"><input className="input font-num" type="number" min="0" value={form.previously_paid} onChange={set('previously_paid')} /></Field>
@@ -1449,7 +1449,7 @@ function ClientProjectsSection({ projects, wallets, onAdd, onEdit, onDelete, onR
           <div className="section-title" style={{ marginBottom: 2 }}>Client Work</div>
           <div style={{ fontSize: 11, color: 'var(--text-3)' }}>Tap a client to view and edit the project.</div>
         </div>
-        <button onClick={onAdd} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>+ Client</button>
+        <button onClick={onAdd} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>+ Client</button>
       </div>
 
       {active.length === 0 ? (
@@ -1458,9 +1458,9 @@ function ClientProjectsSection({ projects, wallets, onAdd, onEdit, onDelete, onR
         const t = clientProjectTotals(p);
         return (
           <div key={p.id} className="card"
-            style={{ width: '100%', marginBottom: 10, padding: '15px 16px', borderColor: 'rgba(16,185,129,0.28)', display: 'flex', alignItems: 'center', gap: 12, fontFamily: 'Inter', color: 'var(--text)' }}>
+            style={{ width: '100%', marginBottom: 10, padding: '15px 16px', borderColor: 'rgba(16,185,129,0.28)', display: 'flex', alignItems: 'center', gap: 12, fontFamily: 'Onest', color: 'var(--text)' }}>
             <button type="button" onClick={() => onEdit(p)}
-              style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 12, padding: 0, background: 'none', border: 'none', color: 'var(--text)', textAlign: 'left', cursor: 'pointer', fontFamily: 'Inter' }}
+              style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 12, padding: 0, background: 'none', border: 'none', color: 'var(--text)', textAlign: 'left', cursor: 'pointer', fontFamily: 'Onest' }}
               aria-label={'View ' + p.client_name + ' project'}>
               <div style={{ width: 40, height: 40, borderRadius: 11, background: 'var(--green-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 18 }}>💼</div>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -1476,7 +1476,7 @@ function ClientProjectsSection({ projects, wallets, onAdd, onEdit, onDelete, onR
               <button
                 type="button"
                 onClick={() => onRecordPayment(p)}
-                style={{ padding: '8px 10px', background: 'var(--green)', border: 'none', borderRadius: 8, color: '#000', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'Inter', whiteSpace: 'nowrap', flexShrink: 0 }}
+                style={{ padding: '8px 10px', background: 'var(--green)', border: 'none', borderRadius: 8, color: '#000', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'Onest', whiteSpace: 'nowrap', flexShrink: 0 }}
               >
                 💰 Pay
               </button>
@@ -1491,7 +1491,7 @@ function ClientProjectsSection({ projects, wallets, onAdd, onEdit, onDelete, onR
           const t = clientProjectTotals(p);
           return (
             <button key={p.id} type="button" onClick={() => onEdit(p)} className="card"
-              style={{ width: '100%', marginBottom: 8, padding: '13px 16px', opacity: 0.72, display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', fontFamily: 'Inter', color: 'var(--text)' }}
+              style={{ width: '100%', marginBottom: 8, padding: '13px 16px', opacity: 0.72, display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', fontFamily: 'Onest', color: 'var(--text)' }}
               aria-label={'View ' + p.client_name + ' completed project'}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.client_name}</div>
@@ -1503,7 +1503,7 @@ function ClientProjectsSection({ projects, wallets, onAdd, onEdit, onDelete, onR
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); onRecordPayment(p); }}
-                    style={{ padding: '7px 10px', background: 'var(--green)', border: 'none', borderRadius: 8, color: '#000', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'Inter', whiteSpace: 'nowrap' }}
+                    style={{ padding: '7px 10px', background: 'var(--green)', border: 'none', borderRadius: 8, color: '#000', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'Onest', whiteSpace: 'nowrap' }}
                   >
                     💰 Pay
                   </button>
@@ -1601,7 +1601,7 @@ function ResearchModal({ initial, onClose, onSave, saveError, hackathons, projec
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {RESEARCH_CATEGORIES.map((c) => (
                 <button key={c.id} type="button" onClick={() => setForm((f) => ({ ...f, category: c.id }))}
-                  style={{ flex: '1 1 45%', padding: '9px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter',
+                  style={{ flex: '1 1 45%', padding: '9px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest',
                     background: form.category === c.id ? 'var(--green-dim)' : 'var(--card-2)',
                     border: `1px solid ${form.category === c.id ? 'var(--green)' : 'var(--border)'}`,
                     color: form.category === c.id ? 'var(--green)' : 'var(--text-2)' }}>
@@ -1623,7 +1623,7 @@ function ResearchModal({ initial, onClose, onSave, saveError, hackathons, projec
             </Field>
           )}
 
-          <Field label="Notes"><textarea className="input" placeholder="Your own notes, context, questions to answer…" value={form.notes} onChange={set('notes')} rows={2} style={{ resize: 'vertical', fontFamily: 'Inter' }} /></Field>
+          <Field label="Notes"><textarea className="input" placeholder="Your own notes, context, questions to answer…" value={form.notes} onChange={set('notes')} rows={2} style={{ resize: 'vertical', fontFamily: 'Onest' }} /></Field>
           <Field label="Link (optional)"><input className="input" placeholder="https://…" value={form.link} onChange={set('link')} /></Field>
           <Field label="Tags (comma separated)"><input className="input" placeholder="e.g. remote, fintech" value={form.tags} onChange={set('tags')} /></Field>
 
@@ -1633,7 +1633,7 @@ function ResearchModal({ initial, onClose, onSave, saveError, hackathons, projec
               <input className="input" placeholder="What do you want to search for right now?" value={query} onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && runSearch()} style={{ flex: 1 }} disabled={searching} />
               <button onClick={runSearch} disabled={searching || !query.trim()}
-                style={{ padding: '0 16px', background: 'var(--blue)', border: 'none', borderRadius: 'var(--radius-sm)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>
+                style={{ padding: '0 16px', background: 'var(--blue)', border: 'none', borderRadius: 'var(--radius-sm)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>
                 {searching ? '…' : 'Search'}
               </button>
             </div>
@@ -1719,7 +1719,7 @@ function ResearchSection({ research, onAdd, onEdit, onDelete }) {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <div className="section-title" style={{ marginBottom: 0 }}>Research Log</div>
-        <button onClick={onAdd} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>+ New</button>
+        <button onClick={onAdd} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>+ New</button>
       </div>
       {research.length === 0 ? (
         <div className="empty-state"><div className="icon">🔍</div><h3>No research yet</h3><p>Log a job lead, hackathon idea, or anything you&apos;re digging into — the AI helper can search the web for you right here</p></div>
@@ -2219,7 +2219,7 @@ export default function TechHubPage() {
               </div>
             ) : (
               <button onClick={getLocation} disabled={locStatus === 'loading'}
-                style={{ width: '100%', padding: '10px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter' }}>
+                style={{ width: '100%', padding: '10px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Onest' }}>
                 {locStatus === 'loading' ? '📍 Scanning your location…' : locStatus === 'denied' ? '📍 Location denied — tap to retry' : '📍 Scan my location for nearby events'}
               </button>
             )}
@@ -2251,7 +2251,7 @@ export default function TechHubPage() {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <div className="section-title" style={{ marginBottom: 0 }}>My Hackathons</div>
-                <button onClick={() => setHackModal({})} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>+ Register</button>
+                <button onClick={() => setHackModal({})} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>+ Register</button>
               </div>
 
               {hackathons.length === 0 ? (
@@ -2289,7 +2289,7 @@ export default function TechHubPage() {
 
                   {completedHacks.length > 0 && (
                     <button onClick={() => setTab('showroom')}
-                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', marginBottom: 4, background: 'var(--gold-dim)', border: '1px solid rgba(245,197,107,0.25)', borderRadius: 12, color: 'var(--text)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter', textAlign: 'left' }}>
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', marginBottom: 4, background: 'var(--gold-dim)', border: '1px solid rgba(245,197,107,0.25)', borderRadius: 12, color: 'var(--text)', fontSize: 13, cursor: 'pointer', fontFamily: 'Onest', textAlign: 'left' }}>
                       <span style={{ fontSize: 18 }}>🏁</span>
                       <span style={{ flex: 1 }}>{completedHacks.length} completed hackathon{completedHacks.length > 1 ? 's are' : ' is'} in your Showroom</span>
                       <span style={{ color: 'var(--gold)', fontWeight: 700 }}>View →</span>
@@ -2309,7 +2309,7 @@ export default function TechHubPage() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 12px' }}>
                 <div className="section-title" style={{ marginBottom: 0 }}>Open hackathons</div>
                 <button onClick={() => fetchRealHackathons(true)} disabled={loadingHacks}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 100, color: 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 100, color: 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Onest' }}>
                   🔄 {loadingHacks ? 'Finding…' : discHacks.length ? 'Refresh' : 'Discover'}
                 </button>
               </div>
@@ -2381,9 +2381,9 @@ export default function TechHubPage() {
                 <div className="section-title" style={{ marginBottom: 0 }}>Tech Events Near You</div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={() => setShowEventForm((s) => !s)}
-                    style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>+ Add</button>
+                    style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>+ Add</button>
                   <button onClick={() => fetchAI('tech_events')} disabled={loadingEvents}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 100, color: 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter' }}>
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 100, color: 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Onest' }}>
                     🔄 {loadingEvents ? 'Scanning…' : events.length ? 'Refresh' : 'Find events'}
                   </button>
                 </div>
@@ -2395,7 +2395,7 @@ export default function TechHubPage() {
                   <div style={{ height: 12 }} />
                   <Field label="Organizer (optional)"><input className="input" placeholder="e.g. GDG Nairobi" value={eventForm.organizer} onChange={(e) => setEventForm((f) => ({ ...f, organizer: e.target.value }))} /></Field>
                   <div style={{ height: 12 }} />
-                  <Field label="Description (optional)"><textarea className="input" rows={2} placeholder="What's it about?" value={eventForm.description} onChange={(e) => setEventForm((f) => ({ ...f, description: e.target.value }))} style={{ resize: 'vertical', fontFamily: 'Inter' }} /></Field>
+                  <Field label="Description (optional)"><textarea className="input" rows={2} placeholder="What's it about?" value={eventForm.description} onChange={(e) => setEventForm((f) => ({ ...f, description: e.target.value }))} style={{ resize: 'vertical', fontFamily: 'Onest' }} /></Field>
                   <div style={{ height: 12 }} />
                   <Field label="Location / Venue (optional)"><input className="input" placeholder="e.g. iHub, Nairobi" value={eventForm.location} onChange={(e) => setEventForm((f) => ({ ...f, location: e.target.value }))} /></Field>
                   <div style={{ height: 12 }} />
@@ -2432,7 +2432,7 @@ export default function TechHubPage() {
                       setShowEventForm(true);
                       if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
                     }}
-                      style={{ margin: '-4px 0 12px', width: '100%', padding: '9px', background: 'rgba(249,115,22,0.12)', border: '1px solid rgba(249,115,22,0.4)', borderRadius: 10, color: '#FDBA74', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>
+                      style={{ margin: '-4px 0 12px', width: '100%', padding: '9px', background: 'rgba(249,115,22,0.12)', border: '1px solid rgba(249,115,22,0.4)', borderRadius: 10, color: '#FDBA74', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>
                       ✓ I'm going — set the time & add to my planner
                     </button>
                   )}
@@ -2446,7 +2446,7 @@ export default function TechHubPage() {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <div className="section-title" style={{ marginBottom: 0 }}>My Startups</div>
-                <button onClick={() => setShowStartupForm((s) => !s)} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>+ Add</button>
+                <button onClick={() => setShowStartupForm((s) => !s)} style={{ padding: '7px 14px', background: 'var(--green)', border: 'none', borderRadius: 100, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>+ Add</button>
               </div>
 
               {showStartupForm && (

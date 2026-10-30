@@ -552,7 +552,7 @@ export default function HackathonCoach() {
               {coach.scope && (() => {
                 const v = VERDICT[coach.scope.verdict] || VERDICT.on_track;
                 return (
-                  <div className="muse-bubble" style={{ marginTop: 12, borderLeft: `3px solid ${v.color}` }}>
+                  <div className="muse-bubble" style={{ marginTop: 12, borderLeft: `1px solid ${v.color}` }}>
                     <div className="muse-bubble-kicker" style={{ color: v.color }}>{v.emoji} {v.label.toUpperCase()}</div>
                     <div style={{ fontWeight: 700 }}>{coach.scope.headline}</div>
                     {coach.scope.win_effect && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4 }}>{coach.scope.win_effect}</div>}
@@ -756,7 +756,7 @@ export default function HackathonCoach() {
                   </div>
                   {idea.problem && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 8, lineHeight: 1.5 }}><b style={{ color: 'var(--text)' }}>The problem:</b> {idea.problem}{idea.source && <> <a href={idea.source} target="_blank" rel="noreferrer" style={{ color: '#A78BFA' }}>source ↗</a></>}</div>}
                   <div style={{ fontSize: 13, lineHeight: 1.5, marginTop: 6 }}>{idea.pitch}</div>
-                  {idea.wow && <div className="muse-bubble" style={{ marginTop: 8, borderLeft: '3px solid #E64FB4' }}><div className="muse-bubble-kicker" style={{ color: '#E64FB4' }}>THE MOMENT THEY WON'T EXPECT</div>{idea.wow}</div>}
+                  {idea.wow && <div className="muse-bubble" style={{ marginTop: 8, borderLeft: '1px solid #E64FB4' }}><div className="muse-bubble-kicker" style={{ color: '#E64FB4' }}>THE MOMENT THEY WON'T EXPECT</div>{idea.wow}</div>}
                   {idea.why_wins && <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.5 }}><b>Why it scores:</b> {idea.why_wins}</div>}
                   {idea.features?.length > 0 && <><div className="muse-label" style={{ marginTop: 10 }}>CORE FEATURES</div><ul className="muse-how">{idea.features.map((f) => <li key={f}>{f}</li>)}</ul></>}
                   {idea.cut?.length > 0 && <><div className="muse-label" style={{ marginTop: 6, color: 'var(--red)' }}>DON'T BUILD</div><ul className="muse-how">{idea.cut.map((f) => <li key={f}>{f}</li>)}</ul></>}

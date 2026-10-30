@@ -290,7 +290,7 @@ export default function FoodHub({ onLogMeal }) {
 
     {tab==='suggestions' && <div>
       <div className="card" style={{padding:15,marginBottom:14}}>
-        <div className="section-title" style={{marginBottom:7}}>PERSONALIZED MEAL IDEAS</div>
+        <div className="section-title" style={{marginBottom:7}}>Personalized meal ideas</div>
         <div style={{fontSize:12,color:'var(--text-3)',marginBottom:10}}>You still need <b style={{color:'var(--text)'}}>{Math.round(remainingCal)} cal</b> and <b style={{color:'var(--text)'}}>{Math.round(remainingProtein)}g protein</b> today. Disliked foods are left out, and meals you can't afford from your Floating Balance are hidden once you've set prices.</div>
         <div style={{display:'flex',gap:6,overflowX:'auto'}}>
           {MEAL_SLOTS.map(s=><button key={s.id} className={'chip '+(ideaSlot===s.id?'active':'')} onClick={()=>setIdeaSlot(s.id)}>{s.icon} {s.label}</button>)}
@@ -311,7 +311,7 @@ export default function FoodHub({ onLogMeal }) {
 
     {tab==='build' && <div>
       <div className="card" style={{padding:15,marginBottom:14}}>
-        <div className="section-title" style={{marginBottom:8}}>MEAL BUILDER</div>
+        <div className="section-title" style={{marginBottom:8}}>Meal builder</div>
         <div style={{display:'flex',gap:7,flexWrap:'wrap'}}>
           <span className="chip">🔥 {selected.reduce((s,id)=>s+Number((foods.find(f=>f.id===id)||{}).cal||0),0)} cal</span>
           <span className="chip">💪 {selected.reduce((s,id)=>s+Number((foods.find(f=>f.id===id)||{}).protein||0),0)}g protein</span>
@@ -321,12 +321,12 @@ export default function FoodHub({ onLogMeal }) {
         {foods.map(f=><button key={f.id} onClick={()=>setSelected(s=>s.includes(f.id)?s.filter(x=>x!==f.id):[...s,f.id])} className="card" style={{padding:'11px 13px',display:'flex',alignItems:'center',gap:10,textAlign:'left',border:selected.includes(f.id)?'1px solid var(--green)':'1px solid var(--border)',background:selected.includes(f.id)?'var(--green-dim)':'var(--card)'}}><span style={{fontSize:21}}>{f.icon}</span><div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>{f.name}</div><div style={{fontSize:11,color:'var(--text-3)'}}>{f.cal} cal · {f.protein}g protein</div></div><span>{selected.includes(f.id)?'✓':'+'}</span></button>)}
       </div>
       <div style={{display:'flex',gap:8,marginTop:14}}><button className="btn-primary" disabled={!selected.length} style={{flex:1}} onClick={()=>logItems(selected.map(id=>foods.find(f=>f.id===id)).filter(Boolean))}>Log meal</button><button className="btn-ghost" disabled={!selected.length} onClick={saveMeal}>Save meal</button></div>
-      {(profile.savedMeals||[]).length>0 && <div style={{marginTop:22}}><div className="section-title" style={{marginBottom:9}}>SAVED MEALS</div>{profile.savedMeals.map(m=><div key={m.id} className="card" style={{padding:12,display:'flex',gap:10,alignItems:'center',marginBottom:8}}><div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>{m.name}</div><div style={{fontSize:11,color:'var(--text-3)'}}>{m.cal} cal · {m.protein}g protein</div></div><button className="btn-ghost" onClick={()=>logItems(m.items)}>Log</button></div>)}</div>}
+      {(profile.savedMeals||[]).length>0 && <div style={{marginTop:22}}><div className="section-title" style={{marginBottom:9}}>Saved meals</div>{profile.savedMeals.map(m=><div key={m.id} className="card" style={{padding:12,display:'flex',gap:10,alignItems:'center',marginBottom:8}}><div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>{m.name}</div><div style={{fontSize:11,color:'var(--text-3)'}}>{m.cal} cal · {m.protein}g protein</div></div><button className="btn-ghost" onClick={()=>logItems(m.items)}>Log</button></div>)}</div>}
     </div>}
 
     {tab==='nearby' && <div>
       <div className="card" style={{padding:15,marginBottom:12}}>
-        <div className="section-title" style={{marginBottom:7}}>NEAR YOU 📍</div>
+        <div className="section-title" style={{marginBottom:7}}>Near you 📍</div>
         <div style={{fontSize:12,color:'var(--text-3)',lineHeight:1.5}}>Jarvis checks the current time, your location, weather and real web results to find food, restaurants, hotels with dining, cafes and leisure options.</div>
         <div style={{display:'flex',gap:8,marginTop:10,alignItems:'center',flexWrap:'wrap'}}>
           <span className="chip">🕐 {new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}</span>
@@ -348,10 +348,10 @@ export default function FoodHub({ onLogMeal }) {
       {locationRequesting && <div className="card" style={{padding:16,fontSize:13,color:'var(--text-2'}}>Getting your location… Once found, Luxe will search automatically.</div>}
       {nearbyLoading && <div className="card" style={{padding:16,fontSize:13,color:'var(--text-2'}}>Jarvis is checking real nearby options…</div>}
       {nearbyError && location && <div className="card" style={{padding:14,color:'var(--red)',fontSize:13}}>{nearbyError}</div>}
-      {acceptedPlace && <div className="card" style={{padding:16,marginTop:12,border:'1px solid var(--green)'}}><div className="section-title" style={{marginBottom:8}}>LOG AT {acceptedPlace.name.toUpperCase()}</div><div style={{fontSize:12,color:'var(--text-3)',marginBottom:12}}>Enter the actual food and price you paid. The food goes into Calories and the payment is recorded against the selected wallet.</div><form onSubmit={recordNearbyPurchase} style={{display:'grid',gap:9}}><input className="input" placeholder="What did you eat?" value={purchase.food} onChange={e=>setPurchase({...purchase,food:e.target.value})} required/><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}><input className="input" type="number" min="0" placeholder="Calories" value={purchase.cal} onChange={e=>setPurchase({...purchase,cal:e.target.value})} required/><input className="input" type="number" min="0" placeholder="Protein (g)" value={purchase.protein} onChange={e=>setPurchase({...purchase,protein:e.target.value})}/></div><input className="input" type="number" min="0" step="0.01" placeholder="Price paid (KES)" value={purchase.price} onChange={e=>setPurchase({...purchase,price:e.target.value})} required/><select className="input" value={purchase.walletId} onChange={e=>setPurchase({...purchase,walletId:e.target.value})} required>{(wallets||[]).map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select><div style={{display:'flex',gap:8}}><button type="submit" className="btn-primary" style={{flex:1}}>Record food + payment</button><button type="button" className="btn-ghost" onClick={()=>setAcceptedPlace(null)}>Cancel</button></div></form></div>}
+      {acceptedPlace && <div className="card" style={{padding:16,marginTop:12,border:'1px solid var(--green)'}}><div className="section-title" style={{marginBottom:8}}>Log at {acceptedPlace.name}</div><div style={{fontSize:12,color:'var(--text-3)',marginBottom:12}}>Enter the actual food and price you paid. The food goes into Calories and the payment is recorded against the selected wallet.</div><form onSubmit={recordNearbyPurchase} style={{display:'grid',gap:9}}><input className="input" placeholder="What did you eat?" value={purchase.food} onChange={e=>setPurchase({...purchase,food:e.target.value})} required/><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}><input className="input" type="number" min="0" placeholder="Calories" value={purchase.cal} onChange={e=>setPurchase({...purchase,cal:e.target.value})} required/><input className="input" type="number" min="0" placeholder="Protein (g)" value={purchase.protein} onChange={e=>setPurchase({...purchase,protein:e.target.value})}/></div><input className="input" type="number" min="0" step="0.01" placeholder="Price paid (KES)" value={purchase.price} onChange={e=>setPurchase({...purchase,price:e.target.value})} required/><select className="input" value={purchase.walletId} onChange={e=>setPurchase({...purchase,walletId:e.target.value})} required>{(wallets||[]).map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select><div style={{display:'flex',gap:8}}><button type="submit" className="btn-primary" style={{flex:1}}>Record food + payment</button><button type="button" className="btn-ghost" onClick={()=>setAcceptedPlace(null)}>Cancel</button></div></form></div>}
       {nearby && <div className="card" style={{padding:15}}>
         <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center',marginBottom:10}}>
-          <div className="section-title">JARVIS RECOMMENDS</div>
+          <div className="section-title">Jarvis recommends</div>
           <span style={{fontSize:11,color:'var(--text-3)'}}>Based on now + your area</span>
         </div>
         {Array.isArray(nearby.places) && nearby.places.length > 0 ? <div style={{display:'grid',gap:10}}>{nearby.places.map((place,i)=><div key={place.id||i} className="card" style={{padding:13}}><div style={{display:'flex',justifyContent:'space-between',gap:10}}><div><div style={{fontSize:15,fontWeight:700}}>{place.name}</div><div style={{fontSize:11,color:'var(--text-3)',marginTop:3}}>{place.type || 'Food option'}{place.area ? ' · '+place.area : ''}</div></div><span style={{fontSize:20}}>{place.type==='hotel'?'🏨':place.type==='cafe'?'☕':'🍽️'}</span></div>{place.food && <div style={{fontSize:12,color:'var(--text-2)',marginTop:8}}>🍴 {place.food}</div>}{place.price && <div style={{fontSize:12,color:'var(--green)',marginTop:5}}>💰 {place.price}</div>}{place.hours && <div style={{fontSize:11,color:'var(--text-3)',marginTop:4}}>🕐 {place.hours}</div>}{place.distance && <div style={{fontSize:11,color:'var(--text-3)',marginTop:4}}>📍 {place.distance}</div>}<button className="btn-primary" style={{width:'100%',marginTop:10}} onClick={()=>acceptPlace(place)}>Accept & log food</button></div>)}</div> : <div style={{fontSize:13,lineHeight:1.6,color:'var(--text-2)',whiteSpace:'pre-wrap'}}>{nearby.content}</div>}
@@ -361,7 +361,7 @@ export default function FoodHub({ onLogMeal }) {
 
     {tab==='insights' && <div>
       <div className="card" style={{padding:15,marginBottom:12}}>
-        <div className="section-title" style={{marginBottom:12}}>NUTRITION INSIGHTS</div>
+        <div className="section-title" style={{marginBottom:12}}>Nutrition insights</div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:9}}>
           {[
             ['Avg calories',Math.round((logs.reduce((s,l)=>s+Number(l.cal||0)*(l.qty||1),0)/(new Set(logs.map(l=>l.date)).size||1))), 'kcal/day'],
@@ -372,7 +372,7 @@ export default function FoodHub({ onLogMeal }) {
         </div>
       </div>
       <div className="card" style={{padding:15}}>
-        <div className="section-title" style={{marginBottom:10}}>YOUR PREFERENCES</div>
+        <div className="section-title" style={{marginBottom:10}}>Your preferences</div>
         {[...foods].filter(f=>pref(profile,f.id).score!==0).sort((a,b)=>pref(profile,b.id).score-pref(profile,a.id).score).map(f=><div key={f.id} style={{display:'flex',alignItems:'center',gap:9,padding:'8px 0',borderBottom:'1px solid var(--border)'}}><span>{f.icon}</span><span style={{flex:1,fontSize:13}}>{f.name}</span><span>{pref(profile,f.id).state==='liked'?'❤️':'👎'}</span></div>)}
         {Object.entries(profile.mealPreferences||{}).filter(x=>x[1].score!==0).sort((a,b)=>b[1].score-a[1].score).map(([id,p])=>{
           const idea=MEAL_IDEAS.find(x=>x.id===id);

@@ -740,7 +740,7 @@ export default function StartupDetail() {
                         <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>🏆 Similar Apps & Your Competitive Edge</div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                           {analysis.competitors.map((comp, idx) => (
-                            <div key={idx} style={{ padding: 10, background: 'var(--bg-2)', borderRadius: 10, borderLeft: '3px solid var(--blue)' }}>
+                            <div key={idx} style={{ padding: 10, background: 'var(--bg-2)', borderRadius: 10, borderLeft: '1px solid var(--blue)' }}>
                               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{comp.name}</div>
                               <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>{comp.description}</div>
                               <div style={{ fontSize: 12, color: 'var(--green)', marginTop: 6, fontStyle: 'italic' }}>Your edge: {comp.your_edge}</div>

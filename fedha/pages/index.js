@@ -118,20 +118,17 @@ export default function Dashboard() {
       <div className="page">
         {/* Header */}
         <div className="lx-head">
-          <LuxeMark size={34} animated />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="lx-head-name">LUXE</div>
-            <div className="lx-head-sub">{format(new Date(), 'EEEE, d MMMM')}</div>
+            <h1 className="lx-h1">{(() => { const h = new Date().getHours(); return h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; })()}</h1>
+            <div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 4 }}>{format(new Date(), 'EEEE, d MMMM')}</div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: 'var(--text-3)', padding: '6px 10px', borderRadius: 99, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)' }}>
-            <div className="online-dot" /> Live
-          </div>
+          <LuxeMark size={38} animated />
         </div>
 
         {/* Net worth hero */}
         <div className="section" style={{ marginTop: 14 }}>
           <div className="hero-card" style={{ padding: '22px 20px 18px' }}>
-            <div className="lx-eyebrow" style={{ color: 'var(--text-2)' }}>Net worth</div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-2)' }}>Net worth</div>
             <div className="font-num" style={{ fontSize: 38, fontWeight: 700, margin: '8px 0 4px', color: netWorth >= 0 ? 'var(--text)' : 'var(--red)', letterSpacing: '-0.035em', lineHeight: 1.05 }}>
               <CountUp value={netWorth} format={(n) => formatCurrency(n, currency)} />
             </div>
@@ -147,6 +144,7 @@ export default function Dashboard() {
 
         {/* Money pulse: savings rate, 6 months in vs out, where it went, month-end pace */}
         <div className="section">
+          <div className="section-title">This month</div>
           <MoneyPulse transactions={transactions} currency={currency} />
           {impulseCount > 0 && (
             <div style={{ marginTop: 10, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>

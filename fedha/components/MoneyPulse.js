@@ -48,11 +48,10 @@ export default function MoneyPulse({ transactions = [], currency }) {
           <circle cx="38" cy="38" r={R} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="7" />
           <circle cx="38" cy="38" r={R} fill="none" stroke={rateColor} strokeWidth="7" strokeLinecap="round" transform="rotate(-90 38 38)"
             strokeDasharray={`${grown && rate > 0 ? (rate / 100) * C : 0} ${C}`} style={{ transition: 'stroke-dasharray 1.4s var(--ease-out)', filter: `drop-shadow(0 0 6px ${rateColor})` }} />
-          <text x="38" y="42" textAnchor="middle" fontSize="15" fontWeight="700" fill="var(--text)" style={{ fontFamily: 'Inter, sans-serif' }}>{rate == null ? '—' : `${Math.round(rate)}%`}</text>
+          <text x="38" y="42" textAnchor="middle" fontSize="15" fontWeight="700" fill="var(--text)" style={{ fontFamily: 'Onest, sans-serif' }}>{rate == null ? '—' : `${Math.round(rate)}%`}</text>
         </svg>
         <div style={{ minWidth: 0 }}>
-          <div className="lx-eyebrow">Money pulse</div>
-          <div style={{ fontSize: 15, fontWeight: 600, marginTop: 4, lineHeight: 1.35 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, lineHeight: 1.35, letterSpacing: '-0.01em' }}>
             {rate == null ? 'No income recorded this month yet.' : rate >= 0 ? `You kept ${Math.round(rate)}% of what came in this month.` : `You spent ${Math.round(-rate)}% more than came in this month.`}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 3 }}>

@@ -84,7 +84,7 @@ export default function FoodLogModal({ slot: initialSlot, onClose, onAdd }) {
                     border: `1px solid ${slot === s.id ? s.color : 'var(--border)'}`,
                     background: slot === s.id ? `${s.color}22` : 'var(--card-2)',
                     color: slot === s.id ? s.color : 'var(--text-2)',
-                    fontFamily: 'Inter', fontSize: 12, fontWeight: 600,
+                    fontFamily: 'Onest', fontSize: 12, fontWeight: 600,
                     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
                   }}
                 >
@@ -129,7 +129,7 @@ export default function FoodLogModal({ slot: initialSlot, onClose, onAdd }) {
                             padding: '10px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
                             border: `1px solid ${flashId === food.id ? 'var(--green)' : 'var(--border)'}`,
                             background: flashId === food.id ? 'var(--green-dim)' : 'var(--card-2)',
-                            fontFamily: 'Inter', transition: 'all 0.2s',
+                            fontFamily: 'Onest', transition: 'all 0.2s',
                           }}
                         >
                           <span style={{ fontSize: 20, flexShrink: 0 }}>{food.icon}</span>

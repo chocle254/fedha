@@ -1025,7 +1025,7 @@ export default function PlannerPage() {
           <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:16 }}>{format(now,'EEEE, d MMMM yyyy')} · {usingAI ? 'planned from when you woke up' : "auto-built from Tech Hub, My Jobs & today's workout"}</div>
 
           <button onClick={planFromNow} disabled={aiGenerating}
-            style={{ width:'100%', padding:'14px 16px', background: usingAI ? 'var(--card-2)' : 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.15))', border: `1px solid ${usingAI ? 'var(--border)' : 'rgba(16,185,129,0.35)'}`, borderRadius:12, display:'flex', alignItems:'center', gap:12, cursor: aiGenerating ? 'default' : 'pointer', marginBottom:14, textAlign:'left', fontFamily:'Inter' }}>
+            style={{ width:'100%', padding:'14px 16px', background: usingAI ? 'var(--card-2)' : 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.15))', border: `1px solid ${usingAI ? 'var(--border)' : 'rgba(16,185,129,0.35)'}`, borderRadius:12, display:'flex', alignItems:'center', gap:12, cursor: aiGenerating ? 'default' : 'pointer', marginBottom:14, textAlign:'left', fontFamily:'Onest' }}>
             <span style={{ fontSize:22 }}>{aiGenerating ? '⏳' : '☀️'}</span>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:14, fontWeight:700, color:'var(--text)' }}>
@@ -1047,7 +1047,7 @@ export default function PlannerPage() {
             <button onClick={enableNotifs} style={{ width:'100%', padding:'12px 16px', background:'rgba(16,185,129,0.08)', border:'1px solid rgba(16,185,129,0.3)', borderRadius:12, display:'flex', alignItems:'center', gap:12, cursor:'pointer', marginBottom:14, textAlign:'left' }}>
               <span style={{ fontSize:22 }}>🔔</span>
               <div>
-                <div style={{ fontSize:14, fontWeight:600, color:'var(--green)', fontFamily:'Inter' }}>Turn On All Reminders</div>
+                <div style={{ fontSize:14, fontWeight:600, color:'var(--green)', fontFamily:'Onest' }}>Turn On All Reminders</div>
                 <div style={{ fontSize:12, color:'var(--text-3)' }}>Meals, work blocks, workouts, bathing, gaming and sleep</div>
               </div>
             </button>
@@ -1089,7 +1089,7 @@ export default function PlannerPage() {
                 </div>
                 <div style={{ fontSize:12, color:'var(--text-3)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>📍 {homeLoc ? String(homeLoc.name).split(',')[0] : 'No location yet'}</div>
               </div>
-              <button onClick={() => setShowLocEdit((v) => !v)} style={{ width:'auto', flexShrink:0, padding:'6px 12px', background:'var(--card-2)', border:'1px solid var(--border)', borderRadius:100, color:'var(--text-2)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter' }}>{homeLoc ? 'Change' : 'Set'}</button>
+              <button onClick={() => setShowLocEdit((v) => !v)} style={{ width:'auto', flexShrink:0, padding:'6px 12px', background:'var(--card-2)', border:'1px solid var(--border)', borderRadius:100, color:'var(--text-2)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Onest' }}>{homeLoc ? 'Change' : 'Set'}</button>
             </div>
             {weather?.max != null && (
               <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginTop:10 }}>
@@ -1156,7 +1156,7 @@ export default function PlannerPage() {
             <>
               {currentBlock && (
                 <div style={{ marginBottom:16 }}>
-                  <div className="section-title">RIGHT NOW</div>
+                  <div className="section-title">Right now</div>
                   <div style={{ background:colorsFor(currentBlock.type).bg, border:`2px solid ${colorsFor(currentBlock.type).border}`, borderRadius:16, padding:16 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:10 }}>
                       <span style={{ fontSize:28 }}>{currentBlock.emoji}</span>
@@ -1177,7 +1177,7 @@ export default function PlannerPage() {
 
               {nextBlock && nextBlock.id !== currentBlock?.id && (
                 <div style={{ marginBottom:16 }}>
-                  <div className="section-title">UP NEXT</div>
+                  <div className="section-title">Up next</div>
                   <div className="card" style={{ padding:'12px 14px', display:'flex', alignItems:'center', gap:12 }}>
                     <span style={{ fontSize:22 }}>{nextBlock.emoji}</span>
                     <div style={{ flex:1 }}>
@@ -1191,7 +1191,7 @@ export default function PlannerPage() {
 
               <div style={{ marginBottom:16 }}>
                 <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
-                  <div className="section-title" style={{ marginBottom:0 }}>PROGRESS</div>
+                  <div className="section-title" style={{ marginBottom:0 }}>Progress</div>
                   <div style={{ fontSize:13, color:'var(--green)', fontWeight:600 }}>{completedIds.length}/{totalNonSleep} · {pct}%</div>
                 </div>
                 <div className="progress-bar" style={{ height:8 }}>
@@ -1199,7 +1199,7 @@ export default function PlannerPage() {
                 </div>
               </div>
 
-              <div className="section-title">FULL SCHEDULE {isWeekend ? '(WEEKEND)' : '(WEEKDAY)'}</div>
+              <div className="section-title">Full schedule {isWeekend ? '(weekend)' : '(weekday)'}</div>
               <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:24 }}>
                 {blocks.map(block => {
                   const isNow = nowMins>=t2m(block.time) && nowMins<t2m(block.time)+block.duration;

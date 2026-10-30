@@ -134,25 +134,20 @@ export default function GoalsPage() {
     <Layout onFab={() => setShowTxn(true)}>
       <div className="page">
         <div className="page-header">
-          <div className="lx-eyebrow">Money</div>
-          <h1 className="lx-h1" style={{ marginTop: 4, marginBottom: 16 }}>Savings goals</h1>
+          <h1 className="lx-h1" style={{ marginBottom: 16 }}>Savings goals</h1>
           {goals.length > 0 && (
-            <div className="card-2" style={{ padding: '14px 16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 2 }}>TOTAL SAVED</div>
-                  <div className="font-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--green)' }}>{formatShort(totalSaved, currency)}</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 2 }}>TOTAL TARGET</div>
-                  <div className="font-num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>{formatShort(totalTarget, currency)}</div>
-                </div>
+            <div className="card hero-card" style={{ padding: '18px 18px 16px' }}>
+              <div style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: 500 }}>Saved so far</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '6px 0 14px', flexWrap: 'wrap' }}>
+                <span className="font-num" style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.03em' }}>{formatShort(totalSaved, currency)}</span>
+                <span style={{ fontSize: 14, color: 'var(--text-2)' }}>of {formatShort(totalTarget, currency)}</span>
               </div>
-              <div className="progress-bar" style={{ height: 8 }}>
-                <div className="progress-fill" style={{ width: `${Math.min(100, (totalSaved / totalTarget) * 100)}%`, background: 'var(--green)' }} />
+              <div className="progress-bar lx-ticks" style={{ height: 10 }}>
+                <div className="progress-fill" style={{ width: `${Math.min(100, (totalSaved / totalTarget) * 100)}%`, background: 'var(--accent)' }} />
               </div>
-              <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
-                {((totalSaved / totalTarget) * 100).toFixed(1)}% of all goals reached
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>
+                <span>{((totalSaved / totalTarget) * 100).toFixed(1)}% of every goal combined</span>
+                <span>{activeGoals.length} active</span>
               </div>
             </div>
           )}
@@ -161,7 +156,7 @@ export default function GoalsPage() {
         <div style={{ padding: '0 20px' }}>
           {savingsWaiting.length > 0 && (
             <div className="card" style={{ padding: '14px 16px', marginBottom: 12, borderColor: 'rgba(245,158,11,0.4)' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: '#F59E0B' }}>🔒 WAITING FOR THE ZIIDI LOCK</div>
+              <div style={{ fontSize: 15, fontWeight: 650, color: '#F5B54A' }}>Waiting for the Ziidi lock</div>
               <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4, lineHeight: 1.5 }}>Recorded the moment Ziidi's "successfully locked" SMS for this amount arrives.</div>
               {savingsWaiting.map((w) => (
                 <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
@@ -212,7 +207,7 @@ export default function GoalsPage() {
                       </div>
 
                       {/* Progress */}
-                      <div className="progress-bar" style={{ height: 10, marginBottom: 8 }}>
+                      <div className="progress-bar lx-ticks" style={{ height: 10, marginBottom: 8 }}>
                         <div className="progress-fill" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${g.color}99, ${g.color})` }} />
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-3)', marginBottom: 8 }}>
@@ -239,11 +234,11 @@ export default function GoalsPage() {
 
                       {/* Actions */}
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => setContributeGoal(g)} style={{ flex: 2, padding: '10px', background: `${g.color}20`, border: `1px solid ${g.color}40`, borderRadius: 10, color: g.color, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter' }}>
+                        <button onClick={() => setContributeGoal(g)} style={{ flex: 2, padding: '10px', background: `${g.color}20`, border: `1px solid ${g.color}40`, borderRadius: 10, color: g.color, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'Onest' }}>
                           + Add Savings
                         </button>
-                        <button onClick={() => setEditGoal(g)} style={{ flex: 1, padding: '10px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter' }}>✏️</button>
-                        <button onClick={() => window.confirm(`Delete goal "${g.name}"? This can't be undone.`) && removeGoal(g.id)} style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter', opacity: 0.7 }}>🗑</button>
+                        <button onClick={() => setEditGoal(g)} style={{ flex: 1, padding: '10px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Onest' }}>✏️</button>
+                        <button onClick={() => window.confirm(`Delete goal "${g.name}"? This can't be undone.`) && removeGoal(g.id)} style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Onest', opacity: 0.7 }}>🗑</button>
                       </div>
                     </div>
                   );
@@ -253,7 +248,7 @@ export default function GoalsPage() {
               {/* Completed goals */}
               {completedGoals.length > 0 && (
                 <div style={{ marginTop: 24 }}>
-                  <div className="section-title">🏆 Completed Goals</div>
+                  <div className="section-title">Completed Goals</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {completedGoals.map((g) => (
                       <div key={g.id} className="card" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, borderColor: 'rgba(16,185,129,0.25)' }}>

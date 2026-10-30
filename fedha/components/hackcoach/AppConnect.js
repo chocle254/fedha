@@ -207,7 +207,7 @@ export default function AppConnect({ hack, cur, save, saveCoach, busy, run, onUs
         </div>
       )}
       {r && (
-        <div className="muse-bubble" style={{ marginTop: 10, fontSize: 12.5, borderLeft: `3px solid ${tlColor}` }}>
+        <div className="muse-bubble" style={{ marginTop: 10, fontSize: 12.5, borderLeft: `1px solid ${tlColor}` }}>
           <div className="muse-bubble-kicker" style={{ color: tlColor }}>{tl.verdict === 'during' ? '✅ BUILT DURING THE HACKATHON' : tl.verdict === 'before' ? '⚠ STARTED BEFORE THE HACKATHON' : '📅 BUILD DATES'}</div>
           <div>{timelineText(tl)}</div>
           {r.first_commit && <div style={{ color: 'var(--text-3)', marginTop: 4 }}>First commit: “{r.first_commit.message}” · {tl.commit_count} commits</div>}

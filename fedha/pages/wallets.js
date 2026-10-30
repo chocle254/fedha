@@ -256,7 +256,7 @@ function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock
     </div>
   );
   const act = (k, label, disabled) => (
-    <button key={k} onClick={() => onMove(k)} disabled={disabled} style={{ flex: 1, padding: '9px 4px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: disabled ? 'var(--text-3)' : 'var(--text)', fontSize: 12, fontWeight: 600, cursor: disabled ? 'default' : 'pointer', fontFamily: 'Inter', opacity: disabled ? 0.5 : 1 }}>{label}</button>
+    <button key={k} onClick={() => onMove(k)} disabled={disabled} style={{ flex: 1, padding: '9px 4px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: disabled ? 'var(--text-3)' : 'var(--text)', fontSize: 12, fontWeight: 600, cursor: disabled ? 'default' : 'pointer', fontFamily: 'Onest', opacity: disabled ? 0.5 : 1 }}>{label}</button>
   );
   return (
     <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
@@ -274,15 +274,15 @@ function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock
       {onAndroid() && (
         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
           {/* Shortcut: *456# → 5 → 5 → 1 in one dial, so the menu opens on the amount step. */}
-          <a href={ussdLink('*456*5*5*1#', sim)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 4px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.35)', borderRadius: 10, color: '#10B981', fontSize: 12.5, fontWeight: 700, textDecoration: 'none', fontFamily: 'Inter' }}>
+          <a href={ussdLink('*456*5*5*1#', sim)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 4px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.35)', borderRadius: 10, color: '#10B981', fontSize: 12.5, fontWeight: 700, textDecoration: 'none', fontFamily: 'Onest' }}>
             📞 Move to Ziidi{sim ? ` · SIM ${sim}` : ''}
           </a>
-          <a href={ussdLink('*456#', sim)} style={{ display: 'flex', alignItems: 'center', padding: '9px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: 'Inter' }}>
+          <a href={ussdLink('*456#', sim)} style={{ display: 'flex', alignItems: 'center', padding: '9px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: 'Onest' }}>
             *456# menu
           </a>
         </div>
       )}
-      <button onClick={() => onEdit(unlocking)} style={{ marginTop: 8, background: 'none', border: 0, padding: 0, color: 'var(--text-3)', fontSize: 12, cursor: 'pointer', fontFamily: 'Inter' }}>✏️ Edit balances to match the M-Pesa app</button>
+      <button onClick={() => onEdit(unlocking)} style={{ marginTop: 8, background: 'none', border: 0, padding: 0, color: 'var(--text-3)', fontSize: 12, cursor: 'pointer', fontFamily: 'Onest' }}>✏️ Edit balances to match the M-Pesa app</button>
       {mine.map((u) => (
         <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, padding: '8px 10px', borderRadius: 10, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', fontSize: 12 }}>
           <span>⏳</span>
@@ -374,8 +374,7 @@ export default function WalletsPage() {
     <Layout onFab={() => setShowTxn(true)}>
       <div className="page">
         <div className="page-header">
-          <div className="lx-eyebrow">Money</div>
-          <h1 className="lx-h1" style={{ marginTop: 4, marginBottom: 4 }}>Wallets</h1>
+          <h1 className="lx-h1" style={{ marginBottom: 4 }}>Wallets</h1>
           <div className="font-num" style={{ fontSize: 14, color: 'var(--text-3)' }}>Total: {formatCurrency(totalBalance, currency)}</div>
           {hasAnyZiidi && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginTop: 12 }}>
@@ -429,7 +428,7 @@ export default function WalletsPage() {
                     onCancelUnlock={async (id) => { await cancelUnlock(id); setUnlocks(await getUnlocks()); }} />
                 )}
                 {!pockets.ziidi && w.type === 'mobile' && !w.pocket && (
-                  <button onClick={() => setSettingUp(w)} style={{ width: '100%', padding: '10px 16px', background: 'transparent', border: 0, borderTop: '1px solid var(--border)', color: 'var(--green)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter', textAlign: 'left' }}>
+                  <button onClick={() => setSettingUp(w)} style={{ width: '100%', padding: '10px 16px', background: 'transparent', border: 0, borderTop: '1px solid var(--border)', color: 'var(--green)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Onest', textAlign: 'left' }}>
                     📈 Add Ziidi & locked savings to this wallet
                   </button>
                 )}
@@ -458,7 +457,7 @@ export default function WalletsPage() {
 
                 {/* Actions */}
                 <div style={{ display: 'flex', borderTop: '1px solid var(--border)' }}>
-                  <button onClick={() => setEditWallet(w)} style={{ flex: 1, padding: '10px', background: 'transparent', border: 'none', color: 'var(--text-3)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <button onClick={() => setEditWallet(w)} style={{ flex: 1, padding: '10px', background: 'transparent', border: 'none', color: 'var(--text-3)', fontSize: 13, cursor: 'pointer', fontFamily: 'Onest', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                     ✏️ Edit
                   </button>
                   <div style={{ width: 1, background: 'var(--border)' }} />
@@ -468,7 +467,7 @@ export default function WalletsPage() {
                     const used = transactions.filter((t) => t.wallet_id === w.id || t.to_wallet_id === w.id).length;
                     if (used) { window.alert(`"${w.name}" still has ${used} transaction${used === 1 ? '' : 's'}. Delete or move them first, then remove the wallet.`); return; }
                     if (window.confirm(`Delete wallet "${w.name}"? This can't be undone.`)) removeWallet(w.id);
-                  })()} style={{ flex: 1, padding: '10px', background: 'transparent', border: 'none', color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter', opacity: 0.7 }}>
+                  })()} style={{ flex: 1, padding: '10px', background: 'transparent', border: 'none', color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Onest', opacity: 0.7 }}>
                     🗑 Remove
                   </button>
                 </div>

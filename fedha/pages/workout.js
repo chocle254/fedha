@@ -238,7 +238,7 @@ function ExerciseCard({ ex, sessionKey, completedSets, onStartSet, onManualSet }
   const totalReps = ex.sets * ex.reps;
 
   return (
-    <div className="card" style={{ padding: '14px 16px', borderLeft: `3px solid ${ex.color}`, opacity: isComplete ? 0.6 : 1 }}>
+    <div className="card" style={{ padding: '14px 16px', borderLeft: `1px solid ${ex.color}`, opacity: isComplete ? 0.6 : 1 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <div style={{ width: 44, height: 44, borderRadius: 12, background: `${ex.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>
           {isComplete ? '✅' : ex.emoji}
@@ -258,14 +258,14 @@ function ExerciseCard({ ex, sessionKey, completedSets, onStartSet, onManualSet }
           </div>
           {!isComplete && (ex.manual || onManualSet) && (
             <button onClick={() => onManualSet(ex, doneSets + 1)}
-              style={{ padding: '8px 12px', background: ex.manual ? ex.color : 'transparent', border: `1px solid ${ex.color}`, borderRadius: 10, color: ex.manual ? '#000' : ex.color, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter', marginRight: ex.manual ? 0 : 6, marginBottom: ex.manual ? 0 : 6 }}>
+              style={{ padding: '8px 12px', background: ex.manual ? ex.color : 'transparent', border: `1px solid ${ex.color}`, borderRadius: 10, color: ex.manual ? '#000' : ex.color, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest', marginRight: ex.manual ? 0 : 6, marginBottom: ex.manual ? 0 : 6 }}>
               {ex.manual ? `Done set ${doneSets + 1} ✓` : '✓ Done'}
             </button>
           )}
           {!isComplete ? (ex.manual ? null :
             <button
               onClick={() => onStartSet(ex, doneSets + 1)}
-              style={{ padding: '8px 14px', background: ex.color, border: 'none', borderRadius: 10, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>
+              style={{ padding: '8px 14px', background: ex.color, border: 'none', borderRadius: 10, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>
               {doneSets === 0 ? 'Start 📷' : `Set ${doneSets + 1} 📷`}
             </button>
           ) : (
@@ -466,7 +466,7 @@ export default function WorkoutPage() {
           {/* How it works tip */}
           {!sessionData.isRest && (
             <div className="card" style={{ padding: '14px 16px', marginBottom: 24 }}>
-              <div className="section-title" style={{ marginBottom: 10 }}>HOW IT WORKS</div>
+              <div className="section-title" style={{ marginBottom: 10 }}>How it works</div>
               {[
                 '📷 Tap Start — your camera opens with AI skeleton tracking',
                 '🤖 Move and the AI counts your reps automatically using joint angles',
@@ -481,7 +481,7 @@ export default function WorkoutPage() {
 
           {/* Weekly overview */}
           <div style={{ marginBottom: 24 }}>
-            <div className="section-title" style={{ marginBottom: 10 }}>WEEK OVERVIEW</div>
+            <div className="section-title" style={{ marginBottom: 10 }}>Week overview</div>
             <div className="card" style={{ overflow: 'hidden' }}>
               {weekPlans.map((p, i) => {
                 const isToday = i === todayIdx;

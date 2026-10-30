@@ -81,7 +81,7 @@ function JobForm({ initial, onSave, onClose }) {
             <div style={{ display: 'flex', gap: 8 }}>
               {[1, 1.5, 2, 3, 4].map((m) => (
                 <button key={m} onClick={() => setMultiplier(m)}
-                  style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter',
+                  style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest',
                     background: multiplier === m ? 'var(--blue)' : 'var(--card-2)',
                     border: `1px solid ${multiplier === m ? 'var(--blue)' : 'var(--border)'}`,
                     color: multiplier === m ? '#fff' : 'var(--text-2)' }}>
@@ -122,8 +122,8 @@ function LogModal({ job, onSave, onClose }) {
         <div className="modal-body">
           {job.perTask > 0 && (
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setMode('tasks')} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter', background: mode === 'tasks' ? 'var(--green)' : 'var(--card-2)', border: `1px solid ${mode === 'tasks' ? 'var(--green)' : 'var(--border)'}`, color: mode === 'tasks' ? '#000' : 'var(--text-2)' }}>By Tasks</button>
-              <button onClick={() => setMode('amount')} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter', background: mode === 'amount' ? 'var(--green)' : 'var(--card-2)', border: `1px solid ${mode === 'amount' ? 'var(--green)' : 'var(--border)'}`, color: mode === 'amount' ? '#000' : 'var(--text-2)' }}>By Amount</button>
+              <button onClick={() => setMode('tasks')} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest', background: mode === 'tasks' ? 'var(--green)' : 'var(--card-2)', border: `1px solid ${mode === 'tasks' ? 'var(--green)' : 'var(--border)'}`, color: mode === 'tasks' ? '#000' : 'var(--text-2)' }}>By Tasks</button>
+              <button onClick={() => setMode('amount')} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest', background: mode === 'amount' ? 'var(--green)' : 'var(--card-2)', border: `1px solid ${mode === 'amount' ? 'var(--green)' : 'var(--border)'}`, color: mode === 'amount' ? '#000' : 'var(--text-2)' }}>By Amount</button>
             </div>
           )}
           {mode === 'tasks' ? (
@@ -207,7 +207,7 @@ function BreakOverlay({ brk, now, onEnd }) {
       {done ? (
         <button className="btn-primary" onClick={onEnd} style={{ background: 'var(--green)', color: '#000', maxWidth: 280 }}>I’m rebooted — back to work</button>
       ) : (
-        <button onClick={onEnd} style={{ background: 'none', border: 'none', color: 'rgba(237,242,255,0.4)', fontSize: 12, cursor: 'pointer', fontFamily: 'Inter', textDecoration: 'underline' }}>
+        <button onClick={onEnd} style={{ background: 'none', border: 'none', color: 'rgba(237,242,255,0.4)', fontSize: 12, cursor: 'pointer', fontFamily: 'Onest', textDecoration: 'underline' }}>
           Skip break (not recommended)
         </button>
       )}
@@ -336,7 +336,7 @@ function DayPlan({ job, minutesPerDay, tasksPerDay, perTask, sym, onUpdate }) {
   return (
     <div className="card" style={{ padding: '16px', marginBottom: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <div className="section-title" style={{ margin: 0 }}>🗓️ Your Day Plan</div>
+        <div className="section-title" style={{ margin: 0 }}>Your Day Plan</div>
         <input type="time" value={startTime} onChange={(e) => onUpdate({ ...job, dayStart: e.target.value })}
           className="input" style={{ width: 'auto', padding: '6px 8px', fontSize: 13 }} />
       </div>
@@ -389,14 +389,14 @@ function JobDetail({ job, onBack }) {
 
   return (
     <div>
-      <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--text-3)', fontSize: 14, cursor: 'pointer', fontFamily: 'Inter', marginBottom: 14, padding: 0 }}>← All Jobs</button>
+      <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--text-3)', fontSize: 14, cursor: 'pointer', fontFamily: 'Onest', marginBottom: 14, padding: 0 }}>← All Jobs</button>
 
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>{job.name}</div>
           {job.platform && <div style={{ fontSize: 13, color: 'var(--blue)', fontWeight: 600 }}>{job.platform}</div>}
         </div>
-        <button onClick={() => setShowEdit(true)} style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 12, fontWeight: 600, padding: '8px 12px', cursor: 'pointer', fontFamily: 'Inter' }}>Edit</button>
+        <button onClick={() => setShowEdit(true)} style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 12, fontWeight: 600, padding: '8px 12px', cursor: 'pointer', fontFamily: 'Onest' }}>Edit</button>
       </div>
 
       {/* Progress hero */}
@@ -427,7 +427,7 @@ function JobDetail({ job, onBack }) {
 
       {/* Calculator: tasks/day to hit goal */}
       <div className="card" style={{ padding: '16px', marginBottom: 16 }}>
-        <div className="section-title" style={{ marginBottom: 12 }}>📊 Daily Plan to Hit Goal</div>
+        <div className="section-title" style={{ marginBottom: 12 }}>Daily Plan to Hit Goal</div>
         {p.remaining <= 0 ? (
           <div style={{ fontSize: 14, color: 'var(--green)', fontWeight: 600 }}>You've reached your {job.multiplier}× goal — relax or get ahead for next period.</div>
         ) : (
@@ -480,7 +480,7 @@ function JobDetail({ job, onBack }) {
       ))}
 
       <button onClick={() => { if (confirm('Delete this job and all its logs?')) { removeOnlineJob(job.id); onBack(); } }}
-        style={{ width: '100%', marginTop: 20, padding: '12px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: 'var(--red)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter' }}>
+        style={{ width: '100%', marginTop: 20, padding: '12px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: 'var(--red)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Onest' }}>
         Delete Job
       </button>
 

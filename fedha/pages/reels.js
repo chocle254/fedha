@@ -211,7 +211,7 @@ export default function Reels() {
         })}
       </div>
       <style jsx global>{`
-        .rl { position: fixed; inset: 0; background: #000; color: #fff; z-index: 500; font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif; }
+        .rl { position: fixed; inset: 0; background: #000; color: #fff; z-index: 500; font-family: -apple-system, 'SF Pro Display', 'Onest', system-ui, sans-serif; }
         .rl-feed { height: 100%; overflow-y: scroll; scroll-snap-type: y mandatory; scrollbar-width: none; }
         .rl-feed::-webkit-scrollbar { display: none; }
         .rl-item { position: relative; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; display: flex; align-items: center; overflow: hidden; }

@@ -270,7 +270,7 @@ export default function PoseCamera({ exercise, targetReps, set, totalSets, onCom
   const pct = Math.round((reps / targetReps) * 100);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 400, display: 'flex', flexDirection: 'column', fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 400, display: 'flex', flexDirection: 'column', fontFamily: ''Onest', system-ui, sans-serif' }}>
 
       {/* Camera area */}
       <div style={{ position: 'relative', flex: 1, overflow: 'hidden' }}>

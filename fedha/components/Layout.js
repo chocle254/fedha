@@ -207,6 +207,19 @@ function VoicePicker() {
 }
 
 
+// A light haptic tick when a main control is pressed (Android): buttons, tabs, filters. Installed once.
+let hapticsOn = false;
+function useHaptics() {
+  useEffect(() => {
+    if (hapticsOn || typeof navigator === 'undefined' || !navigator.vibrate) return;
+    hapticsOn = true;
+    document.addEventListener('pointerdown', (e) => {
+      const el = e.target.closest?.('.btn-primary, .nav-item, .chip, .lx-segbar button, .lx-seg a, .fab');
+      if (el && !el.disabled) { try { navigator.vibrate(7); } catch { /* not allowed */ } }
+    }, { passive: true });
+  }, []);
+}
+
 // The tab bar's highlight slides from the last tab to the new one (Layout remounts on every page).
 let lastNavIdx = -1;
 function NavPill({ idx }) {
@@ -221,6 +234,7 @@ function NavPill({ idx }) {
 export default function Layout({ children, fab, onFab }) {
   const router = useRouter();
   const { isOnline } = useApp();
+  useHaptics();
   const [moreOpen, setMoreOpen] = useState(false);
   const [name, setName] = useState('');
 

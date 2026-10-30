@@ -170,7 +170,7 @@ export default function ReportsPage() {
             <select
               value={currency}
               onChange={(e) => setCurrency(e.target.value)}
-              style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 13, padding: '6px 10px', fontFamily: 'Inter', cursor: 'pointer' }}
+              style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 13, padding: '6px 10px', fontFamily: 'Onest', cursor: 'pointer' }}
             >
               {Object.keys(CURRENCIES).map((c) => <option key={c} value={c}>{c}</option>)}
             </select>

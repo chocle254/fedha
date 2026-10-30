@@ -297,7 +297,7 @@ export default function FoodDiaryPage() {
 
               <button
                 onClick={() => setEditingGoal(true)}
-                style={{ marginTop: 12, fontSize: 12, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter', textDecoration: 'underline' }}
+                style={{ marginTop: 12, fontSize: 12, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Onest', textDecoration: 'underline' }}
               >
                 Edit goals
               </button>
@@ -307,7 +307,7 @@ export default function FoodDiaryPage() {
           {/* Up next */}
           {isToday && (
             <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
-              <div className="section-title" style={{ marginBottom: 6 }}>UP NEXT</div>
+              <div className="section-title" style={{ marginBottom: 6 }}>Up next</div>
               {remainingCal <= 0 ? (
                 <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
                   You've hit today's {calorieGoal.toLocaleString()} cal goal{eatenProtein < proteinGoal ? ` — but you're ${Math.round(proteinGoal - eatenProtein)}g short on protein. A boiled egg or a glass of mala closes that cheaply.` : ' and your protein. Nice work. 💪'}
@@ -398,7 +398,7 @@ export default function FoodDiaryPage() {
               const items = logs.filter((l) => l.slot === s.id);
               const slotCal = items.reduce((sum, l) => sum + l.cal * (l.qty || 1), 0);
               return (
-                <div key={s.id} className="card" style={{ padding: '14px 16px', borderLeft: `3px solid ${s.color}` }}>
+                <div key={s.id} className="card" style={{ padding: '14px 16px', borderLeft: `1px solid ${s.color}` }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: items.length ? 10 : 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 11, color: s.color, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase' }}>{s.icon} {s.label}</span>
@@ -406,7 +406,7 @@ export default function FoodDiaryPage() {
                     </div>
                     <button
                       onClick={() => openLog(s.id)}
-                      style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 12px', fontSize: 13, color: s.color, cursor: 'pointer', fontFamily: 'Inter', fontWeight: 600 }}
+                      style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 12px', fontSize: 13, color: s.color, cursor: 'pointer', fontFamily: 'Onest', fontWeight: 600 }}
                     >+ Add</button>
                   </div>
 
@@ -441,7 +441,7 @@ export default function FoodDiaryPage() {
 
           {/* 7-day chart */}
           <div className="card" style={{ padding: '16px', marginBottom: 24 }}>
-            <div className="section-title" style={{ marginBottom: 14 }}>LAST 7 DAYS</div>
+            <div className="section-title" style={{ marginBottom: 14 }}>Last 7 days</div>
             <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8, height: 120 }}>
               {week.map((w) => {
                 const h = weekMax > 0 ? Math.max(4, Math.round((w.cal / weekMax) * 100)) : 4;

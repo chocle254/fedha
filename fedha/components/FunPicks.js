@@ -93,7 +93,7 @@ export default function FunPicks({ blocks, weather, homeLoc, floating, currency,
             {windows.length ? `${windows.length} free window${windows.length > 1 ? 's' : ''} · budget ${sym}${budget.toLocaleString()}${budget < 200 ? ' (free ideas)' : ''} · ${homeLoc ? String(homeLoc.name).split(',')[0] : 'set location'}` : 'No free windows left today'}
           </div>
         </div>
-        <button onClick={generate} disabled={busy || !windows.length} style={{ width: 'auto', flexShrink: 0, padding: '8px 14px', background: 'linear-gradient(135deg, #EC4899, #8B5CF6)', border: 0, borderRadius: 100, color: '#fff', fontSize: 12, fontWeight: 700, cursor: busy ? 'default' : 'pointer', fontFamily: 'Inter', opacity: busy || !windows.length ? 0.6 : 1 }}>
+        <button onClick={generate} disabled={busy || !windows.length} style={{ width: 'auto', flexShrink: 0, padding: '8px 14px', background: 'linear-gradient(135deg, #EC4899, #8B5CF6)', border: 0, borderRadius: 100, color: '#fff', fontSize: 12, fontWeight: 700, cursor: busy ? 'default' : 'pointer', fontFamily: 'Onest', opacity: busy || !windows.length ? 0.6 : 1 }}>
           {busy ? 'Finding…' : picks ? '↻ New ideas' : 'Find fun'}
         </button>
       </div>
@@ -145,7 +145,7 @@ export default function FunPicks({ blocks, weather, homeLoc, floating, currency,
                 <div style={{ display: 'flex', gap: 8, marginTop: 'auto', paddingTop: 4, alignItems: 'center' }}>
                   {p.url && <a href={p.url} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: 'var(--text-3)' }}>details</a>}
                   <span style={{ flex: 1 }} />
-                  <button disabled={isAdded} onClick={() => onAdd(p)} style={{ width: 'auto', padding: '6px 12px', borderRadius: 100, border: 0, background: isAdded ? 'var(--card-2)' : 'var(--green)', color: isAdded ? 'var(--text-3)' : '#04140D', fontSize: 12, fontWeight: 700, cursor: isAdded ? 'default' : 'pointer', fontFamily: 'Inter' }}>{isAdded ? 'Added ✓' : '+ Add to today'}</button>
+                  <button disabled={isAdded} onClick={() => onAdd(p)} style={{ width: 'auto', padding: '6px 12px', borderRadius: 100, border: 0, background: isAdded ? 'var(--card-2)' : 'var(--green)', color: isAdded ? 'var(--text-3)' : '#04140D', fontSize: 12, fontWeight: 700, cursor: isAdded ? 'default' : 'pointer', fontFamily: 'Onest' }}>{isAdded ? 'Added ✓' : '+ Add to today'}</button>
                 </div>
               </div>
             );

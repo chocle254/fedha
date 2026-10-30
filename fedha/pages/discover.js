@@ -26,11 +26,11 @@ function PendingCard({ opp, onMarkDone, onCancel }) {
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={onMarkDone}
-          style={{ flex: 2, padding: '10px', background: 'var(--green)', border: 'none', borderRadius: 10, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>
+          style={{ flex: 2, padding: '10px', background: 'var(--green)', border: 'none', borderRadius: 10, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>
           ✓ Mark as Done & Paid
         </button>
         <button onClick={onCancel}
-          style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter' }}>
+          style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Onest' }}>
           Cancel
         </button>
       </div>
@@ -61,7 +61,7 @@ function ActivityCard({ item, onBook, currency }) {
         <span style={{ fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>⚡ {item.why_now}</span>
       </div>
       <button onClick={() => onBook(item)}
-        style={{ width: '100%', padding: '10px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter' }}>
+        style={{ width: '100%', padding: '10px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Onest' }}>
         Record this spend →
       </button>
     </div>
@@ -145,7 +145,7 @@ function OpportunityCard({ item, onClaim }) {
           </div>
         )}
         <button onClick={() => onClaim(item)}
-          style={{ flex: 1, padding: '11px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10, color: 'var(--green)', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>
+          style={{ flex: 1, padding: '11px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10, color: 'var(--green)', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>
           🙋 I'll do this!
         </button>
       </div>
@@ -369,7 +369,7 @@ export default function DiscoverPage() {
                 style={{ width: '100%', padding: '12px 16px', background: dateMode ? 'rgba(236,72,153,0.1)' : 'var(--card-2)', border: `1px solid ${dateMode ? 'rgba(236,72,153,0.4)' : 'var(--border)'}`, borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', marginBottom: 14, textAlign: 'left' }}>
                 <span style={{ fontSize: 24 }}>{dateMode ? '💕' : '🧍'}</span>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: dateMode ? '#EC4899' : 'var(--text)', fontFamily: 'Inter' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: dateMode ? '#EC4899' : 'var(--text)', fontFamily: 'Onest' }}>
                     {dateMode ? 'Bae Mode ON 💕' : 'Solo Mode'}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
@@ -384,7 +384,7 @@ export default function DiscoverPage() {
               {/* Location */}
               {locationStatus === 'idle' && (
                 <button onClick={getLocation}
-                  style={{ width: '100%', padding: '11px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  style={{ width: '100%', padding: '11px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Onest', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                   📍 Share location for better suggestions (optional)
                 </button>
               )}
@@ -419,11 +419,10 @@ export default function DiscoverPage() {
               {activities.length > 0 && (
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <div className="section-title" style={{ marginBottom: 0 }}>
-                      {dateMode ? '💕 Date Ideas Near You' : '🎉 Activities Near You'}
+                    <div className="section-title" style={{ marginBottom: 0 }}>{dateMode ? '💕 Date Ideas Near You' : '🎉 Activities Near You'}
                     </div>
                     <button onClick={fetchActivities} disabled={loading}
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 100, color: loading ? 'var(--text-3)' : 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: loading ? 'default' : 'pointer', fontFamily: 'Inter' }}>
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 100, color: loading ? 'var(--text-3)' : 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: loading ? 'default' : 'pointer', fontFamily: 'Onest' }}>
                       <span style={{ display: 'inline-block', transition: 'transform 0.4s', transform: loading ? 'rotate(360deg)' : 'none' }}>🔄</span>
                       {loading ? 'Refreshing…' : 'Refresh'}
                     </button>
@@ -465,7 +464,7 @@ export default function DiscoverPage() {
 
               {opportunities.length > 0 && (
                 <div>
-                  <div className="section-title" style={{ marginBottom: 12 }}>💼 Online Opportunities</div>
+                  <div className="section-title" style={{ marginBottom: 12 }}>Online Opportunities</div>
                   {opportunities.map((o) => (
                     <OpportunityCard key={o.id} item={o} onClaim={claimOpportunity} />
                   ))}

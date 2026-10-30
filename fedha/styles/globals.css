@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Young+Serif&family=Outfit:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -39,7 +39,7 @@
 html, body {
   background: var(--bg);
   color: var(--text);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Onest', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: none;
   height: 100%;
@@ -74,7 +74,7 @@ html, body {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Onest', system-ui, sans-serif;
   font-size: 15px;
   padding: 12px 14px;
   width: 100%;
@@ -90,7 +90,7 @@ select.input option { background: var(--card-2); }
   background: var(--green);
   color: #000;
   font-weight: 600;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Onest', system-ui, sans-serif;
   font-size: 15px;
   border: none;
   border-radius: var(--radius-sm);
@@ -105,7 +105,7 @@ select.input option { background: var(--card-2); }
 .btn-ghost {
   background: transparent;
   color: var(--text-2);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Onest', system-ui, sans-serif;
   font-size: 15px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -204,7 +204,7 @@ select.input option { background: var(--card-2); }
   border: none;
   background: transparent;
   color: var(--text-3);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Onest', system-ui, sans-serif;
   font-size: 10px;
   font-weight: 500;
   transition: color 0.2s;
@@ -232,7 +232,7 @@ select.input option { background: var(--card-2); }
   max-height: 92vh;
   overflow-y: auto;
   padding: 0 0 32px;
-  animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: slideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1);
 }
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -282,7 +282,7 @@ select.input option { background: var(--card-2); }
   cursor: pointer;
   transition: all 0.15s;
   white-space: nowrap;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Onest', system-ui, sans-serif;
 }
 .chip.active { background: var(--green-dim); border-color: var(--green); color: var(--green); }
 
@@ -425,7 +425,7 @@ select.input option { background: var(--card-2); }
   border-radius: 12px;
   margin-bottom: 8px;
   cursor: pointer;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Onest', system-ui, sans-serif;
   text-align: left;
   transition: border-color 0.15s;
 }
@@ -776,7 +776,7 @@ select.input option { background: var(--card-2); }
   color: var(--gold, #F5C56B);
 }
 .generated-cert-name {
-  font-family: 'Inter', cursive;
+  font-family: 'Outfit', cursive;
   font-weight: 700;
   color: var(--text);
   margin-top: 6px;
@@ -851,7 +851,7 @@ select.input option { background: var(--card-2); }
 .muse-card { padding: 16px; }
 .muse-next {
   display: block; width: 100%; text-align: left; cursor: pointer; font-family: inherit; color: inherit;
-  border-left: 3px solid var(--stage);
+  border-left: 1px solid var(--border); background: color-mix(in srgb, var(--stage) 9%, transparent);
 }
 .muse-week { display: flex; gap: 6px; margin: 12px 0; }
 .muse-day {
@@ -921,9 +921,9 @@ select.input option { background: var(--card-2); }
   animation: museIn 0.25s ease-out;
 }
 .muse-bubble-kicker { font-size: 10px; font-weight: 800; letter-spacing: 1.4px; color: var(--text-2); margin-bottom: 4px; }
-.muse-tone-warn { border-left: 3px solid var(--yellow); }
-.muse-tone-win { border-left: 3px solid var(--green); }
-.muse-tone-info { border-left: 3px solid #7B61FF; }
+.muse-tone-warn { background: color-mix(in srgb, var(--yellow) 9%, var(--card-2)); }
+.muse-tone-win { background: color-mix(in srgb, var(--green) 9%, var(--card-2)); }
+.muse-tone-info { background: color-mix(in srgb, #60A5FA 9%, var(--card-2)); }
 .muse-ack { background: color-mix(in srgb, var(--green) 12%, var(--card-2)); border-color: color-mix(in srgb, var(--green) 35%, transparent); }
 @keyframes museIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .muse-link {
@@ -1049,7 +1049,7 @@ select.input option { background: var(--card-2); }
     padding: 9px 12px; border-radius: 10px;
     font-size: 14px; font-weight: 500; color: var(--text-2);
     text-decoration: none; background: transparent; border: none; cursor: pointer;
-    font-family: 'Inter', system-ui, sans-serif; text-align: left; width: 100%;
+    font-family: 'Onest', system-ui, sans-serif; text-align: left; width: 100%;
     transition: background 0.15s, color 0.15s;
   }
   .desk-nav-item svg { width: 19px; height: 19px; flex-shrink: 0; }
@@ -1146,7 +1146,7 @@ select.input option { background: var(--card-2); }
     display: flex; align-items: center; gap: 12px;
     padding: 11px 14px; border-radius: 10px;
     background: var(--card-2); border: 1px solid var(--border);
-    color: var(--text); font-size: 14px; font-weight: 500; font-family: 'Inter', system-ui, sans-serif;
+    color: var(--text); font-size: 14px; font-weight: 500; font-family: 'Onest', system-ui, sans-serif;
     text-decoration: none; cursor: pointer; text-align: left; width: 100%;
     transition: border-color 0.15s, transform 0.15s;
   }
@@ -1329,7 +1329,7 @@ select.input option { background: var(--card-2); }
 html { background: var(--bg); }
 body { background: transparent; text-rendering: optimizeLegibility; }
 ::selection { background: var(--accent-dim); color: var(--text); }
-.font-num { font-family: 'Inter', 'Inter', system-ui, sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.font-num { font-family: 'Onest', system-ui, sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 
 /* Living background */
 .lx-ambience { position: fixed; inset: 0; z-index: -1; pointer-events: none; background:
@@ -1365,8 +1365,7 @@ body { background: transparent; text-rendering: optimizeLegibility; }
 
 /* Type */
 .section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; color: var(--text-3); }
-.lx-title { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05;
-  background: linear-gradient(180deg, #fff 30%, rgba(255,255,255,0.62)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lx-title { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; color: var(--text); }
 .lx-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); }
 
 /* Controls */
@@ -1483,7 +1482,7 @@ a.lx-wcard:active { transform: scale(0.97); }
 
 /* Platform: feel installed, not embedded */
 html { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
-body { font-family: 'Inter', system-ui, -apple-system, sans-serif; font-feature-settings: 'cv11', 'ss01', 'ss03'; letter-spacing: -0.011em; }
+body { font-family: 'Onest', system-ui, -apple-system, sans-serif; font-feature-settings: 'cv11', 'ss01', 'ss03'; letter-spacing: -0.011em; }
 button, a, [role="button"], .chip, .nav-item, label { touch-action: manipulation; }
 button, [role="button"], .chip, .nav-item, .btn-primary, .btn-ghost, .btn-icon { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 input, textarea, select, .input { font-size: 16px !important; } /* under 16px the phone zooms into the field */
@@ -1530,7 +1529,7 @@ button:focus:not(:focus-visible) { outline: none; }
 
 /* Segmented control (iOS style): one track, the chosen option lifts */
 .lx-segbar { display: flex; padding: 3px; gap: 2px; border-radius: 12px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); }
-.lx-segbar button { flex: 1; min-height: 34px; border: 0; border-radius: 9px; background: transparent; color: var(--text-2); font: 600 13px 'Inter', system-ui, sans-serif; cursor: pointer; transition: background .2s var(--ease-out), color .2s; }
+.lx-segbar button { flex: 1; min-height: 34px; border: 0; border-radius: 9px; background: transparent; color: var(--text-2); font: 600 13px 'Onest', system-ui, sans-serif; cursor: pointer; transition: background .2s var(--ease-out), color .2s; }
 .lx-segbar button.on { background: rgba(255,255,255,0.13); color: var(--text); box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 3px 10px -4px rgba(0,0,0,0.7); }
 
 /* Tappable list rows: press feedback instead of a browser flash */
@@ -1558,3 +1557,83 @@ button:focus:not(:focus-visible) { outline: none; }
 /* Background lives on its own layer and never repaints while the page scrolls. */
 .lx-ambience { transform: translateZ(0); contain: strict; }
 .lx-nav-pill { will-change: auto; }
+
+/* ═══ LUXE 2.2 — cozy & rich. Warm neutrals, real headings, crafted small details. Nothing here repaints on scroll. ═══ */
+:root {
+  --text: #F6F3EE;
+  --text-2: rgba(246, 240, 230, 0.72);
+  --text-3: rgba(246, 240, 230, 0.5);
+  --border: rgba(255, 244, 228, 0.085);
+  --border-strong: rgba(255, 244, 228, 0.15);
+  --card: rgba(24, 22, 20, 0.68);
+  --card-2: rgba(255, 246, 232, 0.05);
+  --radius: 16px;
+  --radius-sm: 12px;
+}
+.card { background: linear-gradient(170deg, rgba(255,246,232,0.07), rgba(255,246,232,0.012) 45%), var(--card); border-radius: var(--radius); }
+.hero-card { border-radius: 20px !important; }
+.lx-wcard { border-radius: 18px !important; }
+
+/* Section headings: real headings, sentence case, more air above than below */
+.section { margin-bottom: 30px; }
+.section-title { font-size: 18px !important; font-weight: 650 !important; letter-spacing: -0.015em !important; text-transform: none !important;
+  color: var(--text) !important; margin-bottom: 12px; line-height: 1.25; }
+h1, h2, h3, .section-title, .lx-h1 { text-wrap: balance; }
+p { text-wrap: pretty; }
+
+/* Browser surfaces carry the design too */
+html { caret-color: var(--accent); scrollbar-color: rgba(255,244,228,0.18) transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,244,228,0.16); }
+::selection { background: var(--accent-dim); }
+a { text-underline-offset: 3px; text-decoration-thickness: 1px; }
+input::placeholder, textarea::placeholder { color: rgba(246,240,230,0.42); }
+input[type="checkbox"], input[type="radio"], input[type="range"], progress { accent-color: var(--accent); }
+
+/* Inputs: soft, warm, clearly tappable */
+.input { border-radius: 13px; background: rgba(255,246,232,0.055); min-height: 48px; }
+label { color: var(--text-2); }
+
+/* Buttons: tactile — a light top edge and a firm press */
+.btn-primary { border-radius: 14px; min-height: 48px; }
+.btn-ghost { border-radius: 14px; min-height: 48px; color: var(--text); }
+.chip { min-height: 34px; padding: 7px 14px; border-radius: 999px; font-weight: 600; font-size: 13px; color: var(--text-2); }
+
+/* Progress: a proper track with a lit fill */
+.progress-bar { height: 8px; border-radius: 8px; background: rgba(255,246,232,0.07); box-shadow: inset 0 1px 1px rgba(0,0,0,0.35); }
+.progress-fill { border-radius: 8px; background-image: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0) 60%); box-shadow: none; }
+
+/* Empty states: a quiet, framed invitation instead of a lone emoji */
+.empty-state { margin: 4px 0; padding: 34px 22px; border-radius: var(--radius); border: 1px dashed var(--border-strong); background: rgba(255,246,232,0.025); color: var(--text-3); }
+.empty-state .icon { width: 64px; height: 64px; margin: 0 auto 14px; border-radius: 20px; display: grid; place-items: center; font-size: 30px;
+  background: linear-gradient(160deg, rgba(255,246,232,0.10), rgba(255,246,232,0.03)); border: 1px solid var(--border); }
+.empty-state h3 { color: var(--text); font-size: 16px; font-weight: 650; }
+.empty-state p { color: var(--text-2); font-size: 14px; line-height: 1.5; }
+
+/* Badges and small labels */
+.badge { border-radius: 999px; padding: 3px 9px; font-weight: 650; letter-spacing: 0.01em; }
+.impulse-badge { border-radius: 999px; }
+
+/* Sheets: grabber, warm surface, comfortable header */
+.modal-sheet { background: linear-gradient(180deg, #1D1B19, #100F0E) !important; border-top: 1px solid var(--border-strong); }
+.modal-header { background: #1D1B19 !important; padding: 18px 20px 14px; }
+.modal-header > span:first-child { font-size: 18px !important; letter-spacing: -0.015em; }
+
+/* Tab bar: warm glass, comfortable targets */
+.bottom-nav { background: rgba(20, 18, 17, 0.96) !important; border-color: var(--border-strong); }
+.nav-item { min-height: 48px; font-size: 10.5px; }
+
+/* Hub tabs follow the segmented control look */
+.lx-seg { background: rgba(255,246,232,0.06); }
+
+/* Tables of numbers line up */
+.font-num, td, .num { font-variant-numeric: tabular-nums; }
+/* Milestone ticks at 25 / 50 / 75 % on goal bars (a measuring scale, so marks belong here) */
+.lx-ticks { position: relative; }
+.lx-ticks::after { content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+  background: linear-gradient(90deg, transparent calc(25% - 1px), rgba(0,0,0,0.45) calc(25% - 1px), rgba(0,0,0,0.45) 25%, transparent 25%, transparent calc(50% - 1px), rgba(0,0,0,0.45) calc(50% - 1px), rgba(0,0,0,0.45) 50%, transparent 50%, transparent calc(75% - 1px), rgba(0,0,0,0.45) calc(75% - 1px), rgba(0,0,0,0.45) 75%, transparent 75%); }
+
+/* Type: Onest for the interface, Young Serif for page titles (warm, editorial, rich) */
+.lx-h1, .page-header h1 { font-family: 'Young Serif', Georgia, serif !important; font-weight: 400 !important; font-size: 32px !important;
+  letter-spacing: -0.02em !important; line-height: 1.08 !important; }
+@media (max-width: 380px) { .lx-h1, .page-header h1 { font-size: 29px !important; } }
+.font-num { letter-spacing: -0.01em; }
