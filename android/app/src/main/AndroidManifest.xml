@@ -11,6 +11,8 @@
     <!-- Chill Room: list the movies and series in Download / Telegram / Movies (LibraryActivity). -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- The hourly Chill Room scan (LibraryScanJob) keeps running after the phone restarts. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <queries>
         <intent>
@@ -132,6 +134,12 @@
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
         </receiver>
+
+        <!-- Chill Room: hourly background scan for new downloads. -->
+        <service
+            android:name=".LibraryScanJob"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
 
         <!-- Shows the site's web push notifications as this app's, each kind on its own buzz channel. -->
         <service

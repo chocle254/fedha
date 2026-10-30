@@ -143,8 +143,20 @@ export default function TradingPage() {
   const positions = useMemo(() => trades.filter((t) => t.status === 'open'), [trades]);
   const orders = useMemo(() => trades.filter((t) => t.status === 'pending'), [trades]);
   const history = useMemo(() => trades.filter((t) => !LIVE.includes(t.status)), [trades]);
-  const activeSignals = useMemo(() => signals.filter((s) => LIVE.includes(s.status)), [signals]);
-  const closedSignals = useMemo(() => signals.filter((s) => !LIVE.includes(s.status)), [signals]);
+  // A signal stays live only while it has no trade yet or one of its trades is still open/pending. Once every trade
+  // on it has closed (TP, SL or the trailing stop), it moves to closed signals even if the channel never closed it.
+  const signalTrades = useMemo(() => {
+    const m = new Map();
+    for (const t of trades) if (t.signal_id) { const a = m.get(t.signal_id) || []; a.push(t); m.set(t.signal_id, a); }
+    return m;
+  }, [trades]);
+  const isLive = useCallback((s) => {
+    if (!LIVE.includes(s.status)) return false;
+    const ts = signalTrades.get(s.id);
+    return !ts || ts.some((t) => ['open', 'pending'].includes(t.status));
+  }, [signalTrades]);
+  const activeSignals = useMemo(() => signals.filter(isLive), [signals, isLive]);
+  const closedSignals = useMemo(() => signals.filter((s) => !isLive(s)), [signals, isLive]);
   const tradedSignalIds = useMemo(() => new Set(trades.map((t) => t.signal_id).filter(Boolean)), [trades]);
 
   // One live ticker stream for the open pair plus every pair you hold or have a signal on.

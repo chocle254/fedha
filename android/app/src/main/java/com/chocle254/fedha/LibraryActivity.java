@@ -61,7 +61,8 @@ public class LibraryActivity extends Activity {
         Toast.makeText(this, "Scanning your downloads for movies and series…", Toast.LENGTH_SHORT).show();
         final Context app = getApplicationContext();
         new Thread(() -> {
-            int n = scan(app);
+            int n = scan(app, false);
+            LibraryScanJob.schedule(app);
             runOnUiThread(() -> Toast.makeText(app, n >= 0 ? "Chill Room: found " + n + " movies and episodes. Pull to refresh." : "Could not send the list to Luxe. Try again.", Toast.LENGTH_LONG).show());
         }).start();
         finish();
@@ -75,7 +76,9 @@ public class LibraryActivity extends Activity {
         return EPISODE.matcher(name).find() || MOVIE_TAGS.matcher(name).find() || size >= BIG;
     }
 
-    private static int scan(Context c) {
+    // onlyIfChanged: the hourly background scan (LibraryScanJob) skips sending when the list is the same as last time.
+    // Returns the number of files sent, -2 when nothing changed, -1 on failure.
+    static int scan(Context c, boolean onlyIfChanged) {
         Uri uri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
         boolean q = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
         String[] cols = q
@@ -100,9 +103,14 @@ public class LibraryActivity extends Activity {
                 f.put("folder", folder.replaceAll("/+$", ""));
                 files.put(f);
             }
+            String sig = Integer.toHexString(files.toString().hashCode());
+            android.content.SharedPreferences prefs = c.getSharedPreferences("luxe_library", Context.MODE_PRIVATE);
+            if (onlyIfChanged && sig.equals(prefs.getString("sig", null))) return -2;
             JSONObject payload = new JSONObject();
             payload.put("files", files);
-            return SmsUploader.postJson(c, URL_LIBRARY, payload) ? files.length() : -1;
+            boolean ok = SmsUploader.postJson(c, URL_LIBRARY, payload);
+            if (ok) prefs.edit().putString("sig", sig).apply();
+            return ok ? files.length() : -1;
         } catch (Exception e) {
             return -1;
         }

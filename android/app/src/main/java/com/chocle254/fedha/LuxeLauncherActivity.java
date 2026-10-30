@@ -17,6 +17,7 @@ public class LuxeLauncherActivity extends LauncherActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         if (savedInstanceState == null) playWelcome(getApplicationContext());
+        LibraryScanJob.schedule(getApplicationContext()); // Chill Room: hourly background scan for new downloads
         super.onCreate(savedInstanceState);
     }
 
