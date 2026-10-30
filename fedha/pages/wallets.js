@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { pocketsOf, enableZiidi, move, getUnlocks, requestUnlock, cancelUnlock, walletSplit, releaseDueUnlocks, UNLOCK_HOURS, getInterest, setInterestRate, dailyInterest } from '../lib/ziidi';
 import Layout from '../components/Layout';
 import SmsCapture from '../components/SmsCapture';
+import InterestTicker from '../components/InterestTicker';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatDate, getCategoryById, genId, todayISO } from '../lib/utils';
@@ -270,7 +271,7 @@ function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock
           <span style={{ fontSize: 16 }}>🌙</span>
           <span style={{ flex: 1 }}>
             {lockedFree > 0
-              ? <>Earning <b className="font-num" style={{ color: '#F5B54A' }}>≈ {formatCurrency(dailyInterest(lockedFree, interest.rate), currency)}</b> a day (≈ {formatCurrency(dailyInterest(lockedFree, interest.rate) * 30, currency)} a month), paid at midnight.</>
+              ? <>Earned since midnight <b style={{ color: '#F5B54A', fontSize: 14 }}><InterestTicker perDay={(lockedFree * interest.rate) / 100 / 365} /></b><br />≈ {formatCurrency(dailyInterest(lockedFree, interest.rate), currency)} a day, ≈ {formatCurrency(dailyInterest(lockedFree, interest.rate) * 30, currency)} a month, paid at midnight.</>
               : <>Locked savings earn {interest.rate}% a year, paid every midnight.</>}
             {interest.last?.amount ? <> Last paid {formatCurrency(interest.last.amount, currency)} on {new Date(`${interest.last.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}.</> : null}
           </span>
