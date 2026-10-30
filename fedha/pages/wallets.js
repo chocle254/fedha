@@ -272,9 +272,15 @@ function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock
         {act('withdraw', '← M-Pesa', !(Number(pockets.ziidi?.balance) > 0))}
       </div>
       {onAndroid() && (
-        <a href={ussdLink('*456#', sim)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8, padding: '9px 4px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.35)', borderRadius: 10, color: '#10B981', fontSize: 12.5, fontWeight: 700, textDecoration: 'none', fontFamily: 'Outfit' }}>
-          📞 Dial *456#{sim ? ` on SIM ${sim}` : ''}
-        </a>
+        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+          {/* Shortcut: *456# → 5 → 5 → 1 in one dial, so the menu opens on the amount step. */}
+          <a href={ussdLink('*456*5*5*1#', sim)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 4px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.35)', borderRadius: 10, color: '#10B981', fontSize: 12.5, fontWeight: 700, textDecoration: 'none', fontFamily: 'Outfit' }}>
+            📞 Move to Ziidi{sim ? ` · SIM ${sim}` : ''}
+          </a>
+          <a href={ussdLink('*456#', sim)} style={{ display: 'flex', alignItems: 'center', padding: '9px 12px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: 'Outfit' }}>
+            *456# menu
+          </a>
+        </div>
       )}
       <button onClick={() => onEdit(unlocking)} style={{ marginTop: 8, background: 'none', border: 0, padding: 0, color: 'var(--text-3)', fontSize: 12, cursor: 'pointer', fontFamily: 'Outfit' }}>✏️ Edit balances to match the M-Pesa app</button>
       {mine.map((u) => (
