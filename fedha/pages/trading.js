@@ -46,6 +46,9 @@ export default function TradingPage() {
   const [picker, setPicker] = useState(false);
   const [picked, setPicked] = useState(null);
   const [tab, setTab] = useState('positions');
+  const [openGroup, setOpenGroup] = useState(null); // Signals tab: which channel card is expanded
+  const [allGroups, setAllGroups] = useState(false);
+  const [showHow, setShowHow] = useState(false);
   const [signals, setSignals] = useState([]);
   const [trades, setTrades] = useState([]);
   const [settings, setSettings] = useState(null);
@@ -302,39 +305,36 @@ export default function TradingPage() {
   const groupsFromBroker = brokerScored.some((r) => ['won', 'lost'].includes(r.status));
   const groups = useMemo(() => groupReport(groupsFromBroker ? brokerScored : trades), [groupsFromBroker, brokerScored, trades]);
 
+  // A signal as a compact card: symbol, side and status on top, the channel and time under it, then the levels
+  // as one strip (SL · Entry · TPs). Manual entry only shows for active signals that aren't traded yet.
   const signalRow = (s, canEnter) => {
     const [label, color] = SIGNAL_STATUS[s.status] || SIGNAL_STATUS.open;
     const tps = s.take_profits || [];
     const entered = tradedSignalIds.has(s.id);
     const rr = s.stop_loss != null && tps.length ? Math.abs(tps[0] - s.entry) / Math.abs(s.entry - s.stop_loss) : null;
     return (
-      <div key={s.id} className="tx-row">
-        <div className="tx-row-top">
+      <div key={s.id} className="sx-card">
+        <div className="sx-top">
           <button className="tx-sym" onClick={() => pickSymbol(s.symbol)}>{base(s.symbol)}<i>/{quoteOf(s.symbol)}</i></button>
           <Side side={s.side} />
-          <span className="tx-st" style={{ color }}>{label}{s.status === 'open' && s.tp_hit > 0 ? ` · TP${s.tp_hit} ✓` : ''}</span>
+          <span className="sx-st" style={{ color, background: `${color}1f` }}>{label}{s.status === 'open' && s.tp_hit > 0 ? ` · TP${s.tp_hit} ✓` : ''}</span>
           <span style={{ flex: 1 }} />
           {s.result_pct != null && <b className="font-num" style={{ color: Number(s.result_pct) >= 0 ? C.up : C.down }}>{Number(s.result_pct) >= 0 ? '+' : ''}{s.result_pct}%</b>}
           <button className="tx-x" onClick={() => deleteSignal(s.id)} aria-label="Delete signal">✕</button>
         </div>
-        <div className="tx-row-grid font-num">
-          <div><span>Source</span><b>{s.source}</b></div>
-          <div><span>Entry</span><b>{fmtPrice(s.entry)}</b></div>
-          <div><span>TP</span><b style={{ color: C.up }}>{tps.length ? tps.map((p) => fmtPrice(p)).join(' / ') : '—'}</b></div>
-          <div><span>SL</span><b style={{ color: C.down }}>{s.stop_loss != null ? fmtPrice(s.stop_loss) : '—'}</b></div>
-          <div><span>R:R</span><b>{rr ? `1:${rr.toFixed(2)}` : '—'}</b></div>
-          <div><span>Received</span><b>{ago(s.created_at)}</b></div>
+        <div className="sx-src">{s.source} · {ago(s.created_at)}{rr ? ` · R:R 1:${rr.toFixed(1)}` : ''}</div>
+        <div className="sx-levels font-num">
+          <div className="sl"><span>SL</span><b>{s.stop_loss != null ? fmtPrice(s.stop_loss) : '—'}</b></div>
+          <div className="en"><span>Entry</span><b>{fmtPrice(s.entry)}</b></div>
+          <div className="tp"><span>TP{tps.length > 1 ? ` 1–${tps.length}` : ''}</span><b>{tps.length ? fmtPrice(tps[0]) : '—'}{tps.length > 1 && <em> → {fmtPrice(tps[tps.length - 1])}</em>}</b></div>
         </div>
-        {canEnter && (
-          <div className="tx-row-actions">
-            {entered ? <span className="tx-muted">In a trade</span> : s.stop_loss == null ? <span className="tx-muted">No stop-loss, can&apos;t size risk</span> : (
-              <>
-                <input className="font-num" inputMode="decimal" placeholder={`risk $${riskNow.toFixed(2)}`} value={entryRisk[s.id] ?? ''} onChange={(e) => setEntryRisk((m) => ({ ...m, [s.id]: e.target.value }))} />
-                <button className={`tx-btn ${s.side === 'BUY' ? 'buy' : 'sell'}`} disabled={busyId === s.id} onClick={() => enterSignal(s)}>{busyId === s.id ? '…' : `Enter ${s.side === 'BUY' ? 'long' : 'short'}`}</button>
-              </>
-            )}
+        {canEnter && !entered && s.stop_loss != null && (
+          <div className="sx-act">
+            <input className="font-num" inputMode="decimal" placeholder={`risk $${riskNow.toFixed(2)}`} value={entryRisk[s.id] ?? ''} onChange={(e) => setEntryRisk((m) => ({ ...m, [s.id]: e.target.value }))} />
+            <button className={`tx-btn ${s.side === 'BUY' ? 'buy' : 'sell'}`} disabled={busyId === s.id} onClick={() => enterSignal(s)}>{busyId === s.id ? '…' : `Enter ${s.side === 'BUY' ? 'long' : 'short'}`}</button>
           </div>
         )}
+        {canEnter && entered && <div className="sx-in">● In a trade</div>}
       </div>
     );
   };
@@ -547,56 +547,66 @@ export default function TradingPage() {
             </>
           )}
           {tab === 'signals' && (
-            <>
-              {bySymbol.length > 0 && bySymbol.map((g) => (
-                <div key={g.sym} className="tx-row-note" style={{ padding: '10px 14px', borderBottom: '1px solid var(--tx-line)' }}>
-                  <b>{base(g.sym)}</b> {g.conflict ? <span style={{ color: C.gold }}>⚠ groups disagree</span> : <span style={{ color: C.up }}>✓ groups agree</span>}: {g.list.map((s) => `${s.source} ${s.side}`).join(' · ')}
+            <div className="sx">
+              <div className="sx-h">Live signals <small>{activeSignals.length}</small></div>
+              {bySymbol.length > 0 && (
+                <div className="sx-agree">
+                  {bySymbol.map((g) => (
+                    <span key={g.sym} className={g.conflict ? 'no' : 'ok'} title={g.list.map((x) => `${x.source} ${x.side}`).join(' · ')}>
+                      {g.conflict ? '⚠' : '✓'} {base(g.sym)} · {g.list.length} channels {g.conflict ? 'disagree' : 'agree'}
+                    </span>
+                  ))}
                 </div>
-              ))}
+              )}
               {activeSignals.length ? activeSignals.map((s) => signalRow(s, true)) : (
-                <div className="tx-empty">No active signals. New ones appear here the moment the Telegram listener forwards them. Check the Telegram tab to see every message that came in and why any were skipped.</div>
+                <div className="sx-empty">No active signals right now. New ones land here the moment a channel posts. The Telegram tab shows every message and why any were skipped.</div>
               )}
+
               <PotentialCard trades={trades} settings={settings} />
+
               {groups.length > 0 && (
-                <div className="tx-board">
-                  <div className="tx-sub">Group report card</div>
-                  <div className="tx-row-note" style={{ padding: '0 14px 8px' }}>
-                    {groupsFromBroker ? 'Scored from the MT5 demo accounts (each signal on each account counts once). ' : 'Every signal is paper-traded on its own. '}R = profit ÷ risk (+1R made what it risked, −1R hit the stop). Confidence grows as a group keeps winning, and its lot size grows with it (up to ×3). New groups stay small until {GROUP_MIN_TRADES} closed trades; 3 stop-losses in a row halve the size.
-                  </div>
-                  {groups.map((g) => {
-                    const v = g.verdict === 'testing' && g.realOk ? [C.up, `Early real ×${Math.min(1, g.lotMultiplier)}`] : { scale: [C.up, `Lots ×${g.lotMultiplier}`], keep: ['#EAECEF', `Lots ×${g.lotMultiplier}`], testing: [C.gold, `Testing ×${g.lotMultiplier}`], drop: [C.down, 'Drop'] }[g.verdict];
-                    return (
-                      <div key={g.source} className="tx-group font-num">
-                        <div className="tx-group-top">
-                          <b>{g.source}</b>
-                          <span className="tx-badge" style={{ color: v[0], background: 'rgba(132,142,156,.12)' }}>{v[1]}</span>
-                        </div>
-                        <div className="tx-conf" title={`${g.confidence}% confident this group makes money`}>
-                          <i style={{ width: `${g.confidence}%`, background: g.confidence >= 75 ? C.up : g.confidence >= 50 ? C.gold : C.down }} />
-                          <span>{g.confidence}% confident</span>
-                        </div>
-                        <div className="tx-muted">
-                          {g.closed} closed{g.open ? ` · ${g.open} open` : ''} · {g.winRate}% win · <b style={{ color: g.avgR >= 0 ? C.up : C.down }}>{g.avgR >= 0 ? '+' : ''}{g.avgR.toFixed(2)}R/trade</b> · total {g.totalR >= 0 ? '+' : ''}{g.totalR.toFixed(1)}R · worst run {g.worstStreak} SL
-                        </div>
-                        <div className="tx-muted" style={{ marginTop: 2 }}>{g.why}</div>
-                        {(() => {
-                          const p = settings?.trail_profiles?.channels?.[g.source];
-                          const best = p?.scores?.[p.mode];
-                          return (
-                            <div className="tx-muted" style={{ marginTop: 2 }}>
-                              Trailing stop: <b>{TRAIL_LABEL[p?.mode || TRAIL_DEFAULT]}</b>
-                              {p && p.trades >= 5 && best?.avgR != null ? ` · learned from ${p.trades} trades (${best.avgR >= 0 ? '+' : ''}${best.avgR.toFixed(2)}R avg)` : ' · default until 5 closed trades'}
+                <>
+                  <div className="sx-h">Channels <small>{groups.length}</small><button className="sx-how" onClick={() => setShowHow((v) => !v)}>{showHow ? 'Hide' : 'ⓘ How scoring works'}</button></div>
+                  {showHow && (
+                    <div className="sx-note">
+                      {groupsFromBroker ? 'Scored from the MT5 demo accounts (each signal on each account counts once). ' : 'Every signal is paper-traded on its own. '}R = profit ÷ risk: +1R made what it risked, −1R hit the stop. Confidence grows as a channel keeps winning, and its lots grow with it. Real money needs {GROUP_MIN_TRADES} closed trades, or 5 with a clear winning record (Early real, at most ×1 lots). 3 stop-losses in a row halve the size.
+                    </div>
+                  )}
+                  <div className="sx-groups">
+                    {(allGroups ? groups : groups.slice(0, 8)).map((g) => {
+                      const v = g.verdict === 'testing' && g.realOk ? [C.up, `Early real ×${Math.min(1, g.lotMultiplier)}`] : { scale: [C.up, `Lots ×${g.lotMultiplier}`], keep: ['#EAECEF', `Lots ×${g.lotMultiplier}`], testing: [C.gold, 'Testing'], drop: [C.down, 'Drop'] }[g.verdict];
+                      const open = openGroup === g.source;
+                      const p = settings?.trail_profiles?.channels?.[g.source];
+                      const best = p?.scores?.[p.mode];
+                      return (
+                        <button key={g.source} className={`sx-g font-num ${open ? 'open' : ''}`} onClick={() => setOpenGroup(open ? null : g.source)}>
+                          <div className="sx-g-top">
+                            <b>{g.source}</b>
+                            <span className="sx-badge" style={{ color: v[0], background: `${v[0]}1f` }}>{v[1]}</span>
+                          </div>
+                          <div className="sx-g-line">
+                            <span className="sx-bar"><i style={{ width: `${g.confidence}%`, background: g.confidence >= 75 ? C.up : g.confidence >= 50 ? C.gold : C.down }} /></span>
+                            <span>{g.closed} trades</span>
+                            <span>{g.winRate}% win</span>
+                            <span style={{ color: g.avgR >= 0 ? C.up : C.down, fontWeight: 700 }}>{g.avgR >= 0 ? '+' : ''}{g.avgR.toFixed(2)}R</span>
+                          </div>
+                          {open && (
+                            <div className="sx-g-more">
+                              <div>{g.confidence}% confident · total {g.totalR >= 0 ? '+' : ''}{g.totalR.toFixed(1)}R{g.open ? ` · ${g.open} open` : ''} · worst run {g.worstStreak} SL</div>
+                              <div>{g.why}</div>
+                              <div>Trailing stop: <b>{TRAIL_LABEL[p?.mode || TRAIL_DEFAULT]}</b>{p && p.trades >= 5 && best?.avgR != null ? ` · learned from ${p.trades} trades (${best.avgR >= 0 ? '+' : ''}${best.avgR.toFixed(2)}R avg)` : ' · default until 5 closed trades'}</div>
                             </div>
-                          );
-                        })()}
-                      </div>
-                    );
-                  })}
-                </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {groups.length > 8 && <button className="sx-more" onClick={() => setAllGroups((v) => !v)}>{allGroups ? 'Show top 8' : `Show all ${groups.length} channels`}</button>}
+                </>
               )}
-              {closedSignals.length > 0 && <button className="tx-link" style={{ margin: 14 }} onClick={() => setShowClosedSignals((v) => !v)}>{showClosedSignals ? 'Hide' : 'Show'} {closedSignals.length} closed signals</button>}
+              {closedSignals.length > 0 && <button className="sx-more" onClick={() => setShowClosedSignals((v) => !v)}>{showClosedSignals ? 'Hide' : 'Show'} {closedSignals.length} closed signals</button>}
               {showClosedSignals && closedSignals.map((s) => signalRow(s, false))}
-            </>
+            </div>
           )}
           {tab === 'telegram' && (
             <>
@@ -786,6 +796,45 @@ export default function TradingPage() {
         .tx-sub { padding: 14px 14px 6px; color: var(--tx-dim); font-size: 12px; font-weight: 700; }
         .tx-board-row { display: grid; grid-template-columns: 1.6fr 1fr 1fr .5fr; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--tx-line); font-size: 12px; }
         .tx-board-row b:last-child { text-align: right; }
+        .sx { padding: 6px 10px 14px; }
+        .sx-h { display: flex; align-items: center; gap: 8px; margin: 14px 2px 8px; font-size: 15px; font-weight: 700; }
+        .sx-h small { font-size: 11px; font-weight: 700; color: var(--tx-dim); background: #2B3139; border-radius: 999px; padding: 2px 8px; }
+        .sx-how { margin-left: auto; font-size: 12px !important; font-weight: 500; color: var(--tx-dim) !important; }
+        .sx-agree { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-bottom: 8px; }
+        .sx-agree::-webkit-scrollbar { display: none; }
+        .sx-agree span { flex: 0 0 auto; font-size: 11.5px; font-weight: 600; padding: 5px 10px; border-radius: 999px; }
+        .sx-agree .ok { color: #0ECB81; background: rgba(14,203,129,.12); }
+        .sx-agree .no { color: #F0B90B; background: rgba(240,185,11,.12); }
+        .sx-card { background: var(--tx-panel); border: 1px solid var(--tx-line); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
+        .sx-top { display: flex; align-items: center; gap: 8px; }
+        .sx-st { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+        .sx-src { margin: 4px 0 10px; font-size: 12px; color: var(--tx-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sx-levels { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 6px; }
+        .sx-levels > div { border-radius: 8px; padding: 7px 9px; background: var(--tx-bg); min-width: 0; }
+        .sx-levels span { display: block; font-size: 10.5px; color: var(--tx-dim); margin-bottom: 2px; }
+        .sx-levels b { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+        .sx-levels em { font-style: normal; color: var(--tx-dim); font-weight: 500; font-size: 11.5px; }
+        .sx-levels .sl b { color: #F6465D; } .sx-levels .tp b { color: #0ECB81; }
+        .sx-levels .sl { box-shadow: inset 2px 0 0 #F6465D; } .sx-levels .tp { box-shadow: inset 2px 0 0 #0ECB81; } .sx-levels .en { box-shadow: inset 2px 0 0 #848E9C; }
+        .sx-act { display: flex; gap: 8px; margin-top: 10px; }
+        .sx-act input { flex: 1; height: 36px; padding: 0 10px !important; border: 1px solid var(--tx-line) !important; border-radius: 8px; background: var(--tx-bg) !important; }
+        .sx-act .tx-btn { flex: 0 0 auto; padding: 0 16px; height: 36px; }
+        .sx-in { margin-top: 8px; font-size: 12px; font-weight: 600; color: #0ECB81; }
+        .sx-empty { padding: 22px 16px; text-align: center; color: var(--tx-dim); font-size: 13px; line-height: 1.5; background: var(--tx-panel); border-radius: 12px; }
+        .sx-note { margin: 0 2px 10px; padding: 10px 12px; font-size: 12px; line-height: 1.5; color: var(--tx-dim); background: var(--tx-panel); border-radius: 10px; }
+        .sx-groups { background: var(--tx-panel); border-radius: 12px; overflow: hidden; }
+        .sx-g { display: block; width: 100%; text-align: left; padding: 11px 12px !important; border-bottom: 1px solid var(--tx-line) !important; }
+        .sx-g:last-child { border-bottom: 0 !important; }
+        .sx-g.open { background: rgba(255,255,255,0.03) !important; }
+        .sx-g-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .sx-g-top b { font-size: 13.5px; font-weight: 600; color: var(--tx-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sx-badge { flex: 0 0 auto; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+        .sx-g-line { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 12px; color: var(--tx-dim); }
+        .sx-bar { flex: 1; height: 4px; border-radius: 4px; background: #2B3139; overflow: hidden; }
+        .sx-bar i { display: block; height: 100%; border-radius: 4px; }
+        .sx-g-more { margin-top: 8px; display: grid; gap: 4px; font-size: 12px; line-height: 1.45; color: var(--tx-dim); }
+        .sx-g-more b { color: var(--tx-text); }
+        .sx-more { display: block; width: 100%; margin-top: 8px; padding: 11px !important; border-radius: 10px; background: var(--tx-panel) !important; color: var(--tx-text) !important; font-weight: 600; font-size: 13px; }
         .tx-group { padding: 10px 14px; border-bottom: 1px solid var(--tx-line); font-size: 12px; line-height: 1.5; }
         .tx-conf { position: relative; height: 14px; border-radius: 7px; background: rgba(132,142,156,.15); overflow: hidden; margin: 4px 0; }
         .tx-conf i { position: absolute; inset: 0 auto 0 0; border-radius: 7px; opacity: .45; }

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { streamUrl } from '../lib/audius';
-import { videoFor, findArtist, related, artistTop } from '../lib/popular';
+import { videoFor, findArtist, related, artistTop, bpmFor } from '../lib/popular';
+import { planMix, getMix, setMix, setPair, PRESETS } from '../lib/mix';
 import { songRadio } from '../lib/music-mixes';
 import { Decks, speak } from '../lib/yt-decks';
 import { getSetting, setSetting } from '../lib/db';
@@ -8,7 +9,8 @@ import { getSetting, setSetting } from '../lib/db';
 // One music player for the whole app (Music Room + the mini player on every page), so music keeps going while you
 // move around Luxe. Two kinds of tracks:
 //   indie (Audius)    an <audio> element through a bass chain in the browser (Theater / Max bass / Plain)
-//   popular (YouTube) two YouTube players that BLEND: the next song fades in over the last 8 s of this one.
+//   popular (YouTube) two YouTube players that MIX: the next song comes in over the end of this one, in the style
+//                     and length (bars, from the song's BPM) set in the Mix sheet (lib/mix.js, like Spotify's Mix).
 //                     YouTube needs its player visible, so it sits in a small floating card while it plays.
 //                     (YouTube's sound can't go through the bass chain; use the phone's own equaliser for it.)
 // DJ Luxe (pages/api/music/dj.js) builds a set and talks between songs (the phone's voice, music dipped under it).
@@ -22,7 +24,6 @@ const MODES = {
   off: { low: 0, punch: 0, mid: 0, air: 0, gain: 1 },
 };
 export const SOUND_LABEL = { theater: '🔊 Theater', max: '💥 Max bass', off: '🔈 Plain' };
-const readBlend = () => { try { const v = Number(localStorage.getItem('luxe_crossfade')); return Number.isFinite(v) && v >= 0 ? v : 8; } catch { return 8; } };
 const readSound = () => { try { return localStorage.getItem('luxe_sound') || 'theater'; } catch { return 'theater'; } };
 
 export function MusicProvider({ children }) {
@@ -46,13 +47,14 @@ export function MusicProvider({ children }) {
   const [note, setNote] = useState('');
   const [dock, setDock] = useState(true);
   const [deck, setDeck] = useState(0); // which YouTube deck is showing
-  const [blendSecs, setBlendSecs] = useState(8); // crossfade (Spotify's Automix / crossfade), 0 = off
+  const [mix, setMixState] = useState({ preset: 'auto', bars: 8 }); // default transition (lib/mix.js)
+  const [mixPlan, setMixPlan] = useState(null); // this song -> the next: { preset, bars, secs, auto, saved, from, to }
+  const planRef = useRef(null);
+  const [mixRev, setMixRev] = useState(0);
   const [tracksPlayed, setTracksPlayed] = useState({}); // id -> { t, n, last }: On Repeat, Recently played
   const [sleepAt, setSleepAt] = useState(null); // ms timestamp, or 'end' (end of this song)
-  const blendRef = useRef(8);
   const sleepRef = useRef(null);
   sleepRef.current = sleepAt;
-  blendRef.current = blendSecs;
   const track = idx >= 0 ? queue[idx] : null;
   state.current = { queue, idx, shuffle, track };
 
@@ -61,7 +63,7 @@ export function MusicProvider({ children }) {
     getSetting('music_likes', []).then((l) => setLikes(Array.isArray(l) ? l : [])).catch(() => {});
     getSetting('music_plays', {}).then((p) => setPlays(p && typeof p === 'object' ? p : {})).catch(() => {});
     getSetting('music_tracks', {}).then((p) => setTracksPlayed(p && typeof p === 'object' ? p : {})).catch(() => {});
-    setBlendSecs(readBlend());
+    setMixState(getMix());
     const a = new Audio(); a.crossOrigin = 'anonymous'; a.preload = 'auto'; audio.current = a;
     a.addEventListener('play', () => setPlaying(true));
     a.addEventListener('pause', () => setPlaying(false));
@@ -149,7 +151,9 @@ export function MusicProvider({ children }) {
 
   // Blend into the next YouTube song (with DJ Luxe's line over it if the set has one).
   const advance = useCallback(async (dir = 1, secs = null) => {
-    const seconds = secs ?? blendRef.current;
+    const plan = planRef.current;
+    const seconds = secs ?? (plan?.secs || 0);
+    const curve = secs == null ? plan?.curve : PRESETS.fade.curve; // ⏭ is always a quick fade
     // Sleep timer "end of this song": stop instead of moving on.
     if (sleepRef.current === 'end' && dir > 0 && secs == null) { decks.current?.pause(); audio.current?.pause(); setSleepAt(null); sleepRef.current = null; return; }
     const { queue: list, idx: i } = state.current;
@@ -162,7 +166,7 @@ export function MusicProvider({ children }) {
       blending.current = true;
       if (t.dj) speak(t.dj, { onStart: () => { ducking.current = 0.35; setDj((x) => ({ ...(x || {}), talking: true, text: t.dj })); }, onEnd: () => { ducking.current = 1; setDj((x) => (x ? { ...x, talking: false } : x)); } });
       setDeck(d.other); // show the incoming song as it fades in
-      await d.blend(vid, t.gain, seconds, () => ducking.current);
+      await d.blend(vid, t.gain, seconds, () => ducking.current, curve);
       blending.current = false;
       setIdx(n); countPlay(t);
       const after = list[nextIndex(list, n)]; if (after?.source === 'yt') videoFor(after);
@@ -179,12 +183,26 @@ export function MusicProvider({ children }) {
       if (t?.source !== 'yt' || !decks.current) return;
       const tm = decks.current.time();
       setTime({ cur: tm.cur, dur: tm.dur }); setPlaying(tm.playing || blending.current);
-      if (!blending.current && tm.playing && tm.dur > 30 && blendRef.current > 0 && tm.dur - tm.cur <= blendRef.current + 0.5) advance(1);
+      const secs = planRef.current?.secs || 0;
+      if (!blending.current && tm.playing && tm.dur > 30 && secs > 0 && tm.dur - tm.cur <= secs + 0.5) advance(1);
       if (ducking.current < 1 && !blending.current) decks.current.setDuck(ducking.current);
       else if (!blending.current && tm.playing) decks.current.setDuck(1);
     }, 500);
     return () => clearInterval(iv);
   }, [advance]);
+
+  // Plan the transition from this song into the next (tempos from Deezer, then lib/mix.js).
+  useEffect(() => {
+    const { queue: list, idx: i } = state.current;
+    // Shuffle picks the next song at the last moment, so the transition uses the default style without its tempo.
+    const cur = list[i]; const nxt = state.current.shuffle ? null : list[(i + 1) % (list.length || 1)];
+    if (!cur || cur.source !== 'yt' || (nxt && nxt.source !== 'yt')) { planRef.current = null; setMixPlan(null); return undefined; }
+    let live = true;
+    const set = (a, b) => { const p = { ...planMix(a, b), from: a, to: b }; planRef.current = p; if (live) setMixPlan(p); };
+    set(cur, nxt);
+    Promise.all([bpmFor(cur), nxt ? bpmFor(nxt) : null]).then(([x, y]) => { if (live) set({ ...cur, bpm: x }, nxt ? { ...nxt, bpm: y } : null); });
+    return () => { live = false; };
+  }, [idx, queue, mixRev, shuffle]);
 
   // ── controls ───────────────────────────────────────────────────────────────
   const playList = useCallback((list, i = 0) => { setQueue(list); state.current.queue = list; load(list, i); }, [load]);
@@ -233,7 +251,15 @@ export function MusicProvider({ children }) {
     flash(`${t.title} radio…`);
     try { const list = await songRadio(t); if (list.length) { setDj(null); setShuffle(false); playList(list, 0); } } catch { flash("Couldn't start that radio."); }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const setCrossfade = useCallback((v) => { setBlendSecs(v); try { localStorage.setItem('luxe_crossfade', String(v)); } catch { /* ignore */ } }, []);
+  // Mix: the default transition for every song, or one saved just for this song -> the next.
+  const setMixDefault = useCallback((v) => { setMix(v); setMixState(getMix()); setMixRev((r) => r + 1); }, []);
+  const saveMixPair = useCallback((v) => { const p = planRef.current; if (p?.from && p?.to) { setPair(p.from, p.to, v); setMixRev((r) => r + 1); } }, []);
+  // Hear the transition now: jump to just before it starts.
+  const hearMix = useCallback(() => {
+    const p = planRef.current; const tm = decks.current?.time();
+    if (!p?.secs || !tm?.dur || state.current.track?.source !== 'yt') return;
+    decks.current.seek(Math.max(0, tm.dur - p.secs - 4));
+  }, []);
   const setSleep = useCallback((m) => { const v = m === 'end' ? 'end' : m ? Date.now() + m * 60e3 : null; setSleepAt(v); if (v) flash(m === 'end' ? 'Stopping after this song' : `Stopping in ${m} min`); }, []);
   const removeFromQueue = useCallback((k) => {
     const { queue: list, idx: i } = state.current;
@@ -305,7 +331,7 @@ export function MusicProvider({ children }) {
 
   const yt = track?.source === 'yt';
   return (
-    <Ctx.Provider value={{ queue, idx, track, playing, time, sound, setSound, shuffle, setShuffle, likes, like, playList, next, prev, toggle, seek, dj, startDj, stopDj, smartShuffle, note, topArtists, playNext, addToQueue, removeFromQueue, startRadio, blendSecs, setCrossfade, sleepAt, setSleep, tracksPlayed, plays, stop }}>
+    <Ctx.Provider value={{ queue, idx, track, playing, time, sound, setSound, shuffle, setShuffle, likes, like, playList, next, prev, toggle, seek, dj, startDj, stopDj, smartShuffle, note, topArtists, playNext, addToQueue, removeFromQueue, startRadio, mix, mixPlan, setMixDefault, saveMixPair, hearMix, sleepAt, setSleep, tracksPlayed, plays, stop }}>
       {children}
       {/* The YouTube decks: a small floating card while popular music plays (YouTube requires it to be visible). */}
       <div style={{ position: 'fixed', right: 16, bottom: 'calc(84px + env(safe-area-inset-bottom))', width: 88, height: 50, zIndex: 46, borderRadius: 10, overflow: 'hidden', opacity: yt ? 1 : 0, pointerEvents: 'none', background: '#000', transition: 'opacity 0.3s' }}>

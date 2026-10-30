@@ -5,10 +5,11 @@ import { useMusic, SOUND_LABEL } from '../context/MusicContext';
 import { GENRES, trending, search } from '../lib/audius';
 import { searchTracks, findArtist, artistTop, related, chart } from '../lib/popular';
 import { dailyMixes, releaseRadar, lyricsFor, daylistName } from '../lib/music-mixes';
+import { PRESET_KEYS, PRESET_LABEL, PRESETS, BARS, barsToSecs, curvePoints } from '../lib/mix';
 
 // Music Room, Spotify-style.
 //   Now playing: a cover-art card (swipe ← next, → previous, double-tap ♥), synced lyrics, queue, sleep timer,
-//                crossfade. Popular songs play through YouTube in a tiny corner player (data saver).
+//                Mix (how each song turns into the next: style + length in bars, like Spotify's Mix). Popular songs play through YouTube in a tiny corner player (data saver).
 //   DJ Luxe:     moods, typed requests, "switch it up", a voice between songs (pages/api/music/dj.js).
 //   Made for you: daylist, Daily Mixes, Release Radar, On Repeat, Recently played, charts, your artists.
 //   Every song: ⋯ → play next, add to queue, start radio, like.   Indie tab: Audius with the bass modes.
@@ -30,6 +31,54 @@ function Row({ title, items, onPlay, sub }) {
         ))}
       </div>
     </section>
+  );
+}
+
+// Mix editor (Spotify's Mix): this song and the next with their tempos, the volume curves of the transition,
+// its length in bars and the style. Changes apply straight away, to every song or just to these two.
+function MixSheet({ m }) {
+  const p = m.mixPlan;
+  const [scope, setScope] = useState(p?.saved ? 'pair' : 'all');
+  const cur = p?.saved || scope === 'pair' ? { preset: p?.auto ? 'auto' : p?.preset || 'auto', bars: p?.bars || 8 } : m.mix || { preset: 'auto', bars: 8 };
+  const pick = (v) => { const next = { ...cur, ...v }; if (scope === 'pair' && p?.to) m.saveMixPair(next); else m.setMixDefault(next); };
+  const shown = p && p.secs ? p.preset : null;
+  const pts = curvePoints(shown || 'fade');
+  const song = (t, bpm) => t && (
+    <div className="mx-song">
+      <div className="mr-art" style={bgi(t.art)} />
+      <div className="mr-meta"><b>{t.title}</b><small>{t.artist}</small></div>
+      <div className="mx-bpm">{bpm ? `${bpm} bpm` : '— bpm'}<small>{fmt(t.duration)}</small></div>
+    </div>
+  );
+  if (!p) return (<><h3 className="mr-sheetT">Mix</h3><p className="mr-note" style={{ textAlign: 'left' }}>Play a popular song with another one after it to set how they mix.</p></>);
+  return (
+    <>
+      <h3 className="mr-sheetT">Mix {p.auto && <span className="mx-auto">✨ Auto picked {PRESET_LABEL[p.preset]}</span>}</h3>
+      {song(p.from, p.from?.bpm)}
+      <div className="mx-wave">
+        <svg viewBox="0 0 300 120" preserveAspectRatio="none" aria-hidden="true">
+          {shown ? (<><polyline points={pts.out} className="mx-out" /><polyline points={pts.in} className="mx-in" /></>) : <text x="150" y="64" textAnchor="middle" className="mx-off">No mix: the next song starts after this one ends</text>}
+        </svg>
+        {shown && <div className="mx-len">{p.bars} bars · {p.secs}s</div>}
+      </div>
+      {p.to ? song(p.to, p.to?.bpm) : <p className="mr-note" style={{ textAlign: 'left', margin: '0 0 8px' }}>Shuffle is on, so the next song is picked at the last moment.</p>}
+      <div className="mx-label">Presets</div>
+      <div className="mx-chips">
+        {PRESET_KEYS.map((k) => <button type="button" key={k} className={cur.preset === k ? 'on' : ''} onClick={() => pick({ preset: k })}>{PRESET_LABEL[k]}</button>)}
+      </div>
+      <p className="mx-about">{cur.preset === 'auto' ? 'Picks the style from both tempos: close tempos overlap, far apart ones cut cleanly.' : cur.preset === 'off' ? 'No transition.' : PRESETS[cur.preset]?.about}</p>
+      <div className="mx-label">Length</div>
+      <div className="mx-chips">
+        {BARS.map((b) => <button type="button" key={b} className={cur.bars === b ? 'on' : ''} onClick={() => pick({ bars: b })}>{b} bars<small>{Math.round(barsToSecs(b, p.from?.bpm))}s</small></button>)}
+      </div>
+      {p.to && (
+        <div className="mx-scope">
+          <button type="button" className={scope === 'all' ? 'on' : ''} onClick={() => { setScope('all'); if (p.saved) m.saveMixPair(null); }}>Every song</button>
+          <button type="button" className={scope === 'pair' ? 'on' : ''} onClick={() => { setScope('pair'); m.saveMixPair(cur); }}>Just these two</button>
+        </div>
+      )}
+      {shown && <button type="button" className="mx-hear" onClick={m.hearMix}>▶ Hear the transition</button>}
+    </>
   );
 }
 
@@ -145,7 +194,7 @@ export default function Music() {
                 <button type="button" className={showLyrics ? 'on' : ''} onClick={() => setShowLyrics((v) => !v)}>📜 Lyrics</button>
                 <button type="button" onClick={() => setSheet('queue')}>📋 Queue</button>
                 <button type="button" className={m.sleepAt ? 'on' : ''} onClick={() => setSheet('sleep')}>😴 {m.sleepAt === 'end' ? 'End of song' : m.sleepAt ? `${Math.max(1, Math.round((m.sleepAt - Date.now()) / 60000))}m` : 'Sleep'}</button>
-                <button type="button" onClick={() => setSheet('fade')}>〰️ {m.blendSecs ? `${m.blendSecs}s` : 'No'} blend</button>
+                <button type="button" className={m.mixPlan?.saved ? 'on' : ''} onClick={() => setSheet('fade')}>🎚️ Mix: {PRESET_LABEL[m.mixPlan?.auto ? 'auto' : m.mixPlan?.preset || m.mix?.preset] || 'Off'}</button>
               </div>
             </div>
           </section>
@@ -296,13 +345,7 @@ export default function Music() {
                 ))}
               </>
             )}
-            {sheet === 'fade' && (
-              <>
-                <h3 className="mr-sheetT">Blend between songs: {m.blendSecs ? `${m.blendSecs} s` : 'off'}</h3>
-                <input type="range" min="0" max="12" step="1" value={m.blendSecs} onChange={(e) => m.setCrossfade(Number(e.target.value))} style={{ width: '100%', accentColor: '#fff' }} />
-                <p className="mr-note" style={{ textAlign: 'left', margin: '10px 0 0' }}>The next song fades in over the end of this one, like Spotify's crossfade. 0 = no blend.</p>
-              </>
-            )}
+            {sheet === 'fade' && <MixSheet m={m} />}
           </div>
         </div>
       )}
@@ -336,6 +379,27 @@ export default function Music() {
         .mr-ctrls button { all: unset; cursor: pointer; font-size: 22px; color: rgba(255,255,255,0.85); width: 40px; height: 40px; display: grid; place-items: center; }
         .mr-ctrls button.on { color: #1ed760; }
         .mr-ctrls .mr-play { width: 64px; height: 64px; border-radius: 50%; background: #f5f5f7; color: #000; font-size: 22px; }
+        .mx-song { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
+        .mx-song .mr-meta { flex: 1; min-width: 0; }
+        .mx-bpm { text-align: right; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .mx-bpm small { display: block; font-size: 12px; font-weight: 500; color: #8e8e93; }
+        .mx-wave { position: relative; margin: 8px 0 14px; height: 130px; border-radius: 14px; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.04) 0 2px, transparent 2px 14px), #1c1c1e; overflow: hidden; }
+        .mx-wave svg { position: absolute; inset: 0 0 18px; width: 100%; height: calc(100% - 18px); }
+        .mx-out, .mx-in { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+        .mx-out { stroke: #3ea6ff; } .mx-in { stroke: #ffd60a; }
+        .mx-off { fill: #8e8e93; font-size: 11px; }
+        .mx-len { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 999px; background: rgba(0,0,0,0.6); }
+        .mx-auto { font-size: 12px; font-weight: 600; color: #8e8e93; margin-left: 6px; }
+        .mx-label { margin: 14px 0 8px; font-size: 12px; font-weight: 700; color: #8e8e93; text-transform: uppercase; letter-spacing: 0.6px; }
+        .mx-chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+        .mx-chips::-webkit-scrollbar { display: none; }
+        .mx-chips button, .mx-scope button { flex: 0 0 auto; border: 0; border-radius: 12px; padding: 11px 16px; background: #2c2c2e; color: #f5f5f7; font: 600 14px/1.1 inherit; cursor: pointer; font-family: inherit; }
+        .mx-chips button small { display: block; margin-top: 3px; font-size: 11px; font-weight: 500; color: #8e8e93; }
+        .mx-chips button.on, .mx-scope button.on { background: #fff; color: #000; }
+        .mx-chips button.on small { color: #3a3a3c; }
+        .mx-about { margin: 8px 2px 0; font-size: 13px; color: #aeaeb2; line-height: 1.4; }
+        .mx-scope { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+        .mx-hear { width: 100%; margin-top: 12px; border: 0; border-radius: 999px; padding: 13px; background: #1ed760; color: #000; font: 700 15px inherit; font-family: inherit; cursor: pointer; }
         .mr-mini { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; justify-content: center; }
         .mr-mini button { border: 0; border-radius: 999px; padding: 7px 12px; font-size: 12.5px; font-weight: 600; background: rgba(255,255,255,0.12); color: #f5f5f7; cursor: pointer; font-family: inherit; }
         .mr-mini button.on { background: #f5f5f7; color: #000; }

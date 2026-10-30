@@ -74,7 +74,7 @@ export function prefetchReels() {
   prefetched = (async () => {
     const signals = await getSignals();
     const ranked = rank(await fetchCandidates(signals), signals);
-    const first = await withTrailers(ranked, 4);
+    const first = await withTrailers(ranked, 8); // Wi-Fi only: enough for the first one plus 4+ ahead
     return { signals, ...first };
   })().catch(() => { prefetched = null; return null; });
   return prefetched;

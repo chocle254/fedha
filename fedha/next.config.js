@@ -13,4 +13,6 @@ const withPWA = require('next-pwa')({
 
 module.exports = withPWA({
   reactStrictMode: true,
+  // The ASMR Room was removed; old links (saved planner notifications) open the Music Room.
+  async redirects() { return [{ source: '/asmr', destination: '/music', permanent: false }]; },
 });

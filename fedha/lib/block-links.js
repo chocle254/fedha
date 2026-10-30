@@ -28,7 +28,7 @@ export function blockLink(block, ctx = {}) {
   if (/^(client|project|research|job)/i.test(label) || type === 'research') return { href: '/tech-hub', text: '💻 Open Tech Hub' };
   if (id === 'scroll') return { href: '/reels', text: '📱 Open Reels' };
   if (/^(bath|freshen)/.test(id) || id === 'anchor_bath') return { href: '/health', text: '🚿 Open Health' };
-  if (id === 'sleep' || id === 'night_prep') return { href: '/asmr', text: '🌙 Sleep sounds' };
+  if (id === 'sleep' || id === 'night_prep') return { href: '/music', text: '🌙 Wind-down music' };
   if (id === 'smoke' || id === 'smoke_pm' || id.startsWith('break')) return { href: '/music', text: '🎧 Music Room' };
   return null;
 }

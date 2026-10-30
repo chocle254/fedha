@@ -7,8 +7,11 @@ import { getProgress, setFeedback } from '../lib/chill';
 import { useMusic } from '../context/MusicContext';
 
 // Chill Room → Reels: full-screen trailers, swipe up for the next one (lib/reels.js ranks them like Instagram Reels).
-// Data: on Wi-Fi the current trailer plays in HD and the next 3 are ready; on mobile data nothing loaded before you
-// opened Reels, and trailers come 4 at a time at YouTube's lowest quality. Watching, ♥, ＋ and quick skips teach it.
+// Data: on Wi-Fi the current trailer plays in HD and the next 4 are already buffering (each starts muted for a few
+// seconds, then waits at 0:00), so swiping never waits; more trailers are looked up well before the end.
+// On mobile data nothing loaded before you opened Reels, only the next 3 are prepared, trailers come 4 at a time
+// at YouTube's lowest quality. Watching, ♥, ＋ and quick skips teach it.
+const AHEAD_WIFI = 4;
 const embed = (id, { wifi, muted }) => `https://www.youtube-nocookie.com/embed/${id}?${new URLSearchParams({ enablejsapi: '1', autoplay: '0', mute: muted ? '1' : '0', playsinline: '1', controls: '0', modestbranding: '1', rel: '0', iv_load_policy: '3', loop: '1', playlist: id, vq: wifi ? 'hd720' : 'tiny' })}`;
 const cmd = (frame, func, args = []) => { try { frame?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*'); } catch { /* not ready */ } };
 
@@ -28,6 +31,8 @@ export default function Reels() {
   const box = useRef(null);
   const watch = useRef({ i: 0, since: Date.now() });
   const busy = useRef(false);
+  const activeRef = useRef(0);
+  activeRef.current = active;
 
   // First 4 (prefetched on Wi-Fi from the Chill Room, or fetched now).
   useEffect(() => {
@@ -39,18 +44,18 @@ export default function Reels() {
       if (pre?.ready?.length) { setSignals(pre.signals); setFeed(pre.ready); setRest(pre.rest); setLoading(false); return; }
       const sig = await getSignals(); setSignals(sig);
       const ranked = rank(await fetchCandidates(sig), sig);
-      const first = await withTrailers(ranked, 4);
+      const first = await withTrailers(ranked, connection().wifi ? 8 : 4);
       setFeed(first.ready); setRest(first.rest); setLoading(false);
     })().catch(() => setLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The next 4 when you're 2 from the end.
+  // The next 4 when you're 2 from the end (on Wi-Fi: while 6 are still left, so 4 are always buffered ahead).
   const more = useCallback(async () => {
     if (busy.current || !rest.length) return;
     busy.current = true;
     try { const n = await withTrailers(rest, 4); setFeed((f) => [...f, ...n.ready]); setRest(n.rest); } finally { busy.current = false; }
   }, [rest]);
-  useEffect(() => { if (feed.length && active >= feed.length - 2) more(); }, [active, feed.length, more]);
+  useEffect(() => { if (feed.length && active >= feed.length - (net.wifi ? AHEAD_WIFI + 2 : 2)) more(); }, [active, feed.length, more, net.wifi]);
 
   // Which reel is on screen.
   useEffect(() => {
@@ -68,9 +73,13 @@ export default function Reels() {
       const s = signals[item.title] || {};
       saveSignal(signals, item, { shown: (s.shown || 0) + 1, watch: Math.max(s.watch || 0, secs), skipped: secs < 3 && !s.liked && !s.saved }).then(setSignals).catch(() => {});
     }
-    watch.current = { i: active, since: Date.now() };
+    const moved = prev.i !== active;
+    watch.current = moved ? { i: active, since: Date.now() } : prev;
+    if (!moved) return; // more trailers arrived: leave the one playing alone
     setPaused(false);
-    Object.entries(frames.current).forEach(([k, f]) => cmd(f, Number(k) === active ? 'playVideo' : 'pauseVideo'));
+    Object.entries(frames.current).forEach(([k, f]) => {
+      if (Number(k) === active) { cmd(f, 'seekTo', [0, true]); if (!muted) cmd(f, 'unMute'); cmd(f, 'playVideo'); } else cmd(f, 'pauseVideo');
+    });
   }, [active, feed.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleMute = () => { const m = !muted; setMuted(m); Object.values(frames.current).forEach((f) => cmd(f, m ? 'mute' : 'unMute')); };
@@ -92,7 +101,7 @@ export default function Reels() {
       {!loading && !feed.length && <div className="rl-msg">No trailers found right now. Try again in a bit.</div>}
       <div className="rl-feed" ref={box}>
         {feed.map((x, i) => {
-          const near = i >= active - 1 && i <= active + 3; // the one on screen + the next 3 are loaded, nothing else
+          const near = i >= active - 1 && i <= active + (net.wifi ? AHEAD_WIFI : 3); // on screen + the next ones, nothing else
           const s = signals[x.title] || {};
           return (
             <section key={`${x.title}${i}`} className="rl-item" style={x.poster ? { '--poster': `url("${x.poster}")` } : undefined}>
@@ -103,7 +112,15 @@ export default function Reels() {
                   title={`${x.title} trailer`}
                   src={embed(x.trailer, { wifi: net.wifi, muted })}
                   allow="autoplay; encrypted-media"
-                  onLoad={(e) => { if (i === active) { cmd(e.currentTarget, 'playVideo'); if (!muted) cmd(e.currentTarget, 'unMute'); } }}
+                  onLoad={(e) => {
+                    const f = e.currentTarget;
+                    if (i === active) { cmd(f, 'playVideo'); if (!muted) cmd(f, 'unMute'); return; }
+                    // Wi-Fi: buffer it now. Play muted for a few seconds (YouTube only downloads while playing), then
+                    // wait at the start. Unmuted again when it comes on screen.
+                    if (!net.wifi) return;
+                    setTimeout(() => { cmd(f, 'mute'); cmd(f, 'playVideo'); }, 600 + (i - active) * 700);
+                    setTimeout(() => { if (frames.current[activeRef.current] !== f) { cmd(f, 'pauseVideo'); cmd(f, 'seekTo', [0, true]); } }, 4600 + (i - active) * 700);
+                  }}
                 />
               )}
               <button type="button" className="rl-tap" onClick={tapVideo} aria-label={paused ? 'Play' : 'Pause'}>{i === active && paused && <span>▶</span>}</button>

@@ -43,7 +43,6 @@ const MORE_GROUPS = [
     { href:'/planner', label:'Planner', emoji:'📅', desc:'Schedule, tasks & activities' },
     { href:'/chill', label:'Chill Room', emoji:'🍿', desc:'Your series & movies' },
     { href:'/music', label:'Music Room', emoji:'🎧', desc:'Stream music with deep bass' },
-    { href:'/asmr', label:'ASMR Room', emoji:'✨', desc:'Tingles in 3D, endless' },
     { href:'/health', label:'Health & Fitness', emoji:'❤️', desc:'Wellness & workouts' },
   ]},
   { title: 'Grow & earn', items: [
@@ -121,7 +120,6 @@ const SIDE_GROUPS = [
     { href: '/activities', label: 'Activities', icon: 'planner' },
     { href: '/chill', label: 'Chill Room', icon: 'planner' },
     { href: '/music', label: 'Music Room', icon: 'planner' },
-    { href: '/asmr', label: 'ASMR Room', icon: 'planner' },
     { href: '/meals', label: 'Food', icon: 'food' },
     { href: '/workout', label: 'Workout', icon: 'workout' },
     { href: '/health', label: 'Health', icon: 'health' },

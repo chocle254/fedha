@@ -62,7 +62,8 @@ export class Decks {
   }
 
   // Start videoId on the other deck and cross the volumes over `seconds`. Resolves when the blend is done.
-  async blend(videoId, gain, seconds = 8, duck = null) {
+  // curve(k) -> [out, in] volumes 0..1 for k from 0 to 1 (the Mix style, lib/mix.js); default is a straight crossfade.
+  async blend(videoId, gain, seconds = 8, duck = null, curve = null) {
     await this.ready;
     const from = this.active; const to = this.other;
     const a = this.players[from]; const b = this.players[to];
@@ -72,8 +73,9 @@ export class Decks {
     for (let i = 1; i <= steps; i++) {
       await new Promise((r) => setTimeout(r, (seconds * 1000) / steps));
       const k = i / steps; const d = duck ? duck() : 1;
-      a.setVolume(Math.round(this.base[from] * (1 - k) * d));
-      b.setVolume(Math.round(this.base[to] * k * d));
+      const [o, n] = curve ? curve(k) : [1 - k, k];
+      a.setVolume(Math.round(this.base[from] * o * d));
+      b.setVolume(Math.round(this.base[to] * n * d));
     }
     a.pauseVideo();
     this.active = to;

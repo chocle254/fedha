@@ -24,6 +24,16 @@ export async function related(id, limit = 12) { return (await dz(`/artist/${id}/
 export async function artistRadio(id) { return tracks(await dz(`/artist/${id}/radio`, { limit: 40 })); }
 export async function chart() { return tracks(await dz('/chart/0/tracks', { limit: 50 })); }
 
+// Tempo for the Mix (lib/mix.js): Deezer's BPM for a track, null if it has none. Remembered for the session.
+const bpmCache = new Map();
+export async function bpmFor(t) {
+  if (!t?.dz) return null;
+  if (bpmCache.has(t.dz)) return bpmCache.get(t.dz);
+  const p = dz(`/track/${t.dz}`).then((j) => (Number(j?.bpm) > 40 ? Math.round(Number(j.bpm)) : null)).catch(() => null);
+  bpmCache.set(t.dz, p);
+  const v = await p; bpmCache.set(t.dz, v); return v;
+}
+
 const videoCache = new Map();
 // YouTube id for a track (null if none found). Remembered for the session; the server remembers it for good.
 export async function videoFor(t) {
