@@ -1229,7 +1229,7 @@ select.input option { background: var(--card-2); }
 .muse-tabs {
   display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
   padding: 16px 20px 10px; position: sticky; top: 0; z-index: 5;
-  background: rgba(6, 7, 10, 0.55); backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%);
+  background: rgba(6, 7, 10, 0.86);
 }
 .muse-tabs::-webkit-scrollbar { display: none; }
 .muse-tabs button {
@@ -1336,8 +1336,9 @@ body { background: transparent; text-rendering: optimizeLegibility; }
   radial-gradient(120% 70% at 15% 0%, var(--theme-hi, #1E8A66) 0%, transparent 55%),
   radial-gradient(100% 80% at 90% 10%, var(--theme-mid, #0A3A2C) 0%, transparent 60%), var(--theme-deep, #020E0B);
   transition: background 1.2s var(--ease-out); }
-.lx-ambience canvas { width: 100%; height: 100%; display: block; image-rendering: auto; filter: saturate(1.08); }
-.lx-ambience canvas[data-fallback] { display: none; }
+.lx-wall { position: absolute; inset: 0; background-size: cover; background-position: center top; background-repeat: no-repeat; }
+.lx-wall-in { animation: lxWallIn .6s ease both; }
+@keyframes lxWallIn { from { opacity: 0; } to { opacity: 1; } }
 .lx-grain { position: absolute; inset: 0; opacity: 0.07; mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 .app-shell { background: transparent !important; }
@@ -1359,8 +1360,8 @@ body { background: transparent; text-rendering: optimizeLegibility; }
 }
 .hero-card::after { content: ''; position: absolute; top: 0; bottom: 0; left: -60%; width: 40%; pointer-events: none;
   background: linear-gradient(100deg, transparent, rgba(255,255,255,0.07), transparent); transform: skewX(-18deg);
-  animation: lxSweep 7s var(--ease-out) 1.2s infinite; }
-@keyframes lxSweep { 0% { left: -60%; } 30%, 100% { left: 130%; } }
+  animation: lxSweep 2.4s var(--ease-out) .8s 1 both; }
+@keyframes lxSweep { 0% { left: -60%; } 100% { left: 130%; } }
 
 /* Type */
 .section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; color: var(--text-3); }
@@ -1394,8 +1395,8 @@ select.input option { background: #14161C; color: var(--text); }
 .bottom-nav {
   left: 12px; right: 12px; bottom: calc(8px + env(safe-area-inset-bottom)); height: 62px; padding-bottom: 0;
   border-radius: 24px; border: 1px solid var(--border-strong);
-  background: rgba(14, 15, 20, 0.62);
-  backdrop-filter: blur(26px) saturate(170%); -webkit-backdrop-filter: blur(26px) saturate(170%);
+  background: rgba(14, 15, 20, 0.78);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 18px 40px -12px rgba(0,0,0,0.85);
   overflow: hidden;
 }
@@ -1410,10 +1411,9 @@ select.input option { background: #14161C; color: var(--text); }
 .nav-item:active svg { transform: scale(0.86); }
 
 /* Sheets */
-.modal-overlay { background: rgba(0,0,0,0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); animation: fadeIn .3s ease; }
+.modal-overlay { background: rgba(0,0,0,0.62); backdrop-filter: none; -webkit-backdrop-filter: none; animation: fadeIn .25s ease; }
 .modal-sheet {
-  background: linear-gradient(180deg, rgba(30,32,40,0.92), rgba(12,13,18,0.96)) !important;
-  backdrop-filter: blur(30px) saturate(160%); -webkit-backdrop-filter: blur(30px) saturate(160%);
+  background: linear-gradient(180deg, #1C1E25, #0D0E13) !important;
   border-radius: 28px 28px 0 0; border-top: 1px solid var(--border-strong);
   box-shadow: 0 -20px 60px -20px rgba(0,0,0,0.8);
   animation: lxSheet .5s var(--ease-sheet);
@@ -1423,7 +1423,7 @@ select.input option { background: #14161C; color: var(--text); }
 
 /* Page entrance: content rises in, sections follow one after another */
 @keyframes lxRise { from { opacity: 0; transform: translateY(16px) scale(0.99); } to { opacity: 1; transform: none; } }
-@keyframes lxFade { from { opacity: 0; filter: blur(6px); } to { opacity: 1; filter: blur(0); } }
+@keyframes lxFade { from { opacity: 0; } to { opacity: 1; } }
 .app-main > *:not(.desk-topbar) { animation: lxFade .5s var(--ease-out) both; }
 .page > .section, .page > div > .section, .page > .card { animation: lxRise .7s var(--ease-out) both; }
 .page > .section:nth-child(1) { animation-delay: .04s; } .page > .section:nth-child(2) { animation-delay: .09s; }
@@ -1434,7 +1434,7 @@ select.input option { background: #14161C; color: var(--text); }
 
 /* Hub tabs (Wallets / Utilities …) as a segmented control */
 .lx-seg { display: flex; gap: 4px; padding: 4px; margin: 12px 16px 0; width: fit-content; max-width: calc(100% - 32px);
-  background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 14px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+  background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 14px; }
 .lx-seg a { padding: 7px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; text-decoration: none; color: var(--text-2); transition: all .3s var(--ease-out); }
 .lx-seg a.on { background: rgba(255,255,255,0.10); color: var(--text); box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 4px 14px -6px rgba(0,0,0,0.8); }
 
@@ -1444,9 +1444,9 @@ select.input option { background: #14161C; color: var(--text); }
 .lx-head-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
 
 /* The mark's light sweep */
-.lx-mark-sweep { animation: lxMark 5s var(--ease-out) infinite; }
+.lx-mark-sweep { animation: lxMark 5s var(--ease-out) 3; }
 @keyframes lxMark { 0% { transform: translateX(0) skewX(-20deg); } 45%, 100% { transform: translateX(190px) skewX(-20deg); } }
-.lx-mark-spark { transform-origin: 80px 21px; animation: lxSpark 5s ease-in-out infinite; }
+.lx-mark-spark { transform-origin: 80px 21px; animation: lxSpark 5s ease-in-out 3; }
 @keyframes lxSpark { 0%, 40%, 100% { transform: scale(0.6); opacity: 0.5; } 50% { transform: scale(1.15); opacity: 1; } 60% { transform: scale(0.8); opacity: 0.8; } }
 
 /* Numbers that count up */
