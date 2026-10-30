@@ -204,6 +204,16 @@ async function announce(userId, row) {
     await pushToAll({ title: `🙋 ${p.kind === 'received' ? 'Money from' : 'Paid to'} ${p.party || 'someone new'}: what is it?`, body: `${plan.summary}. Pick it once in Wallets and Luxe remembers.`, tag: `sms-ask-${r.id}`, url: '/wallets' });
     return;
   }
+  // Recorded as Other because Luxe doesn't know this person yet: ask what it was, straight away.
+  if (plan.needsCategory) {
+    const amt = `KSh ${Number(p.amount).toLocaleString('en-KE')}`;
+    await pushToAll({
+      title: p.kind === 'received' ? `💸 ${amt} from ${p.party || 'someone new'}: what was it?` : `🙋 ${amt} to ${p.party || 'someone new'}: what was it?`,
+      body: 'Tap to pick: a client, freelance, business, a loan… Counted as Other until you choose, so your balance is already right. Luxe remembers this person next time.',
+      tag: `sms-ask-${r.id}`, url: '/?sms=ask',
+    });
+    return;
+  }
   const income = (plan.entries || []).some((e) => e.type === 'income');
   let body = plan.summary;
   if (income) {
