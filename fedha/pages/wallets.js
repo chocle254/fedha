@@ -239,7 +239,12 @@ function EditBalancesModal({ wallet, pockets, unlocking, currency, onSave, onClo
   );
 }
 
-function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock, onEdit }) {
+// Dials an M-Pesa USSD menu (*456#) on the given SIM through the Luxe Android app (UssdActivity). You pick the
+// options and type your PIN in the phone's own menu; Luxe never sees it. The SMS that follows is captured as usual.
+const ussdLink = (code, sim) => `intent://ussd?code=${encodeURIComponent(code)}${sim ? `&sim=${sim}` : ''}#Intent;scheme=luxe;package=com.chocle254.fedha;end`;
+const onAndroid = () => typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+
+function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock, onEdit, sim }) {
   const mine = unlocks.filter((u) => u.parent_id === wallet.id);
   const unlocking = Math.min(mine.reduce((s, u) => s + Number(u.amount), 0), Number(pockets.locked?.balance) || 0);
   const lockedFree = (Number(pockets.locked?.balance) || 0) - unlocking;
@@ -266,6 +271,11 @@ function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock
         {act('unlock', '🔓 Unlock', !(lockedFree > 0))}
         {act('withdraw', '← M-Pesa', !(Number(pockets.ziidi?.balance) > 0))}
       </div>
+      {onAndroid() && (
+        <a href={ussdLink('*456#', sim)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8, padding: '9px 4px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.35)', borderRadius: 10, color: '#10B981', fontSize: 12.5, fontWeight: 700, textDecoration: 'none', fontFamily: 'Outfit' }}>
+          📞 Dial *456#{sim ? ` on SIM ${sim}` : ''}
+        </a>
+      )}
       <button onClick={() => onEdit(unlocking)} style={{ marginTop: 8, background: 'none', border: 0, padding: 0, color: 'var(--text-3)', fontSize: 12, cursor: 'pointer', fontFamily: 'Outfit' }}>✏️ Edit balances to match the M-Pesa app</button>
       {mine.map((u) => (
         <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, padding: '8px 10px', borderRadius: 10, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', fontSize: 12 }}>
@@ -288,6 +298,15 @@ export default function WalletsPage() {
   const [unlocks, setUnlocks] = useState([]);
   const [moving, setMoving] = useState(null); // { wallet, kind }
   const [settingUp, setSettingUp] = useState(null);
+  const [sims, setSims] = useState({}); // SIM slot → wallet id, from the linked phone (SMS capture)
+  useEffect(() => { fetch('/api/sms/inbox', { cache: 'no-store' }).then((r) => r.json()).then((j) => setSims(j?.device?.sims || {})).catch(() => {}); }, []);
+  // Which SIM a wallet is on: the linked phone's map, else the order of M-Pesa wallets (1st = SIM 1, 2nd = SIM 2).
+  const simOf = (w) => {
+    const k = Object.keys(sims).find((s) => sims[s] === w.id);
+    if (k) return Number(k);
+    const i = wallets.filter((x) => x.type === 'mobile' && !x.pocket).findIndex((x) => x.id === w.id);
+    return i >= 0 && i < 2 ? i + 1 : 0;
+  };
   const [editing, setEditing] = useState(null); // { wallet, pockets, unlocking }
   async function saveBalances({ mpesa, ziidi, locked }) {
     const { wallet: w, pockets } = editing;
@@ -397,7 +416,7 @@ export default function WalletsPage() {
                 </div>
 
                 {pockets.ziidi && (
-                  <ZiidiPanel wallet={w} pockets={pockets} unlocks={unlocks} currency={w.currency || currency}
+                  <ZiidiPanel wallet={w} pockets={pockets} unlocks={unlocks} currency={w.currency || currency} sim={simOf(w)}
                     onMove={(kind) => setMoving({ wallet: w, kind })}
                     onEdit={(unlocking) => setEditing({ wallet: w, pockets, unlocking })}
                     onCancelUnlock={async (id) => { await cancelUnlock(id); setUnlocks(await getUnlocks()); }} />

@@ -13,6 +13,10 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <!-- The hourly Chill Room scan (LibraryScanJob) keeps running after the phone restarts. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Wallets → 📞 *456#: dial an M-Pesa USSD code on the right SIM (UssdActivity). -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <queries>
         <intent>
@@ -81,6 +85,20 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="luxe" android:host="pair" />
+            </intent-filter>
+        </activity>
+
+        <!-- Wallets: luxe://ussd?code=*456#&sim=2 dials an M-Pesa USSD menu on that SIM. -->
+        <activity
+            android:name=".UssdActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="luxe" android:host="ussd" />
             </intent-filter>
         </activity>
 
