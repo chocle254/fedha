@@ -4,7 +4,7 @@ import { KIND_LABEL, partyKey, FIXED_CATEGORY, loanIdOf, clientIdOf, ASK } from 
 import { clientTotals, applyClientPayment } from '../lib/client-pay';
 import { getTransaction } from '../lib/db';
 import { useApp } from '../context/AppContext';
-import { loanBalance } from '../lib/finance-actions';
+import { loanBalance, payLoan, addToLoan } from '../lib/finance-actions';
 
 // Luxe → Wallets: link the Android app so it reads M-Pesa and Ziidi texts (like Truecaller), pick which SIM is
 // which M-Pesa account, and see how each captured message was read. Server: lib/sms-capture.js.
@@ -17,7 +17,7 @@ export default function SmsCapture({ wallets }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [open, setOpen] = useState(false);
-  const { loans = [], clientProjects = [], updateClientProject, addTransaction, removeTransaction } = useApp();
+  const { loans = [], clientProjects = [], updateClientProject, addTransaction, removeTransaction, addLoan, updateLoan } = useApp();
   const owingClients = clientProjects.filter((c) => c.status !== 'completed' && clientTotals(c).remaining > 0);
   const openLoans = loans.filter((l) => l.status !== 'settled');
   // How a chosen category reads: a normal one, or a loan link.
@@ -39,18 +39,50 @@ export default function SmsCapture({ wallets }) {
 
   const load = () => fetch('/api/sms/inbox', { cache: 'no-store' }).then((r) => r.json()).then(setData).catch(() => setData({ items: [] }));
   useEffect(() => { load(); }, []);
+  // Something recorded as Other is waiting for its category: open the list so it's right there.
+  useEffect(() => { if ((data?.items || []).some((x) => x.plan?.needsCategory && !x.parsed?.category)) setOpen(true); }, [data]);
 
-  // A message already recorded under another category, now marked as a client's payment: relabel its income
-  // (same id, so it is never added twice; the balance nets out) and take it off what the client owes.
-  const markClient = async (x, choice) => {
-    const project = clientProjects.find((c) => c.id === clientIdOf(choice));
+  // A message that is already recorded (often as Other, because Luxe records money straight away and lets you
+  // categorise it after) gets a category: relabel that same transaction (same id, so it is never added twice and
+  // the balance nets out), or hand it to the client / loan it belongs to.
+  const relabel = async (x, choice) => {
+    if (!choice || choice === ASK || !removeTransaction || !addTransaction) return;
     const id = `sms_${x.id}_0`;
     const t = await getTransaction(id).catch(() => null);
-    if (t && t.type === 'income' && !t.client_project_id && removeTransaction && addTransaction) {
+    if (!t || !['income', 'expense'].includes(t.type)) return;
+    const party = x.parsed?.party || 'someone';
+    if (clientIdOf(choice)) {
+      if (t.type !== 'income' || t.client_project_id) return;
+      const project = clientProjects.find((c) => c.id === clientIdOf(choice));
       await removeTransaction(id);
-      await addTransaction({ ...t, category: 'freelance', description: `${project ? project.client_name : x.parsed?.party || 'Client'} · client payment`, client_project_id: project?.id || null, skipSavingsCut: true });
+      await addTransaction({ ...t, category: 'freelance', description: `${project ? project.client_name : party} · client payment`, client_project_id: project?.id || null, skipSavingsCut: true });
       if (project) await applyClientPayment(project, { amount: t.amount, walletId: t.wallet_id, txId: id, updateClientProject }).catch(() => null);
+      return;
     }
+    if (loanIdOf(choice) || choice === 'loan_new') {
+      // The loan records its own money movement, so the plain transaction goes.
+      await removeTransaction(id);
+      const amount = Number(t.amount);
+      const walletId = t.wallet_id;
+      const currency = wallets.find((w) => w.id === walletId)?.currency || 'KES';
+      const loan = loans.find((l) => l.id === loanIdOf(choice));
+      if (choice === 'loan_new') {
+        const l = await addLoan({ type: t.type === 'expense' ? 'lent' : 'borrowed', contact_name: party, amount: 0, remaining: 0 });
+        await addToLoan(l, { amount, walletId, wallets, currency, addTransaction, updateLoan, note: 'from M-Pesa' });
+      } else if (loan && choice.startsWith('loanadd:')) {
+        await addToLoan(loan, { amount, walletId, wallets, currency, addTransaction, updateLoan, note: 'from M-Pesa' });
+      } else if (loan) {
+        const owed = loanBalance(loan);
+        await payLoan(loan, { amount: Math.min(amount, owed), walletId, wallets, currency, addTransaction, updateLoan });
+        if (amount - owed > 0.5) await addTransaction({ type: t.type, wallet_id: walletId, amount: Math.round((amount - owed) * 100) / 100, category: 'other', description: `${party} (over the loan)`, date: t.date, skipSavingsCut: true });
+      } else {
+        await addTransaction({ ...t, skipSavingsCut: true }); // loan no longer there: put it back as it was
+      }
+      return;
+    }
+    if (t.category === choice || t.client_project_id) return;
+    await removeTransaction(id);
+    await addTransaction({ ...t, category: choice, skipSavingsCut: true });
   };
 
   const put = async (body) => {
@@ -171,7 +203,7 @@ export default function SmsCapture({ wallets }) {
                           : <span style={{ color: '#F59E0B' }}>{rule === ASK ? `You choose each time for ${p.party}` : `First time from ${p.party}: pick a category, Luxe remembers it`}</span>}
                         {oneOff && <button type="button" onClick={() => put({ id: x.id, category: p.category, scope: 'all' })} style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-3)', textDecoration: 'underline' }}>use for all from {p.party}</button>}
                         <span style={{ flex: 1 }} />
-                        <select className="input" style={{ width: 'auto', padding: '2px 6px', fontSize: 11.5 }} value={p.category || ''} onChange={async (e) => { const v = e.target.value; if (x.status === 'recorded' && clientIdOf(v)) await markClient(x, v); put({ id: x.id, category: v }); }}>
+                        <select className="input" style={{ width: 'auto', padding: '2px 6px', fontSize: 11.5 }} value={p.category || ''} onChange={async (e) => { const v = e.target.value; if (x.status === 'recorded') await relabel(x, v); put({ id: x.id, category: v }); }}>
                           <option value="">{p.category ? 'Change…' : 'Category…'}</option>
                           <optgroup label="Category">
                             {(p.kind === 'received' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).map((c) => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}

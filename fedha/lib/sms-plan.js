@@ -146,7 +146,17 @@ export function planMessage(row, ctx) {
   const airtime = p.kind === 'airtime' || /safaricom offers|tunukiwa|bundles|airtime|data/i.test(`${p.party} ${p.account}`);
   const choice = airtime ? 'airtime' : categoryFor(p, ctx.rules || {}, ctx.activeLoanIds);
   const who = p.party || 'someone';
-  if (!choice) return { action: 'ask', summary: `${p.kind === 'received' ? 'Received' : 'Paid'} ${fmt(p.amount)} ${p.kind === 'received' ? 'from' : 'to'} ${who}: pick a category`, entries: [] };
+  // No category yet (first time from this person, or "ask me each time"): record the money NOW as Other so the
+  // balance is right straight away (money often moves on within minutes, e.g. straight into Ziidi), and let you
+  // pick the category afterwards; picking relabels this same transaction (components/SmsCapture.js).
+  if (!choice) {
+    const t = p.kind === 'received' ? 'income' : 'expense';
+    return {
+      action: 'record', needsCategory: true,
+      summary: `${t === 'income' ? 'Received' : 'Paid'} ${fmt(p.amount)} ${t === 'income' ? 'from' : 'to'} ${who}: recorded as Other, pick a category`,
+      entries: [{ type: t, wallet_id: wallet, amount: p.amount, category: 'other', description: p.account && !/^\d+$/.test(p.account) ? `${who} · ${p.account}` : who }, ...feeEntry(wallet)],
+    };
+  }
   if (loanIdOf(choice) || choice === 'loan_new') {
     const loan = (ctx.loans || []).find((l) => l.id === loanIdOf(choice));
     return { action: 'record', summary: loan ? `${choice.startsWith('loanadd:') ? (loan.type === 'lent' ? 'Lent more to' : 'Borrowed more from') : 'Loan payment:'} ${loan.contact_name.trim()} ${fmt(p.amount)}` : `New loan ${fmt(p.amount)} ${p.kind === 'received' ? 'from' : 'to'} ${who}`, entries: feeEntry(wallet), loan: { choice, walletId: wallet, amount: p.amount, party: who } };

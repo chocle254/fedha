@@ -103,6 +103,11 @@ export default function SmsAutoRecorder() {
           const ids = await record(item);
           await fetch('/api/sms/ready', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id, transaction_ids: ids }) });
           done++;
+          // Recorded as Other because Luxe doesn't know this person yet: ask for the category (it relabels in place).
+          if (item.plan?.needsCategory) {
+            const p = item.parsed || {};
+            showNotif({ title: `${p.kind === 'received' ? '💸 Received' : 'Paid'} KSh ${Number(p.amount || 0).toLocaleString()} ${p.kind === 'received' ? 'from' : 'to'} ${p.party || 'someone'}`, body: 'Recorded as Other so your balance is right. Open Wallets → M-Pesa messages to pick a category, a client or a loan.', tag: `sms-cat-${item.id}`, url: '/wallets' });
+          }
         } catch (e) { console.warn('[fedha] SMS record failed:', item.id, e?.message); }
       }
       if (done > 1) showNotif({ title: `✓ ${done} M-Pesa transactions recorded`, body: 'From your messages. Tap a transaction to change or delete it.', tag: 'sms-batch' });
