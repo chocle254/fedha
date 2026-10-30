@@ -152,7 +152,7 @@ export default function FoodDiaryPage() {
         <div className="page">
           <div className="page-header">
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-              <h1 style={{fontSize:22,fontWeight:700}}>Food 🍽️</h1>
+              <h1 className="lx-h1" style={{fontSize:22,fontWeight:700}}>Food</h1>
               <button className="btn-icon" onClick={() => setFoodMode('diary')} aria-label="Food diary">📖</button>
             </div>
             <div style={{display:'flex',gap:8,overflowX:'auto',marginTop:14}}>
@@ -231,7 +231,7 @@ export default function FoodDiaryPage() {
       <div className="page">
         <div className="page-header">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <h1 style={{ fontSize: 22, fontWeight: 700 }}>Food Diary 🍽️</h1>
+            <h1 className="lx-h1" style={{ fontSize: 22, fontWeight: 700 }}>Food Diary</h1>
             {streak > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 100 }}>
                 <span style={{ fontSize: 14 }}>🔥</span>
@@ -297,7 +297,7 @@ export default function FoodDiaryPage() {
 
               <button
                 onClick={() => setEditingGoal(true)}
-                style={{ marginTop: 12, fontSize: 12, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Outfit', textDecoration: 'underline' }}
+                style={{ marginTop: 12, fontSize: 12, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter', textDecoration: 'underline' }}
               >
                 Edit goals
               </button>
@@ -406,7 +406,7 @@ export default function FoodDiaryPage() {
                     </div>
                     <button
                       onClick={() => openLog(s.id)}
-                      style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 12px', fontSize: 13, color: s.color, cursor: 'pointer', fontFamily: 'Outfit', fontWeight: 600 }}
+                      style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 12px', fontSize: 13, color: s.color, cursor: 'pointer', fontFamily: 'Inter', fontWeight: 600 }}
                     >+ Add</button>
                   </div>
 

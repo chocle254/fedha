@@ -132,7 +132,7 @@ export default function BalanceHistoryChart({ transactions, currentBalance, curr
           </div>
         </div>
         <button onClick={() => setAsTable((v) => !v)}
-          style={{ flexShrink: 0, background: 'none', border: 'none', color: 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit', padding: '4px 0' }}>
+          style={{ flexShrink: 0, background: 'none', border: 'none', color: 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter', padding: '4px 0' }}>
           {asTable ? 'Switch to chart' : 'Switch to table'} ⌄
         </button>
       </div>

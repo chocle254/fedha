@@ -107,7 +107,7 @@ export default function UpesiPayUtilitiesPage() {
     <div className="page">
       <div className="page-header" style={{ paddingBottom: 16 }}>
         <div style={{ fontSize: 12, color: 'var(--green)', fontWeight: 700, letterSpacing: 1.4, textTransform: 'uppercase', marginBottom: 8 }}>Money tools</div>
-        <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0 }}>Utilities ⚡</h1>
+        <h1 className="lx-h1" style={{ fontSize: 26, fontWeight: 800, margin: 0 }}>Utilities</h1>
         <p style={{ color: 'var(--text-3)', fontSize: 13, marginTop: 8, maxWidth: 540 }}>Choose a provider to manage its balance separately. UpesiPay checks run every 3 seconds only while this page is open and visible.</p>
       </div>
       <div style={{ padding: '0 20px', maxWidth: 820, margin: '0 auto 14px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>

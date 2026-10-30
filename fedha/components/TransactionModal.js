@@ -150,7 +150,7 @@ export default function TransactionModal({ onClose }) {
                       fontSize: 13,
                       fontWeight: 500,
                       cursor: 'pointer',
-                      fontFamily: 'Outfit',
+                      fontFamily: 'Inter',
                       display: 'flex', alignItems: 'center', gap: 5,
                     }}
                   >
@@ -190,7 +190,7 @@ export default function TransactionModal({ onClose }) {
             >
               <span style={{ fontSize: 22 }}>⚡</span>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: isImpulse ? '#F59E0B' : 'var(--text)', fontFamily: 'Outfit' }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: isImpulse ? '#F59E0B' : 'var(--text)', fontFamily: 'Inter' }}>
                   {isImpulse ? 'Marked as impulse spend' : 'Was this an impulse buy?'}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>

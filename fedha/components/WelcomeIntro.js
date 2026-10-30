@@ -62,8 +62,8 @@ export default function WelcomeIntro({ enabled = true }) {
         <div className="wi-mark">
           <svg viewBox="0 0 100 100" width="150" height="150">
             <defs>
-              <linearGradient id="wiPrism" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#7DE3F4" /><stop offset="0.5" stopColor="#C4B5FD" /><stop offset="1" stopColor="#F9A8D4" /></linearGradient>
-              <radialGradient id="wiGlow" cx="50%" cy="55%" r="50%"><stop offset="0" stopColor="#C4B5FD" stopOpacity="0.4" /><stop offset="1" stopColor="#C4B5FD" stopOpacity="0" /></radialGradient>
+              <linearGradient id="wiPrism" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#F1F5FA" /><stop offset="0.5" stopColor="#9FD8E8" /><stop offset="1" stopColor="#B8C2D2" /></linearGradient>
+              <radialGradient id="wiGlow" cx="50%" cy="55%" r="50%"><stop offset="0" stopColor="#9FD8E8" stopOpacity="0.4" /><stop offset="1" stopColor="#9FD8E8" stopOpacity="0" /></radialGradient>
               <linearGradient id="wiSweepG" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#fff" stopOpacity="0" /><stop offset="0.5" stopColor="#fff" stopOpacity="0.8" /><stop offset="1" stopColor="#fff" stopOpacity="0" /></linearGradient>
               <clipPath id="wiClip"><path d="M16 42 L33 27 L67 27 L84 42 L50 86 Z" /></clipPath>
             </defs>
@@ -85,12 +85,12 @@ export default function WelcomeIntro({ enabled = true }) {
 
 const CSS = `
 .wi-intro{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;
-  background:radial-gradient(120% 90% at 50% 38%,#1B1830 0%,#0A0912 45%,#040507 100%);
+  background:radial-gradient(120% 90% at 50% 38%,#171B22 0%,#090B0F 45%,#040507 100%);
   transition:opacity ${LEAVE_MS}ms cubic-bezier(.4,0,.2,1),transform ${LEAVE_MS}ms cubic-bezier(.4,0,.2,1),filter ${LEAVE_MS}ms;cursor:pointer;
-  font-family:'Outfit',system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
+  font-family:'Inter',system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
 .wi-leave{opacity:0;transform:scale(1.06);filter:blur(6px)}
 .wi-stage{display:flex;flex-direction:column;align-items:center;gap:14px;transform:translateY(-4vh)}
-.wi-mark{filter:drop-shadow(0 18px 40px rgba(196,181,253,.22))}
+.wi-mark{filter:drop-shadow(0 18px 40px rgba(159,216,232,.18))}
 .wi-glow{opacity:0;animation:wiFade 1.4s .2s ease-out forwards}
 .wi-facet{opacity:0;transform-box:fill-box;transform-origin:center;transform:translateY(-6px) scale(.6);animation:wiFacet .55s calc(.2s + var(--i) * .07s) cubic-bezier(.2,1.2,.4,1) forwards}
 .wi-edge{stroke-dasharray:240;stroke-dashoffset:240;animation:wiDraw 1s .55s cubic-bezier(.65,0,.35,1) forwards}
@@ -98,12 +98,12 @@ const CSS = `
 .wi-sweep{transform:skewX(-20deg);animation:wiSweep .9s 1.35s cubic-bezier(.4,0,.2,1) forwards}
 .wi-glint{transform-box:fill-box;transform-origin:center;transform:scale(0) rotate(-90deg);animation:wiGlint .7s 1.3s cubic-bezier(.2,1.4,.4,1) forwards}
 .wi-word{color:#EDEFF5;font-weight:300;font-size:30px;letter-spacing:.95em;padding-left:.95em;opacity:0;filter:blur(8px);
-  background:linear-gradient(90deg,#9AA4B8,#FFFFFF 45%,#C4B5FD 60%,#9AA4B8);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  background:linear-gradient(90deg,#9AA4B8,#FFFFFF 45%,#9FD8E8 60%,#9AA4B8);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
   animation:wiWord 1.1s 1.45s cubic-bezier(.2,.8,.2,1) forwards}
-.wi-line{height:1px;width:0;background:linear-gradient(90deg,transparent,#C4B5FD,transparent);animation:wiLine .9s 1.8s ease-out forwards}
+.wi-line{height:1px;width:0;background:linear-gradient(90deg,transparent,#9FD8E8,transparent);animation:wiLine .9s 1.8s ease-out forwards}
 .wi-hello{color:rgba(235,235,245,.62);font-size:13px;letter-spacing:.18em;text-transform:uppercase;opacity:0;transform:translateY(8px);animation:wiUp .8s 2.0s ease-out forwards}
-.wi-dust i{position:absolute;left:calc(8% + var(--i) * 6.3%);bottom:-10px;width:3px;height:3px;border-radius:50%;background:#DDD6FE;opacity:0;
-  box-shadow:0 0 8px #C4B5FD;animation:wiDust 3.2s calc(var(--i) * .13s) ease-out forwards}
+.wi-dust i{position:absolute;left:calc(8% + var(--i) * 6.3%);bottom:-10px;width:3px;height:3px;border-radius:50%;background:#DCEFF5;opacity:0;
+  box-shadow:0 0 8px #9FD8E8;animation:wiDust 3.2s calc(var(--i) * .13s) ease-out forwards}
 @keyframes wiDraw{to{stroke-dashoffset:0}}
 @keyframes wiFade{to{opacity:1}}
 @keyframes wiSweep{from{transform:translateX(0) skewX(-20deg)}to{transform:translateX(170px) skewX(-20deg)}}

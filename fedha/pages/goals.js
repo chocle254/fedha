@@ -134,7 +134,8 @@ export default function GoalsPage() {
     <Layout onFab={() => setShowTxn(true)}>
       <div className="page">
         <div className="page-header">
-          <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Savings Goals</h1>
+          <div className="lx-eyebrow">Money</div>
+          <h1 className="lx-h1" style={{ marginTop: 4, marginBottom: 16 }}>Savings goals</h1>
           {goals.length > 0 && (
             <div className="card-2" style={{ padding: '14px 16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -238,11 +239,11 @@ export default function GoalsPage() {
 
                       {/* Actions */}
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => setContributeGoal(g)} style={{ flex: 2, padding: '10px', background: `${g.color}20`, border: `1px solid ${g.color}40`, borderRadius: 10, color: g.color, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit' }}>
+                        <button onClick={() => setContributeGoal(g)} style={{ flex: 2, padding: '10px', background: `${g.color}20`, border: `1px solid ${g.color}40`, borderRadius: 10, color: g.color, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter' }}>
                           + Add Savings
                         </button>
-                        <button onClick={() => setEditGoal(g)} style={{ flex: 1, padding: '10px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit' }}>✏️</button>
-                        <button onClick={() => window.confirm(`Delete goal "${g.name}"? This can't be undone.`) && removeGoal(g.id)} style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑</button>
+                        <button onClick={() => setEditGoal(g)} style={{ flex: 1, padding: '10px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter' }}>✏️</button>
+                        <button onClick={() => window.confirm(`Delete goal "${g.name}"? This can't be undone.`) && removeGoal(g.id)} style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter', opacity: 0.7 }}>🗑</button>
                       </div>
                     </div>
                   );

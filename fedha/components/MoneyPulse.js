@@ -69,8 +69,9 @@ export default function MoneyPulse({ transactions = [], currency }) {
               {[['income', 'var(--green)'], ['expense', 'var(--red)']].map(([k, col]) => (
                 <div key={k} title={`${x.label} ${k}: ${formatShort(x[k], currency)}`} style={{
                   width: '38%', borderRadius: 5, background: `linear-gradient(180deg, ${col}, transparent 140%)`,
-                  opacity: x.now ? 1 : 0.5, height: grown ? `${Math.max(2, (x[k] / max) * 100)}%` : '2%',
-                  transition: `height 1s var(--ease-out) ${i * 60}ms`, boxShadow: x.now ? `0 0 14px -4px ${col}` : 'none',
+                  opacity: x.now ? 1 : 0.5, height: `${Math.max(2, (x[k] / max) * 100)}%`,
+                  transform: grown ? 'scaleY(1)' : 'scaleY(0.02)', transformOrigin: 'bottom',
+                  transition: `transform .9s var(--ease-out) ${i * 50}ms`, boxShadow: x.now ? `0 0 14px -4px ${col}` : 'none',
                 }} />
               ))}
             </div>
@@ -96,7 +97,7 @@ export default function MoneyPulse({ transactions = [], currency }) {
                   <span className="font-num" style={{ fontWeight: 600 }}>{formatShort(c.v, currency)}</span>
                 </div>
                 <div style={{ height: 5, borderRadius: 5, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', borderRadius: 5, background: c.color, width: grown ? `${(c.v / catMax) * 100}%` : 0, transition: `width 1.1s var(--ease-out) ${200 + i * 80}ms` }} />
+                  <div style={{ height: '100%', borderRadius: 5, background: c.color, width: `${(c.v / catMax) * 100}%`, transform: grown ? 'scaleX(1)' : 'scaleX(0)', transformOrigin: 'left', transition: `transform .9s var(--ease-out) ${150 + i * 60}ms` }} />
                 </div>
               </div>
             </div>

@@ -165,12 +165,12 @@ export default function ReportsPage() {
       <div className="page">
         <div className="page-header">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <h1 style={{ fontSize: 22, fontWeight: 700 }}>Reports</h1>
+            <h1 className="lx-h1" style={{ fontSize: 22, fontWeight: 700 }}>Reports</h1>
             {/* Currency switcher */}
             <select
               value={currency}
               onChange={(e) => setCurrency(e.target.value)}
-              style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 13, padding: '6px 10px', fontFamily: 'Outfit', cursor: 'pointer' }}
+              style={{ background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 13, padding: '6px 10px', fontFamily: 'Inter', cursor: 'pointer' }}
             >
               {Object.keys(CURRENCIES).map((c) => <option key={c} value={c}>{c}</option>)}
             </select>

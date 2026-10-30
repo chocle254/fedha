@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import Head from 'next/head';
 import { AppProvider } from '../context/AppContext';
 import SavingsPrompt from '../components/SavingsPrompt';
 import { MusicProvider } from '../context/MusicContext';
@@ -279,6 +280,10 @@ function AppBody({ Component, pageProps }) {
 export default function App(props) {
   return (
     <>
+      <Head>
+        {/* viewport-fit=cover: draw under the status bar and pad with env(safe-area-inset-*); the keyboard resizes the page */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+      </Head>
       <Ambience />
       <AppBody {...props} />
       <WelcomeIntro enabled={!props.router?.pathname?.startsWith('/certificate')} />

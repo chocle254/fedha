@@ -25,7 +25,7 @@ function BudgetForm({ initial, onSave, onClose }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {EXPENSE_CATEGORIES.map((c) => (
                 <button key={c.id} onClick={() => { setCategory(c.id); if (!name) setName(c.label); }}
-                  style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${category === c.id ? c.color : 'var(--border)'}`, background: category === c.id ? `${c.color}22` : 'var(--card-2)', color: category === c.id ? c.color : 'var(--text-2)', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'Outfit', display: 'flex', alignItems: 'center', gap: 5 }}>
+                  style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${category === c.id ? c.color : 'var(--border)'}`, background: category === c.id ? `${c.color}22` : 'var(--card-2)', color: category === c.id ? c.color : 'var(--text-2)', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'Inter', display: 'flex', alignItems: 'center', gap: 5 }}>
                   {c.icon} {c.label}
                 </button>
               ))}
@@ -270,7 +270,7 @@ function IncomePlanForm({ initial, onSave, onClose }) {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase' }}>Allocations</label>
-              <button onClick={addAllocation} style={{ fontSize: 12, color: 'var(--green)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Outfit', fontWeight: 600 }}>+ Add</button>
+              <button onClick={addAllocation} style={{ fontSize: 12, color: 'var(--green)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter', fontWeight: 600 }}>+ Add</button>
             </div>
             {allocations.map((a, i) => (
               <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
@@ -341,10 +341,11 @@ export default function BudgetsPage() {
     <Layout onFab={() => setShowTxn(true)}>
       <div className="page">
         <div className="page-header">
-          <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Budget & Loans</h1>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {[['budgets', '📋 Envelopes'], ['income', '📅 Income Plans'], ['loans', '🤝 Loans']].map(([v, l]) => (
-              <button key={v} className={`chip ${tab === v ? 'active' : ''}`} onClick={() => setTab(v)}>{l}</button>
+          <div className="lx-eyebrow">Money</div>
+          <h1 className="lx-h1" style={{ marginTop: 4, marginBottom: 16 }}>Budget & loans</h1>
+          <div className="lx-segbar" role="tablist" aria-label="Budget sections">
+            {[['budgets', 'Envelopes'], ['income', 'Income plans'], ['loans', 'Loans']].map(([v, l]) => (
+              <button key={v} role="tab" aria-selected={tab === v} className={tab === v ? 'on' : ''} onClick={() => setTab(v)}>{l}</button>
             ))}
           </div>
         </div>
@@ -389,8 +390,8 @@ export default function BudgetsPage() {
                         </span>
                       </div>
                       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                        <button onClick={() => setEditBudget(b)} style={{ flex: 1, padding: '8px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit' }}>✏️ Edit</button>
-                        <button onClick={() => window.confirm(`Delete this budget? This can't be undone.`) && removeBudget(b.id)} style={{ flex: 1, padding: '8px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑 Remove</button>
+                        <button onClick={() => setEditBudget(b)} style={{ flex: 1, padding: '8px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter' }}>✏️ Edit</button>
+                        <button onClick={() => window.confirm(`Delete this budget? This can't be undone.`) && removeBudget(b.id)} style={{ flex: 1, padding: '8px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter', opacity: 0.7 }}>🗑 Remove</button>
                       </div>
                     </div>
                   );
@@ -450,11 +451,11 @@ export default function BudgetsPage() {
                       )}
 
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => toggleIncomeReceived(p)} style={{ flex: 1, padding: '8px', background: p.is_received ? 'var(--green-dim)' : 'var(--card-2)', border: `1px solid ${p.is_received ? 'var(--green)' : 'var(--border)'}`, borderRadius: 8, color: p.is_received ? 'var(--green)' : 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', fontWeight: 600 }}>
+                        <button onClick={() => toggleIncomeReceived(p)} style={{ flex: 1, padding: '8px', background: p.is_received ? 'var(--green-dim)' : 'var(--card-2)', border: `1px solid ${p.is_received ? 'var(--green)' : 'var(--border)'}`, borderRadius: 8, color: p.is_received ? 'var(--green)' : 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter', fontWeight: 600 }}>
                           {p.is_received ? '✓ Received' : 'Mark Received'}
                         </button>
-                        <button onClick={() => setEditPlan(p)} style={{ padding: '8px 14px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit' }}>✏️</button>
-                        <button onClick={() => window.confirm(`Delete income plan "${p.name}"? This can't be undone.`) && removeIncomePlan(p.id)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑</button>
+                        <button onClick={() => setEditPlan(p)} style={{ padding: '8px 14px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter' }}>✏️</button>
+                        <button onClick={() => window.confirm(`Delete income plan "${p.name}"? This can't be undone.`) && removeIncomePlan(p.id)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter', opacity: 0.7 }}>🗑</button>
                       </div>
                     </div>
                   );
@@ -525,10 +526,10 @@ export default function BudgetsPage() {
                         </>
                       )}
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => setToppingUp(l)} style={{ flex: 1, padding: '8px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', fontWeight: 600 }}>➕ {l.type === 'borrowed' ? 'Borrowed more' : 'Lent more'}</button>
-                        <button onClick={() => setPaying(l)} style={{ flex: 1, padding: '8px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, color: 'var(--green)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', fontWeight: 600 }}>💸 Pay / Settle</button>
-                        <button onClick={() => setEditLoan(l)} style={{ padding: '8px 14px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit' }}>✏️</button>
-                        <button onClick={() => window.confirm(`Delete the loan with ${l.contact_name}? This can't be undone.`) && removeLoan(l.id)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Outfit', opacity: 0.7 }}>🗑</button>
+                        <button onClick={() => setToppingUp(l)} style={{ flex: 1, padding: '8px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter', fontWeight: 600 }}>➕ {l.type === 'borrowed' ? 'Borrowed more' : 'Lent more'}</button>
+                        <button onClick={() => setPaying(l)} style={{ flex: 1, padding: '8px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, color: 'var(--green)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter', fontWeight: 600 }}>💸 Pay / Settle</button>
+                        <button onClick={() => setEditLoan(l)} style={{ padding: '8px 14px', background: 'var(--card-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter' }}>✏️</button>
+                        <button onClick={() => window.confirm(`Delete the loan with ${l.contact_name}? This can't be undone.`) && removeLoan(l.id)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: 'var(--red)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter', opacity: 0.7 }}>🗑</button>
                       </div>
                     </div>
                   );

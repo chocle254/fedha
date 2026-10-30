@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -39,7 +39,7 @@
 html, body {
   background: var(--bg);
   color: var(--text);
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Inter', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: none;
   height: 100%;
@@ -74,7 +74,7 @@ html, body {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Inter', system-ui, sans-serif;
   font-size: 15px;
   padding: 12px 14px;
   width: 100%;
@@ -90,7 +90,7 @@ select.input option { background: var(--card-2); }
   background: var(--green);
   color: #000;
   font-weight: 600;
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Inter', system-ui, sans-serif;
   font-size: 15px;
   border: none;
   border-radius: var(--radius-sm);
@@ -105,7 +105,7 @@ select.input option { background: var(--card-2); }
 .btn-ghost {
   background: transparent;
   color: var(--text-2);
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Inter', system-ui, sans-serif;
   font-size: 15px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -204,7 +204,7 @@ select.input option { background: var(--card-2); }
   border: none;
   background: transparent;
   color: var(--text-3);
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Inter', system-ui, sans-serif;
   font-size: 10px;
   font-weight: 500;
   transition: color 0.2s;
@@ -282,7 +282,7 @@ select.input option { background: var(--card-2); }
   cursor: pointer;
   transition: all 0.15s;
   white-space: nowrap;
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Inter', system-ui, sans-serif;
 }
 .chip.active { background: var(--green-dim); border-color: var(--green); color: var(--green); }
 
@@ -425,7 +425,7 @@ select.input option { background: var(--card-2); }
   border-radius: 12px;
   margin-bottom: 8px;
   cursor: pointer;
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Inter', system-ui, sans-serif;
   text-align: left;
   transition: border-color 0.15s;
 }
@@ -776,7 +776,7 @@ select.input option { background: var(--card-2); }
   color: var(--gold, #F5C56B);
 }
 .generated-cert-name {
-  font-family: 'Outfit', cursive;
+  font-family: 'Inter', cursive;
   font-weight: 700;
   color: var(--text);
   margin-top: 6px;
@@ -1049,7 +1049,7 @@ select.input option { background: var(--card-2); }
     padding: 9px 12px; border-radius: 10px;
     font-size: 14px; font-weight: 500; color: var(--text-2);
     text-decoration: none; background: transparent; border: none; cursor: pointer;
-    font-family: 'Outfit', sans-serif; text-align: left; width: 100%;
+    font-family: 'Inter', system-ui, sans-serif; text-align: left; width: 100%;
     transition: background 0.15s, color 0.15s;
   }
   .desk-nav-item svg { width: 19px; height: 19px; flex-shrink: 0; }
@@ -1146,7 +1146,7 @@ select.input option { background: var(--card-2); }
     display: flex; align-items: center; gap: 12px;
     padding: 11px 14px; border-radius: 10px;
     background: var(--card-2); border: 1px solid var(--border);
-    color: var(--text); font-size: 14px; font-weight: 500; font-family: 'Outfit', sans-serif;
+    color: var(--text); font-size: 14px; font-weight: 500; font-family: 'Inter', system-ui, sans-serif;
     text-decoration: none; cursor: pointer; text-align: left; width: 100%;
     transition: border-color 0.15s, transform 0.15s;
   }
@@ -1329,7 +1329,7 @@ select.input option { background: var(--card-2); }
 html { background: var(--bg); }
 body { background: transparent; text-rendering: optimizeLegibility; }
 ::selection { background: var(--accent-dim); color: var(--text); }
-.font-num { font-family: 'Inter', 'Outfit', sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.font-num { font-family: 'Inter', 'Inter', system-ui, sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 
 /* Living background */
 .lx-ambience { position: fixed; inset: 0; z-index: -1; pointer-events: none; background:
@@ -1403,7 +1403,7 @@ select.input option { background: #14161C; color: var(--text); }
 .lx-nav-pill { position: absolute; top: 7px; bottom: 7px; border-radius: 17px; pointer-events: none;
   background: linear-gradient(180deg, var(--accent-dim), rgba(255,255,255,0.03));
   border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 0 22px -8px var(--accent-glow);
-  transition: left .5s var(--ease-out), width .5s var(--ease-out); }
+  transition: transform .42s cubic-bezier(0.32, 0.72, 0, 1); will-change: transform; }
 .nav-item { position: relative; z-index: 1; color: var(--text-3); font-size: 10px; font-weight: 600; transition: color .3s, transform .3s var(--ease-out); }
 .nav-item.active { color: var(--accent); }
 .nav-item.active svg { filter: drop-shadow(0 0 8px var(--accent-glow)); transform: translateY(-1px); }
@@ -1476,5 +1476,65 @@ select.input option { background: #14161C; color: var(--text); }
   background: radial-gradient(130% 100% at 100% 0%, color-mix(in srgb, var(--wc) 38%, transparent), transparent 60%),
     linear-gradient(160deg, rgba(255,255,255,0.09), rgba(255,255,255,0.015) 50%), rgba(14,16,21,0.7) !important;
   transition: transform .35s var(--ease-out); }
-.lx-wcard:active { transform: scale(0.97); }
+a.lx-wcard:active { transform: scale(0.97); }
 .lx-chip-dot { width: 26px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, rgba(255,255,255,0.55), rgba(255,255,255,0.15)); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25); }
+
+/* ═══ LUXE 2.1 — native feel, type, contrast (impeccable · ui-ux-pro-max · Emil Kowalski · Apple) ═══ */
+
+/* Platform: feel installed, not embedded */
+html { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
+body { font-family: 'Inter', system-ui, -apple-system, sans-serif; font-feature-settings: 'cv11', 'ss01', 'ss03'; letter-spacing: -0.011em; }
+button, a, [role="button"], .chip, .nav-item, label { touch-action: manipulation; }
+button, [role="button"], .chip, .nav-item, .btn-primary, .btn-ghost, .btn-icon { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea, select, .input { font-size: 16px !important; } /* under 16px the phone zooms into the field */
+.modal-sheet { overscroll-behavior: contain; padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); max-height: 92dvh; }
+.app-shell { min-height: 100dvh !important; }
+.page-header { padding-top: calc(28px + env(safe-area-inset-top, 0px)); }
+.lx-head { padding-top: calc(16px + env(safe-area-inset-top, 0px)); }
+
+/* Hover only where there is a real mouse; touch gets :active instead (no sticky hover after a tap) */
+@media (hover: none) {
+  .btn-primary:hover { opacity: 1; }
+  .btn-ghost:hover { background: rgba(255,255,255,0.04); }
+  .btn-icon:hover { background: rgba(255,255,255,0.06); }
+  .fab:hover { opacity: 0.95; box-shadow: 0 8px 24px -6px var(--accent-glow); }
+}
+.btn-ghost:active { background: rgba(255,255,255,0.08); }
+
+/* Contrast: secondary text readable on glass (WCAG ~4.5:1 on the dark surfaces) */
+:root { --text-2: rgba(235, 235, 245, 0.72); --text-3: rgba(235, 235, 245, 0.5); }
+
+/* Type scale: one large title per page, Apple-style */
+.page-header h1, .lx-title-page { font-size: 32px !important; font-weight: 700 !important; letter-spacing: -0.035em; line-height: 1.08; color: var(--text); }
+.page-header h1 + p, .page-header .sub { color: var(--text-2); }
+.section-title { font-size: 12px; letter-spacing: 0.1em; }
+h2 { letter-spacing: -0.02em; }
+
+/* Motion: quick and quiet. Content settles, it doesn't perform (Emil: ease-out, small distances, under 300ms for UI) */
+.app-main > *:not(.desk-topbar) { animation-duration: .28s; }
+.page > .section, .page > div > .section, .page > .card { animation-duration: .42s; }
+@keyframes lxRise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.page > .section:nth-child(n+5) { animation-delay: .16s; }
+.btn-primary, .btn-ghost, .btn-icon, .chip { transition-duration: .14s; }
+.btn-primary:active, .btn-ghost:active, .btn-icon:active, .chip:active { transform: scale(0.97); }
+.modal-sheet { animation-duration: .42s; }
+
+/* Focus: visible for keyboards, invisible for taps */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+button:focus:not(:focus-visible) { outline: none; }
+
+/* Lists inside cards: hairline separators, comfortable rows */
+.card > div + div { border-color: var(--border); }
+.lx-tile-ic { width: 36px; height: 36px; flex-shrink: 0; border-radius: 11px; display: grid; place-items: center; color: var(--accent);
+  background: linear-gradient(160deg, rgba(255,255,255,0.10), rgba(255,255,255,0.03)); border: 1px solid var(--border); }
+
+/* Segmented control (iOS style): one track, the chosen option lifts */
+.lx-segbar { display: flex; padding: 3px; gap: 2px; border-radius: 12px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); }
+.lx-segbar button { flex: 1; min-height: 34px; border: 0; border-radius: 9px; background: transparent; color: var(--text-2); font: 600 13px 'Inter', system-ui, sans-serif; cursor: pointer; transition: background .2s var(--ease-out), color .2s; }
+.lx-segbar button.on { background: rgba(255,255,255,0.13); color: var(--text); box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 3px 10px -4px rgba(0,0,0,0.7); }
+
+/* Tappable list rows: press feedback instead of a browser flash */
+.lx-row { cursor: pointer; transition: background .12s ease-out; }
+.lx-row:active { background: rgba(255,255,255,0.05); }
+.lx-h1 { font-size: 32px !important; font-weight: 700 !important; letter-spacing: -0.035em; line-height: 1.08; color: var(--text); }
+@media (max-width: 380px) { .lx-h1, .page-header h1 { font-size: 28px !important; } }

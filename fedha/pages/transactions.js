@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
 import { useApp } from '../context/AppContext';
-import { formatCurrency, formatDate, getCategoryById } from '../lib/utils';
+import { formatShort, formatCurrency, formatDate, getCategoryById } from '../lib/utils';
 
 export default function TransactionsPage() {
   const router = useRouter();
@@ -64,14 +64,15 @@ export default function TransactionsPage() {
     <Layout onFab={() => setShowAdd(true)}>
       <div className="page">
         <div className="page-header">
-          <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Transactions</h1>
+          <div className="lx-eyebrow">Money</div>
+          <h1 className="lx-h1" style={{ marginTop: 4, marginBottom: 16 }}>Activity</h1>
 
           {/* Search */}
           <div style={{ position: 'relative', marginBottom: 12 }}>
-            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16 }}>🔍</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }}><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
             <input
               className="input"
-              placeholder="Search transactions…"
+              placeholder="Search by name, category or amount"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               style={{ paddingLeft: 40 }}
@@ -79,12 +80,9 @@ export default function TransactionsPage() {
           </div>
 
           {/* Filters */}
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
-            {[['all', 'All'], ['expense', '↓ Expenses'], ['income', '↑ Income'], ['transfer', '⇄ Transfers']].map(([v, l]) => (
-              <button key={v} className={`chip ${filterType === v ? 'active' : ''}`} onClick={() => setFilterType(v)}
-                style={filterType === v && v === 'expense' ? { background: 'rgba(239,68,68,0.12)', borderColor: 'var(--red)', color: 'var(--red)' } : undefined}>
-                {l}
-              </button>
+          <div className="lx-segbar" role="tablist" aria-label="Type">
+            {[['all', 'All'], ['expense', 'Spent'], ['income', 'Received'], ['transfer', 'Moved']].map(([v, l]) => (
+              <button key={v} role="tab" aria-selected={filterType === v} className={filterType === v ? 'on' : ''} onClick={() => setFilterType(v)}>{l}</button>
             ))}
           </div>
 
@@ -102,22 +100,24 @@ export default function TransactionsPage() {
           )}
         </div>
 
-        {/* Summary row */}
+        {/* Summary: in, out, net, and how the two compare */}
         {filtered.length > 0 && (
-          <div style={{ padding: '0 20px 16px', display: 'flex', gap: 10 }}>
-            <div className="card-2" style={{ flex: 1, padding: '10px 14px', textAlign: 'center' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 4 }}>INCOME</div>
-              <div className="font-num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--green)' }}>+{formatCurrency(totalIncome, currency)}</div>
-            </div>
-            <div className="card-2" style={{ flex: 1, padding: '10px 14px', textAlign: 'center' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 4 }}>EXPENSES</div>
-              <div className="font-num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--red)' }}>-{formatCurrency(totalExpense, currency)}</div>
-            </div>
-            <div className="card-2" style={{ flex: 1, padding: '10px 14px', textAlign: 'center' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 4 }}>NET</div>
-              <div className="font-num" style={{ fontSize: 14, fontWeight: 700, color: totalIncome - totalExpense >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                {formatCurrency(totalIncome - totalExpense, currency)}
+          <div style={{ padding: '0 20px 18px' }}>
+            <div className="card" style={{ padding: '14px 16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                {[['Received', totalIncome, 'var(--green)', '+'], ['Spent', totalExpense, 'var(--text)', '−'], ['Net', totalIncome - totalExpense, totalIncome - totalExpense >= 0 ? 'var(--green)' : 'var(--red)', '']].map(([l, v, c, sign]) => (
+                  <div key={l} style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase' }}>{l}</div>
+                    <div className="font-num" style={{ fontSize: 15, fontWeight: 700, color: c, marginTop: 3, whiteSpace: 'nowrap' }}>{sign}{formatShort(Math.abs(v), currency)}</div>
+                  </div>
+                ))}
               </div>
+              {totalIncome + totalExpense > 0 && (
+                <div style={{ display: 'flex', height: 6, borderRadius: 6, overflow: 'hidden', marginTop: 12, background: 'rgba(255,255,255,0.06)' }}>
+                  <div style={{ width: `${(totalIncome / (totalIncome + totalExpense)) * 100}%`, background: 'var(--green)' }} />
+                  <div style={{ flex: 1, background: 'rgba(255,255,255,0.35)' }} />
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -128,8 +128,10 @@ export default function TransactionsPage() {
             [...Array(6)].map((_, i) => <div key={i} className="skeleton" style={{ height: 60, borderRadius: 12, marginBottom: 8 }} />)
           ) : grouped.length === 0 ? (
             <div className="empty-state">
-              <div className="icon">📋</div>
-              <h3>No transactions found</h3>
+              <div className="icon" style={{ opacity: 0.5 }}>
+                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01" /></svg>
+              </div>
+              <h3>{search ? 'Nothing matches that' : 'No activity yet'}</h3>
               <p>{search ? 'Try different search terms' : 'Tap + to add your first transaction'}</p>
             </div>
           ) : (
@@ -152,7 +154,7 @@ export default function TransactionsPage() {
                       ? new Date(txTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                       : '';
                     return (
-                      <div key={tx.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: i < txns.length - 1 ? '1px solid var(--border)' : 'none' }}
+                      <div key={tx.id} className="lx-row" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderBottom: i < txns.length - 1 ? '1px solid var(--border)' : 'none' }}
                         onClick={() => setConfirmDelete(tx.id)} >
                         <div style={{ width: 42, height: 42, borderRadius: 12, background: `${tx.type === 'transfer' ? '#3B82F6' : cat.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
                           {tx.type === 'transfer' ? '⇄' : cat.icon}
@@ -170,8 +172,8 @@ export default function TransactionsPage() {
                             {txTime && ` · ${txTime}`}
                           </div>
                         </div>
-                        <div className="font-num" style={{ fontSize: 15, fontWeight: 700, color: tx.type === 'income' ? 'var(--green)' : tx.type === 'transfer' ? 'var(--blue)' : 'var(--red)', flexShrink: 0 }}>
-                          {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '⇄ ' : '-'}
+                        <div className="font-num" style={{ fontSize: 15, fontWeight: 700, color: tx.type === 'income' ? 'var(--green)' : tx.type === 'transfer' ? 'var(--text-2)' : 'var(--text)', flexShrink: 0 }}>
+                          {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '' : '−'}
                           {formatCurrency(tx.amount, tx.currency || currency)}
                         </div>
                       </div>

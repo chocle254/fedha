@@ -160,7 +160,8 @@ export default function HealthPage() {
     <Layout onFab={() => setShowTxn(true)}>
       <div className="page">
         <div className="page-header">
-          <h1 style={{ fontSize:22, fontWeight:700, marginBottom:16 }}>Finance Health 💚</h1>
+          <div className="lx-eyebrow">Wellbeing</div>
+          <h1 className="lx-h1" style={{ marginTop: 4, marginBottom: 16 }}>Finance health</h1>
 
           {/* Health score */}
           <div className="hero-card" style={{ padding:'24px 20px', marginBottom:16, textAlign:'center' }}>
@@ -212,7 +213,7 @@ export default function HealthPage() {
                   <div style={{ fontSize:13, color:'var(--text-2)', lineHeight:1.6, whiteSpace:'pre-line', marginBottom: rec.action ? 12 : 0 }}>{rec.body}</div>
                   {rec.action === 'ziidi' && (
                     <button onClick={() => setShowZiidiSetup(true)}
-                      style={{ padding:'8px 16px', background:ZIIDI_COLOR, border:'none', borderRadius:8, color:'#000', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Outfit' }}>
+                      style={{ padding:'8px 16px', background:ZIIDI_COLOR, border:'none', borderRadius:8, color:'#000', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'Inter' }}>
                       🏦 Move to Ziidi Now
                     </button>
                   )}
@@ -229,7 +230,7 @@ export default function HealthPage() {
               Rule: When money comes in, move 10% to Ziidi before you spend anything. Treat it like it does not exist.{'\n\n'}
               In Luxe, Ziidi lives in your Goals — it builds up over time until it reaches your target (ideally 3 months of living expenses).
             </div>
-            <button onClick={() => setShowZiidiSetup(true)} style={{ marginTop:12, width:'100%', padding:'11px', background:'var(--green-dim)', border:'1px solid rgba(16,185,129,0.3)', borderRadius:10, color:'var(--green)', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Outfit' }}>
+            <button onClick={() => setShowZiidiSetup(true)} style={{ marginTop:12, width:'100%', padding:'11px', background:'var(--green-dim)', border:'1px solid rgba(16,185,129,0.3)', borderRadius:10, color:'var(--green)', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'Inter' }}>
               {ziidiGoal ? `Add More to Ziidi (${formatShort(ziidiSaved, currency)} saved)` : 'Set Up Ziidi Emergency Fund'}
             </button>
           </div>

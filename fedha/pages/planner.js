@@ -1019,13 +1019,13 @@ export default function PlannerPage() {
       <div className="page">
         <div className="page-header">
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-            <h1 style={{ fontSize:22, fontWeight:700 }}>Daily Planner</h1>
+            <h1 className="lx-h1" style={{ fontSize:22, fontWeight:700 }}>Daily Planner</h1>
             <span className="font-num" style={{ fontSize:13, color:'var(--text-3)' }}>{format(now,'h:mm a')}</span>
           </div>
           <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:16 }}>{format(now,'EEEE, d MMMM yyyy')} · {usingAI ? 'planned from when you woke up' : "auto-built from Tech Hub, My Jobs & today's workout"}</div>
 
           <button onClick={planFromNow} disabled={aiGenerating}
-            style={{ width:'100%', padding:'14px 16px', background: usingAI ? 'var(--card-2)' : 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.15))', border: `1px solid ${usingAI ? 'var(--border)' : 'rgba(16,185,129,0.35)'}`, borderRadius:12, display:'flex', alignItems:'center', gap:12, cursor: aiGenerating ? 'default' : 'pointer', marginBottom:14, textAlign:'left', fontFamily:'Outfit' }}>
+            style={{ width:'100%', padding:'14px 16px', background: usingAI ? 'var(--card-2)' : 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.15))', border: `1px solid ${usingAI ? 'var(--border)' : 'rgba(16,185,129,0.35)'}`, borderRadius:12, display:'flex', alignItems:'center', gap:12, cursor: aiGenerating ? 'default' : 'pointer', marginBottom:14, textAlign:'left', fontFamily:'Inter' }}>
             <span style={{ fontSize:22 }}>{aiGenerating ? '⏳' : '☀️'}</span>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:14, fontWeight:700, color:'var(--text)' }}>
@@ -1047,7 +1047,7 @@ export default function PlannerPage() {
             <button onClick={enableNotifs} style={{ width:'100%', padding:'12px 16px', background:'rgba(16,185,129,0.08)', border:'1px solid rgba(16,185,129,0.3)', borderRadius:12, display:'flex', alignItems:'center', gap:12, cursor:'pointer', marginBottom:14, textAlign:'left' }}>
               <span style={{ fontSize:22 }}>🔔</span>
               <div>
-                <div style={{ fontSize:14, fontWeight:600, color:'var(--green)', fontFamily:'Outfit' }}>Turn On All Reminders</div>
+                <div style={{ fontSize:14, fontWeight:600, color:'var(--green)', fontFamily:'Inter' }}>Turn On All Reminders</div>
                 <div style={{ fontSize:12, color:'var(--text-3)' }}>Meals, work blocks, workouts, bathing, gaming and sleep</div>
               </div>
             </button>
@@ -1089,7 +1089,7 @@ export default function PlannerPage() {
                 </div>
                 <div style={{ fontSize:12, color:'var(--text-3)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>📍 {homeLoc ? String(homeLoc.name).split(',')[0] : 'No location yet'}</div>
               </div>
-              <button onClick={() => setShowLocEdit((v) => !v)} style={{ width:'auto', flexShrink:0, padding:'6px 12px', background:'var(--card-2)', border:'1px solid var(--border)', borderRadius:100, color:'var(--text-2)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Outfit' }}>{homeLoc ? 'Change' : 'Set'}</button>
+              <button onClick={() => setShowLocEdit((v) => !v)} style={{ width:'auto', flexShrink:0, padding:'6px 12px', background:'var(--card-2)', border:'1px solid var(--border)', borderRadius:100, color:'var(--text-2)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter' }}>{homeLoc ? 'Change' : 'Set'}</button>
             </div>
             {weather?.max != null && (
               <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginTop:10 }}>

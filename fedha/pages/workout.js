@@ -258,14 +258,14 @@ function ExerciseCard({ ex, sessionKey, completedSets, onStartSet, onManualSet }
           </div>
           {!isComplete && (ex.manual || onManualSet) && (
             <button onClick={() => onManualSet(ex, doneSets + 1)}
-              style={{ padding: '8px 12px', background: ex.manual ? ex.color : 'transparent', border: `1px solid ${ex.color}`, borderRadius: 10, color: ex.manual ? '#000' : ex.color, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit', marginRight: ex.manual ? 0 : 6, marginBottom: ex.manual ? 0 : 6 }}>
+              style={{ padding: '8px 12px', background: ex.manual ? ex.color : 'transparent', border: `1px solid ${ex.color}`, borderRadius: 10, color: ex.manual ? '#000' : ex.color, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter', marginRight: ex.manual ? 0 : 6, marginBottom: ex.manual ? 0 : 6 }}>
               {ex.manual ? `Done set ${doneSets + 1} ✓` : '✓ Done'}
             </button>
           )}
           {!isComplete ? (ex.manual ? null :
             <button
               onClick={() => onStartSet(ex, doneSets + 1)}
-              style={{ padding: '8px 14px', background: ex.color, border: 'none', borderRadius: 10, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit' }}>
+              style={{ padding: '8px 14px', background: ex.color, border: 'none', borderRadius: 10, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter' }}>
               {doneSets === 0 ? 'Start 📷' : `Set ${doneSets + 1} 📷`}
             </button>
           ) : (
@@ -349,7 +349,7 @@ export default function WorkoutPage() {
       <div className="page">
         <div className="page-header">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-            <h1 style={{ fontSize: 22, fontWeight: 700 }}>Workout 🏋️</h1>
+            <h1 className="lx-h1" style={{ fontSize: 22, fontWeight: 700 }}>Workout</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 20 }}>
               <span style={{ fontSize: 16 }}>🔥</span>
               <span style={{ fontSize: 13, fontWeight: 700, color: '#F59E0B' }}>{streak} day streak</span>

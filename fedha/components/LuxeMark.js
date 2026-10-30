@@ -22,9 +22,9 @@ export default function LuxeMark({ size = 36, animated = false, glow = true, sty
     <svg width={size} height={size} viewBox="0 0 100 100" aria-label="Luxe" role="img" style={style} className={animated ? 'lx-mark-anim' : undefined}>
       <defs>
         <linearGradient id={`${id}p`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#7DE3F4" />
-          <stop offset="0.5" stopColor="#C4B5FD" />
-          <stop offset="1" stopColor="#F9A8D4" />
+          <stop offset="0" stopColor="#F1F5FA" />
+          <stop offset="0.5" stopColor="#9FD8E8" />
+          <stop offset="1" stopColor="#B8C2D2" />
         </linearGradient>
         <linearGradient id={`${id}s`} x1="0" y1="0" x2="1" y2="0">
           <stop offset="0" stopColor="#fff" stopOpacity="0" />
@@ -32,8 +32,8 @@ export default function LuxeMark({ size = 36, animated = false, glow = true, sty
           <stop offset="1" stopColor="#fff" stopOpacity="0" />
         </linearGradient>
         <radialGradient id={`${id}g`} cx="50%" cy="55%" r="50%">
-          <stop offset="0" stopColor="#C4B5FD" stopOpacity="0.35" />
-          <stop offset="1" stopColor="#C4B5FD" stopOpacity="0" />
+          <stop offset="0" stopColor="#9FD8E8" stopOpacity="0.35" />
+          <stop offset="1" stopColor="#9FD8E8" stopOpacity="0" />
         </radialGradient>
         <clipPath id={`${id}c`}><path d="M16 42 L33 27 L67 27 L84 42 L50 86 Z" /></clipPath>
       </defs>

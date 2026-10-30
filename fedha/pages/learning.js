@@ -140,7 +140,7 @@ export default function LearningPage(){
 
   return <Layout fab={false}><div style={{minHeight:'100vh',paddingBottom:90}}><div style={{maxWidth:1000,margin:'0 auto',padding:'28px 18px'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,marginBottom:22}}>
-      <div><div style={{fontSize:11,color:'var(--green)',fontWeight:800,letterSpacing:2,textTransform:'uppercase'}}>LEARNING HUB</div><h1 style={{margin:'5px 0 6px',fontSize:28}}>Courses & Certifications</h1><p style={{margin:0,color:'var(--text-3)',fontSize:13,lineHeight:1.6}}>Build your real course library: lessons, knowledge checks, readings, assessments, notes, progress and certificates.</p></div>
+      <div><div style={{fontSize:11,color:'var(--green)',fontWeight:800,letterSpacing:2,textTransform:'uppercase'}}>LEARNING HUB</div><h1 className="lx-h1" style={{margin:'5px 0 6px',fontSize:28}}>Courses & Certifications</h1><p style={{margin:0,color:'var(--text-3)',fontSize:13,lineHeight:1.6}}>Build your real course library: lessons, knowledge checks, readings, assessments, notes, progress and certificates.</p></div>
       <button className="btn-primary" onClick={openNew}>＋ Course</button>
     </div>
     <div className="card" style={{padding:16,marginBottom:18,background:'linear-gradient(135deg,rgba(16,185,129,.10),rgba(59,130,246,.07))'}}><div style={{fontWeight:800,marginBottom:6}}>🧠 Smart learning + Planner</div><div style={{color:'var(--text-2)',fontSize:13,lineHeight:1.6}}>Luxe now understands individual lessons and their durations. Course workload, progress, priority and deadline can compete for time with client work and other important commitments.</div></div>

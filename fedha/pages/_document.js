@@ -18,7 +18,7 @@ export default function Document() {
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
         <link rel="alternate icon" href="/icon.svg" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-        <link rel="mask-icon" href="/icon.svg" color="#C4B5FD" />
+        <link rel="mask-icon" href="/icon.svg" color="#9FD8E8" />
 
         {/* PWA manifest */}
         <link rel="manifest" href="/manifest.json" />
@@ -28,7 +28,7 @@ export default function Document() {
         <style dangerouslySetInnerHTML={{ __html: `
           html{background:#040507}
           #lx-boot{position:fixed;inset:0;z-index:2147482999;pointer-events:none;
-            background:radial-gradient(120% 90% at 50% 38%,#1B1830 0%,#0A0912 45%,#040507 100%);
+            background:radial-gradient(120% 90% at 50% 38%,#171B22 0%,#090B0F 45%,#040507 100%);
             transition:opacity .45s ease;animation:lxBootOut .4s 8s forwards}
           #lx-boot.lx-gone{opacity:0}
           @keyframes lxBootOut{to{opacity:0;visibility:hidden}}
