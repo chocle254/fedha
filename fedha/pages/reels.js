@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { connection } from '../lib/chill';
-import { getSignals, saveSignal, rank, fetchCandidates, withTrailers, takePrefetched } from '../lib/reels';
+import { getSignals, applySignal, persistSignals, flushSignals, rank, fetchCandidates, withTrailers, takePrefetched } from '../lib/reels';
 import { getProgress, setFeedback } from '../lib/chill';
 import { useMusic } from '../context/MusicContext';
 
-// Chill Room → Reels: full-screen trailers, swipe up for the next one (lib/reels.js ranks them like Instagram Reels).
+// Chill Room → Reels: full-screen trailers, swipe up for the next one. lib/reels.js ranks them like TikTok,
+// Instagram and Facebook Reels combined; a trailer you've seen never comes back, and the queue re-ranks as you swipe.
 // Data: on Wi-Fi the current trailer plays in HD and the next 4 are already buffering (each starts muted for a few
 // seconds, then waits at 0:00), so swiping never waits; more trailers are looked up well before the end.
 // On mobile data nothing loaded before you opened Reels, only the next 3 are prepared, trailers come 4 at a time
@@ -33,6 +34,25 @@ export default function Reels() {
   const busy = useRef(false);
   const activeRef = useRef(0);
   activeRef.current = active;
+  const sigRef = useRef({}); // latest signals (saves chain on this, never on a stale copy)
+  const feedRef = useRef([]);
+  feedRef.current = feed;
+
+  // Save a signal and re-rank what's queued straight away, so taste adapts within the session (TikTok-style).
+  const record = useCallback(async (item, patch) => {
+    const next = applySignal(sigRef.current, item, patch);
+    sigRef.current = next; setSignals(next);
+    setRest((r) => rank(r, next));
+    persistSignals(next);
+    return next;
+  }, []);
+  // Leaving a reel (swipe, or leaving the page): it counts as shown (never comes back) with the seconds watched.
+  const leave = useCallback((i, since) => {
+    const item = feedRef.current[i]; if (!item) return;
+    const secs = (Date.now() - since) / 1000;
+    const s = sigRef.current[item.title] || {};
+    record(item, { shown: (s.shown || 0) + 1, watch: Math.max(s.watch || 0, secs), skipped: secs < 3 && !s.liked && !s.saved }).catch(() => {});
+  }, [record]);
 
   // First 4 (prefetched on Wi-Fi from the Chill Room, or fetched now).
   useEffect(() => {
@@ -41,8 +61,8 @@ export default function Reels() {
     getProgress().then((p) => setFb(p.feedback || {})).catch(() => {});
     (async () => {
       const pre = await takePrefetched();
-      if (pre?.ready?.length) { setSignals(pre.signals); setFeed(pre.ready); setRest(pre.rest); setLoading(false); return; }
-      const sig = await getSignals(); setSignals(sig);
+      if (pre?.ready?.length) { sigRef.current = pre.signals; setSignals(pre.signals); setFeed(pre.ready); setRest(pre.rest); setLoading(false); return; }
+      const sig = await getSignals(); sigRef.current = sig; setSignals(sig);
       const ranked = rank(await fetchCandidates(sig), sig);
       const first = await withTrailers(ranked, connection().wifi ? 8 : 4);
       setFeed(first.ready); setRest(first.rest); setLoading(false);
@@ -50,10 +70,21 @@ export default function Reels() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The next 4 when you're 2 from the end (on Wi-Fi: while 6 are still left, so 4 are always buffered ahead).
+  // When the queue runs low, fetch fresh candidates (everything shown so far is excluded) so the feed never ends.
   const more = useCallback(async () => {
-    if (busy.current || !rest.length) return;
+    if (busy.current) return;
     busy.current = true;
-    try { const n = await withTrailers(rest, 4); setFeed((f) => [...f, ...n.ready]); setRest(n.rest); } finally { busy.current = false; }
+    try {
+      let queue = rest;
+      if (queue.length < 6) {
+        const inFeed = new Set(feedRef.current.map((x) => x.title));
+        const fresh = rank(await fetchCandidates(sigRef.current), sigRef.current).filter((x) => !inFeed.has(x.title) && !queue.some((q) => q.title === x.title));
+        queue = [...queue, ...fresh];
+      }
+      if (!queue.length) return;
+      const n = await withTrailers(queue, 4);
+      setFeed((f) => [...f, ...n.ready.filter((x) => !f.some((y) => y.title === x.title))]); setRest(n.rest);
+    } finally { busy.current = false; }
   }, [rest]);
   useEffect(() => { if (feed.length && active >= feed.length - (net.wifi ? AHEAD_WIFI + 2 : 2)) more(); }, [active, feed.length, more, net.wifi]);
 
@@ -67,12 +98,8 @@ export default function Reels() {
 
   // Leaving a reel: record how long you watched (under 3 s = skip). Entering one: play it, pause the rest.
   useEffect(() => {
-    const prev = watch.current; const item = feed[prev.i];
-    if (item && prev.i !== active) {
-      const secs = (Date.now() - prev.since) / 1000;
-      const s = signals[item.title] || {};
-      saveSignal(signals, item, { shown: (s.shown || 0) + 1, watch: Math.max(s.watch || 0, secs), skipped: secs < 3 && !s.liked && !s.saved }).then(setSignals).catch(() => {});
-    }
+    const prev = watch.current;
+    if (prev.i !== active) leave(prev.i, prev.since);
     const moved = prev.i !== active;
     watch.current = moved ? { i: active, since: Date.now() } : prev;
     if (!moved) return; // more trailers arrived: leave the one playing alone
@@ -82,12 +109,19 @@ export default function Reels() {
     });
   }, [active, feed.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Leaving Reels (back, app switch, closing): the one on screen counts too.
+  useEffect(() => {
+    const out = () => { if (document.visibilityState === 'hidden') { const w = watch.current; leave(w.i, w.since); watch.current = { i: w.i, since: Date.now() }; flushSignals(); } };
+    document.addEventListener('visibilitychange', out);
+    return () => { document.removeEventListener('visibilitychange', out); const w = watch.current; leave(w.i, w.since); flushSignals(); };
+  }, [leave]);
+
   const toggleMute = () => { const m = !muted; setMuted(m); Object.values(frames.current).forEach((f) => cmd(f, m ? 'mute' : 'unMute')); };
   const tapVideo = () => { const f = frames.current[active]; cmd(f, paused ? 'playVideo' : 'pauseVideo'); setPaused(!paused); };
-  const like = async (item) => setSignals(await saveSignal(signals, item, { liked: !signals[item.title]?.liked }));
+  const like = (item) => record(item, { liked: !sigRef.current[item.title]?.liked }).catch(() => {});
   const save = async (item) => {
     const on = fb[item.title] !== 'want';
-    setSignals(await saveSignal(signals, item, { saved: on }));
+    await record(item, { saved: on }).catch(() => {});
     const p = await setFeedback({ ...(await getProgress()), feedback: fb }, item.title, on ? 'want' : null, item).catch(() => null);
     if (p) setFb(p.feedback || {});
   };
