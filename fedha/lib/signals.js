@@ -26,21 +26,13 @@ export async function createSignal({ userId, source, text, externalId = null }) 
   let { entryLow, entryHigh, takeProfits, stopLoss } = parsed;
   let entry = parsed.entryLow != null ? (parsed.entryLow + parsed.entryHigh) / 2 : price;
   if (parsed.proxyOf && spotToken(parsed.symbol) && parsed.entryLow != null) {
-    // Spot-tracking feed (gold via XAUT): the channel's own levels, no shifting. Inside the zone (or past it on
-    // the good side) = enter now; on the bad side = a limit order at the zone edge, like on the broker.
+    // Spot-tracking feed (gold via XAUT): the channel's own levels, no shifting.
     const buy = parsed.side === 'BUY';
     if (Math.abs(price - entry) / price > 0.02) return { ok: false, error: `${parsed.symbol} is more than 2% away from the signal's price, so it was skipped.` };
-    entry = buy ? (price > entryHigh ? entryHigh : price) : (price < entryLow ? entryLow : price);
-    // "BUY NOW": take the market price now, unless it has already run most of the way to TP1 (too late to chase).
-    if (parsed.now) {
-      const tp1 = Number(takeProfits?.[0]);
-      const quoted = buy ? entryHigh : entryLow;
-      if (Number.isFinite(tp1) && Math.abs(tp1 - quoted) > 0) {
-        const ran = (buy ? price - quoted : quoted - price) / Math.abs(tp1 - quoted);
-        if (ran > 0.6) return { ok: false, error: `Price already ran ${Math.round(ran * 100)}% of the way to TP1 (now ${price}), too late to chase.` };
-      }
-      entry = price;
-    }
+    // Market entry, as long as the price hasn't reached TP1 yet.
+    const tp1 = Number(takeProfits?.[0]);
+    if (Number.isFinite(tp1) && (buy ? price >= tp1 : price <= tp1)) return { ok: false, error: `Price already reached TP1 (now ${price}), too late.` };
+    entry = price;
   } else if (parsed.proxyOf) {
     const rb = rebaseToMarket(parsed, price);
     if (rb.error) return { ok: false, error: rb.error };

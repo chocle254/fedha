@@ -98,12 +98,11 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
   const buy = parsed.side === 'BUY';
   const market = buy ? Number(px.ask) : Number(px.bid);
 
-  // Every signal goes in at market straight away (no limit orders), unless the price has already covered most of
-  // the way to TP1 (too late to chase).
+  // Every signal goes in at market straight away (no limit orders), as long as the price hasn't reached TP1 yet.
   const orderType = 'market';
   const entry = market;
-  const tp1 = Number(parsed.takeProfits?.[0]); const quoted = buy ? parsed.entryHigh : parsed.entryLow;
-  if (quoted != null && Number.isFinite(tp1) && Math.abs(tp1 - quoted) > 0 && (buy ? market - quoted : quoted - market) / Math.abs(tp1 - quoted) > 0.6) return { skipped: 'Price already ran most of the way to TP1: too late to chase.' };
+  const tp1 = Number(parsed.takeProfits?.[0]);
+  if (Number.isFinite(tp1) && (buy ? market >= tp1 : market <= tp1)) return { skipped: 'Price already reached TP1: too late.' };
   const sl = parsed.stopLoss;
   if (sl == null) return { skipped: 'No stop-loss in the signal, so the risk cannot be sized.' };
   if (buy ? sl >= entry : sl <= entry) return { skipped: 'Price is already past the stop-loss.' };

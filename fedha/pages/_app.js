@@ -73,7 +73,11 @@ function NotificationScheduler() {
       const blocksDate = await getSetting('planner_blocks_date', null);
       const blocksRev = await getSetting('planner_blocks_rev', 0);
       const notifEnabled = await getSetting('planner_notifs', false);
-      const plannerFresh = Array.isArray(blocks) && blocksDate === todayISO();
+      // A plan from yesterday (or the day before) still drives the reminders: the routine repeats, and opening the
+      // planner / "I'm Awake" replaces it with today's. Without this, opening Luxe after midnight (Chill Room, Reels)
+      // told the server "no plan" and the whole morning went silent. Older than 2 days = stale, nothing fires.
+      const ageDays = blocksDate ? Math.round((new Date(todayISO()) - new Date(blocksDate)) / 864e5) : 99;
+      const plannerFresh = Array.isArray(blocks) && blocks.length > 0 && ageDays >= 0 && ageDays <= 2;
       const plannerLive = plannerFresh && !!notifEnabled;
 
       if (plannerLive) {
