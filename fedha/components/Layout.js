@@ -8,6 +8,7 @@ import NestLinkCredits from './NestLinkCredits';
 import SmsAutoRecorder from './SmsAutoRecorder';
 import ServiceWalletWatch from './ServiceWalletWatch';
 import SmsCategoryPrompt from './SmsCategoryPrompt';
+import ZiidiInterest from './ZiidiInterest';
 import LuxeMark from './LuxeMark';
 import Icon from './Icon';
 import { getVoiceChoices, getVoiceName, setVoiceName, speak } from '../lib/voice';
@@ -270,6 +271,7 @@ export default function Layout({ children, fab, onFab }) {
       <SmsAutoRecorder />
       <ServiceWalletWatch />
       <SmsCategoryPrompt />
+      <ZiidiInterest />
 
       {/* More menu sheet */}
       {moreOpen && (

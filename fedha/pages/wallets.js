@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { pocketsOf, enableZiidi, move, getUnlocks, requestUnlock, cancelUnlock, walletSplit, releaseDueUnlocks, UNLOCK_HOURS } from '../lib/ziidi';
+import { pocketsOf, enableZiidi, move, getUnlocks, requestUnlock, cancelUnlock, walletSplit, releaseDueUnlocks, UNLOCK_HOURS, getInterest, setInterestRate, dailyInterest } from '../lib/ziidi';
 import Layout from '../components/Layout';
 import SmsCapture from '../components/SmsCapture';
 import TransactionModal from '../components/TransactionModal';
@@ -244,7 +244,7 @@ function EditBalancesModal({ wallet, pockets, unlocking, currency, onSave, onClo
 const ussdLink = (code, sim) => `intent://ussd?code=${encodeURIComponent(code)}${sim ? `&sim=${sim}` : ''}#Intent;scheme=luxe;package=com.chocle254.fedha;end`;
 const onAndroid = () => typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
 
-function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock, onEdit, sim }) {
+function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock, onEdit, sim, interest, onRate }) {
   const mine = unlocks.filter((u) => u.parent_id === wallet.id);
   const unlocking = Math.min(mine.reduce((s, u) => s + Number(u.amount), 0), Number(pockets.locked?.balance) || 0);
   const lockedFree = (Number(pockets.locked?.balance) || 0) - unlocking;
@@ -263,8 +263,20 @@ function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock
       <div style={{ display: 'flex', gap: 8 }}>
         {tile('📱 M-Pesa', wallet.balance, 'var(--text)', 'spend from here')}
         {tile('📈 Ziidi', pockets.ziidi?.balance, '#10B981', 'withdraw any time')}
-        {tile('🔒 Locked', lockedFree, '#F59E0B', unlocking > 0 ? `+ ${formatCurrency(unlocking, currency)} unlocking` : 'savings')}
+        {tile('🔒 Locked', lockedFree, '#F59E0B', unlocking > 0 ? `+ ${formatCurrency(unlocking, currency)} unlocking` : `${interest?.rate ?? 6.13}% a year`)}
       </div>
+      {interest && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, padding: '9px 12px', borderRadius: 12, background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)', fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.45 }}>
+          <span style={{ fontSize: 16 }}>🌙</span>
+          <span style={{ flex: 1 }}>
+            {lockedFree > 0
+              ? <>Earning <b className="font-num" style={{ color: '#F5B54A' }}>≈ {formatCurrency(dailyInterest(lockedFree, interest.rate), currency)}</b> a day (≈ {formatCurrency(dailyInterest(lockedFree, interest.rate) * 30, currency)} a month), paid at midnight.</>
+              : <>Locked savings earn {interest.rate}% a year, paid every midnight.</>}
+            {interest.last?.amount ? <> Last paid {formatCurrency(interest.last.amount, currency)} on {new Date(`${interest.last.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}.</> : null}
+          </span>
+          <button onClick={onRate} style={{ background: 'none', border: 0, color: 'var(--text-3)', fontSize: 12, cursor: 'pointer', textDecoration: 'underline', fontFamily: 'Onest' }}>Rate</button>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
         {act('push', '→ Ziidi', !(Number(wallet.balance) > 0))}
         {act('lock', '🔒 Lock', !(Number(pockets.ziidi?.balance) > 0))}
@@ -304,7 +316,15 @@ export default function WalletsPage() {
   const [unlocks, setUnlocks] = useState([]);
   const [moving, setMoving] = useState(null); // { wallet, kind }
   const [settingUp, setSettingUp] = useState(null);
-  const [sims, setSims] = useState({}); // SIM slot → wallet id, from the linked phone (SMS capture)
+  const [sims, setSims] = useState({});
+  const [interest, setInterest] = useState(null);
+  useEffect(() => { getInterest().then(setInterest).catch(() => {}); }, [wallets]);
+  const changeRate = async () => {
+    const v = window.prompt('Ziidi Locked interest rate (% a year)', String(interest?.rate ?? 6.13));
+    if (v == null || !(Number(v) > 0 && Number(v) < 50)) return;
+    await setInterestRate(Number(v));
+    setInterest(await getInterest());
+  }; // SIM slot → wallet id, from the linked phone (SMS capture)
   useEffect(() => { fetch('/api/sms/inbox', { cache: 'no-store' }).then((r) => r.json()).then((j) => setSims(j?.device?.sims || {})).catch(() => {}); }, []);
   // Which SIM a wallet is on: the linked phone's map, else the order of M-Pesa wallets (1st = SIM 1, 2nd = SIM 2).
   const simOf = (w) => {
@@ -422,7 +442,7 @@ export default function WalletsPage() {
                 </div>
 
                 {pockets.ziidi && (
-                  <ZiidiPanel wallet={w} pockets={pockets} unlocks={unlocks} currency={w.currency || currency} sim={simOf(w)}
+                  <ZiidiPanel wallet={w} pockets={pockets} unlocks={unlocks} currency={w.currency || currency} sim={simOf(w)} interest={interest} onRate={changeRate}
                     onMove={(kind) => setMoving({ wallet: w, kind })}
                     onEdit={(unlocking) => setEditing({ wallet: w, pockets, unlocking })}
                     onCancelUnlock={async (id) => { await cancelUnlock(id); setUnlocks(await getUnlocks()); }} />

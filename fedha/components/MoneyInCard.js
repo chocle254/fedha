@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { summarize, kes } from '../lib/earnings';
-import { formatDateRelative } from '../lib/utils';
+import { formatDistanceToNow, format } from 'date-fns';
 
 // Dashboard "Money in": today, this week (vs last week), this month, the streak of days with money coming in,
 // a 14-day bar chart and the latest payments. Fires confetti when money has arrived since you last opened Luxe.
@@ -10,6 +10,7 @@ const SEEN = 'luxe_money_seen';
 export default function MoneyInCard({ transactions }) {
   const s = useMemo(() => summarize(transactions || []), [transactions]);
   const [fresh, setFresh] = useState(0);
+  const [sel, setSel] = useState(13); // the bar being read (today by default)
 
   useEffect(() => {
     const newest = s.recent[0]?.at || 0;
@@ -46,9 +47,28 @@ export default function MoneyInCard({ transactions }) {
           </div>
         ))}
       </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 44, marginTop: 12 }} aria-label="Money in, last 14 days">
+      {/* Last 14 days: tap a bar to read that day */}
+      {(() => { const d = s.days14[sel]; return d && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 14, fontSize: 12.5 }}>
+          <span style={{ color: 'var(--text-2)' }}>{sel === 13 ? 'Today' : sel === 12 ? 'Yesterday' : format(new Date(`${d.day}T12:00:00`), 'EEE d MMM')}</span>
+          <b className="font-num" style={{ color: d.amount ? 'var(--green)' : 'var(--text-3)' }}>{d.amount ? `+${kes(d.amount)}` : 'Nothing came in'}</b>
+        </div>
+      ); })()}
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 56, marginTop: 6 }} role="group" aria-label="Money in, last 14 days">
         {s.days14.map((d, i) => (
-          <div key={d.day} title={`${d.day}: ${kes(d.amount)}`} style={{ flex: 1, height: `${Math.max(4, (d.amount / max) * 100)}%`, borderRadius: 3, background: d.amount ? (i === 13 ? 'var(--green)' : 'rgba(16,185,129,0.55)') : 'rgba(132,142,156,0.2)' }} />
+          <button key={d.day} type="button" onClick={() => setSel(i)} aria-label={`${d.day}: ${kes(d.amount)}`} aria-pressed={sel === i}
+            style={{ flex: 1, height: '100%', padding: 0, border: 0, background: 'transparent', display: 'flex', alignItems: 'flex-end', cursor: 'pointer' }}>
+            <span style={{ width: '100%', height: `${Math.max(5, (d.amount / max) * 100)}%`, borderRadius: 4,
+              background: d.amount ? (sel === i ? 'var(--green)' : 'rgba(52,211,153,0.5)') : 'rgba(255,246,232,0.12)',
+              boxShadow: sel === i ? '0 0 0 2px rgba(52,211,153,0.35)' : 'none' }} />
+          </button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 3, marginTop: 4 }} aria-hidden="true">
+        {s.days14.map((d, i) => (
+          <span key={d.day} className="font-num" style={{ flex: 1, textAlign: 'center', fontSize: 10, color: sel === i ? 'var(--text)' : 'var(--text-3)', fontWeight: sel === i || i === 13 ? 700 : 400 }}>
+            {format(new Date(`${d.day}T12:00:00`), 'EEEEE')}
+          </span>
         ))}
       </div>
       {s.recent.length > 0 && (
@@ -56,7 +76,7 @@ export default function MoneyInCard({ transactions }) {
           {s.recent.slice(0, 3).map((t) => (
             <div key={t.id} style={{ display: 'flex', gap: 8, fontSize: 12.5 }}>
               <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-2)' }}>{t.description || 'Income'}</span>
-              <span style={{ color: 'var(--text-3)', fontSize: 11.5 }}>{formatDateRelative ? formatDateRelative(t.date) : ''}</span>
+              <span style={{ color: 'var(--text-3)', fontSize: 11.5 }}>{t.when ? formatDistanceToNow(t.when, { addSuffix: true }) : format(new Date(`${t.date}T12:00:00`), 'EEE d MMM')}</span>
               <b className="font-num" style={{ color: 'var(--green)' }}>+{kes(t.amount)}</b>
             </div>
           ))}

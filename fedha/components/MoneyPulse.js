@@ -114,7 +114,9 @@ export default function MoneyPulse({ transactions = [], currency }) {
           <div className="card-2" style={{ flex: 1, padding: '10px 12px' }}>
             <div style={{ fontSize: 10.5, color: 'var(--text-3)', fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase' }}>Month ends at</div>
             <div className="font-num" style={{ fontSize: 16, fontWeight: 700, marginTop: 3 }}>{formatShort(data.projected, currency)}</div>
-            {vsLast != null && <div style={{ fontSize: 11, marginTop: 2, color: vsLast > 5 ? 'var(--red)' : vsLast < -5 ? 'var(--green)' : 'var(--text-3)' }}>{vsLast > 0 ? '▲' : '▼'} {Math.abs(Math.round(vsLast))}% vs last month</div>}
+            {vsLast != null && (Math.abs(vsLast) > 300
+              ? <div style={{ fontSize: 11, marginTop: 2, color: 'var(--text-3)' }}>last month {formatShort(data.lastExpense, currency)}</div>
+              : <div style={{ fontSize: 11, marginTop: 2, color: vsLast > 5 ? 'var(--red)' : vsLast < -5 ? 'var(--green)' : 'var(--text-3)' }}>{vsLast > 0 ? '▲' : '▼'} {Math.abs(Math.round(vsLast))}% vs last month</div>)}
           </div>
         </div>
       )}

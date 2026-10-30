@@ -7,7 +7,7 @@
 // Ziidi and Ziidi Locked are child wallets (parent_id = the M-Pesa wallet, pocket = 'ziidi' | 'ziidi_locked'),
 // so every move is an ordinary transfer and balances stay right. An unlock is a pending request: the money stays
 // in Locked until the 72 hours pass, then it is moved to Ziidi automatically.
-import { getSetting, setSetting } from './db';
+import { getSetting, setSetting, getTransaction } from './db';
 
 export const UNLOCK_HOURS = 72;
 const KEY = 'ziidi_unlocks';
@@ -83,4 +83,49 @@ export function walletSplit(wallets, unlocks = []) {
   for (const u of unlocks) unlocking += Number(u.amount) || 0;
   unlocking = Math.min(unlocking, locked);
   return { spendable, ziidi, locked: locked - unlocking, unlocking, total: spendable + ziidi + locked };
+}
+
+// ── Interest on Ziidi Locked ──────────────────────────────────────────────────────────────────────────────────
+// Ziidi pays interest on locked savings every day at midnight: balance × rate ÷ 365 (6.13% a year: KSh 2,929
+// locked earned ≈ KSh 0.50 a day). Luxe credits it as income into each Locked pocket, once per day (transaction id
+// ziidi_int_<pocket>_<date>, so it can never be added twice). Money being unlocked doesn't earn. Settings key
+// 'ziidi_interest' = { rate, since (last day credited, YYYY-MM-DD), last: { amount, date } }.
+export const ZIIDI_LOCKED_RATE = 6.13;
+const INT_KEY = 'ziidi_interest';
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+export async function getInterest() {
+  return { rate: ZIIDI_LOCKED_RATE, since: null, last: { amount: 0.5, date: '2026-10-29' }, ...((await getSetting(INT_KEY, null)) || {}) };
+}
+export async function setInterestRate(rate) {
+  const cur = await getInterest();
+  await setSetting(INT_KEY, { ...cur, rate: Number(rate) || ZIIDI_LOCKED_RATE });
+}
+export const dailyInterest = (balance, rate) => Math.round(((Number(balance) || 0) * (Number(rate) || 0)) / 100 / 365 * 100) / 100;
+
+// Credits every midnight since the last run (up to 7 days back), on what is locked and not being unlocked.
+export async function creditZiidiInterest(wallets, addTransaction) {
+  const cur = await getInterest();
+  const today = iso(new Date());
+  if (!cur.since) { await setSetting(INT_KEY, { ...cur, since: today }); return null; } // start from tonight
+  if (cur.since >= today) return null;
+  const unlocks = await getUnlocks();
+  const locked = (wallets || []).filter((w) => w.pocket === 'ziidi_locked');
+  let last = cur.last;
+  const d = new Date(`${cur.since}T12:00:00`);
+  for (let i = 0; i < 7; i++) {
+    d.setDate(d.getDate() + 1);
+    const day = iso(d);
+    if (day > today) break;
+    for (const w of locked) {
+      const unlocking = unlocks.filter((u) => u.parent_id === w.parent_id).reduce((s, u) => s + Number(u.amount), 0);
+      const amt = dailyInterest(Math.max(0, Number(w.balance) - unlocking), cur.rate);
+      if (!(amt >= 0.01)) continue;
+      if (await getTransaction(`ziidi_int_${w.id}_${day}`).catch(() => null)) continue;
+      await addTransaction({ id: `ziidi_int_${w.id}_${day}`, type: 'income', amount: amt, wallet_id: w.id, category: 'investment', date: day, description: `Ziidi interest (${cur.rate}% a year)`, skipSavingsCut: true }).catch(() => null);
+      last = { amount: amt, date: day };
+    }
+  }
+  await setSetting(INT_KEY, { ...cur, since: today, last });
+  return last;
 }

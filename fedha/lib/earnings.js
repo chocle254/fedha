@@ -52,7 +52,9 @@ export function summarize(transactions, now = Date.now(), extra = 0, tz = null) 
   const past = [...byDay.entries()].filter(([d]) => d !== localDay(now));
   const bestBefore = past.reduce((b, [, v]) => Math.max(b, v), 0);
   const days14 = Array.from({ length: 14 }, (_, i) => { const d = localDay(now - (13 - i) * DAY); return { day: d, amount: byDay.get(d) || 0 }; });
-  const recent = earned.sort((a, b) => b.at - a.at).slice(0, 6);
+  // The exact moment it arrived when we know it (created that same day), so "3 hours ago" is right; otherwise just the day.
+  const when = (t) => { const c = t.created_at ? new Date(t.created_at).getTime() : NaN; return Number.isFinite(c) && localDay(c) === t.date ? c : null; };
+  const recent = earned.map((t) => ({ ...t, when: when(t) })).sort((a, b) => (b.when || b.at) - (a.when || a.at)).slice(0, 6);
   return { weekOf: localDay(ws), today, week, month, lastWeek, streak, bestBefore, isBestDay: today > 0 && today > bestBefore && past.length >= 3, days14, recent };
 }
 
