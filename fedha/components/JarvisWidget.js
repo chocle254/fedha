@@ -5,6 +5,7 @@ import { buildJarvisContext } from '../lib/jarvis-context';
 import { executeProposedAction, describeProposedAction } from '../lib/jarvis-actions';
 import { getJarvisMemory, setJarvisMemory, getJarvisMemories, searchJarvisMemories, saveStructuredJarvisMemory, deleteStructuredJarvisMemory, getJarvisHistory, appendJarvisMessage, saveFoodLog, deleteFoodLog } from '../lib/db';
 import { genId } from '../lib/utils';
+import { speak as luxeSpeak } from '../lib/voice';
 
 // Minimal inline-markdown renderer — just enough for how a chat model
 // actually formats short replies (**bold**, *italic*, `code`), without
@@ -173,12 +174,7 @@ export default function JarvisWidget() {
 
   const speak = useCallback((text) => {
     if (!voiceReplyEnabled || !speechSynthesisAvailable()) return;
-    try {
-      window.speechSynthesis.cancel(); // don't stack replies if one's still talking
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.rate = 1.02;
-      window.speechSynthesis.speak(utter);
-    } catch {}
+    luxeSpeak(text); // the Luxe voice (lib/voice.js); replaces anything still talking
   }, [voiceReplyEnabled]);
 
   // Only jump to another page when the user explicitly asks to go there

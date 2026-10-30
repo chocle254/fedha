@@ -419,7 +419,7 @@ export default function Chill() {
         .cr-tBar span { flex: 1; }
         .cr-tBar button { border: 0; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.12); color: #fff; font-size: 14px; cursor: pointer; }
         .cr-date { left: 6px !important; right: auto !important; top: 6px; bottom: auto !important; width: auto !important; height: auto !important; padding: 3px 7px; border-radius: 6px !important; background: #e50914 !important; color: #fff !important; font-size: 10.5px !important; font-weight: 800; }
-        .cr { background: #000; color: #f5f5f7; min-height: 100vh; padding-bottom: calc(150px + env(safe-area-inset-bottom)); font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif; }
+        .cr { background: transparent; color: #f5f5f7; min-height: 100vh; padding-bottom: calc(150px + env(safe-area-inset-bottom)); font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif; }
         .cr-top { position: sticky; top: 0; z-index: 5; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px; background: rgba(0,0,0,0.6); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
         .cr-top h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.4px; margin: 0; flex: 1; white-space: nowrap; }
         .cr-pill { border: 0; font-family: inherit; cursor: pointer; font-size: 12px; font-weight: 600; padding: 6px 11px; border-radius: 999px; background: rgba(255,255,255,0.1); color: #d1d1d6; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -430,8 +430,8 @@ export default function Chill() {
         .cr-pills::-webkit-scrollbar { display: none; }
         .cr-pills > * { flex-shrink: 0; }
         .cr-scan { border: 0; cursor: pointer; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,0.1); color: #fff; text-decoration: none; font-size: 17px; flex-shrink: 0; }
-        .cr-hero { position: relative; height: 56vh; min-height: 320px; background: #111 center top / cover no-repeat; display: flex; align-items: flex-end; }
-        .cr-shade { position: absolute; inset: 0; background: linear-gradient(to top, #000 2%, rgba(0,0,0,0.7) 32%, rgba(0,0,0,0.1) 65%, rgba(0,0,0,0.3)); pointer-events: none; }
+        .cr-hero { -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent); mask-image: linear-gradient(to bottom, #000 72%, transparent); position: relative; height: 56vh; min-height: 320px; background: #111 center top / cover no-repeat; display: flex; align-items: flex-end; }
+        .cr-shade { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 2%, rgba(0,0,0,0.7) 32%, rgba(0,0,0,0.1) 65%, rgba(0,0,0,0.3)); pointer-events: none; }
         .cr-heroIn { position: relative; padding: 0 16px 20px; width: 100%; }
         .cr-kick { font-size: 11px; font-weight: 700; letter-spacing: 1.4px; color: rgba(255,255,255,0.7); }
         .cr-hero h2 { font-size: 34px; line-height: 1.05; font-weight: 800; letter-spacing: -0.8px; margin: 4px 0 6px; }

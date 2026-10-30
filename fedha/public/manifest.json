@@ -4,8 +4,8 @@
   "description": "Track money, meals, workouts and your daily plan",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#05060B",
-  "theme_color": "#05060B",
+  "background_color": "#040507",
+  "theme_color": "#040507",
   "orientation": "portrait",
   "icons": [
     {

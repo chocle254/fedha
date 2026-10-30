@@ -1,34 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Luxe: gold L monogram with a diamond glint, on midnight. -->
-  <defs>
-    <radialGradient id="bg" cx="50%" cy="38%" r="75%">
-      <stop offset="0" stop-color="#1A1F33"/>
-      <stop offset="0.55" stop-color="#0B0E19"/>
-      <stop offset="1" stop-color="#05060B"/>
-    </radialGradient>
-    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#FFF1C9"/>
-      <stop offset="0.35" stop-color="#E9C77B"/>
-      <stop offset="0.65" stop-color="#C79A45"/>
-      <stop offset="1" stop-color="#8E6A2C"/>
-    </linearGradient>
-    <linearGradient id="ring" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#E9C77B" stop-opacity="0.75"/>
-      <stop offset="1" stop-color="#8E6A2C" stop-opacity="0.15"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0" stop-color="#E9C77B" stop-opacity="0.22"/>
-      <stop offset="1" stop-color="#E9C77B" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
-  <rect width="512" height="512" fill="url(#bg)"/>
-  <circle cx="256" cy="262" r="150" fill="url(#glow)"/>
-  <circle cx="256" cy="256" r="178" fill="none" stroke="url(#ring)" stroke-width="3"/>
-  <!-- L: tapered stem with a fine top serif, a long foot ending in a slanted cut -->
-  <path d="M176 140 H262 V152 L246 156 V330 H338 L352 316 H362 L344 372 H176 V360 L196 356 V156 L176 152 Z" fill="url(#gold)"/>
-  <!-- inner hairline for engraved depth -->
-  <path d="M212 164 V346 H330" fill="none" stroke="#FFF1C9" stroke-opacity="0.35" stroke-width="2"/>
-  <!-- diamond glint -->
-  <path d="M332 150 L338 174 L362 180 L338 186 L332 210 L326 186 L302 180 L326 174 Z" fill="#FFF6DD"/>
-  <circle cx="332" cy="180" r="3.5" fill="#FFFFFF"/>
-</svg>
+<!-- Luxe: a brilliant-cut platinum gem with a prism edge and a sparkle, on deep black. -->
+<defs>
+<radialGradient id="bg" cx="50%" cy="30%" r="85%"><stop offset="0" stop-color="#1B1830"/><stop offset="0.5" stop-color="#0A0912"/><stop offset="1" stop-color="#030305"/></radialGradient>
+<linearGradient id="prism" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7DE3F4"/><stop offset="0.5" stop-color="#C4B5FD"/><stop offset="1" stop-color="#F9A8D4"/></linearGradient>
+<radialGradient id="glow" cx="50%" cy="55%" r="50%"><stop offset="0" stop-color="#C4B5FD" stop-opacity="0.35"/><stop offset="1" stop-color="#C4B5FD" stop-opacity="0"/></radialGradient>
+</defs><rect width="512" height="512" fill="url(#bg)"/><g transform="translate(121 106) scale(2.7)"><circle cx="50" cy="54" r="46" fill="url(#glow)"/><path d="M16 42 L33 27 L31 42 Z" fill="#F4F6FA"/><path d="M33 27 L50 42 L31 42 Z" fill="#C9D1DE"/><path d="M33 27 L67 27 L50 42 Z" fill="#E6EAF1"/><path d="M67 27 L69 42 L50 42 Z" fill="#C9D1DE"/><path d="M67 27 L84 42 L69 42 Z" fill="#8E99AD"/><path d="M16 42 L31 42 L50 86 Z" fill="#B9C3D3"/><path d="M31 42 L50 42 L50 86 Z" fill="#EEF1F6"/><path d="M50 42 L69 42 L50 86 Z" fill="#7D889C"/><path d="M69 42 L84 42 L50 86 Z" fill="#5D687D"/><path d="M16 42 L33 27 L67 27 L84 42 L50 86 Z" fill="none" stroke="url(#prism)" stroke-width="1.6" stroke-linejoin="round" opacity="0.9"/><path d="M16 42 H84" stroke="#fff" stroke-opacity="0.55" stroke-width="0.9"/><path d="M80 12 L82 19 L89 21 L82 23 L80 30 L78 23 L71 21 L78 19 Z" fill="#fff"/></g></svg>

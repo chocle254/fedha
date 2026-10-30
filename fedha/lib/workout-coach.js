@@ -1,3 +1,4 @@
+import { speak as luxeSpeak } from './voice';
 // Workout coach: the per-rep shouting has to be instant (no network round
 // trip while you're mid-pushup), so this is a local phrase bank + speech
 // synthesis, not a live call to /api/jarvis. Jarvis DOES get involved for
@@ -20,14 +21,7 @@ const MILESTONE_LINES = {
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
 function speak(text) {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-  try {
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 1.1;
-    utter.pitch = 0.9; // slightly lower — reads more "coach", less "assistant"
-    window.speechSynthesis.speak(utter);
-  } catch {}
+  luxeSpeak(text, { style: 'coach' });
 }
 
 // Call this every time the rep counter increments. Fires an instant local

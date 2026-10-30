@@ -5,6 +5,7 @@ import SavingsPrompt from '../components/SavingsPrompt';
 import { MusicProvider } from '../context/MusicContext';
 import MiniPlayer from '../components/MiniPlayer';
 import WelcomeIntro from '../components/WelcomeIntro';
+import Ambience from '../components/Ambience';
 import { isSupabaseEnabled, getSession, onAuthChange } from '../lib/supabase';
 import '../styles/globals.css';
 import { installApiAuth } from '../lib/api-auth-client';
@@ -13,7 +14,7 @@ import { installApiAuth } from '../lib/api-auth-client';
 if (typeof window !== 'undefined') installApiAuth();
 
 function Splash() {
-  return <div aria-hidden="true" style={{ background: '#05060B', minHeight: '100vh' }} />;
+  return <div aria-hidden="true" style={{ minHeight: '100vh' }} />;
 }
 
 function ConfigErrorScreen() {
@@ -278,6 +279,7 @@ function AppBody({ Component, pageProps }) {
 export default function App(props) {
   return (
     <>
+      <Ambience />
       <AppBody {...props} />
       <WelcomeIntro enabled={!props.router?.pathname?.startsWith('/certificate')} />
     </>

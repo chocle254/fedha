@@ -1,3 +1,4 @@
+import { speak as luxeSpeak } from './voice';
 // Two YouTube players ("decks") so one song can blend into the next, like a DJ: the next song starts on the other
 // deck at volume 0 and the volumes cross over `blend` seconds. YouTube requires its player to stay visible, so the
 // decks live in a small floating card (components/MiniPlayer / MusicContext) while music from YouTube plays.
@@ -91,14 +92,7 @@ export class Decks {
   time() { const p = this.player; return { cur: p?.getCurrentTime?.() || 0, dur: p?.getDuration?.() || 0, playing: p?.getPlayerState?.() === 1 }; }
 }
 
-// DJ Luxe's voice: the phone's own text-to-speech, a little slower and lower, like a radio host.
+// DJ Luxe's voice: the shared Luxe voice (lib/voice.js) in its radio-host style.
 export function speak(text, { onStart, onEnd } = {}) {
-  if (!text || typeof window === 'undefined' || !window.speechSynthesis) { onEnd?.(); return; }
-  const u = new SpeechSynthesisUtterance(text);
-  const voices = window.speechSynthesis.getVoices();
-  u.voice = voices.find((v) => /en[-_](US|GB)/i.test(v.lang) && /male|guy|david|daniel|google uk english male/i.test(v.name)) || voices.find((v) => /^en/i.test(v.lang)) || null;
-  u.rate = 0.98; u.pitch = 0.85; u.volume = 1;
-  u.onstart = () => onStart?.(); u.onend = () => onEnd?.(); u.onerror = () => onEnd?.();
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(u);
+  luxeSpeak(text, { style: 'host', onStart: () => onStart?.(), onEnd: () => onEnd?.() });
 }

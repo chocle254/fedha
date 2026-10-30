@@ -1,27 +1,37 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --bg: #080C18;
-  --bg-2: #0E1525;
-  --card: #111827;
-  --card-2: #182032;
-  --border: #1F2D45;
-  --green: #10B981;
-  --green-dim: rgba(16, 185, 129, 0.12);
-  --red: #EF4444;
-  --red-dim: rgba(239, 68, 68, 0.12);
-  --blue: #3B82F6;
-  --yellow: #F59E0B;
-  --text: #EDF2FF;
-  --text-2: #8496B8;
-  --text-3: #3D5070;
-  --radius: 16px;
-  --radius-sm: 10px;
-  --gold: #F5C56B;
-  --gold-dim: rgba(245, 197, 107, 0.12);
+  /* Luxe 2: deep black with glass surfaces; each section sets --accent (lib/themes.js). */
+  --bg: #040507;
+  --bg-2: #0C0D12;
+  --card: rgba(16, 18, 24, 0.62);
+  --card-2: rgba(255, 255, 255, 0.045);
+  --card-solid: #111318;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --green: #34D399;
+  --green-dim: rgba(52, 211, 153, 0.13);
+  --red: #F87171;
+  --red-dim: rgba(248, 113, 113, 0.13);
+  --blue: #60A5FA;
+  --yellow: #FBBF24;
+  --text: #F5F5F7;
+  --text-2: rgba(235, 235, 245, 0.64);
+  --text-3: rgba(235, 235, 245, 0.38);
+  --radius: 20px;
+  --radius-sm: 13px;
+  --gold: #E9D8A6;
+  --gold-dim: rgba(233, 216, 166, 0.12);
+  --accent: #34D399;
+  --accent-2: #6EE7B7;
+  --accent-dim: rgba(52, 211, 153, 0.14);
+  --accent-glow: rgba(52, 211, 153, 0.35);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 20px 40px -26px rgba(0, 0, 0, 0.9);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1218,8 +1228,8 @@ select.input option { background: var(--card-2); }
 .muse-path .muse-step-now { width: 34px; height: 34px; font-size: 15px; }
 .muse-tabs {
   display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
-  padding: 16px 20px 2px; position: sticky; top: 0; z-index: 5;
-  background: linear-gradient(180deg, var(--bg) 70%, transparent);
+  padding: 16px 20px 10px; position: sticky; top: 0; z-index: 5;
+  background: rgba(6, 7, 10, 0.55); backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%);
 }
 .muse-tabs::-webkit-scrollbar { display: none; }
 .muse-tabs button {
@@ -1310,3 +1320,161 @@ select.input option { background: var(--card-2); }
   .muse-tabs { padding-top: 20px; }
   .muse-investors { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LUXE 2 — glass on a living background. Section colours come from lib/themes.js
+   (--accent, --accent-2, --theme-*), the moving background from components/Ambience.js.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+html { background: var(--bg); }
+body { background: transparent; text-rendering: optimizeLegibility; }
+::selection { background: var(--accent-dim); color: var(--text); }
+.font-num { font-family: 'Inter', 'Outfit', sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+
+/* Living background */
+.lx-ambience { position: fixed; inset: 0; z-index: -1; pointer-events: none; background:
+  radial-gradient(120% 70% at 15% 0%, var(--theme-hi, #1E8A66) 0%, transparent 55%),
+  radial-gradient(100% 80% at 90% 10%, var(--theme-mid, #0A3A2C) 0%, transparent 60%), var(--theme-deep, #020E0B);
+  transition: background 1.2s var(--ease-out); }
+.lx-ambience canvas { width: 100%; height: 100%; display: block; image-rendering: auto; filter: saturate(1.08); }
+.lx-ambience canvas[data-fallback] { display: none; }
+.lx-grain { position: absolute; inset: 0; opacity: 0.07; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+.app-shell { background: transparent !important; }
+
+/* Glass surfaces (no live blur on cards: the background moves, and blur on every card would drain the phone) */
+.card {
+  background: linear-gradient(160deg, rgba(255,255,255,0.075), rgba(255,255,255,0.012) 42%), var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+}
+.card-2 { background: var(--card-2); border: 1px solid var(--border); }
+.hero-card {
+  position: relative; overflow: hidden; border-radius: 26px !important;
+  background:
+    radial-gradient(120% 90% at 0% 0%, var(--accent-dim), transparent 60%),
+    linear-gradient(160deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02) 45%), rgba(12,14,19,0.55) !important;
+  border: 1px solid var(--border-strong) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 30px 60px -30px rgba(0,0,0,0.95), 0 0 0 1px rgba(0,0,0,0.2);
+}
+.hero-card::after { content: ''; position: absolute; top: 0; bottom: 0; left: -60%; width: 40%; pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,0.07), transparent); transform: skewX(-18deg);
+  animation: lxSweep 7s var(--ease-out) 1.2s infinite; }
+@keyframes lxSweep { 0% { left: -60%; } 30%, 100% { left: 130%; } }
+
+/* Type */
+.section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; color: var(--text-3); }
+.lx-title { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05;
+  background: linear-gradient(180deg, #fff 30%, rgba(255,255,255,0.62)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lx-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); }
+
+/* Controls */
+.input { background: rgba(255,255,255,0.05); border-color: var(--border); transition: border-color .2s, box-shadow .2s, background .2s; }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-dim); background: rgba(255,255,255,0.07); }
+select.input option { background: #14161C; color: var(--text); }
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #04060A; font-weight: 700; letter-spacing: 0.01em;
+  box-shadow: 0 10px 28px -12px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,0.35);
+  transition: transform .25s var(--ease-out), box-shadow .25s, opacity .2s;
+}
+.btn-primary:disabled { opacity: 0.45; box-shadow: none; }
+.btn-ghost { background: rgba(255,255,255,0.04); border-color: var(--border); color: var(--text-2); transition: transform .25s var(--ease-out), background .2s; }
+.btn-icon { background: rgba(255,255,255,0.06); border-color: var(--border); border-radius: 12px; transition: transform .25s var(--ease-out), background .2s; }
+.btn-primary:active, .btn-ghost:active, .btn-icon:active, .chip:active { transform: scale(0.96); }
+.chip { background: rgba(255,255,255,0.05); border-color: var(--border); transition: all .25s var(--ease-out); }
+.chip.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); box-shadow: 0 0 18px -6px var(--accent-glow); }
+.progress-bar { background: rgba(255,255,255,0.07); }
+.progress-fill { transition: width 1s var(--ease-out); box-shadow: 0 0 12px -2px currentColor; }
+.skeleton { background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.09) 50%, rgba(255,255,255,0.04) 75%) !important; background-size: 200% 100% !important; }
+
+/* FAB follows the section */
+.fab { background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 8px 24px -6px var(--accent-glow); color: #04060A; }
+
+/* Floating glass tab bar */
+.bottom-nav {
+  left: 12px; right: 12px; bottom: calc(8px + env(safe-area-inset-bottom)); height: 62px; padding-bottom: 0;
+  border-radius: 24px; border: 1px solid var(--border-strong);
+  background: rgba(14, 15, 20, 0.62);
+  backdrop-filter: blur(26px) saturate(170%); -webkit-backdrop-filter: blur(26px) saturate(170%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 18px 40px -12px rgba(0,0,0,0.85);
+  overflow: hidden;
+}
+.lx-nav-pill { position: absolute; top: 7px; bottom: 7px; border-radius: 17px; pointer-events: none;
+  background: linear-gradient(180deg, var(--accent-dim), rgba(255,255,255,0.03));
+  border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 0 22px -8px var(--accent-glow);
+  transition: left .5s var(--ease-out), width .5s var(--ease-out); }
+.nav-item { position: relative; z-index: 1; color: var(--text-3); font-size: 10px; font-weight: 600; transition: color .3s, transform .3s var(--ease-out); }
+.nav-item.active { color: var(--accent); }
+.nav-item.active svg { filter: drop-shadow(0 0 8px var(--accent-glow)); transform: translateY(-1px); }
+.nav-item svg { transition: transform .35s var(--ease-out); }
+.nav-item:active svg { transform: scale(0.86); }
+
+/* Sheets */
+.modal-overlay { background: rgba(0,0,0,0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); animation: fadeIn .3s ease; }
+.modal-sheet {
+  background: linear-gradient(180deg, rgba(30,32,40,0.92), rgba(12,13,18,0.96)) !important;
+  backdrop-filter: blur(30px) saturate(160%); -webkit-backdrop-filter: blur(30px) saturate(160%);
+  border-radius: 28px 28px 0 0; border-top: 1px solid var(--border-strong);
+  box-shadow: 0 -20px 60px -20px rgba(0,0,0,0.8);
+  animation: lxSheet .5s var(--ease-sheet);
+}
+.modal-header { background: rgba(22,23,30,0.94) !important; border-bottom-color: var(--border); }
+@keyframes lxSheet { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+/* Page entrance: content rises in, sections follow one after another */
+@keyframes lxRise { from { opacity: 0; transform: translateY(16px) scale(0.99); } to { opacity: 1; transform: none; } }
+@keyframes lxFade { from { opacity: 0; filter: blur(6px); } to { opacity: 1; filter: blur(0); } }
+.app-main > *:not(.desk-topbar) { animation: lxFade .5s var(--ease-out) both; }
+.page > .section, .page > div > .section, .page > .card { animation: lxRise .7s var(--ease-out) both; }
+.page > .section:nth-child(1) { animation-delay: .04s; } .page > .section:nth-child(2) { animation-delay: .09s; }
+.page > .section:nth-child(3) { animation-delay: .14s; } .page > .section:nth-child(4) { animation-delay: .19s; }
+.page > .section:nth-child(5) { animation-delay: .24s; } .page > .section:nth-child(6) { animation-delay: .29s; }
+.page > .section:nth-child(n+7) { animation-delay: .34s; }
+.page { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
+
+/* Hub tabs (Wallets / Utilities …) as a segmented control */
+.lx-seg { display: flex; gap: 4px; padding: 4px; margin: 12px 16px 0; width: fit-content; max-width: calc(100% - 32px);
+  background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 14px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+.lx-seg a { padding: 7px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; text-decoration: none; color: var(--text-2); transition: all .3s var(--ease-out); }
+.lx-seg a.on { background: rgba(255,255,255,0.10); color: var(--text); box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 4px 14px -6px rgba(0,0,0,0.8); }
+
+/* Mobile header */
+.lx-head { display: flex; align-items: center; gap: 12px; padding: calc(18px + env(safe-area-inset-top)) 20px 6px; }
+.lx-head-name { font-size: 12px; font-weight: 700; letter-spacing: 0.32em; color: var(--text); }
+.lx-head-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+
+/* The mark's light sweep */
+.lx-mark-sweep { animation: lxMark 5s var(--ease-out) infinite; }
+@keyframes lxMark { 0% { transform: translateX(0) skewX(-20deg); } 45%, 100% { transform: translateX(190px) skewX(-20deg); } }
+.lx-mark-spark { transform-origin: 80px 21px; animation: lxSpark 5s ease-in-out infinite; }
+@keyframes lxSpark { 0%, 40%, 100% { transform: scale(0.6); opacity: 0.5; } 50% { transform: scale(1.15); opacity: 1; } 60% { transform: scale(0.8); opacity: 0.8; } }
+
+/* Numbers that count up */
+.lx-count { display: inline-block; }
+
+/* Desktop: sidebar and top bar as glass */
+@media (min-width: 960px) {
+  .desk-sidebar { background: rgba(10,11,15,0.55) !important; backdrop-filter: blur(24px) saturate(150%); -webkit-backdrop-filter: blur(24px) saturate(150%); border-right: 1px solid var(--border) !important; }
+  .desk-topbar { background: rgba(10,11,15,0.35) !important; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--border) !important; }
+  .desk-nav-item.active { background: var(--accent-dim) !important; color: var(--accent) !important; }
+  .desk-panel { background: linear-gradient(160deg, rgba(255,255,255,0.07), rgba(255,255,255,0.01) 45%), var(--card) !important; }
+  .desk-link { color: var(--accent); }
+  .desk-action:hover { border-color: var(--accent); }
+  .desk-action.primary { background: linear-gradient(90deg, var(--accent), var(--accent-2)); color: #04060A; }
+  .bottom-nav { display: none; }
+}
+
+/* Section pages that painted their own black page now let the living background show */
+.cr, .mr { background: transparent !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .app-main > *, .page > .section, .page > .card, .hero-card::after, .lx-mark-sweep, .lx-mark-spark { animation: none !important; }
+}
+
+/* Home wallet cards: like premium bank cards, tinted with the wallet's colour */
+.lx-wcard { position: relative; overflow: hidden; border-radius: 20px !important;
+  background: radial-gradient(130% 100% at 100% 0%, color-mix(in srgb, var(--wc) 38%, transparent), transparent 60%),
+    linear-gradient(160deg, rgba(255,255,255,0.09), rgba(255,255,255,0.015) 50%), rgba(14,16,21,0.7) !important;
+  transition: transform .35s var(--ease-out); }
+.lx-wcard:active { transform: scale(0.97); }
+.lx-chip-dot { width: 26px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, rgba(255,255,255,0.55), rgba(255,255,255,0.15)); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25); }

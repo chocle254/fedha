@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { speak as luxeSpeak } from '../../lib/voice';
 
 // Pitch trainer for Startups and Hackathons. Built to make the pitch better, not to make you feel good:
 //   Full run     teleprompter + live pace / filler meters. Scored by /api/pitch-trainer on evidence: what a listener
@@ -144,7 +145,7 @@ export default function PitchTrainer({ audience = 'judges', context = '', cues =
     } catch (e) { setErr(e.message); }
     setBusy('');
   }
-  function say(text) { try { window.speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate = 1; window.speechSynthesis.speak(u); } catch { /* no voice */ } }
+  function say(text) { luxeSpeak(text); }
   function answerNow() {
     try { window.speechSynthesis.cancel(); } catch { /* none */ }
     L.current = makeListener(() => 0); L.current.onChange = () => tick((x) => x + 1); L.current.start?.();

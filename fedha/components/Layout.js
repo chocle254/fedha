@@ -7,6 +7,8 @@ import JarvisWidget from './JarvisWidget';
 import NestLinkCredits from './NestLinkCredits';
 import SmsAutoRecorder from './SmsAutoRecorder';
 import ServiceWalletWatch from './ServiceWalletWatch';
+import LuxeMark from './LuxeMark';
+import { getVoiceChoices, getVoiceName, setVoiceName, speak } from '../lib/voice';
 
 const NAV = [
   { href:'/', label:'Home', icon:(a) => (
@@ -65,13 +67,8 @@ function HubTabs({ pathname }) {
   const hub = hubFor(pathname);
   if (!hub) return null;
   return (
-    <div style={{ display: 'flex', gap: 4, padding: 4, margin: '12px 16px 0', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, width: 'fit-content', maxWidth: 'calc(100% - 32px)' }}>
-      {hub.map((h) => {
-        const on = h.href === pathname;
-        return (
-          <Link key={h.href} href={h.href} style={{ padding: '7px 16px', borderRadius: 9, fontSize: 13, fontWeight: 600, textDecoration: 'none', background: on ? 'var(--green-dim)' : 'transparent', color: on ? 'var(--green)' : 'var(--text-2)' }}>{h.label}</Link>
-        );
-      })}
+    <div className="lx-seg">
+      {hub.map((h) => <Link key={h.href} href={h.href} className={h.href === pathname ? 'on' : ''}>{h.label}</Link>)}
     </div>
   );
 }
@@ -160,7 +157,7 @@ function Sidebar({ pathname }) {
   return (
     <aside className="desk-sidebar" aria-label="Main navigation">
       <Link href="/" className="desk-brand">
-        <span className="desk-logo">L</span>
+        <LuxeMark size={40} animated />
         <span>
           <span className="desk-brand-name">Luxe</span>
           <span className="desk-brand-tag">Better money. Bigger goals.</span>
@@ -188,7 +185,7 @@ function Sidebar({ pathname }) {
       </nav>
       <div className="desk-quote">
         <div className="desk-quote-text">“{quote}”</div>
-        <div className="desk-quote-mark">🌱</div>
+        <div className="desk-quote-mark"><LuxeMark size={22} glow={false} /></div>
       </div>
     </aside>
   );
@@ -217,6 +214,33 @@ function TopBar({ name, isOnline, onFab, fab }) {
   );
 }
 
+// More → Luxe voice: pick which of the phone's voices Luxe speaks with (best natural ones first) and hear it.
+function VoicePicker() {
+  const [list, setList] = useState([]);
+  const [name, setName] = useState('');
+  useEffect(() => {
+    const load = () => { setList(getVoiceChoices()); setName(getVoiceName()); };
+    load();
+    const t = setTimeout(load, 700); // voices arrive a moment after the page opens
+    return () => clearTimeout(t);
+  }, []);
+  if (!list.length) return null;
+  const hear = () => speak('Good evening. Your accounts are in order, and this month is looking good.');
+  return (
+    <div className="card-2" style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+      <span style={{ fontSize: 20 }}>🎙️</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>Luxe voice</div>
+        <select className="input" style={{ marginTop: 6, padding: '8px 10px', fontSize: 13 }} value={name} onChange={(e) => { setVoiceName(e.target.value); setName(e.target.value); setTimeout(hear, 50); }}>
+          <option value="">Best available (automatic)</option>
+          {list.map((v) => <option key={v.name} value={v.name}>{v.natural ? '★ ' : ''}{v.name} · {v.lang}</option>)}
+        </select>
+      </div>
+      <button className="btn-icon" onClick={hear} aria-label="Hear the voice">▶</button>
+    </div>
+  );
+}
+
 function MoreIcon(a) {
   return (
     <svg viewBox="0 0 24 24" fill={a?'currentColor':'none'} stroke="currentColor" strokeWidth="1.8">
@@ -225,6 +249,16 @@ function MoreIcon(a) {
       <circle cx="19" cy="12" r="1.6" />
     </svg>
   );
+}
+
+// The tab bar's highlight slides from the last tab to the new one (Layout remounts on every page).
+let lastNavIdx = -1;
+function NavPill({ idx }) {
+  const [at, setAt] = useState(lastNavIdx >= 0 ? lastNavIdx : idx);
+  useEffect(() => { const t = requestAnimationFrame(() => setAt(idx)); lastNavIdx = idx; return () => cancelAnimationFrame(t); }, [idx]);
+  if (idx < 0) return null;
+  const n = NAV.length + 1;
+  return <span className="lx-nav-pill" style={{ left: `calc(${(at / n) * 100}% + 6px)`, width: `calc(${100 / n}% - 12px)` }} />;
 }
 
 export default function Layout({ children, fab, onFab }) {
@@ -283,10 +317,10 @@ export default function Layout({ children, fab, onFab }) {
                       const active = router.pathname === m.href || (hub && hub.some((h) => h.href === router.pathname)) || (m.href === '/trading' && router.pathname === '/binance');
                       return (
                         <Link key={m.href} href={m.href} onClick={() => setMoreOpen(false)} style={{ textDecoration: 'none' }}>
-                          <div className="card-2" style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, borderColor: active ? 'var(--green)' : 'var(--border)', height: '100%' }}>
+                          <div className="card-2" style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, borderColor: active ? 'var(--accent)' : 'var(--border)', height: '100%' }}>
                             <span style={{ fontSize: 22 }}>{m.emoji}</span>
                             <div style={{ minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: active ? 'var(--green)' : 'var(--text)' }}>{m.label}</div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: active ? 'var(--accent)' : 'var(--text)' }}>{m.label}</div>
                               <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 2, lineHeight: 1.3 }}>{m.desc}</div>
                             </div>
                           </div>
@@ -298,6 +332,7 @@ export default function Layout({ children, fab, onFab }) {
               ))}
             </div>
             <div style={{ padding: '0 16px 16px' }}>
+              <VoicePicker />
               <button
                 className="btn-ghost"
                 style={{ width: '100%', color: 'var(--red)' }}
@@ -311,6 +346,7 @@ export default function Layout({ children, fab, onFab }) {
       )}
 
       <nav className="bottom-nav">
+        <NavPill idx={moreActive ? NAV.length : NAV.findIndex((x) => x.href === router.pathname)} />
         {NAV.map(({ href, label, icon }) => {
           const active = router.pathname === href;
           return (

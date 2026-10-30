@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { signIn } from '../lib/supabase';
+import LuxeMark from '../components/LuxeMark';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -24,11 +25,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: 20 }}>
-      <form onSubmit={handleSubmit} className="card" style={{ width: '100%', maxWidth: 360, padding: 28 }}>
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>Luxe</div>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <form onSubmit={handleSubmit} className="card hero-card" style={{ width: '100%', maxWidth: 360, padding: 28 }}>
+        <div style={{ textAlign: 'center', marginBottom: 26 }}>
+          <LuxeMark size={64} animated />
+          <div style={{ fontSize: 15, fontWeight: 300, letterSpacing: '0.5em', paddingLeft: '0.5em', color: 'var(--text)', marginTop: 10 }}>LUXE</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>Your money, your life, in one place.</div>
         </div>
 
         <label style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Email</label>

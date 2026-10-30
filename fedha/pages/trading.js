@@ -686,7 +686,7 @@ export default function TradingPage() {
       {toast && <div className="tx-toast" style={{ borderColor: toast.err ? C.down : C.up }}>{toast.text}</div>}
 
       <style jsx global>{`
-        .tx-root { --tx-bg: #0B0E11; --tx-panel: #181A20; --tx-line: #2B3139; --tx-text: #EAECEF; --tx-dim: #848E9C; --tx-input: #0B0E11;
+        .tx-root { --tx-bg: transparent; --tx-panel: rgba(16, 19, 25, 0.74); --tx-line: rgba(255,255,255,0.08); --tx-text: #EAECEF; --tx-dim: #848E9C; --tx-input: rgba(0,0,0,0.35);
           background: var(--tx-bg); color: var(--tx-text); padding: 8px 8px 110px; min-height: 100vh; font-size: 13px; }
         .tx-root button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
         .tx-root input { font: inherit; color: var(--tx-text); background: transparent; border: 0; outline: none; min-width: 0; }
