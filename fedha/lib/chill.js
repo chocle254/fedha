@@ -78,6 +78,32 @@ export async function loadArt({ shows, movies, extra = [] }, onUpdate) {
   return art;
 }
 
+// Movie parts (Part 1 to 3 of a film series) for the given movies, from /api/chill/parts; saved on each art entry
+// as `parts` ([] for a stand-alone film) so it's only looked up once.
+export async function loadParts(movies, onUpdate) {
+  const art = { ...((await getSetting(ART, {})) || {}) };
+  let changed = false;
+  for (const m of movies) {
+    const k = `movie:${m.title}`;
+    if (Array.isArray(art[k]?.parts)) continue;
+    try {
+      const j = await (await fetch(`/api/chill/parts?${new URLSearchParams({ title: m.title, ...(m.year ? { year: String(m.year) } : {}) })}`)).json();
+      if (j.error) continue; // AI busy: try again next time
+      art[k] = { ...(art[k] || {}), parts: j.parts || [], series: j.series || null };
+      changed = true;
+      onUpdate({ ...art });
+    } catch { /* offline */ }
+  }
+  if (changed) await setSetting(ART, art);
+}
+
+// Seasons of a series from its episode list (TVMaze): [{ n, eps }].
+export function seasonsOf(a) {
+  const m = new Map();
+  for (const c of a?.order || []) { const n = Number(String(c).slice(1, 3)); if (n > 0) m.set(n, (m.get(n) || 0) + 1); }
+  return [...m.entries()].sort((x, y) => x[0] - y[0]).map(([n, eps]) => ({ n, eps }));
+}
+
 // ── What you have watched ───────────────────────────────────────────────────
 // { played: { "<show>|S04E08": ts, "movie:<title>": ts }, last: { show, code, at },
 //   feedback: { "<title>": 'want' | 'seen' | 'no' } (your reactions to For You picks; the AI learns from them) }

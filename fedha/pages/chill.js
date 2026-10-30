@@ -3,7 +3,7 @@ import Head from 'next/head';
 import Layout from '../components/Layout';
 import Link from 'next/link';
 import { prefetchReels } from '../lib/reels';
-import { fetchLibrary, organise, loadArt, getProgress, markPlayed, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback, sameTitle, connection, trailerFor, trailerSrc } from '../lib/chill';
+import { fetchLibrary, organise, loadArt, getProgress, markPlayed, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback, sameTitle, loadParts, seasonsOf, connection, trailerFor, trailerSrc } from '../lib/chill';
 
 // Chill Room: your downloaded movies and series (Download / Telegram on the phone), laid out like Apple TV.
 //   hero      the series you're in the middle of (backdrop, ▶ next episode)
@@ -31,10 +31,10 @@ function Session({ windows, now }) {
 }
 
 // Minimal poster: image only, one line of title under it.
-function Poster({ img, title, onClick, badge }) {
+function Poster({ img, title, onClick, badge, tag }) {
   return (
     <button type="button" className="cr-poster" onClick={onClick} aria-label={title}>
-      <div className="cr-img" style={bg(img)}>{!img && <span>{title}</span>}{badge && <em>{badge}</em>}</div>
+      <div className="cr-img" style={bg(img)}>{!img && <span>{title}</span>}{badge && <em>{badge}</em>}{tag && <i className="cr-tag">{tag}</i>}</div>
       <div className="cr-t">{title}</div>
     </button>
   );
@@ -136,7 +136,14 @@ export default function Chill() {
   useEffect(() => {
     const items = sug?.items || [];
     const wants = wantKey ? wantKey.split('|').filter((t) => !items.some((x) => x.title === t)).map((t) => ({ title: t, ...(prog.meta?.[t] || {}) })) : [];
-    if (shows.length || movies.length || items.length || wants.length) loadArt({ shows, movies, extra: [...items, ...wants] }, setArt);
+    if (!(shows.length || movies.length || items.length || wants.length)) return;
+    // Then, for the movies on your list and in For You: their parts (Part 1 to 3), once each.
+    loadArt({ shows, movies, extra: [...items, ...wants] }, setArt).then((a) => {
+      const kind = (x) => (x.type === 'movie' ? 'movie' : x.type === 'series' ? 'show' : a[`any:${x.title}`]?.kind);
+      const films = [...wants, ...items].filter((x) => kind(x) === 'movie'); // your list first
+      const uniq = [...new Map(films.map((x) => [x.title, x])).values()].slice(0, 20);
+      if (uniq.length) loadParts(uniq, setArt);
+    }).catch(() => {});
   }, [shows, movies, sug, wantKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ▶ opens Luxe's own player with this episode and the rest of the downloaded ones after it queued (auto-next),
@@ -159,6 +166,12 @@ export default function Chill() {
   const movieArt = (m) => art[`movie:${m.title}`] || {};
   const kindOf = (x) => (x.type === 'movie' ? 'movie' : x.type === 'series' ? 'show' : art[`any:${x.title}`]?.kind || 'show');
   const sugArt = (x) => art[`${kindOf(x)}:${x.title}`] || {};
+  // "3 parts" for a film series, "10 seasons" for a series.
+  const sizeLabel = (x) => {
+    const a = sugArt(x);
+    if (kindOf(x) === 'movie') return a.parts?.length > 1 ? `${a.parts.length} parts` : null;
+    const n = seasonsOf(a).length; return n ? `${n} season${n > 1 ? 's' : ''}` : null;
+  };
 
   // Unfinished episodes / movies that are still on the phone, most recent first.
   const resumable = Object.entries(prog.progress || {}).map(([k, v]) => {
@@ -295,7 +308,7 @@ export default function Chill() {
           <section className="cr-row">
             <div className="cr-rowHead"><h3>For You</h3><button type="button" className="cr-chip" disabled={sugBusy} onClick={refreshSug}>{sugBusy ? '…' : '↻'}</button></div>
             <div className="cr-scroll">
-              {forYou.map((x) => <Poster key={x.title} img={sugArt(x).poster} title={x.title} onClick={() => setOpen({ type: 'sug', item: x })} />)}
+              {forYou.map((x) => <Poster key={x.title} img={sugArt(x).poster} title={x.title} tag={sizeLabel(x)} onClick={() => setOpen({ type: 'sug', item: x })} />)}
             </div>
           </section>
         )}
@@ -303,7 +316,7 @@ export default function Chill() {
         {wanted.length > 0 && (
           <section className="cr-row">
             <h3>Want to Watch</h3>
-            <div className="cr-scroll">{wanted.map((x) => <Poster key={x.title} img={sugArt(x).poster} title={x.title} onClick={() => setOpen({ type: 'sug', item: x })} />)}</div>
+            <div className="cr-scroll">{wanted.map((x) => <Poster key={x.title} img={sugArt(x).poster} title={x.title} tag={sizeLabel(x)} onClick={() => setOpen({ type: 'sug', item: x })} />)}</div>
           </section>
         )}
 
@@ -351,6 +364,25 @@ export default function Chill() {
             ) : open.type === 'sug' ? (
               <div className="cr-pad">
                 {(dArt.summary || open.item.why) && <p className="cr-sum">{open.item.because ? <b>Because you like {open.item.because}. </b> : null}{open.item.why || dArt.summary}</p>}
+                {kindOf(open.item) === 'movie' && dArt.parts?.length > 1 && (
+                  <div className="cr-parts">
+                    <div className="cr-partsH">{dArt.series || 'The series'} · {dArt.parts.length} parts</div>
+                    <div className="cr-partsRow">
+                      {dArt.parts.map((p, i) => (
+                        <button type="button" key={`${p.title}${p.year}`} className={`cr-part ${sameTitle(p.title) === sameTitle(open.item.title) ? 'on' : ''}`} onClick={() => openTrailer(p.title, p.year ? String(p.year) : '')}>
+                          <div className="cr-partImg" style={bg(p.poster)}><em>{i + 1}</em></div>
+                          <b>Part {i + 1}</b><small>{p.title}{p.year ? ` · ${p.year}` : ''}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {kindOf(open.item) !== 'movie' && seasonsOf(dArt).length > 0 && (
+                  <div className="cr-parts">
+                    <div className="cr-partsH">{seasonsOf(dArt).length} season{seasonsOf(dArt).length > 1 ? 's' : ''} · {seasonsOf(dArt).reduce((t, x) => t + x.eps, 0)} episodes{dArt.status === 'Running' ? ' · still airing' : dArt.status === 'Ended' ? ' · ended' : ''}</div>
+                    <div className="cr-seasons">{seasonsOf(dArt).map((x) => <span key={x.n}>Season {x.n}<small>{x.eps} ep{x.eps > 1 ? 's' : ''}</small></span>)}</div>
+                  </div>
+                )}
                 <div className="cr-btns">
                   <button type="button" className="cr-btnG dark" onClick={() => openTrailer(open.item.title, open.item.year ? String(open.item.year) : '')}>{trailerLabel}</button>
                   <button type="button" className="cr-btnW" onClick={() => react(open.item.title, prog.feedback?.[open.item.title] === 'want' ? null : 'want')}>{prog.feedback?.[open.item.title] === 'want' ? '✓ On your list' : '＋ Want'}</button>
@@ -450,6 +482,20 @@ export default function Chill() {
         .cr-pHead h2, .cr-pHead .cr-meta { position: relative; }
         .cr-pHead h2 { font-size: 24px; font-weight: 800; margin: 0 0 4px; letter-spacing: -0.5px; }
         .cr-x { position: absolute; top: 12px; right: 12px; z-index: 2; width: 32px; height: 32px; border-radius: 50%; border: 0; background: rgba(0,0,0,0.55); color: #fff; font-size: 14px; cursor: pointer; }
+        .cr-tag { position: absolute; left: 6px; top: 6px; font-style: normal; font-size: 10.5px; font-weight: 700; padding: 3px 7px; border-radius: 999px; background: rgba(0,0,0,0.7); color: #fff; backdrop-filter: blur(6px); }
+        .cr-parts { margin: 4px 0 14px; }
+        .cr-partsH { font-size: 13px; font-weight: 700; color: #d1d1d6; margin-bottom: 8px; }
+        .cr-partsRow { display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+        .cr-partsRow::-webkit-scrollbar { display: none; }
+        .cr-part { all: unset; box-sizing: border-box; cursor: pointer; flex: 0 0 92px; width: 92px; }
+        .cr-partImg { position: relative; aspect-ratio: 2 / 3; border-radius: 8px; background: #1c1c1e center / cover; }
+        .cr-partImg em { position: absolute; left: 5px; top: 5px; font-style: normal; font-size: 11px; font-weight: 800; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: rgba(0,0,0,0.7); color: #fff; }
+        .cr-part.on .cr-partImg { box-shadow: 0 0 0 2px #f5f5f7; }
+        .cr-part b { display: block; margin-top: 6px; font-size: 12px; }
+        .cr-part small { display: block; font-size: 11px; color: #8e8e93; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .cr-seasons { display: flex; gap: 8px; flex-wrap: wrap; }
+        .cr-seasons span { font-size: 12.5px; font-weight: 600; padding: 7px 11px; border-radius: 10px; background: rgba(255,255,255,0.08); color: #f5f5f7; }
+        .cr-seasons small { display: block; font-size: 11px; font-weight: 500; color: #8e8e93; }
         .cr-tabs { display: flex; gap: 8px; padding: 14px 16px 4px; overflow-x: auto; }
         .cr-tabs button { border: 0; border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 600; background: rgba(255,255,255,0.08); color: #d1d1d6; white-space: nowrap; cursor: pointer; font-family: inherit; }
         .cr-tabs button.on { background: #f5f5f7; color: #000; }
