@@ -164,7 +164,7 @@ export function riskAmount(settings, equity) {
 
 // growth: { equity, free, cap } when the growth challenge is on — real broker lots (0.01 lot minimum), the
 // stage's risk ceiling, and margin at 1:1000 (crypto spot needs the full amount free).
-export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, growth = null }) {
+export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, growth = null, limitLeg = false }) {
   if (!signal || ['won', 'lost', 'expired'].includes(signal.status)) return { ok: false, error: 'That signal is already closed.' };
   if (signal.stop_loss == null) return { ok: false, error: 'This signal has no stop-loss, so the risk cannot be sized.' };
 
@@ -179,8 +179,10 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, g
   if (!(risk >= 0.01)) return { ok: false, error: `Balance fully committed: $${equity.toFixed(2)} equity, $${acct.openRisk.toFixed(2)} already at risk in open trades.` };
 
   const bookName = growth ? 'growth' : 'main';
-  const { data: same } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId).eq('signal_id', signal.id);
-  if ((same || []).some((t) => (t.book || 'main') === bookName)) return { ok: false, error: 'Already entered.' };
+  if (!limitLeg) {
+    const { data: same } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId).eq('signal_id', signal.id);
+    if ((same || []).some((t) => (t.book || 'main') === bookName)) return { ok: false, error: 'Already entered.' };
+  }
 
   const buy = signal.side === 'BUY';
   const book = await fetchBook(signal.symbol);
@@ -251,7 +253,7 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, g
 
   const row = {
     user_id: userId,
-    signal_id: signal.id,
+    signal_id: limitLeg ? null : signal.id, // the limit half isn't linked, so a channel is scored once per signal
     source: signal.source,
     symbol: signal.symbol,
     side: signal.side,
@@ -287,6 +289,20 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, g
   return { ok: true, trade: data, fit, equity };
 }
 
+// The channel's own entry when the market has already moved past it toward TP1 (SELL below the zone, BUY above),
+// else null. signal.entry is the market price when the signal arrived; entry_low/high are the channel's levels.
+export function limitLevel(signal) {
+  const lo = Number(signal.entry_low); const hi = Number(signal.entry_high); const px = Number(signal.entry);
+  const tp1 = Number(signal.take_profits?.[0]);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || !Number.isFinite(px) || !Number.isFinite(tp1)) return null;
+  const buy = signal.side === 'BUY';
+  const edge = buy ? hi : lo;
+  const moved = buy ? px - edge : edge - px;
+  if (!(moved > Math.abs(tp1 - edge) * 0.05)) return null; // inside the zone (or only a hair past): all at market
+  if (buy ? edge <= Number(signal.stop_loss) : edge >= Number(signal.stop_loss)) return null;
+  return edge;
+}
+
 // Lot multiplier for a channel from its closed paper trades (see groupReport in trading-core).
 export async function channelSizing(userId, source) {
   const { data } = await supabaseAdmin.from('paper_trades')
@@ -312,7 +328,11 @@ export async function maybeAutoEnter(userId, signal) {
     const equity = await getEquity(userId, s);
     const riskUsdt = Math.round(riskAmount(s, equity) * mult * news.mult * 100) / 100;
     // Main book: every signal, never skipped, so every channel keeps being measured.
-    const r = await openPaperTrade({ userId, signal, riskUsdt, auto: true });
+    // Price already moved toward TP1 (past the channel's entry): half at market now so the move isn't missed, half
+    // as a limit at the channel's entry in case the price comes back. The limit half cancels if TP1 is hit first.
+    const lim = limitLevel(signal);
+    const r = await openPaperTrade({ userId, signal, riskUsdt: lim ? riskUsdt / 2 : riskUsdt, auto: true });
+    const lr = lim && r.ok ? await openPaperTrade({ userId, signal: { ...signal, status: 'pending', entry: lim }, riskUsdt: riskUsdt / 2, auto: true, limitLeg: true }).catch(() => null) : null;
     // Growth book: the same signal again on the small account, only if its balance and stage support it.
     const g = await growthEnter(userId, s, signal, { mult, confidence, news }).catch((e) => ({ ok: false, error: e.message }));
     if (r.ok) {
@@ -320,6 +340,7 @@ export async function maybeAutoEnter(userId, signal) {
       msg.body += ` · lot ×${mult} (${confidence}% confident in ${signal.source})`;
       if (r.fit?.minLot) msg.body += ` · 0.01 lot minimum: risk $${r.fit.to.toFixed(2)} (planned $${r.fit.from.toFixed(2)}) of the $${r.equity.toFixed(2)} balance`;
       else if (r.fit) msg.body += ` · sized to fit the $${r.equity.toFixed(2)} balance: risk $${r.fit.to.toFixed(2)} instead of $${r.fit.from.toFixed(2)}`;
+      if (lr?.ok) msg.body += ` · half at market, half ⏳ limit at ${lim} (cancels if TP1 hits first)`;
       if (news.level !== 'clear') msg.body += ` · 📰 ${news.level === 'danger' ? 'quarter' : 'half'} lot: ${await newsReason(news, signal.symbol)}`;
       if (g) msg.body += g.ok ? ` · 🌱 growth account took it: ${g.trade.qty} ${base(signal.symbol)}, risk $${Number(g.trade.actual_risk_usdt).toFixed(2)} of $${g.equity.toFixed(2)}` : ` · 🌱 growth account skipped: ${g.skipped || g.error}`;
       await notify(msg, `trade-${r.trade.id}-new`);

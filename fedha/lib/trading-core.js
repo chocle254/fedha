@@ -149,6 +149,7 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null,
   const spread = Math.max(0, Number(trade.spread_abs) || 0);
 
   let filled = trade.status !== 'pending';
+  let missed = false;
   let filledAt = trade.filled_at || null;
   let tpHit = 0;
   let remaining = qty;
@@ -161,6 +162,8 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null,
   for (const k of candles) {
     if (!filled) {
       if (k.l <= entry && entry <= k.h) { filled = true; filledAt = new Date(k.t).toISOString(); fees += FEE * entry * qty; }
+      // A signal's limit order is cancelled once the price reaches TP1 without filling (the move happened without it).
+      else if (!manual && tps.length && (buy ? k.h >= tps[0] : k.l <= tps[0])) { missed = true; break; }
       continue;
     }
     const adverse = buy ? k.l : k.h;
@@ -202,7 +205,7 @@ export function evaluateTrade(trade, candles, now = Date.now(), { exitAt = null,
   if (closedAt != null) {
     pnl = realized - fees;
     status = pnl > 0 ? 'won' : 'lost';
-  } else if (!manual && !filled && age > MAX_PENDING_MS) {
+  } else if (!manual && !filled && (missed || age > MAX_PENDING_MS)) {
     status = 'expired'; closedAt = now;
   } else if (!manual && filled && age > MAX_OPEN_MS) {
     realized += dir * (last - entry) * remaining;
