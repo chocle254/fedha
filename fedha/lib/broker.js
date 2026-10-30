@@ -7,6 +7,7 @@ import { BROKER_ACCOUNTS, accountId, metaapiConfigured, mt, tradeOk, findSymbol 
 import { groupReport, brokerResults, splitLots, LOT_MIN, REAL_EARLY_TRADES, trailCandidate, TRAIL_DEFAULT, growthTier } from './trading-core';
 import { notify, trailProfiles, atrBefore, growthState } from './trading';
 import { newsCheck, newsReason } from './news-guard';
+import { ladderStage } from './ladder';
 
 const PENDING_MAX_MS = 6 * 3600e3; // a limit order that has not filled in 6 h is cancelled
 
@@ -85,11 +86,12 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
     if (real) return { skipped: `${source} is marked Drop.` };
     mult = LOT_MIN; // demo keeps measuring dropped channels at the smallest size
   }
-  // Real money only follows channels with a proven record: Keep or Scale (10+ closed trades, positive), or
-  // winning early (5+ trades, see REAL_EARLY_* in trading-core) at up to 1x lots. The rest stay on demo and paper.
-  if (real && sizing.verdict === 'testing') {
-    if (!sizing.realOk) return { skipped: `${source} is still being tested (needs ${REAL_EARLY_TRADES}+ closed trades and a clear winning record), so demo only.` };
-    mult = Math.min(mult, 1);
+  // Real money only follows channels that climbed the whole ladder (lib/ladder.js): Trial → Proven (steady
+  // profit, still improving) → Real (also winning on its own in the Proven book). Everything else: demo and paper.
+  if (real) {
+    const stage = await ladderStage(userId, source);
+    if (stage !== 'real') return { skipped: `${source} is at the ${stage === 'proven' ? 'Proven' : 'Trial'} stage; only channels that reach Real trade real money.` };
+    if (sizing.verdict === 'testing') mult = Math.min(mult, 1); // young record: no more than 1x lots yet
   }
   // News guard: skip right around a high-impact release, half lot in the hour before (lib/news-guard.js).
   if (news?.level === 'danger') return { skipped: `News: ${news.reason}`, news: true };

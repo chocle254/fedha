@@ -578,6 +578,23 @@ export default function TradingPage() {
 
               {groups.length > 0 && (
                 <>
+                  {(() => {
+                    // Trial → Proven → Real (lib/ladder.js). The Proven book holds only promoted channels, on their own.
+                    const L = settings?.broker_settings?.ladder;
+                    if (!L) return null;
+                    const ch = Object.values(L.channels || {});
+                    const count = (st) => ch.filter((c) => c.stage === st).length;
+                    const b = L.book || {};
+                    const gain = b.start ? ((b.equity - b.start) / b.start) * 100 : 0;
+                    return (
+                      <div className="sx-note" style={{ lineHeight: 1.6 }}>
+                        <b>Ladder:</b> {count('trial')} trial · <span style={{ color: '#7CC4FF' }}>{count('proven')} proven</span> · <span style={{ color: C.up }}>{count('real')} real</span>
+                        <br />
+                        {b.signals ? <>Proven book (only promoted channels, on their own): <b>${Number(b.equity).toFixed(2)}</b> from ${b.start} ({gain >= 0 ? '+' : ''}{gain.toFixed(1)}%) · {b.signals} signals, {b.wins} wins · deepest dip {b.maxDdPct}%</>
+                          : <>No channel has earned Proven yet: it takes 5+ signals averaging +0.20R, in profit, 65%+ confident and still improving. You get a notification when one moves up.</>}
+                      </div>
+                    );
+                  })()}
                   <div className="sx-h">Channels <small>{groups.length}</small><button className="sx-how" onClick={() => setShowHow((v) => !v)}>{showHow ? 'Hide' : 'ⓘ How scoring works'}</button></div>
                   {showHow && (
                     <div className="sx-note">
@@ -586,7 +603,8 @@ export default function TradingPage() {
                   )}
                   <div className="sx-groups">
                     {(allGroups ? groups : groups.slice(0, 8)).map((g) => {
-                      const v = g.verdict === 'testing' && g.realOk ? [C.up, `Early real ×${Math.min(1, g.lotMultiplier)}`] : { scale: [C.up, `Lots ×${g.lotMultiplier}`], keep: ['#EAECEF', `Lots ×${g.lotMultiplier}`], testing: [C.gold, 'Testing'], drop: [C.down, 'Drop'] }[g.verdict];
+                      const lad = settings?.broker_settings?.ladder?.channels?.[g.source];
+                      const v = lad?.stage === 'real' ? [C.up, '💰 Real'] : lad?.stage === 'proven' ? ['#7CC4FF', '⭐ Proven'] : { scale: [C.up, `Lots ×${g.lotMultiplier}`], keep: ['#EAECEF', `Lots ×${g.lotMultiplier}`], testing: [C.gold, 'Testing'], drop: [C.down, 'Drop'] }[g.verdict];
                       const open = openGroup === g.source;
                       const p = settings?.trail_profiles?.channels?.[g.source];
                       const best = p?.scores?.[p.mode];
@@ -606,6 +624,7 @@ export default function TradingPage() {
                             <div className="sx-g-more">
                               <div>{g.confidence}% confident · total {g.totalR >= 0 ? '+' : ''}{g.totalR.toFixed(1)}R{g.open ? ` · ${g.open} open` : ''} · worst run {g.worstStreak} SL</div>
                               <div>{g.why}</div>
+                              {lad?.note && <div>Ladder ({lad.stage === 'real' ? 'Real' : lad.stage === 'proven' ? 'Proven' : 'Trial'}): {lad.note}</div>}
                               <div>Trailing stop: <b>{TRAIL_LABEL[p?.mode || TRAIL_DEFAULT]}</b>{p && p.trades >= 5 && best?.avgR != null ? ` · learned from ${p.trades} trades (${best.avgR >= 0 ? '+' : ''}${best.avgR.toFixed(2)}R avg)` : ' · default until 5 closed trades'}</div>
                             </div>
                           )}
