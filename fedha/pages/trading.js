@@ -316,6 +316,14 @@ export default function TradingPage() {
   const brokerScored = useMemo(() => brokerResults(brokerRows || []), [brokerRows]);
   const groupsFromBroker = brokerScored.some((r) => ['won', 'lost'].includes(r.status));
   const groups = useMemo(() => groupReport(groupsFromBroker ? brokerScored : trades), [groupsFromBroker, brokerScored, trades]);
+  // Rank movement: where each channel stood 24 hours ago (same scoring, trades closed before then) vs now.
+  const rankMove = useMemo(() => {
+    const cut = new Date(Date.now() - 86400e3).toISOString();
+    const src = groupsFromBroker ? brokerScored : trades;
+    const before = groupReport((src || []).filter((t) => (t.closed_at || t.created_at || '') < cut));
+    const was = Object.fromEntries(before.filter((g) => g.closed > 0).map((g, i) => [g.source, i]));
+    return Object.fromEntries(groups.map((g, i) => [g.source, was[g.source] == null ? 'new' : was[g.source] - i]));
+  }, [groups, groupsFromBroker, brokerScored, trades]);
 
   // A signal as a compact card: symbol, side and status on top, the channel and time under it, then the levels
   // as one strip (SL · Entry · TPs). Manual entry only shows for active signals that aren't traded yet.
@@ -335,6 +343,7 @@ export default function TradingPage() {
           <button className="tx-x" onClick={() => deleteSignal(s.id)} aria-label="Delete signal">✕</button>
         </div>
         <div className="sx-src">{s.source} · {ago(s.created_at)}{rr ? ` · R:R 1:${rr.toFixed(1)}` : ''}</div>
+        {s.note && <div className="sx-src" style={{ color: C.gold }}>⚠ {s.note}</div>}
         <div className="sx-levels font-num">
           <div className="sl"><span>SL</span><b>{s.stop_loss != null ? fmtPrice(s.stop_loss) : '—'}</b></div>
           <div className="en"><span>Entry</span><b>{fmtPrice(s.entry)}</b></div>
@@ -612,6 +621,7 @@ export default function TradingPage() {
                         <button key={g.source} className={`sx-g font-num ${open ? 'open' : ''}`} onClick={() => setOpenGroup(open ? null : g.source)}>
                           <div className="sx-g-top">
                             <b>{g.source}</b>
+                            {(() => { const m = rankMove[g.source]; if (m === 'new') return <span className="sx-move" style={{ color: '#7CC4FF' }}>NEW</span>; if (!m) return <span className="sx-move" style={{ color: C.dim || '#848E9C' }}>–</span>; return <span className="sx-move" style={{ color: m > 0 ? C.up : C.down }} aria-label={`${m > 0 ? 'up' : 'down'} ${Math.abs(m)} place${Math.abs(m) === 1 ? '' : 's'} in 24 hours`}>{m > 0 ? '▲' : '▼'}{Math.abs(m)}</span>; })()}
                             <span className="sx-badge" style={{ color: v[0], background: `${v[0]}1f` }}>{v[1]}</span>
                           </div>
                           <div className="sx-g-line">
@@ -858,6 +868,8 @@ export default function TradingPage() {
         .sx-g:last-child { border-bottom: 0 !important; }
         .sx-g.open { background: rgba(255,255,255,0.03) !important; }
         .sx-g-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .sx-g-top b { flex: 1; min-width: 0; }
+        .sx-move { flex-shrink: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.02em; }
         .sx-g-top b { font-size: 13.5px; font-weight: 600; color: var(--tx-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .sx-badge { flex: 0 0 auto; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
         .sx-g-line { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 12px; color: var(--tx-dim); }

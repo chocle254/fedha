@@ -28,10 +28,34 @@ const MS = { '1m': 60e3, '3m': 180e3, '5m': 300e3, '15m': 900e3, '30m': 1800e3, 
 // Yahoo's nearest interval; 2h and 4h are built from 1h candles. (Yahoo keeps 1m for 7 days, 5m–30m for 60.)
 const YAHOO_INTERVAL = { '1m': '1m', '3m': '2m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '60m', '2h': '60m', '4h': '60m', '1d': '1d', '1w': '1wk' };
 
+// Yahoo sometimes turns away cloud servers: try its second host before giving up.
 async function yahoo(symbol, params) {
-  const r = await fetch(`${yahooUrl(symbol)}?${params}`, { headers: { 'User-Agent': 'Mozilla/5.0' }, cache: 'no-store', signal: AbortSignal.timeout(12000) });
-  if (!r.ok) return null;
-  return (await r.json())?.chart?.result?.[0] || null;
+  for (const host of ['query1', 'query2']) {
+    try {
+      const r = await fetch(`${yahooUrl(symbol).replace('query1', host)}?${params}`, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' }, cache: 'no-store', signal: AbortSignal.timeout(10000) });
+      if (!r.ok) continue;
+      const res = (await r.json())?.chart?.result?.[0];
+      if (res) return res;
+    } catch { /* next host */ }
+  }
+  return null;
+}
+
+// Last-resort live price for forex, indices and oil when Yahoo is unreachable: TradingView's public scanner
+// (no key; one POST, returns the last price). Forex pairs are FX:<PAIR>; the rest are mapped below.
+const TV = { XAUUSD: 'OANDA:XAUUSD', XAGUSD: 'TVC:SILVER', US30: 'OANDA:US30USD', NAS100: 'NASDAQ:NDX', SPX500: 'SP:SPX', USOIL: 'NYMEX:CL1!', UKOIL: 'ICEEUR:BRN1!', DXY: 'TVC:DXY' };
+async function backupPrice(symbol) {
+  try {
+    const ticker = TV[symbol] || (/^[A-Z]{6}$/.test(symbol) ? `FX:${symbol}` : null);
+    if (!ticker) return null;
+    const r = await fetch('https://scanner.tradingview.com/global/scan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', signal: AbortSignal.timeout(8000),
+      body: JSON.stringify({ symbols: { tickers: [ticker] }, columns: ['close'] }),
+    });
+    if (!r.ok) return null;
+    const p = Number((await r.json())?.data?.[0]?.d?.[0]);
+    return p > 0 ? p : null;
+  } catch { return null; }
 }
 
 function merge(candles, ms) {
@@ -89,7 +113,7 @@ export async function lastPrice(symbol) {
     else if (isMt5(symbol)) {
       const res = await yahoo(symbol, 'interval=1m&range=1d');
       const p = Number(res?.meta?.regularMarketPrice);
-      return p > 0 ? p : null;
+      return p > 0 ? p : await backupPrice(symbol);
     }
     const r = await fetch(`${BINANCE}/ticker/price?symbol=${symbol}`, { cache: 'no-store' });
     if (!r.ok) return null;

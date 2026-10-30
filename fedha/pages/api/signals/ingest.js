@@ -76,6 +76,8 @@ export default async function handler(req, res) {
     const trade = !onBrokers || brokerSettings.paper_too ? await maybeAutoEnter(userId, result.signal) : null;
     const paperTrade = trade ? (trade.ok ? 'entered' : trade.skipped || trade.error) : null;
     const detail = [brokerNote, trade && !trade.ok ? `Paper trade skipped: ${trade.error || trade.skipped}` : null].filter(Boolean).join(' · ') || null;
+    // Keep the reason on the signal itself: the inbox only holds the newest 100 messages, so it would be lost.
+    if (trade && !trade.ok) await supabaseAdmin.from('trade_signals').update({ note: `Not paper-traded: ${trade.error || (trade.skipped === 'rr' ? 'reward:risk below your minimum' : trade.skipped)}` }).eq('id', result.signal.id).then(() => null, () => null);
     await logInbox({ ...base, outcome: trade?.ok || brokerTraded ? 'traded' : 'tracked', signal_id: result.signal.id, detail });
     return res.status(200).json({ ok: true, symbol: result.signal.symbol, side: result.signal.side, paperTrade, broker });
   }
