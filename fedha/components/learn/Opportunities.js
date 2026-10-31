@@ -28,6 +28,7 @@ const ALWAYS_FREE = [
 const daysTo = (iso) => (iso ? Math.ceil((new Date(iso + 'T23:59:59') - Date.now()) / 864e5) : null);
 const host = (u) => String(u || '').replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
 const noHack = (it) => it.kind !== 'hackathon'; // older searches had them; the Tech Hub has hackathons now
+const perk = (it) => (it.stay && it.meals ? 4 : 0) + (it.stay ? 2 : 0) + (it.meals ? 1 : 0) + (it.stipend ? 0.5 : 0);
 const idOf = (it) => String(it.url || it.title).toLowerCase();
 
 export default function Opportunities({ courses, onAddCourse }) {
@@ -59,12 +60,13 @@ export default function Opportunities({ courses, onAddCourse }) {
     await onAddCourse({ title: it.title, provider: it.org || host(it.url), url: it.url, description: [it.why, it.cost, it.deadline ? `Apply by ${it.deadline}` : ''].filter(Boolean).join(' · '), deadline: it.deadline || '' });
     setAdded((a) => ({ ...a, [idOf(it)]: true }));
   };
-  const show = (list) => (filter === 'all' ? list : list.filter((it) => it.kind === filter));
+  // Full accommodation and meals always first, in every list.
+  const show = (list) => (filter === 'all' ? list : list.filter((it) => it.kind === filter)).map((it, i) => [it, i]).sort((a, b) => (perk(b[0]) - perk(a[0])) || (a[1] - b[1])).map(([it]) => it);
 
   const Item = ({ it }) => {
     const d = daysTo(it.deadline), inCourses = added[idOf(it)] || hasCourse(it);
     return (
-      <div className="card-2" style={{ padding: 12, marginBottom: 8 }}>
+      <div className="card-2" style={{ padding: 12, marginBottom: 8, ...(it.stay && it.meals ? { border: '1px solid rgba(245,197,107,.45)', background: 'linear-gradient(135deg,rgba(245,197,107,.10),transparent)' } : {}) }}>
         <div style={{ display: 'flex', gap: 9 }}>
           <div style={{ fontSize: 20 }}>{ICON[it.kind] || '⭐'}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -73,6 +75,10 @@ export default function Opportunities({ courses, onAddCourse }) {
             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
               <span className="chip" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--green)' }}>{it.cost}</span>
               {d != null && <span className="chip" style={{ fontSize: 11, padding: '2px 8px', color: d <= 7 ? 'var(--red)' : 'var(--text-2)' }}>{d <= 0 ? 'Closes today' : `${d} day${d === 1 ? '' : 's'} left`}</span>}
+              {it.stay && it.meals && <span className="chip" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--gold)', borderColor: 'rgba(245,197,107,.5)' }}>🏠🍽️ Housing + meals</span>}
+              {it.stay && !it.meals && <span className="chip" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--gold)' }}>🏠 Housing</span>}
+              {it.meals && !it.stay && <span className="chip" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--gold)' }}>🍽️ Meals</span>}
+              {it.stipend && <span className="chip" style={{ fontSize: 11, padding: '2px 8px' }}>💵 Stipend</span>}
               {it.match > 0 && <span className="chip" style={{ fontSize: 11, padding: '2px 8px' }}>{it.match}% match</span>}
                           </div>
             {it.why && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.5 }}>{it.why}</div>}
@@ -98,7 +104,7 @@ export default function Opportunities({ courses, onAddCourse }) {
       <div className="card" style={{ padding: 14, background: 'linear-gradient(135deg,rgba(59,130,246,.10),rgba(16,185,129,.07))' }}>
         <div style={{ fontWeight: 800 }}>🌍 Free learning, found for you</div>
         <div style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '4px 0 10px', lineHeight: 1.5 }}>
-          Searches the web now for sponsored bootcamps, free courses with certificates, scholarships, fellowships and excellence programmes open to you in Kenya or online{interests.length ? `, matched to ${interests.slice(0, 2).join(' and ')}` : ''}. Only real links from the search are shown.
+          Searches the web now for sponsored bootcamps, free courses with certificates, scholarships, fellowships and excellence programmes open to you in Kenya or online{interests.length ? `, matched to ${interests.slice(0, 2).join(' and ')}` : ''}. Ones with free housing and meals come first. Only real links from the search are shown.
         </div>
         <div className="tab-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 10 }}>
           {FILTERS.map(([k, l]) => <button key={k} className={`chip ${filter === k ? 'active' : ''}`} onClick={() => setFilter(k)}>{l}</button>)}

@@ -19,14 +19,14 @@ function queries(interests, focus) {
   const year = new Date().getFullYear();
   const topic = interests.slice(0, 2).join(' ') || 'software engineering AI';
   const all = {
-    bootcamp: [`fully sponsored tech bootcamp Kenya ${year} apply`, `free ${topic} bootcamp Africa ${year} scholarship`],
+    bootcamp: [`fully sponsored residential tech bootcamp Kenya ${year} accommodation and meals provided`, `fully sponsored tech bootcamp Kenya ${year} apply`, `free ${topic} bootcamp Africa ${year} scholarship`],
     course: [`free ${topic} course with free certificate ${year}`, `KITI Kenya free training programme ${year}`],
     scholarship: [`fully funded tech scholarship Kenya ${year} applications open`],
     fellowship: [`tech fellowship Africa ${year} applications open young developers`],
     program: [`centre of excellence tech training programme Kenya ${year} free`, `ALX Power Learn Project Moringa sponsored programme ${year} intake`],
   };
   if (focus && all[focus]) return [...all[focus], ...(focus === 'course' ? [] : [`free ${topic} ${focus} ${year} Kenya`])];
-  return [all.bootcamp[0], all.course[0], all.course[1], all.scholarship[0], all.bootcamp[1], all.program[0], all.program[1], all.fellowship[0]];
+  return [all.bootcamp[0], `fully funded tech training Africa ${year} accommodation meals travel covered`, all.bootcamp[1], all.course[0], all.course[1], all.scholarship[0], all.bootcamp[2], all.program[0], all.program[1], all.fellowship[0]];
 }
 
 async function groqJSON(key, system, text) {
@@ -39,6 +39,7 @@ async function groqJSON(key, system, text) {
   return d.choices?.[0]?.message?.content || '';
 }
 const parseJSON = (t) => { try { return JSON.parse(t); } catch { const m = String(t).match(/\{[\s\S]*\}/); try { return m ? JSON.parse(m[0]) : null; } catch { return null; } } };
+const perk = (it) => (it.stay && it.meals ? 4 : 0) + (it.stay ? 2 : 0) + (it.meals ? 1 : 0) + (it.stipend ? 0.5 : 0);
 const norm = (u) => String(u || '').trim().replace(/[#?].*$/, '').replace(/\/+$/, '').toLowerCase();
 
 export default async function handler(req, res) {
@@ -65,7 +66,10 @@ For each give:
 - url: copied exactly from the results
 - why: one plain sentence on what you get and who it suits
 - match: 0-100, how well it fits what the learner studies
-Return JSON: {"items":[...]} with up to 18 items, best match first.
+- stay: true only if the results say accommodation (housing, residential, hostel) is provided free
+- meals: true only if the results say meals or food are provided free
+- stipend: true only if the results mention a stipend, allowance or travel paid
+Return JSON: {"items":[...]} with up to 18 items. Programmes that give free accommodation and meals come first, then best match.
 
 SEARCH RESULTS:
 ${found.text.slice(0, 16000)}`;
@@ -90,7 +94,10 @@ ${found.text.slice(0, 16000)}`;
       title: clip(it.title, 140), org: clip(it.org, 80), kind: KINDS.includes(it.kind) ? it.kind : 'program',
       cost: clip(it.cost, 40) || 'Free', deadline: /^\d{4}-\d{2}-\d{2}$/.test(it.deadline || '') ? it.deadline : '',
       where: clip(it.where, 40), url: real.get(norm(it.url)), why: clip(it.why, 260), match: Math.max(0, Math.min(100, Number(it.match) || 0)),
+      stay: it.stay === true, meals: it.meals === true, stipend: it.stipend === true,
     }))
+    // Full accommodation and meals first, then housing or meals alone, then the rest by match.
+    .sort((a, b) => (perk(b) - perk(a)) || (b.match - a.match))
     .slice(0, 18);
   return res.status(200).json({ items, searched: found.citations.length });
 }
