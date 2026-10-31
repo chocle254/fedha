@@ -85,11 +85,11 @@ export function walletSplit(wallets, unlocks = []) {
   return { spendable, ziidi, locked: locked - unlocking, unlocking, total: spendable + ziidi + locked };
 }
 
-// ── Interest on Ziidi Locked ──────────────────────────────────────────────────────────────────────────────────
-// Ziidi pays interest on locked savings every day at midnight: balance × rate ÷ 365 (6.13% a year: KSh 2,929
-// locked earned ≈ KSh 0.50 a day). Luxe credits it as income into each Locked pocket, once per day (transaction id
-// ziidi_int_<pocket>_<date>, so it can never be added twice). Money being unlocked doesn't earn. Settings key
-// 'ziidi_interest' = { rate, since (last day credited, YYYY-MM-DD), last: { amount, date } }.
+// ── Interest on everything in Ziidi ───────────────────────────────────────────────────────────────────────────
+// Ziidi pays interest on ALL money in it (the Ziidi pocket and Ziidi Locked, money being unlocked included) every day
+// at midnight: balance × rate ÷ 365 (6.13% a year: KSh 2,929 earns ≈ KSh 0.50 a day). Luxe credits it as income
+// into each pocket on its own balance, once per day (transaction id ziidi_int_<pocket>_<date>, so it can never be
+// added twice). Settings key 'ziidi_interest' = { rate, since (last day credited, YYYY-MM-DD), last: { amount, date } }.
 export const ZIIDI_LOCKED_RATE = 6.13;
 const INT_KEY = 'ziidi_interest';
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -101,6 +101,11 @@ export async function setInterestRate(rate) {
   const cur = await getInterest();
   await setSetting(INT_KEY, { ...cur, rate: Number(rate) || ZIIDI_LOCKED_RATE });
 }
+export const isZiidi = (w) => w?.pocket === 'ziidi' || w?.pocket === 'ziidi_locked';
+export const ziidiBalance = (wallets) => (wallets || []).filter(isZiidi).reduce((s, w) => s + (Number(w.balance) || 0), 0);
+// Every interest payment Luxe has credited so far, and when the next one is counted from.
+export const interestEarned = (transactions) => (transactions || []).filter((t) => String(t.id || '').startsWith('ziidi_int_')).reduce((s, t) => s + (Number(t.amount) || 0), 0);
+export const accrualStart = (since) => { const d = since ? new Date(`${since}T00:00:00`) : new Date(); if (!since) d.setHours(0, 0, 0, 0); return d.getTime(); };
 export const dailyInterest = (balance, rate) => Math.round(((Number(balance) || 0) * (Number(rate) || 0)) / 100 / 365 * 100) / 100;
 
 // Credits every midnight since the last run (up to 7 days back), on what is locked and not being unlocked.
@@ -109,17 +114,15 @@ export async function creditZiidiInterest(wallets, addTransaction) {
   const today = iso(new Date());
   if (!cur.since) { await setSetting(INT_KEY, { ...cur, since: today }); return null; } // start from tonight
   if (cur.since >= today) return null;
-  const unlocks = await getUnlocks();
-  const locked = (wallets || []).filter((w) => w.pocket === 'ziidi_locked');
+  const pockets = (wallets || []).filter(isZiidi);
   let last = cur.last;
   const d = new Date(`${cur.since}T12:00:00`);
   for (let i = 0; i < 7; i++) {
     d.setDate(d.getDate() + 1);
     const day = iso(d);
     if (day > today) break;
-    for (const w of locked) {
-      const unlocking = unlocks.filter((u) => u.parent_id === w.parent_id).reduce((s, u) => s + Number(u.amount), 0);
-      const amt = dailyInterest(Math.max(0, Number(w.balance) - unlocking), cur.rate);
+    for (const w of pockets) {
+      const amt = dailyInterest(Math.max(0, Number(w.balance) || 0), cur.rate);
       if (!(amt >= 0.01)) continue;
       if (await getTransaction(`ziidi_int_${w.id}_${day}`).catch(() => null)) continue;
       await addTransaction({ id: `ziidi_int_${w.id}_${day}`, type: 'income', amount: amt, wallet_id: w.id, category: 'investment', date: day, description: `Ziidi interest (${cur.rate}% a year)`, skipSavingsCut: true }).catch(() => null);

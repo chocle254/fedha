@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { pocketsOf, enableZiidi, move, getUnlocks, requestUnlock, cancelUnlock, walletSplit, releaseDueUnlocks, UNLOCK_HOURS, getInterest, setInterestRate, dailyInterest } from '../lib/ziidi';
+import { pocketsOf, enableZiidi, move, getUnlocks, requestUnlock, cancelUnlock, walletSplit, releaseDueUnlocks, UNLOCK_HOURS, getInterest, setInterestRate, dailyInterest, interestEarned, accrualStart } from '../lib/ziidi';
 import Layout from '../components/Layout';
 import SmsCapture from '../components/SmsCapture';
 import InterestTicker from '../components/InterestTicker';
@@ -245,10 +245,14 @@ function EditBalancesModal({ wallet, pockets, unlocking, currency, onSave, onClo
 const ussdLink = (code, sim) => `intent://ussd?code=${encodeURIComponent(code)}${sim ? `&sim=${sim}` : ''}#Intent;scheme=luxe;package=com.chocle254.fedha;end`;
 const onAndroid = () => typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
 
-function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock, onEdit, sim, interest, onRate }) {
+function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock, onEdit, sim, interest, onRate, transactions }) {
   const mine = unlocks.filter((u) => u.parent_id === wallet.id);
   const unlocking = Math.min(mine.reduce((s, u) => s + Number(u.amount), 0), Number(pockets.locked?.balance) || 0);
   const lockedFree = (Number(pockets.locked?.balance) || 0) - unlocking;
+  // Everything in Ziidi earns: the Ziidi pocket and Locked (money being unlocked too).
+  const earning = (Number(pockets.ziidi?.balance) || 0) + (Number(pockets.locked?.balance) || 0);
+  const ids = new Set([pockets.ziidi?.id, pockets.locked?.id].filter(Boolean));
+  const earned = interestEarned((transactions || []).filter((t) => ids.has(t.wallet_id)));
   const tile = (label, value, color, sub) => (
     <div style={{ flex: 1, minWidth: 0, padding: '10px 12px', background: 'var(--card-2)', borderRadius: 10 }}>
       <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{label}</div>
@@ -263,16 +267,16 @@ function ZiidiPanel({ wallet, pockets, unlocks, currency, onMove, onCancelUnlock
     <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
       <div style={{ display: 'flex', gap: 8 }}>
         {tile('📱 M-Pesa', wallet.balance, 'var(--text)', 'spend from here')}
-        {tile('📈 Ziidi', pockets.ziidi?.balance, '#10B981', 'withdraw any time')}
+        {tile('📈 Ziidi', pockets.ziidi?.balance, '#10B981', `${interest?.rate ?? 6.13}% · withdraw any time`)}
         {tile('🔒 Locked', lockedFree, '#F59E0B', unlocking > 0 ? `+ ${formatCurrency(unlocking, currency)} unlocking` : `${interest?.rate ?? 6.13}% a year`)}
       </div>
       {interest && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, padding: '9px 12px', borderRadius: 12, background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)', fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.45 }}>
           <span style={{ fontSize: 16 }}>🌙</span>
           <span style={{ flex: 1 }}>
-            {lockedFree > 0
-              ? <>Earned since midnight <b style={{ color: '#F5B54A', fontSize: 14 }}><InterestTicker perDay={(lockedFree * interest.rate) / 100 / 365} /></b><br />≈ {formatCurrency(dailyInterest(lockedFree, interest.rate), currency)} a day, ≈ {formatCurrency(dailyInterest(lockedFree, interest.rate) * 30, currency)} a month, paid at midnight.</>
-              : <>Locked savings earn {interest.rate}% a year, paid every midnight.</>}
+            {earning > 0
+              ? <>Total interest earned <b style={{ color: '#F5B54A', fontSize: 14 }}><InterestTicker perDay={(earning * interest.rate) / 100 / 365} base={earned} from={accrualStart(interest.since)} /></b><br />On all {formatCurrency(earning, currency)} in Ziidi (Ziidi + Locked) at {interest.rate}% a year: ≈ {formatCurrency(dailyInterest(earning, interest.rate), currency)} a day, ≈ {formatCurrency(dailyInterest(earning, interest.rate) * 30, currency)} a month, paid at midnight.</>
+              : <>Everything in Ziidi earns {interest.rate}% a year, paid every midnight.</>}
             {interest.last?.amount ? <> Last paid {formatCurrency(interest.last.amount, currency)} on {new Date(`${interest.last.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}.</> : null}
           </span>
           <button onClick={onRate} style={{ background: 'none', border: 0, color: 'var(--text-3)', fontSize: 12, cursor: 'pointer', textDecoration: 'underline', fontFamily: 'Onest' }}>Rate</button>
@@ -443,7 +447,7 @@ export default function WalletsPage() {
                 </div>
 
                 {pockets.ziidi && (
-                  <ZiidiPanel wallet={w} pockets={pockets} unlocks={unlocks} currency={w.currency || currency} sim={simOf(w)} interest={interest} onRate={changeRate}
+                  <ZiidiPanel wallet={w} pockets={pockets} unlocks={unlocks} currency={w.currency || currency} sim={simOf(w)} interest={interest} transactions={transactions} onRate={changeRate}
                     onMove={(kind) => setMoving({ wallet: w, kind })}
                     onEdit={(unlocking) => setEditing({ wallet: w, pockets, unlocking })}
                     onCancelUnlock={async (id) => { await cancelUnlock(id); setUnlocks(await getUnlocks()); }} />

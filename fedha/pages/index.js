@@ -11,21 +11,23 @@ import MoneyPulse from '../components/MoneyPulse';
 import CountUp from '../components/CountUp';
 import LuxeMark from '../components/LuxeMark';
 import InterestTicker from '../components/InterestTicker';
-import { getInterest } from '../lib/ziidi';
+import { getInterest, ziidiBalance, interestEarned, accrualStart } from '../lib/ziidi';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatShort, formatDate, formatDateRelative, getCategoryById, groupByDay, monthRange } from '../lib/utils';
 import { format } from 'date-fns';
 
-// Live: Ziidi Locked interest building up since midnight (only when something is locked).
-function LockedInterestLine({ wallets }) {
-  const [rate, setRate] = useState(null);
-  useEffect(() => { getInterest().then((i) => setRate(i.rate)).catch(() => {}); }, []);
-  const locked = (wallets || []).filter((w) => w.pocket === 'ziidi_locked').reduce((s, w) => s + (Number(w.balance) || 0), 0);
-  if (!rate || !(locked > 0)) return null;
+// Live: all the Ziidi interest ever earned, still counting up. Paid interest + what has built up since the last
+// payment, so it never resets at midnight (the payment just moves from "building up" into "paid").
+function LockedInterestLine({ wallets, transactions }) {
+  const [int, setInt] = useState(null);
+  const earned = interestEarned(transactions);
+  useEffect(() => { getInterest().then(setInt).catch(() => {}); }, [earned]); // re-read after each payment
+  const balance = ziidiBalance(wallets);
+  if (!int?.rate || !(balance > 0 || earned > 0)) return null;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '-6px 0 14px', fontSize: 12.5, color: 'var(--text-2)' }}>
-      <span>🌙 Interest today</span>
-      <b style={{ color: '#F5B54A' }}><InterestTicker perDay={(locked * rate) / 100 / 365} /></b>
+      <span>🌙 Ziidi interest earned</span>
+      <b style={{ color: '#F5B54A' }}><InterestTicker perDay={(balance * int.rate) / 100 / 365} base={earned} from={accrualStart(int.since)} /></b>
     </div>
   );
 }
@@ -151,7 +153,7 @@ export default function Dashboard() {
             <div style={{ fontSize: 12.5, color: flow30 >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600, marginBottom: 16 }}>
               {flow30 >= 0 ? '▲' : '▼'} {formatShort(Math.abs(flow30), currency)} <span style={{ color: 'var(--text-3)', fontWeight: 500 }}>in the last 30 days</span>
             </div>
-            <LockedInterestLine wallets={wallets} />
+            <LockedInterestLine wallets={wallets} transactions={transactions} />
             <div style={{ display: 'flex', gap: 10 }}>
               <StatCard label="Wallets" value={totalBalance} currency={currency} color="var(--text)" />
               <StatCard label="You owe" value={totalBorrowed} currency={currency} color={totalBorrowed > 0 ? 'var(--red)' : 'var(--text-2)'} />
