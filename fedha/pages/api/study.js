@@ -56,6 +56,11 @@ The 2-3 weakest or most easily forgotten points${b.weak?.length ? ` (my weak spo
     case 'project_ideas':
       return { json: true, max: 2500, text: `${mat}Topic: ${topic}\nSuggest 3 small portfolio projects that prove I can apply this (doable solo in 3-10 hours each, free tools only). For each: title, one-line goal, and 4-6 concrete milestones in order.
 Return JSON: {"projects":[{"title":"","goal":"","milestones":["",""]}]}` };
+    case 'capstone_ideas':
+      return { json: true, max: 4000, text: `${mat}What I am learning and have built:\n${clip(b.profile, 3000)}\n${b.avoid?.length ? `Already suggested or started, do not repeat: ${b.avoid.slice(0, 15).map((t) => clip(t, 100)).join(' | ')}\n` : ''}${b.focus ? `Focus area: ${clip(b.focus, 200)}\n` : ''}
+Suggest 3 ambitious capstone projects: the kind that headline a portfolio, win a hackathon or start a small business. Each must combine skills from several of my courses, solve a real problem (Kenya or Africa where it fits), and be buildable solo with free tiers in 30-80 hours. Think big but stay concrete.
+For each: title, pitch (one sentence a judge would remember), problem (who has it, why it matters), skills (which of my courses it proves), stack (free tools), hours (number), milestones (6-9 in order, each a shippable step), stretch (2-3 bigger next steps), demo (how to show it in 2 minutes).
+Return JSON: {"projects":[{"title":"","pitch":"","problem":"","skills":[""],"stack":[""],"hours":40,"milestones":[""],"stretch":[""],"demo":""}]}` };
     default:
       return null;
   }
@@ -107,5 +112,6 @@ export default async function handler(req, res) {
     return cards.length ? res.status(200).json({ cards }) : res.status(500).json({ error: 'No usable flashcards came back. Try again.' });
   }
   if (b.type === 'project_ideas') return res.status(200).json({ projects: (obj.projects || []).slice(0, 3) });
+  if (b.type === 'capstone_ideas') return res.status(200).json({ projects: (obj.projects || []).filter((x) => x?.title).slice(0, 3) });
   return res.status(200).json(obj);
 }

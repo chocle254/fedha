@@ -10,7 +10,26 @@ export default function Projects({ courses, projects, onSave, onDelete, onMilest
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [ideaCourse, setIdeaCourse] = useState(courses[0]?.id || '');
-  const active = projects.filter((p) => p.status !== 'shipped'), shipped = projects.filter((p) => p.status === 'shipped');
+  const [cap, setCap] = useState(null);
+  const [capBusy, setCapBusy] = useState(false);
+  const [capFocus, setCapFocus] = useState('');
+  const capstones = projects.filter((p) => p.capstone && p.status !== 'shipped');
+  const active = projects.filter((p) => !p.capstone && p.status !== 'shipped'), shipped = projects.filter((p) => p.status === 'shipped');
+
+  // Capstones draw on everything: every course (with how far along it is) and what has been built so far.
+  const suggestCapstones = async () => {
+    setCapBusy(true); setErr(''); setCap(null);
+    const profile = [
+      ...courses.map((c) => `Course: ${c.title}${c.provider ? ` (${c.provider})` : ''} - ${c.status === 'completed' ? 'completed' : 'in progress'}`),
+      ...projects.filter((p) => p.status === 'shipped').map((p) => `Shipped: ${p.title}${p.goal ? ` - ${p.goal}` : ''}`),
+    ].join('\n') || 'No courses yet: suggest capstones for a self-taught developer learning AI and web.';
+    try { setCap((await askStudy({ type: 'capstone_ideas', profile, focus: capFocus, avoid: projects.map((p) => p.title) })).projects); }
+    catch (e) { setErr(e.message); } finally { setCapBusy(false); }
+  };
+  const startCapstone = async (it, i) => {
+    await onSave({ ...blank({ title: it.title, goal: it.pitch, capstone: true, problem: it.problem || '', stack: it.stack || [], skills: it.skills || [], hours: Number(it.hours) || null, stretch: it.stretch || [], demo: it.demo || '' }), id: genId(), created_at: new Date().toISOString(), milestones: (it.milestones || []).map((t) => ({ id: genId(), title: String(t), done: false })) });
+    setCap((l) => l.filter((_, k) => k !== i));
+  };
 
   const suggest = async () => {
     const c = courses.find((x) => x.id === ideaCourse);
@@ -31,11 +50,12 @@ export default function Projects({ courses, projects, onSave, onDelete, onMilest
     return (
       <div className="card" style={{ padding: 14, marginBottom: 10, borderColor: p.status === 'shipped' ? 'rgba(245,197,107,.35)' : 'var(--border)' }}>
         <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ fontSize: 22 }}>{p.status === 'shipped' ? '🚀' : '🛠️'}</div>
+          <div style={{ fontSize: 22 }}>{p.status === 'shipped' ? '🚀' : p.capstone ? '🎓' : '🛠️'}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 800 }}>{p.title}</div>
             <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{courses.find((c) => c.id === p.course_id)?.title || 'Own project'}{ms.length ? ` · ${done}/${ms.length} milestones` : ''}</div>
             {p.goal && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4 }}>{p.goal}</div>}
+            {p.capstone && <CapDetails p={p} />}
           </div>
         </div>
         {ms.length > 0 && <div style={{ height: 6, background: 'var(--card-2)', borderRadius: 6, overflow: 'hidden', margin: '10px 0 6px' }}><div style={{ height: '100%', width: `${pct}%`, background: p.status === 'shipped' ? 'var(--gold)' : 'var(--green)' }} /></div>}
@@ -57,6 +77,25 @@ export default function Projects({ courses, projects, onSave, onDelete, onMilest
 
   return (
     <div>
+      <div className="card" style={{ padding: 14, marginBottom: 14, borderColor: 'rgba(245,197,107,.35)', background: 'linear-gradient(135deg,rgba(245,197,107,.12),rgba(139,92,246,.08))' }}>
+        <div style={{ fontWeight: 800 }}>🎓 Capstone projects</div>
+        <div style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '4px 0 10px', lineHeight: 1.5 }}>The big one that ties your courses together and headlines your portfolio: a real problem, 30-80 hours, demo-ready. The AI reads all your courses and what you've shipped.</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input className="input" style={{ flex: 1 }} value={capFocus} onChange={(e) => setCapFocus(e.target.value)} placeholder="Optional focus: fintech, health, agriculture, AI agents…" />
+          <button className="btn-primary" disabled={capBusy} onClick={suggestCapstones}>{capBusy ? '…' : '✨ Suggest'}</button>
+        </div>
+        {cap?.map((it, i) => (
+          <div key={i} className="card-2" style={{ padding: 12, marginTop: 10 }}>
+            <b style={{ fontSize: 14 }}>{it.title}</b>
+            <div style={{ fontSize: 12.5, color: 'var(--text)', marginTop: 3, fontStyle: 'italic' }}>{it.pitch}</div>
+            <CapDetails p={it} />
+            <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-3)', marginTop: 8 }}>MILESTONES</div>
+            <ol style={{ fontSize: 12, color: 'var(--text-2)', margin: '4px 0', paddingLeft: 18 }}>{(it.milestones || []).map((m, k) => <li key={k}>{m}</li>)}</ol>
+            <button className="btn-primary" style={{ marginTop: 6 }} onClick={() => startCapstone(it, i)}>🎓 Make this my capstone</button>
+          </div>
+        ))}
+        {capstones.length > 0 && <div style={{ marginTop: 12 }}>{capstones.map((p) => <Card key={p.id} p={p} />)}</div>}
+      </div>
       <div className="card" style={{ padding: 14, marginBottom: 14, background: 'linear-gradient(135deg,rgba(245,158,11,.10),rgba(16,185,129,.06))' }}>
         <div style={{ fontWeight: 800 }}>🛠️ Prove it by building it</div>
         <div style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '4px 0 10px', lineHeight: 1.5 }}>Watching lessons is not the skill. A small shipped project is. Each milestone +30 XP, shipping +100 XP.</div>
@@ -102,6 +141,20 @@ export default function Projects({ courses, projects, onSave, onDelete, onMilest
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// The extra detail a capstone carries: the problem, the stack, which courses it proves, how to demo it, what's next.
+function CapDetails({ p }) {
+  const chips = (list) => (list || []).filter(Boolean).map((t, k) => <span key={k} className="chip" style={{ fontSize: 11, padding: '2px 8px' }}>{t}</span>);
+  return (
+    <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.5 }}>
+      {p.problem && <div><b>Problem:</b> {p.problem}</div>}
+      {(p.stack?.length > 0 || p.hours) && <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 5 }}>{p.hours ? <span className="chip" style={{ fontSize: 11, padding: '2px 8px' }}>~{p.hours} h</span> : null}{chips(p.stack)}</div>}
+      {p.skills?.length > 0 && <div style={{ marginTop: 5 }}><b>Proves:</b> {p.skills.join(', ')}</div>}
+      {p.demo && <div style={{ marginTop: 5 }}><b>Demo:</b> {p.demo}</div>}
+      {p.stretch?.length > 0 && <div style={{ marginTop: 5 }}><b>Then:</b> {p.stretch.join(' · ')}</div>}
     </div>
   );
 }

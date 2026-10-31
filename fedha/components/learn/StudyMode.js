@@ -3,6 +3,9 @@ import { askStudy, studyText } from '../../lib/study';
 import { showNotif } from '../../lib/notifications';
 import QuickQuiz from './QuickQuiz';
 import Md from './Md';
+import StudyMaterials from './StudyMaterials';
+import StudyMusic from './StudyMusic';
+import { useMusic } from '../../context/MusicContext';
 
 // Study mode: pick what you're studying, run Pomodoro blocks, and keep an AI tutor beside you that works from
 // your notes. Each finished focus block earns XP and offers a 3-question recall check before the break.
@@ -13,7 +16,7 @@ const QUICK = [
 ];
 const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
-export default function StudyMode({ courses, notes, prefs, start, onClose, onFocusDone, onQuizDone, onLessonDone, onSaveNote, onPrefs }) {
+export default function StudyMode({ courses, notes, cards = [], prefs, start, onClose, onFocusDone, onQuizDone, onLessonDone, onSaveNote, onSaveLessonNotes, onPrefs }) {
   const [courseId, setCourseId] = useState(start?.courseId || courses.find((c) => c.status !== 'completed')?.id || '');
   const course = courses.find((c) => c.id === courseId);
   const lessons = course?.modules || [];
@@ -33,6 +36,12 @@ export default function StudyMode({ courses, notes, prefs, start, onClose, onFoc
   const [q, setQ] = useState('');
   const [thinking, setThinking] = useState(false);
   const chatEnd = useRef(null);
+  const hasMaterial = !!(start?.lessonId || start?.courseId);
+  const [panel, setPanel] = useState(hasMaterial ? 'materials' : 'tutor');
+  const music = useMusic();
+  const pausedByBreak = useRef(false);
+  const musicRef = useRef(music);
+  musicRef.current = music;
 
   const subject = topic.trim() || lesson?.title || course?.title || 'my studies';
   const context = () => studyText(course, lesson, notes.filter((n) => n.course_id && n.course_id === courseId).slice(0, 4));
@@ -57,7 +66,12 @@ export default function StudyMode({ courses, notes, prefs, start, onClose, onFoc
   }, [endAt]);
 
   const begin = (kind, minutes) => { setPhase(kind); setPausedLeft(null); setLeft(minutes * 60); setEndAt(Date.now() + minutes * 60 * 1000); };
-  const startFocus = () => { onPrefs?.(p); begin('focus', p.focus); };
+  const startFocus = () => {
+    onPrefs?.(p); begin('focus', p.focus);
+    if (pausedByBreak.current && music.track && !music.playing) music.toggle?.();
+    pausedByBreak.current = false;
+  };
+  const setMusicBreak = (on) => { const next = { ...p, musicBreak: on }; setP(next); onPrefs?.(next); };
 
   async function finishPhase() {
     setEndAt(null);
@@ -66,6 +80,7 @@ export default function StudyMode({ courses, notes, prefs, start, onClose, onFoc
       setBlocks(n); setFocusedMin((m) => m + p.focus);
       try { navigator.vibrate?.([200, 100, 200]); } catch { /* not supported */ }
       showNotif({ title: '🍅 Focus block done', body: `${p.focus} minutes on ${subject}. Quick recall, then a break.`, tag: 'study-pomodoro' }).catch?.(() => {});
+      if (p.musicBreak && musicRef.current.playing) { musicRef.current.toggle?.(); pausedByBreak.current = true; }
       await onFocusDone({ minutes: p.focus, course_id: courseId || null, lesson_id: lessonId || null, topic: subject });
       setPhase('recall');
     } else {
@@ -168,7 +183,19 @@ export default function StudyMode({ courses, notes, prefs, start, onClose, onFoc
           </div>
         )}
 
-        <div className="card" style={{ padding: 12 }}>
+        <div className="tab-scroll" style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+          {[['materials', '📚 Materials'], ['tutor', '🤖 Tutor'], ['music', `🎵 Music${music.playing ? ' ♪' : ''}`]].map(([k, l]) => <button key={k} className={`chip ${panel === k ? 'active' : ''}`} onClick={() => setPanel(k)}>{l}</button>)}
+        </div>
+        <div className="card" style={{ padding: 12, marginBottom: 12, display: panel === 'materials' ? 'block' : 'none' }}>
+          <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>📚 {lesson ? lesson.title : course ? course.title : subject}</div>
+          <StudyMaterials course={course} lesson={lesson} topic={topic.trim() || (!course ? subject : '')} notes={notes} cards={cards} onSaveLessonNotes={onSaveLessonNotes} onAskTutor={(lvl) => { setPanel('tutor'); ask('', lvl); }} />
+        </div>
+        {/* kept mounted while hidden, so focus sounds keep playing when you switch panels */}
+        <div className="card" style={{ padding: 12, marginBottom: 12, display: panel === 'music' ? 'block' : 'none' }}>
+          <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>🎵 Study music</div>
+          <StudyMusic pauseOnBreak={p.musicBreak} onPauseOnBreak={setMusicBreak} />
+        </div>
+        <div className="card" style={{ padding: 12, display: panel === 'tutor' ? 'block' : 'none' }}>
           <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>🤖 Tutor{course ? <span style={{ fontWeight: 500, color: 'var(--text-3)' }}> · reading your notes for {lesson ? 'this lesson' : 'this course'}</span> : ''}</div>
           <div className="tab-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 8 }}>
             {QUICK.map(([k, l]) => <button key={k} className="chip" disabled={thinking} onClick={() => ask('', k)}>{l}</button>)}

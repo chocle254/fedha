@@ -10,8 +10,9 @@ import Review from '../components/learn/Review';
 import NotesHub from '../components/learn/NotesHub';
 import Projects from '../components/learn/Projects';
 import Gains from '../components/learn/Gains';
+import Opportunities from '../components/learn/Opportunities';
 
-const TABS = [['today', '🏠 Today'], ['courses', '📚 Courses'], ['review', '🃏 Review'], ['quiz', '⚡ Quiz'], ['notes', '📝 Notes'], ['projects', '🛠️ Projects'], ['gains', '🏅 Gains']];
+const TABS = [['today', '🏠 Today'], ['courses', '📚 Courses'], ['review', '🃏 Review'], ['quiz', '⚡ Quiz'], ['notes', '📝 Notes'], ['projects', '🛠️ Projects'], ['opps', '🌍 Opportunities'], ['gains', '🏅 Gains']];
 
 const EMPTY = {
   title:'', provider:'', url:'', description:'', priority:3, status:'active',
@@ -132,6 +133,11 @@ export default function LearningPage(){
     const updated=id==='__course__'?{...course,notes}:{...course,modules:normalizeModules(course.modules).map(m=>m.id===id?{...m,notes}:m)};
     await updateCourse(updated);setSelected(updated);
   }
+  // From Study mode: save lesson or course notes without opening the course page underneath.
+  async function saveStudyNotes(course,id,notes){
+    const cur=courses.find(x=>x.id===course.id)||course;
+    await updateCourse(id==='__course__'?{...cur,notes}:{...cur,modules:normalizeModules(cur.modules).map(m=>m.id===id?{...m,notes}:m)});
+  }
   async function generateLessonNotes(course,module,transcript){
     if(!transcript.trim())return;
     setAiLoading(true);setAiError('');
@@ -212,6 +218,7 @@ export default function LearningPage(){
     {study&&tab==='quiz'&&<><div style={{fontSize:13,color:'var(--text-2)',marginBottom:10,lineHeight:1.5}}>Quick questions from your notes (or any topic). Misses turn into flashcards so they come back until you know them.</div><QuizPicker courses={courses} notes={study.notes} onDone={quizDone}/></>}
     {study&&tab==='notes'&&<NotesHub courses={courses} notes={study.notes} cards={study.cards} onSaveNote={saveNote} onDeleteNote={deleteNote} onSaveCards={addCards} onQuizDone={quizDone} onStudy={setStudyAt}/>}
     {study&&tab==='projects'&&<Projects courses={courses} projects={study.projects} onSave={saveProject} onDelete={deleteProject} onMilestone={toggleMilestone} onShip={shipProject}/>}
+    {tab==='opps'&&<Opportunities courses={courses} onAddCourse={c=>addCourse({...EMPTY,...c,modules:[]})}/>}
     {study&&tab==='gains'&&<Gains study={study} courses={courses}/>}
     {tab==='courses'&&<>
     {active.length===0&&completed.length===0&&<div className="card" style={{padding:32,textAlign:'center'}}><div style={{fontSize:42}}>🎓</div><div style={{fontWeight:800,marginTop:8}}>Start your learning library</div><div style={{color:'var(--text-3)',fontSize:13,margin:'6px 0 16px'}}>Add an AI/ML, programming, startup, cloud or any other course.</div><button className="btn-primary" onClick={openNew}>Add your first course</button></div>}
@@ -242,7 +249,7 @@ export default function LearningPage(){
     </div><button className="btn-primary" style={{width:'100%',marginTop:18}} onClick={save}>Save Course</button>
   </div></div></div>}
 
-  {studyAt&&study&&<StudyMode courses={courses} notes={study.notes} prefs={study.prefs} start={studyAt} onClose={()=>setStudyAt(null)} onFocusDone={focusDone} onQuizDone={quizDone} onLessonDone={(c,id)=>toggleLesson(courses.find(x=>x.id===c.id)||c,id)} onSaveNote={saveNote} onPrefs={(p)=>{patch({prefs:p});savePrefs(p);}}/>}
+  {studyAt&&study&&<StudyMode courses={courses} notes={study.notes} cards={study.cards} prefs={study.prefs} onSaveLessonNotes={saveStudyNotes} start={studyAt} onClose={()=>setStudyAt(null)} onFocusDone={focusDone} onQuizDone={quizDone} onLessonDone={(c,id)=>toggleLesson(courses.find(x=>x.id===c.id)||c,id)} onSaveNote={saveNote} onPrefs={(p)=>{patch({prefs:p});savePrefs(p);}}/>}
   {toast&&<div className="learn-toast">{toast.medals?toast.medals.map(m=><div key={m.id}><span style={{fontSize:26}}>{m.icon}</span> <b>Medal: {m.name}</b><div style={{fontSize:12,opacity:.8}}>{m.desc}</div></div>):<b>+{toast.xp} XP</b>}</div>}
   {selected&&!formOpen&&<CourseDetail onStudy={(lessonId)=>{setStudyAt({courseId:selected.id,lessonId});setSelected(null);}} course={selected} onClose={()=>setSelected(null)} onEdit={()=>{setFormOpen(true);setForm({...EMPTY,...selected,modules:normalizeModules(selected.modules)});setSelected(null)}} onToggle={toggleLesson} onSaveNotes={saveLessonNotes} onCertificate={uploadCertificate} onSetCompleted={setCompleted} savingCert={savingCert} openLesson={openLesson} setOpenLesson={setOpenLesson} aiLesson={aiLesson} setAiLesson={setAiLesson} aiTranscript={aiTranscript} setAiTranscript={setAiTranscript} aiLoading={aiLoading} aiError={aiError} generateLessonNotes={generateLessonNotes} generateVimeoNotes={generateVimeoNotes}/>}
   </Layout>;
