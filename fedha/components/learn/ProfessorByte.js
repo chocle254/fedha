@@ -8,9 +8,9 @@ import { motion } from 'framer-motion';
 // Moods change his eyes, brows, mouth, cheeks and chest light.
 const ARMS = { // [left, right] rotation in degrees from hanging down (SVG: positive = clockwise)
   none: [12, -12], point: [14, -112], explain: [62, -62], think: [14, 128], shrug: [70, -70],
-  celebrate: [158, -158], wave: [148, -14], lean: [30, -30], knock: [14, -38], laugh: [28, -28], facepalm: [-156, -14],
+  celebrate: [158, -158], wave: [148, -14], tap: [48, -14], lean: [30, -30], knock: [14, -38], laugh: [28, -28], facepalm: [-156, -14],
 };
-const CHEST = { happy: '#34D399', cheeky: '#F472B6', excited: '#FBBF24', thinking: '#60A5FA', surprised: '#FDE047', serious: '#94A3B8', proud: '#E9D8A6', facepalm: '#F87171' };
+const CHEST = { happy: '#34D399', cheeky: '#F472B6', excited: '#FBBF24', thinking: '#60A5FA', surprised: '#FDE047', serious: '#94A3B8', proud: '#E9D8A6', facepalm: '#F87171', impatient: '#FB923C' };
 
 function Eye({ x, mood, blink, side }) {
   const c = '#7DF9FF';
@@ -19,7 +19,7 @@ function Eye({ x, mood, blink, side }) {
   if (blink || mood === 'facepalm') return <rect x={x - 8} y={-40} width="16" height="3" rx="1.5" fill={c} style={glow} />;
   if (wink || mood === 'happy' || mood === 'proud' || mood === 'laugh') return <path d={`M${x - 8} -36 Q${x} -47 ${x + 8} -36`} stroke={c} strokeWidth="3.2" fill="none" strokeLinecap="round" style={glow} />;
   if (mood === 'surprised' || mood === 'excited') return <circle cx={x} cy={-39} r={mood === 'surprised' ? 10 : 9} fill={c} style={glow} />;
-  if (mood === 'serious') return <rect x={x - 8} y={-43} width="16" height="8" rx="3" fill={c} style={glow} />;
+  if (mood === 'serious' || mood === 'impatient') return <rect x={x - 8} y={-43} width="16" height="8" rx="3" fill={c} style={glow} />;
   return <ellipse cx={x} cy={-39} rx="7.5" ry="9.5" fill={c} style={glow} />;
 }
 
@@ -27,13 +27,13 @@ function Mouth({ mood, open }) {
   const c = '#7DF9FF', glow = { filter: 'drop-shadow(0 0 3px rgba(125,249,255,.8))' };
   if (open > 0.08) return <ellipse cx="0" cy="-19" rx={9 - open * 2} ry={1.5 + open * 6} fill={c} opacity=".95" style={glow} />;
   if (mood === 'surprised') return <circle cx="0" cy="-19" r="4" fill="none" stroke={c} strokeWidth="2.6" style={glow} />;
-  if (mood === 'facepalm' || mood === 'serious') return <path d="M-9 -18 Q-4 -21 0 -18 Q4 -15 9 -18" stroke={c} strokeWidth="2.6" fill="none" strokeLinecap="round" style={glow} />;
+  if (mood === 'facepalm' || mood === 'serious' || mood === 'impatient') return <path d="M-9 -18 Q-4 -21 0 -18 Q4 -15 9 -18" stroke={c} strokeWidth="2.6" fill="none" strokeLinecap="round" style={glow} />;
   if (mood === 'cheeky') return <path d="M-9 -19 Q3 -13 11 -22" stroke={c} strokeWidth="2.8" fill="none" strokeLinecap="round" style={glow} />;
   if (mood === 'thinking') return <path d="M-6 -18 L6 -19" stroke={c} strokeWidth="2.6" strokeLinecap="round" style={glow} />;
   return <path d="M-11 -21 Q0 -11 11 -21" stroke={c} strokeWidth="2.8" fill="none" strokeLinecap="round" style={glow} />;
 }
 
-export default function ProfessorByte({ mood = 'happy', gesture = 'none', talking = false, thinking = false, look = null, size = 150, onKnock }) {
+export default function ProfessorByte({ mood = 'happy', gesture = 'none', talking = false, level = null, thinking = false, look = null, size = 150, onKnock }) {
   const wrap = useRef(null);
   const [blink, setBlink] = useState(false);
   const [open, setOpen] = useState(0);
@@ -48,10 +48,11 @@ export default function ProfessorByte({ mood = 'happy', gesture = 'none', talkin
   }, []);
   // Mouth moves while talking.
   useEffect(() => {
-    if (!talking) { setOpen(0); return undefined; }
+    if (!talking || level != null) { setOpen(0); return undefined; }
     const t = setInterval(() => setOpen(Math.random() < 0.18 ? 0 : 0.25 + Math.random() * 0.75), 95);
     return () => clearInterval(t);
-  }, [talking]);
+  }, [talking, level != null]); // eslint-disable-line react-hooks/exhaustive-deps
+  const mouth = level != null ? (talking ? Math.min(1, level * 1.4) : 0) : open;
   // Eyes (and the 3D tilt) follow your finger; a given `look` overrides (e.g. at the board).
   useEffect(() => {
     const move = (e) => {
@@ -65,8 +66,8 @@ export default function ProfessorByte({ mood = 'happy', gesture = 'none', talkin
   }, []);
   // Gesture loops (waving, knocking, laughing) re-trigger on a beat.
   useEffect(() => {
-    if (!['wave', 'knock', 'laugh', 'explain', 'celebrate'].includes(gesture)) return undefined;
-    const t = setInterval(() => setTick((n) => n + 1), gesture === 'knock' ? 340 : 420);
+    if (!['wave', 'knock', 'laugh', 'explain', 'celebrate', 'tap'].includes(gesture)) return undefined;
+    const t = setInterval(() => setTick((n) => n + 1), gesture === 'knock' ? 340 : gesture === 'tap' ? 260 : 420);
     return () => clearInterval(t);
   }, [gesture]);
   useEffect(() => { if (gesture === 'knock' && tick % 2 === 1 && tick < 6) onKnock?.(); }, [tick]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -79,10 +80,11 @@ export default function ProfessorByte({ mood = 'happy', gesture = 'none', talkin
   if (g === 'explain') { la += beat ? 10 : -6; ra -= beat ? 10 : -6; }
   if (g === 'celebrate') { la += beat ? 8 : -8; ra -= beat ? 8 : -8; }
   if (g === 'knock') ra += beat ? -8 : 10;
-  if (talking && g === 'none') { la += open * 6; ra -= open * 6; }
+  if (g === 'tap') ra += beat ? -14 : 0; // drumming his fingers
+  if (talking && g === 'none') { la += mouth * 6; ra -= mouth * 6; }
   const lean = g === 'lean' || g === 'knock';
   const bounce = g === 'laugh' || g === 'celebrate' ? (beat ? -6 : 0) : 0;
-  const headTilt = g === 'think' ? -10 : g === 'shrug' ? 9 : g === 'laugh' ? (beat ? -8 : 4) : mood === 'cheeky' ? 7 : lk.x * 6;
+  const headTilt = g === 'think' ? -10 : g === 'shrug' ? 9 : g === 'laugh' ? (beat ? -8 : 4) : mood === 'cheeky' ? 7 : mood === 'impatient' ? (beat ? 5 : -2) : lk.x * 6;
   const m = thinking ? 'thinking' : mood;
   const chest = CHEST[m] || CHEST.happy;
   const spring = { type: 'spring', stiffness: 170, damping: 13 };
@@ -133,14 +135,14 @@ export default function ProfessorByte({ mood = 'happy', gesture = 'none', talkin
             <rect x="-38" y="-60" width="76" height="54" rx="22" fill="url(#pbVisor)" stroke="rgba(125,249,255,.25)" strokeWidth="1.5" />
             <path d="M-30 -55 Q-10 -60 14 -55" stroke="rgba(255,255,255,.12)" strokeWidth="3" fill="none" strokeLinecap="round" />
             {/* brows */}
-            <motion.rect x="-24" y="-56" width="16" height="2.6" rx="1.3" fill="#7DF9FF" animate={{ rotate: m === 'serious' || m === 'facepalm' ? 12 : m === 'surprised' || m === 'excited' ? -8 : m === 'cheeky' ? -14 : 0, y: m === 'surprised' ? -4 : 0 }} style={{ originX: 0.5, originY: 0.5 }} />
-            <motion.rect x="8" y="-56" width="16" height="2.6" rx="1.3" fill="#7DF9FF" animate={{ rotate: m === 'serious' || m === 'facepalm' ? -12 : m === 'surprised' || m === 'excited' ? 8 : m === 'cheeky' ? 4 : 0, y: m === 'surprised' ? -4 : m === 'cheeky' ? 2 : 0 }} style={{ originX: 0.5, originY: 0.5 }} />
+            <motion.rect x="-24" y="-56" width="16" height="2.6" rx="1.3" fill="#7DF9FF" animate={{ rotate: m === 'serious' || m === 'facepalm' || m === 'impatient' ? 12 : m === 'surprised' || m === 'excited' ? -8 : m === 'cheeky' ? -14 : 0, y: m === 'surprised' ? -4 : 0 }} style={{ originX: 0.5, originY: 0.5 }} />
+            <motion.rect x="8" y="-56" width="16" height="2.6" rx="1.3" fill="#7DF9FF" animate={{ rotate: m === 'serious' || m === 'facepalm' || m === 'impatient' ? -12 : m === 'surprised' || m === 'excited' ? 8 : m === 'cheeky' ? 4 : 0, y: m === 'surprised' ? -4 : m === 'cheeky' ? 2 : 0 }} style={{ originX: 0.5, originY: 0.5 }} />
             {/* eyes look where you are */}
             <motion.g animate={{ x: lk.x * 5, y: lk.y * 3 }} transition={{ type: 'spring', stiffness: 200, damping: 18 }}>
               <Eye x={-15} mood={m} blink={blink} side="l" />
               <Eye x={15} mood={m} blink={blink} side="r" />
             </motion.g>
-            <Mouth mood={m} open={open} />
+            <Mouth mood={m} open={mouth} />
             <motion.ellipse cx="-36" cy="-14" rx="7" ry="4" fill="#F472B6" animate={{ opacity: ['cheeky', 'proud', 'happy', 'laugh'].includes(m) ? 0.55 : 0 }} />
             <motion.ellipse cx="36" cy="-14" rx="7" ry="4" fill="#F472B6" animate={{ opacity: ['cheeky', 'proud', 'happy', 'laugh'].includes(m) ? 0.55 : 0 }} />
             {/* graduation cap with a swinging tassel */}

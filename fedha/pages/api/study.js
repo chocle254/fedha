@@ -34,6 +34,8 @@ const STAGE_ASK = {
   example: 'Show 2 concrete, realistic worked examples (code if it is a programming topic).',
   mistakes: 'Act out the most common mistakes people make with this (be dramatic about them), each with the right idea.',
   story: 'Tell a short, true and fun story from the history of this idea (or of the people behind it), then tie it back to what it teaches.',
+  hint: 'The learner has gone quiet after your question. Be playfully impatient about it (tease them, a little drama), then give a helpful hint and ask again, a bit simpler.',
+  live_start: 'A live one-on-one voice class is starting. Burst in with a cheeky greeting and one hook about the topic, then ask the learner your first question to find out what they already know.',
   quiz: 'Pop quiz! Ask the learner one good question that tests understanding (no answer yet). Be theatrical about it.',
 };
 
@@ -84,13 +86,15 @@ The 2-3 weakest or most easily forgotten points${b.weak?.length ? ` (my weak spo
 Return JSON: {"projects":[{"title":"","goal":"","milestones":["",""]}]}` };
     case 'stage': {
       const hist = (Array.isArray(b.history) ? b.history : []).slice(-10).map((m) => `${m.role === 'user' ? 'Learner' : 'Byte'}: ${clip(m.text, 900)}`).join('\n');
-      const ask = b.level && STAGE_ASK[b.level] ? STAGE_ASK[b.level] : `The learner says: "${clip(b.question, 2000)}"\nAnswer them. If they are explaining something back or answering your question, grade it honestly first (what is right, what is missing or wrong), then fill the gap.`;
-      return { json: true, max: 3000, system: BYTE, text: `${mat}Topic: ${topic}\n${hist ? `\nConversation so far:\n${hist}\n` : ''}\n${ask}
+      const cut = b.interrupted ? `\nThe learner just INTERRUPTED you while you were saying: "${clip(b.interrupted, 400)}". React to being interrupted in one funny line first, then deal with what they said.` : '';
+      const ask = b.level && STAGE_ASK[b.level] ? STAGE_ASK[b.level] : `The learner says: "${clip(b.question, 2000)}"${cut}\nAnswer them. If they are explaining something back or answering your question, grade it honestly first (what is right, what is missing or wrong), then fill the gap.`;
+      const live = b.live ? `\nTHIS IS A LIVE ONE-ON-ONE VOICE CLASS, like a real private tutor session. Keep it a conversation: 1-3 scenes, each under 30 words, spoken naturally (they hear you, so no lists read aloud). Teach one small idea at a time, then ALWAYS end with exactly one question for the learner and stop. Use a board only when it really helps. React to their answers like a person: delighted when right, cheeky when wrong, playfully impatient (mood "impatient", gesture "tap") if they are vague, keep guessing or keep saying they don't know. Their words come from speech recognition, so forgive small transcription errors.` : '';
+      return { json: true, max: 3000, system: BYTE, text: `${mat}Topic: ${topic}\n${hist ? `\nConversation so far:\n${hist}\n` : ''}\n${ask}${live}
 
-Perform it as 3-6 short scenes. Each scene is one spoken line plus how you act it.
+Perform it as ${b.live ? '1-3' : '3-6'} short scenes. Each scene is one spoken line plus how you act it.
 ${BOARD_HELP}
-Moods: happy, cheeky, excited, thinking, surprised, serious, proud, facepalm.
-Gestures: wave, point (at the board), explain, think, shrug, celebrate, lean (close to the glass), knock (on the glass), laugh, facepalm, none.
+Moods: happy, cheeky, excited, thinking, surprised, serious, proud, facepalm, impatient.
+Gestures: wave, point (at the board), explain, think, shrug, celebrate, lean (close to the glass), knock (on the glass), laugh, facepalm, tap (drumming fingers, impatient), none.
 Use "point" when a board is up. Roughly every other answer, slip in a story or fun tangent tied to the topic. End by asking the learner something (a follow-up or pop question).
 Return JSON: {"scenes":[{"say":"spoken line, under 45 words, no markdown","mood":"","gesture":"","board":null}],"chips":["2-3 short replies the learner might tap"]}` };
     }
@@ -161,8 +165,8 @@ export default async function handler(req, res) {
 }
 
 // Keeps only well-formed scenes and boards, so the stage never draws garbage.
-const MOODS = ['happy', 'cheeky', 'excited', 'thinking', 'surprised', 'serious', 'proud', 'facepalm'];
-const GESTURES = ['wave', 'point', 'explain', 'think', 'shrug', 'celebrate', 'lean', 'knock', 'laugh', 'facepalm', 'none'];
+const MOODS = ['happy', 'cheeky', 'excited', 'thinking', 'surprised', 'serious', 'proud', 'facepalm', 'impatient'];
+const GESTURES = ['wave', 'point', 'explain', 'think', 'shrug', 'celebrate', 'lean', 'knock', 'laugh', 'facepalm', 'tap', 'none'];
 const strs = (a, n, len) => (Array.isArray(a) ? a : []).map((x) => clip(x, len)).filter(Boolean).slice(0, n);
 function cleanBoard(bd) {
   if (!bd || typeof bd !== 'object') return null;
