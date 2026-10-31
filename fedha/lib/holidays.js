@@ -12,7 +12,14 @@ function easter(y) {
 }
 
 // Each holiday: when (month 1-12, day ranges), a greeting, glow colours, and its emitters (see TierMotion).
+// The owner's birthday: 5 December 2001.
+const BIRTH = { y: 2001, m: 12, d: 5 };
+const ordinal = (n) => { const v = n % 100; return n + (v >= 11 && v <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'); };
+
 export const HOLIDAYS = [
+  { key: 'birthday', name: 'Your birthday', icon: '🎂', when: (m, d) => m === BIRTH.m && d === BIRTH.d,
+    greet: (y) => `Happy ${ordinal(y - BIRTH.y)} birthday! 🎉`, glows: ['236,72,153', '251,191,36'],
+    emit: [{ emoji: ['🎈'], motion: 'float', n: 9, size: [20, 32] }, { shape: 'confetti', motion: 'fall', n: 18, colors: ['#F472B6', '#FBBF24', '#60A5FA', '#34D399', '#A78BFA', '#FFFFFF'] }, { emoji: ['🎉', '🎁', '🎂'], motion: 'fall', n: 4, size: [16, 24], slow: true }] },
   { key: 'newyear', name: 'New Year', icon: '🎆', when: (m, d) => (m === 12 && d === 31) || (m === 1 && d <= 2),
     greet: (y, m) => `Happy New Year ${m === 12 ? y + 1 : y}!`, glows: ['251,191,36', '236,72,153'],
     emit: [{ shape: 'burst', n: 6, colors: ['#FDE68A', '#F472B6', '#67E8F9', '#FFFFFF', '#A78BFA'] }, { shape: 'confetti', motion: 'fall', n: 16, colors: ['#FBBF24', '#F472B6', '#60A5FA', '#34D399', '#FFFFFF'] }] },
