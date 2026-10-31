@@ -26,7 +26,8 @@ const BOARD_HELP = `Boards (pick the one that teaches best; use one in most scen
 {"type":"flow","title":"","nodes":["",""]}  up to 6 nodes, top to bottom
 {"type":"story","title":"","text":"..."}  for a story tangent, under 70 words
 {"type":"picture","title":"","items":[{"emoji":"🚗","label":"car","note":"what it stands for"}],"join":"→","wiki":"Car","scene":"a cartoon car stopping at a toll gate","caption":""}  SHOW what you are talking about: 1-4 items, each one emoji with a short label (and optional note); "join" between items is "→", "+", "vs", "=" or ""; "wiki" is the exact English Wikipedia article title when it is a real object or thing (Car, Padlock, Neuron, Router), else ""; "scene" is a one-line description to draw an illustration when a photo would not fit, else "".
-MAKE IT VISUAL: whenever you say "take this car", "imagine a lock", use an analogy, or name a concrete thing, put a picture board up in that same scene so the learner SEES it. Use at least one picture board in most answers.`;
+{"type":"animate","title":"","actors":[{"id":"pkt","emoji":"📦","label":"packet"},{"id":"fw","emoji":"🧱","label":"firewall"}],"frames":[{"caption":"","pos":{"pkt":[10,50],"fw":[55,50]},"fx":{}},{"caption":"","pos":{"pkt":[45,50]},"fx":{"fw":"shake"}}]}  ACT AN EXAMPLE OUT: 2-6 actors, 3-6 frames played about 2 s apart. pos is [x,y] in 0-100 (only list actors that move); fx per actor: pulse, shake, spin, grow, fade, hide, show, bounce. Use it when something happens over time: data moving, a model learning, an attack, a loop running, money compounding.
+MAKE IT VISUAL: whenever you say "take this car", "imagine a lock", use an analogy, or name a concrete thing, put a picture board up in that same scene so the learner SEES it. Use at least one picture or animate board in most answers, and animate the main example whenever it is a process.`;
 
 const STAGE_ASK = {
   start: 'The session is starting. If you have a lesson plan, open with a line that proves you read their notes, say what today\'s session covers, then start step 1.' + ' Otherwise: Burst onto the screen: greet the learner with a cheeky, funny opening, tease what is coming in this topic with one hook (a surprising fact or tiny story), and ask what they already know.',
@@ -36,6 +37,9 @@ const STAGE_ASK = {
   example: 'Show 2 concrete, realistic worked examples (code if it is a programming topic).',
   mistakes: 'Act out the most common mistakes people make with this (be dramatic about them), each with the right idea.',
   story: 'Tell a short, true and fun story from the history of this idea (or of the people behind it), then tie it back to what it teaches.',
+  wrapup: 'Class is ending.',
+  homework_check: 'Homework check.',
+  homework_grade: 'Grading homework.',
   hint: 'The learner has gone quiet after your question. Be playfully impatient about it (tease them, a little drama), then give a helpful hint and ask again, a bit simpler.',
   live_start: 'A live one-on-one voice class is starting. Burst in with a cheeky greeting and one hook about the topic, then ask the learner your first question to find out what they already know.',
   quiz: 'Pop quiz! Ask the learner one good question that tests understanding (no answer yet). Be theatrical about it.',
@@ -100,9 +104,20 @@ Return JSON: {"title":"short session title","opener":"","known":[""],"weak":[""]
       const ask = b.level && STAGE_ASK[b.level] ? STAGE_ASK[b.level] : `The learner says: "${clip(b.question, 2000)}"${cut}\nAnswer them. If they are explaining something back or answering your question, grade it honestly first (what is right, what is missing or wrong), then fill the gap.`;
       const steps = Array.isArray(b.plan?.steps) ? b.plan.steps.slice(0, 8) : [];
       const at = Math.max(0, Math.min(steps.length, Number(b.step) || 0));
-      const plan = steps.length ? `\nLESSON PLAN you made after reading their notes (follow it, in order):\n${steps.map((x, k) => `${k + 1}. ${clip(x.title, 80)}: ${clip(x.goal, 160)} (check: ${clip(x.check, 160)})${k < at ? ' [done]' : k === at ? ' <- NOW' : ''}`).join('\n')}\n${at >= steps.length ? 'All steps are done: celebrate, give a 3-point recap of the session, point out what to revise from their weak spots, and suggest what to study next.' : `Teach step ${at + 1} now (stay on it until they pass its check). Connect it to their own notes and examples where you can. Set "advance": true only when the learner has just answered step ${at + 1}'s check well enough; otherwise false.`}` : '';
+      const plan = steps.length && b.level !== 'homework_check' ? `\nLESSON PLAN you made after reading their notes (follow it, in order):\n${steps.map((x, k) => `${k + 1}. ${clip(x.title, 80)}: ${clip(x.goal, 160)} (check: ${clip(x.check, 160)})${k < at ? ' [done]' : k === at ? ' <- NOW' : ''}`).join('\n')}\n${at >= steps.length ? 'All steps are done: celebrate, give a 3-point recap of the session, point out what to revise from their weak spots, and suggest what to study next.' : `Teach step ${at + 1} now (stay on it until they pass its check). Connect it to their own notes and examples where you can. Set "advance": true only when the learner has just answered step ${at + 1}'s check well enough; otherwise false.`}` : '';
+      const hw = b.homework && typeof b.homework === 'object' ? b.homework : null;
+      let extra = '';
+      if (b.level === 'wrapup') extra = `\nCLASS TIME IS ALMOST UP (about ${Math.max(1, Number(b.minutesLeft) || 5)} minutes left). Wrap up: a quick recap of what you covered today, say what you will do NEXT class (the next unfinished step of the plan, or the next topic), then set ONE homework assignment: a short practical task they must do alone, by hand, no AI (say so, cheekily), that takes 15-40 minutes and proves today's idea. Tell them you will check it at the start of next class. Also return "homework":{"title":"","task":"exactly what to do","deliverable":"what to show you next class"}.`;
+      if (b.level === 'homework_check' && hw) extra = `\nBEFORE TEACHING: check the homework you set last class. Assignment: "${clip(hw.title, 100)}": ${clip(hw.task, 400)} (show: ${clip(hw.deliverable, 200)}). ${Number(hw.misses) > 0 ? `They have already skipped it ${hw.misses} time(s): be properly stern about it (still funny, never cruel).` : ''} Ask them to show it now. 1-2 scenes, no teaching yet.`;
+      if (b.level === 'homework_grade' && hw) {
+        const sig = b.signals || {};
+        const work = b.skipped
+          ? 'They say they DID NOT DO IT. Scold them: firm, disappointed, theatrical (mood "facepalm" or "impatient"), explain why skipping hurts them, tell them it carries over to next class, then move on.'
+          : `What they handed in:\n<<<${clip(b.submission, 3000)}>>>\nTyping signals from the phone: ${Number(sig.pasted) || 0} characters pasted, ${Number(sig.typed) || 0} typed, ${Number(sig.seconds) || 0} seconds spent writing.\nJudge it honestly: is it done, is it right, and did they do it themselves? Signs of AI or copying: big pasted text, a long polished answer written in seconds, generic textbook tone with no personal voice or mistakes, buzzwords, over-neat structure. If it looks like AI or copied, call it out cheekily but firmly, do not claim certainty, and make them explain one part in their own words. If it is weak or not done properly, scold them and say exactly what is missing. If it is genuinely good, praise exactly what is good (no flattery).`;
+        extra = `\nGRADE THE HOMEWORK. Assignment: "${clip(hw.title, 100)}": ${clip(hw.task, 400)} (show: ${clip(hw.deliverable, 200)}).\n${work}\nThen say you are moving on to today's lesson. 1-3 scenes. Also return "grade":{"done":true,"score":0,"ai_suspect":false,"note":"one line on the verdict"} with score 0-10.`;
+      }
       const live = b.live ? `\nTHIS IS A LIVE ONE-ON-ONE VOICE CLASS, like a real private tutor session. Keep it a conversation: 1-3 scenes, each under 30 words, spoken naturally (they hear you, so no lists read aloud). Teach one small idea at a time, then ALWAYS end with exactly one question for the learner and stop. Use a board only when it really helps. React to their answers like a person: delighted when right, cheeky when wrong, playfully impatient (mood "impatient", gesture "tap") if they are vague, keep guessing or keep saying they don't know. Their words come from speech recognition, so forgive small transcription errors.` : '';
-      return { json: true, max: 3000, system: BYTE, text: `${mat}Topic: ${topic}\n${hist ? `\nConversation so far:\n${hist}\n` : ''}\n${ask}${plan}${live}
+      return { json: true, max: 3000, system: BYTE, text: `${mat}Topic: ${topic}\n${hist ? `\nConversation so far:\n${hist}\n` : ''}\n${ask}${plan}${extra}${live}
 
 Perform it as ${b.live ? '1-3' : '3-6'} short scenes. Each scene is one spoken line plus how you act it.
 ${BOARD_HELP}
@@ -160,7 +175,9 @@ export default async function handler(req, res) {
     const scenes = cleanScenes(obj?.scenes);
     // Unreadable JSON still gets performed: the raw text becomes one scene.
     if (!scenes.length) return res.status(200).json({ scenes: [{ say: clip(String(raw).replace(/[{}\[\]"]/g, ' ').replace(/\s+/g, ' '), 400) || 'My circuits tangled. Ask me again?', mood: 'surprised', gesture: 'shrug', board: null }], chips: [] });
-    return res.status(200).json({ advance: obj.advance === true, scenes, chips: (Array.isArray(obj.chips) ? obj.chips : []).map((c) => clip(c, 60)).filter(Boolean).slice(0, 3) });
+    const homework = obj.homework && obj.homework.task ? { title: clip(obj.homework.title, 100) || 'Homework', task: clip(obj.homework.task, 600), deliverable: clip(obj.homework.deliverable, 240) } : null;
+    const grade = obj.grade && typeof obj.grade === 'object' ? { done: obj.grade.done === true, score: Math.max(0, Math.min(10, Math.round(Number(obj.grade.score) || 0))), ai_suspect: obj.grade.ai_suspect === true, note: clip(obj.grade.note, 200) } : null;
+    return res.status(200).json({ advance: obj.advance === true, homework, grade, scenes, chips: (Array.isArray(obj.chips) ? obj.chips : []).map((c) => clip(c, 60)).filter(Boolean).slice(0, 3) });
   }
   if (!obj) return res.status(500).json({ error: 'The AI answer could not be read. Try again.' });
   if (b.type === 'quiz') {
@@ -203,6 +220,18 @@ function cleanBoard(bd) {
     }
     case 'flow': { const nodes = strs(bd.nodes, 6, 60); return nodes.length >= 2 ? { type: 'flow', title: clip(bd.title, 60), nodes } : null; }
     case 'story': return bd.text ? { type: 'story', title: clip(bd.title, 60), text: clip(bd.text, 600) } : null;
+    case 'animate': {
+      const actors = (Array.isArray(bd.actors) ? bd.actors : []).filter((a) => a && a.id && a.emoji).slice(0, 6).map((a) => ({ id: clip(a.id, 16), emoji: clip(a.emoji, 8), label: clip(a.label, 20) }));
+      const ids = new Set(actors.map((a) => a.id));
+      const FXS = ['pulse', 'shake', 'spin', 'grow', 'fade', 'hide', 'show', 'bounce'];
+      const num = (v) => Math.max(4, Math.min(96, Number(v) || 50));
+      const frames = (Array.isArray(bd.frames) ? bd.frames : []).slice(0, 6).map((f) => ({
+        caption: clip(f?.caption, 100),
+        pos: Object.fromEntries(Object.entries(f?.pos || {}).filter(([k, v]) => ids.has(k) && Array.isArray(v)).map(([k, v]) => [k, [num(v[0]), num(v[1])]])),
+        fx: Object.fromEntries(Object.entries(f?.fx || {}).filter(([k, v]) => ids.has(k) && FXS.includes(v))),
+      }));
+      return actors.length && frames.length >= 2 ? { type: 'animate', title: clip(bd.title, 60), actors, frames } : null;
+    }
     case 'picture': {
       const items = (Array.isArray(bd.items) ? bd.items : []).filter((x) => x && x.emoji).slice(0, 4).map((x) => ({ emoji: clip(x.emoji, 8), label: clip(x.label, 28), note: clip(x.note, 60) }));
       if (!items.length) return null;

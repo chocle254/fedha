@@ -7,7 +7,7 @@
 import { getSetting, setSetting } from './db';
 import { genId, todayISO } from './utils';
 
-export const KEYS = { cards: 'study_cards', log: 'study_log', stats: 'study_stats', notes: 'study_notes', projects: 'study_projects', prefs: 'study_prefs' };
+export const KEYS = { cards: 'study_cards', log: 'study_log', stats: 'study_stats', notes: 'study_notes', projects: 'study_projects', prefs: 'study_prefs', homework: 'study_homework' };
 const CAP = { cards: 1500, log: 1200, notes: 300, projects: 100 };
 
 export const DEFAULT_PREFS = { focus: 25, short: 5, long: 15, every: 4 };
@@ -228,3 +228,11 @@ export function learnerBrief({ course, lesson, topic = '', notes = [], cards = [
     read: { lessons: course ? (course.modules || []).filter((x) => x.aiNotes || x.notes).length : 0, notes: relNotes.length, cards: relCards.length, weak: weak.length + quizMiss.length },
   };
 }
+
+// ── Homework from Professor Byte ────────────────────────────────────────────
+// One list, newest first, capped at 40. An assignment is set at the end of a class and checked at the start of
+// the next class on the same course (or free-study topic). Skipping it keeps it open and counts a miss.
+export const homeworkKey = (courseId, topic) => (courseId ? `c:${courseId}` : `t:${String(topic || '').trim().toLowerCase().slice(0, 60)}`);
+export async function loadHomework() { const l = await getSetting(KEYS.homework, []); return Array.isArray(l) ? l : []; }
+export async function saveHomework(list) { return setSetting(KEYS.homework, keepNewest(list, 40, 'given_at')); }
+export const pendingHomework = (list, key) => list.find((h) => h.key === key && h.status === 'pending') || null;

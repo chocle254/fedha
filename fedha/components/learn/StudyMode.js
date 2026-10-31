@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { studyText, learnerBrief } from '../../lib/study';
+import { studyText, learnerBrief, loadHomework, saveHomework, pendingHomework, homeworkKey } from '../../lib/study';
+import { getSetting } from '../../lib/db';
+import { genId, todayISO } from '../../lib/utils';
 import { showNotif } from '../../lib/notifications';
 import QuickQuiz from './QuickQuiz';
 import TutorStage from './TutorStage';
@@ -29,6 +31,9 @@ export default function StudyMode({ courses, notes, cards = [], log = [], prefs,
   const [focusedMin, setFocusedMin] = useState(0);
 
   const [tutorReq, setTutorReq] = useState(null);
+  const [hwList, setHwList] = useState([]);
+  const [classEnd, setClassEnd] = useState(null); // ms: when today's planner study block ends
+  const wrapped = useRef(false);
   const hasMaterial = !!(start?.lessonId || start?.courseId);
   const [panel, setPanel] = useState(hasMaterial ? 'materials' : 'tutor');
   const music = useMusic();
@@ -41,6 +46,44 @@ export default function StudyMode({ courses, notes, cards = [], log = [], prefs,
   // Professor Byte reads everything: the material plus a brief on how you're doing (lib/study.js).
   const brief = () => learnerBrief({ course, lesson, topic: topic.trim() || subject, notes, cards, log });
   const planKey = `${courseId || 'free'}|${lessonId || ''}|${topic.trim().toLowerCase()}`;
+
+  // Homework Byte set last class on this course (or free-study topic).
+  const hwKey = homeworkKey(courseId, courseId ? '' : (topic.trim() || subject));
+  const homework = pendingHomework(hwList, hwKey);
+  useEffect(() => { loadHomework().then(setHwList); }, []);
+  const storeHw = async (list) => { setHwList(list); await saveHomework(list); };
+  const setHomework = (hw) => storeHw([{ id: genId(), key: hwKey, course_id: courseId || null, topic: subject, ...hw, status: 'pending', misses: 0, given_at: new Date().toISOString() }, ...hwList.filter((h) => !(h.key === hwKey && h.status === 'pending'))]);
+  const gradeHomework = (grade, skipped) => homework && storeHw(hwList.map((h) => (h.id !== homework.id ? h : skipped || !grade?.done
+    ? { ...h, misses: (h.misses || 0) + 1, last_check: new Date().toISOString(), note: grade?.note || 'Not done' }
+    : { ...h, status: 'done', score: grade.score, ai_suspect: !!grade.ai_suspect, note: grade.note, checked_at: new Date().toISOString() })));
+
+  // When today's planner study block ends: Byte wraps up and sets homework about 5 minutes before.
+  useEffect(() => {
+    const find = async () => {
+      const [blocksToday, date] = await Promise.all([getSetting('planner_blocks', []), getSetting('planner_blocks_date', null)]);
+      if (date !== todayISO() || !Array.isArray(blocksToday)) { setClassEnd(null); return; }
+      const now = new Date(), mins = now.getHours() * 60 + now.getMinutes();
+      const learning = blocksToday.filter((b) => b.type === 'learning' && /^\d{1,2}:\d{2}$/.test(b.time || '')).map((b) => { const [h, m] = b.time.split(':').map(Number); return { ...b, start: h * 60 + m, end: h * 60 + m + Number(b.duration || 0) }; });
+      const nowBlock = learning.filter((b) => mins >= b.start && mins < b.end).sort((a, b) => (course && b.label.includes(course.title)) - (course && a.label.includes(course.title)))[0];
+      if (!nowBlock) { setClassEnd(null); return; }
+      const end = new Date(); end.setHours(0, 0, 0, 0); end.setMinutes(nowBlock.end);
+      setClassEnd(end.getTime());
+    };
+    find(); const t = setInterval(find, 60000); return () => clearInterval(t);
+  }, [course?.title]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!classEnd) return undefined;
+    const check = () => {
+      const left = classEnd - Date.now();
+      if (!wrapped.current && left <= 5 * 60000 && left > -60000) {
+        wrapped.current = true;
+        setPanel('tutor');
+        setTutorReq({ level: 'wrapup', n: Date.now(), minutesLeft: Math.max(1, Math.round(left / 60000)) });
+        showNotif({ title: '🎓 Class is wrapping up', body: 'Professor Byte has your homework.', tag: 'study-wrapup' }).catch?.(() => {});
+      }
+    };
+    check(); const t = setInterval(check, 15000); return () => clearInterval(t);
+  }, [classEnd]);
   const total = (phase === 'focus' ? p.focus : phase === 'break' ? ((blocks % p.every === 0 && blocks) ? p.long : p.short) : p.focus) * 60;
 
   // Tick.
@@ -108,7 +151,7 @@ export default function StudyMode({ courses, notes, cards = [], log = [], prefs,
     <div className="study-overlay">
       <div className="study-wrap">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-          <div style={{ flex: 1 }}><div style={{ fontWeight: 800, fontSize: 17 }}>🎧 Study mode</div><div style={{ fontSize: 12, color: 'var(--text-3)' }}>{blocks} block{blocks === 1 ? '' : 's'} · {focusedMin} min focused</div></div>
+          <div style={{ flex: 1 }}><div style={{ fontWeight: 800, fontSize: 17 }}>🎧 Study mode</div><div style={{ fontSize: 12, color: 'var(--text-3)' }}>{blocks} block{blocks === 1 ? '' : 's'} · {focusedMin} min focused{classEnd ? ` · class ends ${new Date(classEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}{homework ? ' · 📌 homework due' : ''}</div></div>
           <button className="btn-ghost" onClick={endSession}>End</button>
         </div>
 
@@ -181,7 +224,7 @@ export default function StudyMode({ courses, notes, cards = [], log = [], prefs,
         </div>
         <div className="card" style={{ padding: 12, display: panel === 'tutor' ? 'block' : 'none' }}>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 8 }}>🎓 Professor Byte{course ? ` · reading your notes for ${lesson ? 'this lesson' : 'this course'}` : ''} · tap him, he reacts</div>
-          <TutorStage active={panel === 'tutor'} subject={subject} context={() => brief().text} brief={brief} planKey={planKey} onSaveNote={onSaveNote} courseId={courseId} request={tutorReq} />
+          <TutorStage homework={homework} onSetHomework={setHomework} onGradeHomework={gradeHomework} active={panel === 'tutor'} subject={subject} context={() => brief().text} brief={brief} planKey={planKey} onSaveNote={onSaveNote} courseId={courseId} request={tutorReq} />
         </div>
       </div>
     </div>

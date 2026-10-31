@@ -44,12 +44,21 @@ function savePlan(key, v) {
   } catch { /* storage full or private */ }
 }
 
-export default function TutorStage({ active, subject, context, brief, planKey, onSaveNote, courseId, request }) {
+export default function TutorStage({ active, subject, context, brief, planKey, onSaveNote, courseId, request, homework, onSetHomework, onGradeHomework }) {
   const [log, setLog] = useState([]);
   const [plan, setPlan] = useState(null); // { title, opener, known, weak, steps, step, sig }
   const [reading, setReading] = useState(null); // what he is reading right now
   const [showPlan, setShowPlan] = useState(false);
   const planRef = useRef(null); planRef.current = plan;
+  const [hwOpen, setHwOpen] = useState(false); // the hand-in card
+  const [hwText, setHwText] = useState('');
+  const [hwSet, setHwSet] = useState(null); // homework he just set
+  const [hwVerdict, setHwVerdict] = useState(null);
+  const hwChecked = useRef(false);
+  const afterRef = useRef(null); // what to do once the current answer has played
+  const sig = useRef({ pasted: 0, typed: 0, first: 0 });
+  const hwRef = useRef(homework); hwRef.current = homework;
+  const hwOpenRef = useRef(false); hwOpenRef.current = hwOpen;
   const [cur, setCur] = useState(null); // { i, s, done } the scene being played
   const [talking, setTalking] = useState(false);
   const [level, setLevel] = useState(0); // loudness of his voice, for the mouth
@@ -112,7 +121,12 @@ export default function TutorStage({ active, subject, context, brief, planKey, o
   const play = useCallback((i, s) => {
     const a = logRef.current[i];
     clearTimers(); hush();
-    if (!a?.scenes?.[s]) { setCur((c) => (c ? { ...c, done: true } : c)); setTalking(false); saying.current = ''; if (liveRef.current) startWaiting(); return; }
+    if (!a?.scenes?.[s]) {
+      setCur((c) => (c ? { ...c, done: true } : c)); setTalking(false); saying.current = '';
+      if (afterRef.current) { const next = afterRef.current; afterRef.current = null; later(() => askRef.current('', next), 900); return; }
+      if (liveRef.current && !hwOpenRef.current) startWaiting();
+      return;
+    }
     const id = ++playId.current;
     const scene = a.scenes[s];
     setIdle(null); setCur({ i, s, done: false }); setTalking(true); setTyped('');
@@ -125,27 +139,45 @@ export default function TutorStage({ active, subject, context, brief, planKey, o
 
   const ask = useCallback(async (question, level, opts = {}) => {
     if (thinkingRef.current) return;
+    // Homework first: the first class on a course with homework due starts with the check.
+    if ((level === 'start' || level === 'live_start') && hwRef.current && !hwChecked.current) {
+      hwChecked.current = true; afterRef.current = null; level = 'homework_check';
+      setHwOpen(true); setHwText(''); sig.current = { pasted: 0, typed: 0, first: 0 };
+      nextAfterHw.current = liveRef.current ? 'live_start' : 'start';
+    }
     const userText = level ? QUICK.find(([k]) => k === level)?.[1].replace(/^\S+\s/, '') || '' : String(question || '').trim();
     if (!level && !userText) return;
     clearTimers(); clearWait(); hush(); setTalking(false); setIdle(null); setHeard('');
     if (!level) hints.current = 0;
     const history = logRef.current.map((m) => ({ role: m.role, text: m.role === 'ai' ? m.scenes.map((x) => x.say).join(' ') : m.text }));
-    if (!['start', 'live_start', 'hint'].includes(level)) setLog((l) => { const n = [...l, { role: 'user', text: userText }]; logRef.current = n; return n; });
+    if (!['start', 'live_start', 'hint', 'homework_check', 'homework_grade', 'wrapup'].includes(level)) setLog((l) => { const n = [...l, { role: 'user', text: userText }]; logRef.current = n; return n; });
     setQ(''); setThinking(true); thinkingRef.current = true;
     const show = (entry) => { setLog((l) => { const n = [...l, entry]; logRef.current = n; return n; }); setTimeout(() => play(logRef.current.length - 1, 0), 60); };
     try {
       const p = await ensurePlan();
-      const j = await askStudy({ type: 'stage', level: level || undefined, question: userText, topic: subject, context: context(), history, live: liveRef.current, interrupted: opts.interrupted || undefined, plan: p ? { steps: p.steps } : undefined, step: p ? p.step : undefined });
+      const hwFor = ['homework_check', 'homework_grade'].includes(level) ? hwRef.current : null;
+      const j = await askStudy({ type: 'stage', level: level || undefined, homework: hwFor ? { title: hwFor.title, task: hwFor.task, deliverable: hwFor.deliverable, misses: hwFor.misses || 0 } : undefined, submission: opts.submission, signals: opts.signals, skipped: opts.skipped || undefined, minutesLeft: opts.minutesLeft, question: userText, topic: subject, context: context(), history, live: liveRef.current, interrupted: opts.interrupted || undefined, plan: p ? { steps: p.steps } : undefined, step: p ? p.step : undefined });
       if (j.advance && planRef.current && planRef.current.step < planRef.current.steps.length) {
         const next = { ...planRef.current, step: planRef.current.step + 1 }; setPlan(next); planRef.current = next; savePlan(planKey, next);
         setTimeout(knock, 400);
       }
+      if (level === 'wrapup' && j.homework) { onSetHomework?.(j.homework); setHwSet(j.homework); }
+      if (level === 'homework_grade') { onGradeHomework?.(j.grade, !!opts.skipped); setHwVerdict({ ...(j.grade || {}), skipped: !!opts.skipped }); setHwOpen(false); afterRef.current = opts.then || (liveRef.current ? 'live_start' : 'start'); }
       show({ role: 'ai', scenes: j.scenes || [], chips: j.chips || [] });
     } catch (e) {
       show({ role: 'ai', error: true, scenes: [{ say: e.message || 'My circuits tangled. Try again?', mood: 'surprised', gesture: 'shrug', board: null }], chips: [] });
     } finally { setThinking(false); thinkingRef.current = false; }
   }, [subject, context, play]);
   const askRef = useRef(ask); askRef.current = ask;
+  const nextAfterHw = useRef('start');
+  const handIn = (skipped) => {
+    const s0 = sig.current;
+    const signals = { pasted: s0.pasted, typed: s0.typed, seconds: s0.first ? Math.round((Date.now() - s0.first) / 1000) : 0 };
+    if (!skipped && hwText.trim().length < 3) return;
+    setLog((l) => { const n = [...l, { role: 'user', text: skipped ? "I didn't do the homework." : `Homework:\n${hwText.trim()}` }]; logRef.current = n; return n; });
+    // bypass the "user turn" path: grade directly
+    askRef.current('', 'homework_grade', { submission: skipped ? '' : hwText.trim(), signals, skipped, then: nextAfterHw.current });
+  };
 
   // Before teaching he reads everything and plans the session. Re-planned when the material changes.
   async function ensurePlan(force = false) {
@@ -186,6 +218,7 @@ export default function TutorStage({ active, subject, context, brief, planKey, o
   const submitHeard = () => {
     const t = said.current.trim(); said.current = ''; setHeard('');
     if (t.length < 2) return;
+    if (hwOpenRef.current) { setHwText((x) => (x ? `${x} ${t}` : t)); sig.current.typed += t.length; if (!sig.current.first) sig.current.first = Date.now(); return; } // spoken homework goes in the hand-in box
     const interrupted = cutOff.current; cutOff.current = '';
     askRef.current(t, null, { interrupted });
   };
@@ -241,7 +274,7 @@ export default function TutorStage({ active, subject, context, brief, planKey, o
   const handled = useRef(null);
   useEffect(() => {
     if (!active) return;
-    if (request && request.n !== handled.current) { handled.current = request.n; started.current = true; ask('', request.level); return; }
+    if (request && request.n !== handled.current) { handled.current = request.n; started.current = true; ask('', request.level, { minutesLeft: request.minutesLeft }); return; }
     if (!started.current) { started.current = true; ask('', 'start'); }
   }, [active, request?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!active) { clearTimers(); hush(); stopLive(); setTalking(false); setCur((c) => (c ? { ...c, done: true } : c)); } }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -328,6 +361,38 @@ export default function TutorStage({ active, subject, context, brief, planKey, o
         </div>
       )}
 
+      {hwOpen && homework && (
+        <div className="card" style={{ marginTop: 10, padding: 12, borderColor: 'rgba(251,146,60,.5)', background: 'linear-gradient(135deg,rgba(251,146,60,.10),transparent)' }}>
+          <div style={{ fontWeight: 800, fontSize: 13.5 }}>📌 Homework check: {homework.title}</div>
+          <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.5 }}>{homework.task}</div>
+          {homework.deliverable && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>Show: {homework.deliverable}</div>}
+          {homework.misses > 0 && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 4 }}>Skipped {homework.misses} time{homework.misses === 1 ? '' : 's'} already.</div>}
+          <textarea className="input" rows={5} style={{ marginTop: 8 }} value={hwText} placeholder="Your work, in your own words (or a link to it)…"
+            onPaste={(e) => { sig.current.pasted += (e.clipboardData?.getData('text') || '').length; if (!sig.current.first) sig.current.first = Date.now(); }}
+            onInput={(e) => { const t = e.nativeEvent?.inputType || ''; if (!t.includes('Paste')) sig.current.typed += (e.nativeEvent?.data || '').length || 1; if (!sig.current.first) sig.current.first = Date.now(); }}
+            onChange={(e) => setHwText(e.target.value)} />
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>He can tell pasted and AI-written work. Write it yourself.</div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <button className="btn-primary" style={{ flex: 1 }} disabled={thinking || hwText.trim().length < 3} onClick={() => handIn(false)}>✋ Hand it in</button>
+            <button className="btn-ghost" disabled={thinking} onClick={() => handIn(true)}>😬 I didn't do it</button>
+          </div>
+        </div>
+      )}
+      {hwVerdict && !hwOpen && (
+        <div className="card-2" style={{ marginTop: 10, padding: '9px 11px', fontSize: 12.5, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{ fontSize: 18 }}>{hwVerdict.skipped || !hwVerdict.done ? '😤' : hwVerdict.ai_suspect ? '🤖' : hwVerdict.score >= 8 ? '🌟' : '✅'}</span>
+          <span style={{ flex: 1 }}><b>Homework: {hwVerdict.skipped ? 'not done, carried over' : !hwVerdict.done ? 'not done properly, carried over' : `${hwVerdict.score}/10${hwVerdict.ai_suspect ? ' · looks AI-written' : ''}`}</b>{hwVerdict.note ? <span style={{ color: 'var(--text-3)' }}> · {hwVerdict.note}</span> : null}</span>
+          <button className="btn-icon" aria-label="Dismiss" onClick={() => setHwVerdict(null)}>✕</button>
+        </div>
+      )}
+      {hwSet && (
+        <div className="card" style={{ marginTop: 10, padding: 12, borderColor: 'rgba(251,191,36,.45)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ fontSize: 18 }}>📌</span><b style={{ flex: 1, fontSize: 13.5 }}>Homework: {hwSet.title}</b><button className="btn-icon" aria-label="Dismiss" onClick={() => setHwSet(null)}>✕</button></div>
+          <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.5 }}>{hwSet.task}</div>
+          {hwSet.deliverable && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>Bring: {hwSet.deliverable} · checked at the start of next class. By hand, no AI.</div>}
+        </div>
+      )}
+
       {/* speech bubble */}
       <div style={{ position: 'relative', marginTop: 10, padding: '10px 12px', borderRadius: 14, background: 'var(--card-2)', border: '1px solid var(--border)', minHeight: 46 }}>
         <div style={{ position: 'absolute', top: -7, left: 44, width: 12, height: 12, background: 'var(--card-2)', borderLeft: '1px solid var(--border)', borderTop: '1px solid var(--border)', transform: 'rotate(45deg)' }} />
@@ -341,6 +406,7 @@ export default function TutorStage({ active, subject, context, brief, planKey, o
         {answer && <button className="btn-ghost" onClick={() => play(cur.i, 0)}>↺ Replay</button>}
         {live && talking && <button className="btn-primary" onClick={() => interrupt()}>✋ Interrupt</button>}
         {live && heard && !talking && <button className="btn-primary" onClick={submitHeard}>➤ Send answer</button>}
+        {log.length > 1 && !thinking && <button className="btn-ghost" onClick={() => ask('', 'wrapup', { minutesLeft: 3 })}>🏁 End class + homework</button>}
         {lastAi && <button className="btn-ghost" onClick={() => { onSaveNote({ title: `Byte on ${subject}`.slice(0, 80), body: toMd(lastAi), course_id: courseId || null }); lastAi.saved = true; setLog((l) => [...l]); }}>{lastAi.saved ? '✓ Saved' : '📝 Save lesson'}</button>}
       </div>
 

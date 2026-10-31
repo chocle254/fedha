@@ -111,9 +111,57 @@ function Picture({ b }) {
   );
 }
 
+// An example acted out: emoji actors move between spots, frame by frame, with a caption for each step
+// (a packet hopping through a router, a model's guess getting better, an attacker trying a lock).
+const FX = {
+  pulse: { scale: [1, 1.35, 1] }, shake: { x: [0, -5, 5, -5, 5, 0] }, spin: { rotate: [0, 360] },
+  grow: { scale: 1.5 }, fade: { opacity: 0.25 }, hide: { opacity: 0, scale: 0.3 }, show: { opacity: 1, scale: 1 }, bounce: { y: [0, -14, 0] },
+};
+function Animate({ b }) {
+  const [f, setF] = useState(0);
+  const [run, setRun] = useState(0);
+  const frames = b.frames || [];
+  useEffect(() => {
+    setF(0);
+    if (frames.length < 2) return undefined;
+    let k = 0;
+    const t = setInterval(() => { k += 1; if (k >= frames.length) { clearInterval(t); return; } setF(k); }, 1900);
+    return () => clearInterval(t);
+  }, [run, frames.length]);
+  // Where each actor is at frame f: its latest position up to now.
+  const at = (id) => { for (let k = f; k >= 0; k--) { const p = frames[k]?.pos?.[id]; if (p) return p; } return [50, 50]; };
+  const look = (id) => {
+    let hidden = false;
+    for (let k = 0; k <= f; k++) { const fx = frames[k]?.fx?.[id]; if (fx === 'hide') hidden = true; if (fx === 'show') hidden = false; }
+    return hidden;
+  };
+  return (
+    <div>
+      {b.title && <div style={ink.title}>🎬 {b.title}</div>}
+      <div style={{ position: 'relative', height: 120, borderRadius: 9, background: 'radial-gradient(circle at 50% 120%, rgba(52,211,153,.12), rgba(0,0,0,.25))', overflow: 'hidden' }}>
+        {(b.actors || []).map((a) => {
+          const [x, y] = at(a.id), fx = frames[f]?.fx?.[a.id], hidden = look(a.id);
+          return (
+            <motion.div key={a.id} initial={false} animate={{ left: `${x}%`, top: `${y}%`, opacity: hidden ? 0 : fx === 'fade' ? 0.3 : 1 }} transition={{ type: 'spring', stiffness: 70, damping: 14 }}
+              style={{ position: 'absolute', textAlign: 'center', width: 64, marginLeft: -32, marginTop: -22 }}>
+              <motion.div key={`${f}-${fx}`} animate={fx && FX[fx] && !['fade', 'hide', 'show'].includes(fx) ? FX[fx] : {}} transition={{ duration: 0.8 }} style={{ fontSize: 28, lineHeight: 1 }}>{a.emoji}</motion.div>
+              {a.label && <div style={{ fontSize: 9.5, fontWeight: 800, marginTop: 2, color: 'rgba(255,255,255,.85)' }}>{a.label}</div>}
+            </motion.div>
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+        <motion.div key={f} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} style={{ flex: 1, fontSize: 11.5, lineHeight: 1.4 }}><b style={{ color: '#34D399' }}>{f + 1}/{frames.length}</b> {frames[f]?.caption}</motion.div>
+        {f >= frames.length - 1 && frames.length > 1 && <button onClick={() => setRun((r) => r + 1)} style={{ all: 'unset', cursor: 'pointer', fontSize: 11, color: '#7DF9FF' }}>↺ again</button>}
+      </div>
+    </div>
+  );
+}
+
 export default function TutorBoard({ board: b }) {
   if (!b) return null;
   if (b.type === 'picture') return <Picture b={b} />;
+  if (b.type === 'animate') return <Animate b={b} />;
   if (b.type === 'chart') return <Chart b={b} />;
   if (b.type === 'steps') return (
     <div>
@@ -180,6 +228,7 @@ export function boardToMd(b) {
     case 'compare': return [b.left, b.right].filter(Boolean).map((s) => `**${s.title}**\n${(s.items || []).map((x) => `- ${x}`).join('\n')}`).join('\n\n');
     case 'flow': return `**${b.title || 'Flow'}**\n${(b.nodes || []).join(' → ')}`;
     case 'story': return `**${b.title || 'Story'}**\n${b.text}`;
+    case 'animate': return `**${b.title || 'Example'}**\n${(b.frames || []).map((x, i) => `${i + 1}. ${x.caption}`).join('\n')}`;
     case 'picture': return `**${b.title || 'Picture'}**: ${(b.items || []).map((x) => `${x.emoji} ${x.label || ''}${x.note ? ` (${x.note})` : ''}`).join(` ${b.join || '·'} `)}${b.caption ? `\n${b.caption}` : ''}`;
     default: return '';
   }
