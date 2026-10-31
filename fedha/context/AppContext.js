@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { releaseDueUnlocks } from '../lib/ziidi';
-import { genId, todayISO, setRates, goalsInTurnOrder, fillGoalsInOrder } from '../lib/utils';
+import { genId, todayISO, setRates, toBaseAmount, goalsInTurnOrder, fillGoalsInOrder } from '../lib/utils';
 import { fetchRates } from '../lib/exchange';
 import { loanIdFromPaymentTx } from '../lib/finance-actions';
 import { startSyncEngine, onSyncStatusChange, getPendingCount } from '../lib/sync-engine';
@@ -268,12 +268,17 @@ export function AppProvider({ children }) {
       try {
         const r = await fetch('/api/binance/balances', { cache: 'no-store' });
         const j = await r.json();
-        if (stopped || !r.ok || !j.configured || !(Number(j.totalUsdt) >= 0)) return;
-        const total = Math.round(Number(j.totalUsdt) * 100) / 100;
-        const top = (j.assets || []).filter((a) => a.usdtValue > 0).slice(0, 3).map((a) => ({ asset: a.asset, pct: total ? (a.usdtValue / total) * 100 : 0 }));
-        await setSetting('binance_snapshot', { at: new Date().toISOString(), total, top });
-        if (Math.abs(total - Number(w.balance || 0)) >= 0.01 || w.currency !== 'USD') {
-          const saved = await saveWallet({ ...w, balance: total, currency: 'USD' });
+        const usd = Number(j.allUsdt ?? j.totalUsdt);
+        if (stopped || !r.ok || !j.configured || !(usd >= 0)) return;
+        const total = Math.round(usd * 100) / 100; // US dollars, every Binance wallet
+        const spot = Number(j.totalUsdt) || 0;
+        const top = (j.assets || []).filter((a) => a.usdtValue > 0).slice(0, 3).map((a) => ({ asset: a.asset, pct: spot ? (a.usdtValue / spot) * 100 : 0 }));
+        await setSetting('binance_snapshot', { at: new Date().toISOString(), total, spot, wallets: j.wallets || null, top });
+        // Luxe stores every balance in KES (the base) and converts only for display, so turn the dollars into
+        // KES here. The wallet keeps USD as its display currency.
+        const kes = Math.round(toBaseAmount(total, 'USD') * 100) / 100;
+        if (Math.abs(kes - Number(w.balance || 0)) >= 0.5 || w.currency !== 'USD') {
+          const saved = await saveWallet({ ...w, balance: kes, currency: 'USD' });
           setWallets((prev) => prev.map((x) => (x.id === saved.id ? saved : x)));
         }
       } catch { /* offline: keep the last balance */ }

@@ -435,6 +435,7 @@ export default function WalletsPage() {
                       <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2, lineHeight: 1.5 }}>
                         <span style={{ color: 'var(--green)' }}>● Live</span> · {agoText(binance.at)}
                         {binance.top?.length > 0 && <div className="font-num" style={{ fontSize: 11 }}>{binance.top.map((a) => `${a.asset} ${a.pct.toFixed(0)}%`).join(' · ')}</div>}
+                        {binance.wallets?.length > 1 && <div className="font-num" style={{ fontSize: 11 }}>{binance.wallets.map((x) => `${x.name} $${x.usdt.toFixed(2)}`).join(' · ')}</div>}
                       </div>
                     ) : <div style={{ fontSize: 12, color: 'var(--text-3)', textTransform: 'capitalize' }}>{w.type}{pockets.ziidi ? ` · with Ziidi · total ${formatCurrency(Number(w.balance) + Number(pockets.ziidi.balance || 0) + Number(pockets.locked?.balance || 0), w.currency || currency)}` : ''}</div>}
                   </div>

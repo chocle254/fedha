@@ -113,11 +113,49 @@ export default async function handler(req, res) {
 
     const pricedAssets = assets.filter((a) => a.usdtValue != null);
     const totalUsdt = pricedAssets.reduce((sum, a) => sum + a.usdtValue, 0);
+
+    // Everything you own on Binance, not only Spot: Funding (where P2P buys land), Earn, Futures and the rest.
+    // /sapi/v1/asset/wallet/balance gives each wallet's value in BTC. If that fails, Spot + Funding is used.
+    const signed = (path, extra = {}) => {
+      const q = new URLSearchParams({ ...extra, timestamp: String(Date.now()), recvWindow: '5000' });
+      const sig = crypto.createHmac('sha256', apiSecret).update(q.toString()).digest('hex');
+      return `https://api.binance.com${path}?${q.toString()}&signature=${sig}`;
+    };
+    const btc = priceMap.BTCUSDT || 0;
+    let wallets = null, allUsdt = null;
+    try {
+      const r = await fetch(signed('/sapi/v1/asset/wallet/balance'), { headers: { 'X-MBX-APIKEY': apiKey }, cache: 'no-store' });
+      if (r.ok && btc > 0) {
+        const list = await r.json();
+        if (Array.isArray(list)) {
+          wallets = list.map((w) => ({ name: String(w.walletName || ''), usdt: (Number(w.balance) || 0) * btc })).filter((w) => w.usdt > 0.005);
+          allUsdt = list.reduce((s0, w) => s0 + (Number(w.balance) || 0), 0) * btc;
+        }
+      } else console.error('[Binance balances] wallet totals unavailable', { httpStatus: r.status });
+    } catch { /* fall back below */ }
+    if (allUsdt == null) {
+      try {
+        const r = await fetch(signed('/sapi/v1/asset/get-funding-asset'), { method: 'POST', headers: { 'X-MBX-APIKEY': apiKey }, cache: 'no-store' });
+        if (r.ok) {
+          const list = await r.json();
+          const funding = (Array.isArray(list) ? list : []).reduce((s0, f) => {
+            const amt = (Number(f.free) || 0) + (Number(f.locked) || 0) + (Number(f.freeze) || 0);
+            const a0 = String(f.asset || '');
+            const v = a0 === 'USDT' ? amt : priceMap[`${a0}USDT`] ? amt * priceMap[`${a0}USDT`] : priceMap[`USDT${a0}`] ? amt / priceMap[`USDT${a0}`] : (Number(f.btcValuation) || 0) * btc;
+            return s0 + v;
+          }, 0);
+          allUsdt = totalUsdt + funding;
+          wallets = [{ name: 'Spot', usdt: totalUsdt }, { name: 'Funding', usdt: funding }].filter((w) => w.usdt > 0.005);
+        }
+      } catch { /* Spot only */ }
+    }
     return json(res, 200, {
       configured: true,
       accountType: 'Spot',
       fetchedAt: new Date().toISOString(),
-      totalUsdt,
+      totalUsdt, // Spot only: what trades can use
+      allUsdt: allUsdt ?? totalUsdt, // every Binance wallet together
+      wallets,
       unpricedAssetCount: assets.length - pricedAssets.length,
       assets
     });
