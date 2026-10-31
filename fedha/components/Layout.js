@@ -9,6 +9,7 @@ import SmsAutoRecorder from './SmsAutoRecorder';
 import ServiceWalletWatch from './ServiceWalletWatch';
 import SmsCategoryPrompt from './SmsCategoryPrompt';
 import ZiidiInterest from './ZiidiInterest';
+import TierSync from './TierSync';
 import LuxeMark from './LuxeMark';
 import Icon from './Icon';
 import { getVoiceChoices, getVoiceName, setVoiceName, speak } from '../lib/voice';
@@ -272,6 +273,7 @@ export default function Layout({ children, fab, onFab }) {
       <ServiceWalletWatch />
       <SmsCategoryPrompt />
       <ZiidiInterest />
+      <TierSync />
 
       {/* More menu sheet */}
       {moreOpen && (

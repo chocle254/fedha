@@ -1732,3 +1732,20 @@ html[data-tier] .lx-ambience::before { content: ''; position: absolute; inset: 0
 .lx-tier-pop { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; background: rgba(0,0,0,.6); backdrop-filter: blur(6px); animation: lxWallIn .4s ease both; }
 .lx-tier-pop > div { text-align: center; padding: 26px 24px; border-radius: 24px; max-width: 320px; background: rgba(12,14,19,.92); border: 1px solid var(--accent); box-shadow: 0 0 60px var(--accent-glow); animation: lxTierIn .7s cubic-bezier(.2,.9,.2,1.2) both; }
 @keyframes lxTierIn { from { transform: scale(.6) translateY(20px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* The more you climb, the nicer it gets: every money screen takes the tier's colour on cards and the nav,
+   and from Gold up a slow shine sweeps across the background (transform only, so it stays smooth). */
+html[data-tier] .card { border-color: var(--accent-soft) !important; }
+html[data-tier] .hero-card { border-color: var(--accent-glow) !important; box-shadow: 0 18px 50px -24px var(--accent-glow); }
+html[data-tier] .bottom-nav { border-color: var(--accent-soft) !important; }
+html[data-tier-level="4"] .card, html[data-tier-level="5"] .card, html[data-tier-level="6"] .card,
+html[data-tier-level="7"] .card, html[data-tier-level="8"] .card, html[data-tier-level="9"] .card {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 10px 30px -18px var(--accent-glow); }
+html[data-tier-level="4"] .lx-ambience::after, html[data-tier-level="5"] .lx-ambience::after, html[data-tier-level="6"] .lx-ambience::after,
+html[data-tier-level="7"] .lx-ambience::after, html[data-tier-level="8"] .lx-ambience::after, html[data-tier-level="9"] .lx-ambience::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: -100%; width: 300%; z-index: 2; pointer-events: none;
+  background: linear-gradient(105deg, transparent 42%, var(--accent-soft) 50%, transparent 58%);
+  opacity: .35; animation: lxTierSweep 16s linear infinite; will-change: transform; }
+html[data-tier-level="7"] .lx-ambience::after, html[data-tier-level="8"] .lx-ambience::after, html[data-tier-level="9"] .lx-ambience::after { opacity: .55; animation-duration: 11s; }
+@keyframes lxTierSweep { from { transform: translateX(-34%); } to { transform: translateX(34%); } }
+@media (prefers-reduced-motion: reduce) { html[data-tier] .lx-ambience::after { animation: none; display: none; } }

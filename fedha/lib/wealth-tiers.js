@@ -46,6 +46,8 @@ export function applyTier(t) {
   if (t.index === 0) { clearTier(); return; }
   s.setProperty('--tier-bg', t.bg);
   document.documentElement.dataset.tier = t.key;
+  document.documentElement.dataset.tierLevel = String(t.index);
+  s.setProperty('--accent-soft', hexA(t.accent, 0.22));
   s.setProperty('--accent', t.accent);
   s.setProperty('--accent-2', t.accent2);
   s.setProperty('--accent-dim', hexA(t.accent, 0.14));
@@ -60,4 +62,6 @@ export function clearTier() {
   const s = document.documentElement.style;
   ['--chart-line', '--chart-soft', '--chart-glow', '--chart-bg', '--tier-bg'].forEach((v) => s.removeProperty(v));
   delete document.documentElement.dataset.tier;
+  delete document.documentElement.dataset.tierLevel;
+  s.removeProperty('--accent-soft');
 }

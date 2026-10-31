@@ -13,10 +13,8 @@ import LuxeMark from '../components/LuxeMark';
 import InterestTicker from '../components/InterestTicker';
 import { getInterest, ziidiBalance, interestEarned, accrualStart } from '../lib/ziidi';
 import { useApp } from '../context/AppContext';
-import { tierFor, applyTier, clearTier } from '../lib/wealth-tiers';
-import { applyTheme, themeKeyFor } from '../lib/themes';
-import { getSetting, setSetting } from '../lib/db';
-import { fireConfetti } from '../lib/confetti';
+import { tierFor, TIERS } from '../lib/wealth-tiers';
+import { getSetting } from '../lib/db';
 import { formatCurrency, formatShort, formatDate, formatDateRelative, getCategoryById, groupByDay, monthRange } from '../lib/utils';
 import { format } from 'date-fns';
 
@@ -36,23 +34,14 @@ function LockedInterestLine({ wallets, transactions }) {
   );
 }
 
-// Home dresses up as net worth grows: background, accents and chart colours per tier, a badge with the way to the
-// next tier, and a one-time celebration the first time a tier is reached.
+// Home's tier badge and climb: the look itself is applied app-wide by components/TierSync.js. If net worth has
+// slipped below the best tier ever reached, Home says so and shows what it takes to win it back.
 function useWealthTier(netWorth, ready) {
   const tier = tierFor(netWorth);
-  const [pop, setPop] = useState(null);
-  useEffect(() => {
-    const t = setTimeout(() => applyTier(tier), 30); // after the section theme is applied
-    return () => clearTimeout(t);
-  }, [tier.index]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => { clearTier(); setTimeout(() => applyTheme(themeKeyFor(window.location.pathname)), 0); }, []);
-  useEffect(() => {
-    if (!ready || tier.index === 0) return;
-    getSetting('wealth_tier_best', 0).then((best) => {
-      if (tier.index > (Number(best) || 0)) { setSetting('wealth_tier_best', tier.index); setPop(tier); fireConfetti(); }
-    }).catch(() => {});
-  }, [ready, tier.index]); // eslint-disable-line react-hooks/exhaustive-deps
-  return { tier, pop, closePop: () => setPop(null) };
+  const [best, setBest] = useState(0);
+  useEffect(() => { if (ready) getSetting('wealth_tier_best', 0).then((b) => setBest(Number(b) || 0)).catch(() => {}); }, [ready, tier.index]);
+  const lost = best > tier.index ? TIERS[best] : null;
+  return { tier, lost, back: lost ? lost.min - (Number(netWorth) || 0) : 0 };
 }
 
 function StatCard({ label, value, currency, sub, color = 'var(--green)' }) {
@@ -117,7 +106,7 @@ function Panel({ title, action, children, style }) {
 
 export default function Dashboard() {
   const { loading, wallets, transactions, budgets, loans, goals, currency, netWorth, totalBalance, totalBorrowed } = useApp();
-  const { tier, pop, closePop } = useWealthTier(netWorth, !loading);
+  const { tier, lost, back } = useWealthTier(netWorth, !loading);
   const [showAdd, setShowAdd] = useState(false);
   const isDesktop = useIsDesktop();
 
@@ -157,17 +146,6 @@ export default function Dashboard() {
 
   return (
     <Layout onFab={() => setShowAdd(true)}>
-      {pop && (
-        <div className="lx-tier-pop" onClick={closePop} role="dialog" aria-label={`${pop.name} tier unlocked`}>
-          <div>
-            <div style={{ fontSize: 56 }}>{pop.icon}</div>
-            <div style={{ fontSize: 12, letterSpacing: 2, fontWeight: 800, color: 'var(--accent)', marginTop: 6 }}>NEW TIER UNLOCKED</div>
-            <div style={{ fontSize: 26, fontWeight: 800, marginTop: 4 }}>{pop.name}</div>
-            <div style={{ fontSize: 13.5, color: 'var(--text-2)', marginTop: 8, lineHeight: 1.5 }}>Net worth past {formatCurrency(pop.min, 'KES')}. Home just got a new look.{pop.next ? ` Next: ${pop.next.icon} ${pop.next.name} at ${formatShort(pop.next.min, 'KES')}.` : ' The top tier. Legend.'}</div>
-            <button className="btn-primary" style={{ marginTop: 16, width: '100%' }} onClick={closePop}>Let's go</button>
-          </div>
-        </div>
-      )}
       <div className="page">
         {/* Header */}
         <div className="lx-head">
@@ -192,6 +170,12 @@ export default function Dashboard() {
               {flow30 >= 0 ? '▲' : '▼'} {formatShort(Math.abs(flow30), currency)} <span style={{ color: 'var(--text-3)', fontWeight: 500 }}>in the last 30 days</span>
             </div>
             <LockedInterestLine wallets={wallets} transactions={transactions} />
+            {lost && (
+              <div style={{ margin: '-4px 0 12px', padding: '9px 11px', borderRadius: 12, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', fontSize: 12.5, lineHeight: 1.45 }}>
+                <b style={{ color: 'var(--red)' }}>📉 You slipped from {lost.icon} {lost.name} to {tier.icon} {tier.name}.</b><br />
+                <span style={{ color: 'var(--text-2)' }}>Win it back: <b className="font-num">{formatShort(back, 'KES')}</b> more and the {lost.name} look returns.</span>
+              </div>
+            )}
             {tier.next && (
               <div style={{ margin: '-4px 0 14px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--text-3)', marginBottom: 5 }}>
