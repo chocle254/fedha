@@ -37,7 +37,29 @@ export default function TierSync() {
   useEffect(() => { const check = () => setHoliday(holidayFor(new Date())); check(); const t = setInterval(check, 30 * 60e3); return () => clearInterval(t); }, []);
   const mood = holiday ? { glows: holiday.glows, emit: holiday.emit } : MOODS[tier.key];
   const moodKey = holiday ? `h-${holiday.key}` : tier.key;
-  const motion = money && mood ? <TierMotion moodKey={moodKey} mood={mood} /> : null;
+  // The holiday's motion runs on every screen (the whole app dresses up); a tier's only on money screens.
+  const motion = mood && (money || holiday) ? <TierMotion moodKey={moodKey} mood={mood} /> : null;
+
+  // Holiday skin, app-wide: html[data-holiday] styles cards, numbers, buttons and the nav (styles/globals.css),
+  // the holiday accent wins over the section's, and only today's display font is downloaded.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!holiday) { delete root.dataset.holiday; return undefined; }
+    root.dataset.holiday = holiday.key;
+    const sk = holiday.skin || {};
+    if (sk.font && !document.getElementById('lx-holiday-font')) {
+      const l = document.createElement('link');
+      l.id = 'lx-holiday-font'; l.rel = 'stylesheet';
+      l.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(sk.font).replace(/%20/g, '+')}&display=swap`;
+      document.head.appendChild(l);
+    }
+    const t = setTimeout(() => {
+      if (sk.accent) { root.style.setProperty('--accent', sk.accent); root.style.setProperty('--accent-dim', `${sk.accent}24`); root.style.setProperty('--accent-glow', `${sk.accent}59`); root.style.setProperty('--accent-soft', `${sk.accent}38`); }
+      if (sk.accent2) root.style.setProperty('--accent-2', sk.accent2);
+      if (sk.font) root.style.setProperty('--holiday-font', `'${sk.font}', cursive`);
+    }, 80); // after the section theme and the tier
+    return () => clearTimeout(t);
+  }, [holiday?.key, router.pathname, tier.index]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!pop) return motion;
   return (
     <>

@@ -1797,3 +1797,77 @@ html[data-tier-level="7"] .lx-ambience::after, html[data-tier-level="8"] .lx-amb
 .s-glint { top: 0 !important; height: 100%; width: 1px; background: linear-gradient(180deg, transparent, rgba(233,196,106,.75), transparent); animation-name: tmGlint; animation-timing-function: ease-in-out; }
 @keyframes tmGlint { 0%, 70%, 100% { opacity: 0; transform: scaleY(.3); } 80% { opacity: 1; transform: scaleY(1); } }
 @media (prefers-reduced-motion: reduce) { .tm { display: none; } }
+
+/* ── Holiday skins (html[data-holiday], set by components/TierSync.js) ───────────────────────────────────── */
+html[data-holiday] .card { position: relative; }
+html[data-holiday] .card::before { content: ''; position: absolute; pointer-events: none; z-index: 0; }
+html[data-holiday] .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)) !important; border-color: transparent !important; }
+html[data-holiday] .lx-h1 { font-family: var(--holiday-font, inherit); letter-spacing: .01em !important; }
+html[data-holiday] .lx-networth { font-family: var(--holiday-font, 'Onest'), 'Onest', sans-serif; letter-spacing: .01em !important; }
+
+/* Halloween: cobwebs in card corners, haunted purple-black cards, pumpkin glow on numbers, dripping title */
+html[data-holiday="halloween"] .card { background-image: linear-gradient(160deg, rgba(88,28,135,.28), rgba(0,0,0,.18) 60%) !important; border-color: rgba(249,115,22,.38) !important; }
+html[data-holiday="halloween"] .card::before { top: 0; right: 0; width: 58px; height: 58px; opacity: .55;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60' fill='none' stroke='%23E5E7EB' stroke-width='.8'%3E%3Cpath d='M60 0L0 0M60 0L8 26M60 0L26 44M60 0L48 58M60 0L60 60'/%3E%3Cpath d='M48 0Q50 6 55 10Q57 5 60 12'/%3E%3Cpath d='M34 0Q38 10 45 18Q50 20 52 26Q56 22 60 26'/%3E%3Cpath d='M20 0Q26 14 36 26Q42 30 44 38Q52 36 60 40'/%3E%3Cpath d='M6 0Q14 18 26 34Q32 40 34 50Q48 50 60 54'/%3E%3C/svg%3E") no-repeat top right / contain; }
+html[data-holiday="halloween"] .font-num { text-shadow: 0 0 10px rgba(249,115,22,.45); }
+html[data-holiday="halloween"] .lx-networth { color: #FDBA74 !important; text-shadow: 0 0 14px rgba(249,115,22,.7), 0 3px 0 rgba(126,34,206,.6); animation: hdFlicker 6s infinite; }
+html[data-holiday="halloween"] .lx-h1 { color: #FB923C !important; text-shadow: 0 0 16px rgba(249,115,22,.6); }
+html[data-holiday="halloween"] .bottom-nav { box-shadow: 0 0 24px -6px rgba(249,115,22,.55), inset 0 1px 0 rgba(249,115,22,.2) !important; }
+@keyframes hdFlicker { 0%, 92%, 100% { opacity: 1; } 93% { opacity: .55; } 94% { opacity: 1; } 96% { opacity: .7; } 97% { opacity: 1; } }
+
+/* Christmas: snow sitting on top of every card, red and green trim */
+html[data-holiday="christmas"] .card { border-color: rgba(239,68,68,.35) !important; }
+html[data-holiday="christmas"] .card::before { top: -4px; left: 8px; right: 8px; height: 9px; border-radius: 10px 10px 6px 6px;
+  background: radial-gradient(circle at 10% 100%, #fff 0 5px, transparent 6px), radial-gradient(circle at 30% 100%, #fff 0 4px, transparent 5px), radial-gradient(circle at 55% 100%, #fff 0 6px, transparent 7px), radial-gradient(circle at 80% 100%, #fff 0 4px, transparent 5px), linear-gradient(#fff, #E5E7EB);
+  box-shadow: 0 2px 6px rgba(255,255,255,.25); opacity: .92; }
+html[data-holiday="christmas"] .lx-networth { color: #FEF2F2 !important; text-shadow: 0 0 12px rgba(239,68,68,.6), 0 0 22px rgba(34,197,94,.35); }
+
+/* New Year: gold glitter corners, champagne glow */
+html[data-holiday="newyear"] .card { border-color: rgba(251,191,36,.4) !important; }
+html[data-holiday="newyear"] .card::before { top: 6px; right: 8px; width: 40px; height: 26px; opacity: .8;
+  background: radial-gradient(circle at 20% 30%, #FDE68A 0 1.5px, transparent 2px), radial-gradient(circle at 60% 20%, #fff 0 1px, transparent 1.5px), radial-gradient(circle at 85% 60%, #F472B6 0 1.5px, transparent 2px), radial-gradient(circle at 40% 75%, #67E8F9 0 1px, transparent 1.5px), radial-gradient(circle at 75% 85%, #FDE68A 0 1px, transparent 1.5px); }
+html[data-holiday="newyear"] .lx-networth { color: #FDE68A !important; text-shadow: 0 0 16px rgba(251,191,36,.65); }
+
+/* Birthday: confetti in the card corners, party pink and gold */
+html[data-holiday="birthday"] .card { border-color: rgba(236,72,153,.38) !important; }
+html[data-holiday="birthday"] .card::before { top: 6px; right: 8px; width: 44px; height: 28px; opacity: .9;
+  background: linear-gradient(30deg, transparent 45%, #F472B6 45% 55%, transparent 55%) 0 0 / 10px 6px no-repeat, linear-gradient(-40deg, transparent 45%, #FBBF24 45% 55%, transparent 55%) 18px 4px / 10px 6px no-repeat, linear-gradient(70deg, transparent 45%, #60A5FA 45% 55%, transparent 55%) 30px 14px / 10px 6px no-repeat, linear-gradient(10deg, transparent 45%, #34D399 45% 55%, transparent 55%) 8px 18px / 10px 6px no-repeat, linear-gradient(-70deg, transparent 45%, #A78BFA 45% 55%, transparent 55%) 34px 0 / 10px 6px no-repeat; }
+html[data-holiday="birthday"] .lx-networth { color: #FBCFE8 !important; text-shadow: 0 0 14px rgba(236,72,153,.6), 0 2px 0 rgba(251,191,36,.6); }
+
+/* Valentine: a little heart in each card corner */
+html[data-holiday="valentine"] .card { border-color: rgba(236,72,153,.38) !important; }
+html[data-holiday="valentine"] .card::before { content: '♥'; top: 6px; right: 10px; font-size: 13px; color: #F472B6; opacity: .8; }
+html[data-holiday="valentine"] .lx-networth { color: #FBCFE8 !important; text-shadow: 0 0 14px rgba(236,72,153,.6); }
+
+/* Easter: pastel trim */
+html[data-holiday="easter"] .card { border-color: rgba(167,139,250,.38) !important; }
+html[data-holiday="easter"] .card::before { top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #FDE68A, #C4B5FD, #A7F3D0, #FBCFE8); border-radius: 3px 3px 0 0; }
+
+/* Kenyan holidays: the flag's stripes along the top of every card */
+html[data-holiday="jamhuri"] .card::before, html[data-holiday="mashujaa"] .card::before, html[data-holiday="madaraka"] .card::before {
+  top: 0; left: 0; right: 0; height: 5px; border-radius: 3px 3px 0 0;
+  background: linear-gradient(180deg, #000 0 1.2px, #fff 1.2px 1.6px, #BB0000 1.6px 3.4px, #fff 3.4px 3.8px, #006600 3.8px); }
+html[data-holiday="jamhuri"] .lx-networth, html[data-holiday="mashujaa"] .lx-networth, html[data-holiday="madaraka"] .lx-networth { text-shadow: 0 0 12px rgba(187,0,0,.45), 0 0 20px rgba(0,102,0,.35); }
+
+/* The decoration on the net worth card (components/HolidayDecor.js) */
+.hd { position: absolute; top: 0; right: 64px; z-index: 3; pointer-events: none; }
+.hd-move { display: flex; flex-direction: column; align-items: center; transform-origin: top center; will-change: transform; }
+.hd-thread { width: 1px; height: 46px; background: linear-gradient(rgba(255,255,255,.1), rgba(255,255,255,.6)); }
+.hd-string { width: 1px; height: 26px; background: rgba(255,255,255,.5); }
+.hd-emoji { font-size: 22px; line-height: 1; filter: drop-shadow(0 3px 4px rgba(0,0,0,.4)); }
+.hd-balloon, .hd-cheers, .hd-heart, .hd-chick, .hd-flag { top: 10px; }
+.hd-drop { animation: hdDrop 7s ease-in-out infinite; }
+@keyframes hdDrop { 0%, 100% { transform: translateY(-40px); } 35%, 60% { transform: translateY(6px); } 45% { transform: translateY(0); } 52% { transform: translateY(5px) rotate(8deg); } }
+.hd-swing { animation: hdSwing 3.2s ease-in-out infinite; }
+@keyframes hdSwing { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(12deg); } }
+.hd-bob { animation: hdBob 3s ease-in-out infinite; }
+@keyframes hdBob { 0%, 100% { transform: translateY(0) rotate(-5deg); } 50% { transform: translateY(-8px) rotate(5deg); } }
+.hd-clink { animation: hdClink 2.4s ease-in-out infinite; }
+@keyframes hdClink { 0%, 70%, 100% { transform: rotate(0); } 78% { transform: rotate(-14deg); } 86% { transform: rotate(10deg); } }
+.hd-beat { animation: hdBeat 1.4s ease-in-out infinite; }
+@keyframes hdBeat { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.25); } 30% { transform: scale(1); } 45% { transform: scale(1.18); } }
+.hd-hop { animation: hdHop 1.8s ease-in-out infinite; }
+@keyframes hdHop { 0%, 60%, 100% { transform: translateY(0); } 75% { transform: translateY(-10px); } }
+.hd-wave { animation: hdWave 2s ease-in-out infinite; transform-origin: bottom left; }
+@keyframes hdWave { 0%, 100% { transform: skewY(0) rotate(-4deg); } 50% { transform: skewY(-6deg) rotate(4deg); } }
+@media (prefers-reduced-motion: reduce) { .hd-move, html[data-holiday] .lx-networth { animation: none !important; } }

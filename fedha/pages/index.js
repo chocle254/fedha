@@ -15,6 +15,7 @@ import { getInterest, ziidiBalance, interestEarned, accrualStart } from '../lib/
 import { useApp } from '../context/AppContext';
 import { tierFor, TIERS } from '../lib/wealth-tiers';
 import { holidayFor } from '../lib/holidays';
+import HolidayDecor from '../components/HolidayDecor';
 import { getSetting } from '../lib/db';
 import { formatCurrency, formatShort, formatDate, formatDateRelative, getCategoryById, groupByDay, monthRange } from '../lib/utils';
 import { format } from 'date-fns';
@@ -151,7 +152,7 @@ export default function Dashboard() {
         {/* Header */}
         <div className="lx-head">
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h1 className="lx-h1">{(() => { const h = new Date().getHours(); return h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; })()}</h1>
+            <h1 className="lx-h1">{(() => { const h = new Date().getHours(); const g = h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; const hol = holidayFor(new Date()); return hol?.skin?.hello ? hol.skin.hello(g) : g; })()}</h1>
             <div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 4 }}>{format(new Date(), 'EEEE, d MMMM')}</div>
             {(() => { const h = holidayFor(new Date()); return h ? <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, padding: '4px 11px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, background: 'rgba(255,255,255,0.07)', border: '1px solid var(--accent-soft, rgba(255,255,255,.15))' }}>{h.icon} {h.greeting}</div> : null; })()}
           </div>
@@ -161,11 +162,12 @@ export default function Dashboard() {
         {/* Net worth hero */}
         <div className="section" style={{ marginTop: 14 }}>
           <div className="hero-card" style={{ padding: '22px 20px 18px' }}>
+            {(() => { const hol = holidayFor(new Date()); return hol?.skin?.decor ? <HolidayDecor kind={hol.skin.decor} /> : null; })()}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-2)', flex: 1 }}>Net worth</div>
               <span title={tier.next ? `${formatShort(tier.toNext, 'KES')} to ${tier.next.name}` : 'Top tier'} style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, padding: '3px 9px', borderRadius: 20, color: 'var(--accent)', background: 'var(--accent-dim)', border: '1px solid var(--accent-glow)' }}>{tier.icon} {tier.name.toUpperCase()}</span>
             </div>
-            <div className="font-num" style={{ fontSize: 38, fontWeight: 700, margin: '8px 0 4px', color: netWorth >= 0 ? 'var(--text)' : 'var(--red)', letterSpacing: '-0.035em', lineHeight: 1.05 }}>
+            <div className="font-num lx-networth" style={{ fontSize: 38, fontWeight: 700, margin: '8px 0 4px', color: netWorth >= 0 ? 'var(--text)' : 'var(--red)', letterSpacing: '-0.035em', lineHeight: 1.05 }}>
               <CountUp value={netWorth} format={(n) => formatCurrency(n, currency)} />
             </div>
             <div style={{ fontSize: 12.5, color: flow30 >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600, marginBottom: 16 }}>

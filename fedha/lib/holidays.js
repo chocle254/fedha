@@ -46,11 +46,26 @@ export const HOLIDAYS = [
     emit: [{ shape: 'confetti', motion: 'fall', n: 14, colors: ['#EF4444', '#FBBF24', '#FFFFFF'] }] },
   { key: 'halloween', name: 'Halloween', icon: '🎃', when: (m, d) => m === 10 && (d === 30 || d === 31),
     greet: () => 'Happy Halloween!', glows: ['249,115,22', '126,34,206'],
-    emit: [{ emoji: ['🦇'], motion: 'flutter', n: 7, size: [16, 26] }, { emoji: ['🎃'], motion: 'fall', n: 4, size: [18, 26], slow: true }, { shape: 'ember', motion: 'rise', n: 14, colors: ['#FB923C'] }] },
+    emit: [{ emoji: ['🦇'], motion: 'flutter', n: 6, size: [16, 26] }, { emoji: ['👻'], motion: 'flutter', n: 2, size: [24, 32] }, { emoji: ['🎃'], motion: 'fall', n: 4, size: [18, 26], slow: true }, { shape: 'ember', motion: 'rise', n: 14, colors: ['#FB923C'] }] },
 ];
+
+// The app-wide skin for each holiday: accent colours, a display font for headings and the net worth (loaded only on
+// that day), Home's greeting, and a decoration that hangs on the net worth card (components/HolidayDecor.js).
+// Cards, numbers, buttons and the nav pick it up from html[data-holiday] in styles/globals.css.
+const KENYA_SKIN = { accent: '#BB0000', accent2: '#16A34A', decor: 'flag' };
+export const SKINS = {
+  halloween: { accent: '#F97316', accent2: '#A855F7', font: 'Creepster', hello: (g) => g.replace(/^Good/, 'Spooky'), decor: 'spider' },
+  christmas: { accent: '#EF4444', accent2: '#22C55E', font: 'Mountains of Christmas', hello: (g) => g.replace(/^Good/, 'Merry'), decor: 'ornament' },
+  newyear: { accent: '#FBBF24', accent2: '#F472B6', font: 'Monoton', hello: () => 'Happy New Year', decor: 'cheers' },
+  birthday: { accent: '#EC4899', accent2: '#FBBF24', font: 'Pacifico', hello: () => "It's your day", decor: 'balloon' },
+  valentine: { accent: '#EC4899', accent2: '#F43F5E', font: 'Great Vibes', hello: (g) => g.replace(/^Good/, 'Lovely'), decor: 'heart' },
+  easter: { accent: '#A78BFA', accent2: '#FDE68A', hello: () => 'Happy Easter', decor: 'chick' },
+  jamhuri: KENYA_SKIN, mashujaa: KENYA_SKIN, madaraka: KENYA_SKIN,
+  labour: { accent: '#EF4444', accent2: '#FBBF24' },
+};
 
 export function holidayFor(date = new Date()) {
   const y = date.getFullYear(), m = date.getMonth() + 1, d = date.getDate();
   const h = HOLIDAYS.find((x) => x.when(m, d, y));
-  return h ? { ...h, greeting: h.greet(y, m) } : null;
+  return h ? { ...h, greeting: h.greet(y, m), skin: SKINS[h.key] || {} } : null;
 }
