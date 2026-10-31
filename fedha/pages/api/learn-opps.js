@@ -1,9 +1,10 @@
 // pages/api/learn-opps.js — researches free and sponsored learning on the live web: fully funded bootcamps,
-// free courses with certificates, scholarships, fellowships, hackathons and excellence programmes, open to
+// free courses with certificates, scholarships, fellowships and excellence programmes (no hackathons: the
+// Tech Hub has those), open to
 // someone in Kenya (or online). Real search results first (Firecrawl, lib/web-search.js), then the AI only
 // sorts and describes them. Any item whose link did not come from the search is dropped, so nothing is made up.
 //
-// POST { interests: ["Machine learning", ...], focus: "all"|"bootcamp"|"course"|"scholarship"|"hackathon"|"fellowship" }
+// POST { interests: ["Machine learning", ...], focus: "all"|"bootcamp"|"course"|"scholarship"|"fellowship"|"program" }
 // → { items: [...], searched: n }
 import { requireUser } from '../../lib/require-user';
 import { webSearchMulti } from '../../lib/web-search';
@@ -11,7 +12,7 @@ import { nvidiaChat, nvidiaAvailable } from '../../lib/nvidia-client';
 
 export const config = { maxDuration: 60 };
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
-const KINDS = ['bootcamp', 'course', 'scholarship', 'fellowship', 'hackathon', 'program'];
+const KINDS = ['bootcamp', 'course', 'scholarship', 'fellowship', 'program'];
 const clip = (v, n) => String(v ?? '').slice(0, n);
 
 function queries(interests, focus) {
@@ -22,11 +23,10 @@ function queries(interests, focus) {
     course: [`free ${topic} course with free certificate ${year}`, `KITI Kenya free training programme ${year}`],
     scholarship: [`fully funded tech scholarship Kenya ${year} applications open`],
     fellowship: [`tech fellowship Africa ${year} applications open young developers`],
-    hackathon: [`hackathon Kenya ${year} register prize`, `${topic} hackathon online ${year} open to Africa`],
     program: [`centre of excellence tech training programme Kenya ${year} free`, `ALX Power Learn Project Moringa sponsored programme ${year} intake`],
   };
   if (focus && all[focus]) return [...all[focus], ...(focus === 'course' ? [] : [`free ${topic} ${focus} ${year} Kenya`])];
-  return [all.bootcamp[0], all.course[0], all.course[1], all.scholarship[0], all.hackathon[0], all.program[0], all.program[1], all.fellowship[0]];
+  return [all.bootcamp[0], all.course[0], all.course[1], all.scholarship[0], all.bootcamp[1], all.program[0], all.program[1], all.fellowship[0]];
 }
 
 async function groqJSON(key, system, text) {
@@ -54,7 +54,7 @@ export default async function handler(req, res) {
   const today = new Date().toISOString().slice(0, 10);
   const system = 'You sort real web search results into learning opportunities. Use only facts in the results. Never invent a link, date, price or sponsor. Output only valid JSON.';
   const text = `Today is ${today}. The learner is in Kenya and studies: ${interests.join(', ') || 'software, AI and tech'}.
-From these search results, pick the real, specific opportunities (one programme, course, bootcamp, scholarship, fellowship or hackathon each). Skip list articles, ads, paid-only courses, expired ones (deadline before today) and anything not open to someone in Kenya or online.
+From these search results, pick the real, specific opportunities (one programme, course, bootcamp, scholarship or fellowship each). Skip hackathons and competitions, list articles, ads, paid-only courses, expired ones (deadline before today) and anything not open to someone in Kenya or online.
 For each give:
 - title: the programme's own name
 - org: who runs or sponsors it
