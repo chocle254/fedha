@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import Layout from '../components/Layout';
 import TransactionModal from '../components/TransactionModal';
@@ -16,7 +16,10 @@ import { useApp } from '../context/AppContext';
 import { tierFor, TIERS } from '../lib/wealth-tiers';
 import { holidayFor } from '../lib/holidays';
 import HolidayDecor from '../components/HolidayDecor';
-import { getSetting } from '../lib/db';
+import BirthdayHub from '../components/BirthdayHub';
+import { birthdayInfo } from '../lib/holidays';
+import { getSetting, setSetting } from '../lib/db';
+import { fireConfetti } from '../lib/confetti';
 import { formatCurrency, formatShort, formatDate, formatDateRelative, getCategoryById, groupByDay, monthRange } from '../lib/utils';
 import { format } from 'date-fns';
 
@@ -109,6 +112,23 @@ function Panel({ title, action, children, style }) {
 export default function Dashboard() {
   const { loading, wallets, transactions, budgets, loans, goals, currency, netWorth, totalBalance, totalBorrowed } = useApp();
   const { tier, lost, back } = useWealthTier(netWorth, !loading);
+  // Birthday: countdown chip from 3 weeks out; on the day the hub opens by itself once.
+  const bday = birthdayInfo();
+  const [bdayOpen, setBdayOpen] = useState(false);
+  useEffect(() => {
+    if (!bday.isToday || loading) return;
+    getSetting(`bday_${bday.year}_seen`, false).then((seen) => { if (!seen) { setBdayOpen(true); setSetting(`bday_${bday.year}_seen`, true); fireConfetti(); } }).catch(() => {});
+  }, [bday.isToday, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Secrets: tap the Luxe mark 7 times for money rain; hold the net worth for "future you".
+  const [taps, setTaps] = useState([]);
+  const [rain, setRain] = useState(false);
+  const [future, setFuture] = useState(false);
+  const holdT = useRef(null);
+  const tapMark = () => {
+    const now = Date.now(); const t = [...taps.filter((x) => now - x < 2500), now];
+    setTaps(t);
+    if (t.length >= 7) { setTaps([]); setRain(true); fireConfetti(); setTimeout(() => setRain(false), 7000); }
+  };
   const [showAdd, setShowAdd] = useState(false);
   const isDesktop = useIsDesktop();
 
@@ -148,15 +168,30 @@ export default function Dashboard() {
 
   return (
     <Layout onFab={() => setShowAdd(true)}>
+      {bdayOpen && <BirthdayHub onClose={() => setBdayOpen(false)} />}
+      {rain && <div className="lx-rain" aria-hidden="true">{Array.from({ length: 26 }, (_, i) => <i key={i} className="tm-p m-fall s-emoji" style={{ '--x': `${(i * 37) % 100}%`, '--s': `${18 + (i % 5) * 5}px`, '--d': `${2.6 + (i % 4) * 0.7}s`, '--delay': `${-(i % 7) * 0.4}s`, '--sway': `${((i % 5) - 2) * 6}vw`, '--spin': `${(i % 2 ? 1 : -1) * 220}deg` }}>{['💸', '💵', '💰', '🪙'][i % 4]}</i>)}<div className="lx-rain-note">🤫 Secret found: make it rain</div></div>}
+      {future && (
+        <div className="lx-tier-pop" onClick={() => setFuture(false)} role="dialog" aria-label="Future you">
+          <div>
+            <div style={{ fontSize: 48 }}>🔮</div>
+            <div style={{ fontSize: 12, letterSpacing: 2, fontWeight: 800, color: 'var(--accent)', marginTop: 6 }}>SECRET: FUTURE YOU</div>
+            <div style={{ fontSize: 13.5, color: 'var(--text-2)', marginTop: 10, lineHeight: 1.55 }}>If the last 30 days repeat for a year, in 12 months your net worth would be</div>
+            <div className="font-num" style={{ fontSize: 30, fontWeight: 800, marginTop: 6, color: netWorth + flow30 * 12 >= netWorth ? 'var(--green)' : 'var(--red)' }}>{formatCurrency(netWorth + flow30 * 12, currency)}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginTop: 6 }}>{flow30 >= 0 ? `That's ${tierFor(netWorth + flow30 * 12).icon} ${tierFor(netWorth + flow30 * 12).name}. Keep the month you just had, every month.` : 'The last 30 days went backwards. One good month changes this line.'}</div>
+            <button className="btn-primary" style={{ marginTop: 14, width: '100%' }} onClick={() => setFuture(false)}>Got it</button>
+          </div>
+        </div>
+      )}
       <div className="page">
         {/* Header */}
         <div className="lx-head">
           <div style={{ flex: 1, minWidth: 0 }}>
             <h1 className="lx-h1">{(() => { const h = new Date().getHours(); const g = h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; const hol = holidayFor(new Date()); return hol?.skin?.hello ? hol.skin.hello(g) : g; })()}</h1>
             <div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 4 }}>{format(new Date(), 'EEEE, d MMMM')}</div>
+            {bday.days <= 21 && <button onClick={() => setBdayOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, marginRight: 6, padding: '4px 11px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, color: 'var(--text)', background: 'linear-gradient(135deg, rgba(236,72,153,.18), rgba(251,191,36,.14))', border: '1px solid rgba(236,72,153,.4)', cursor: 'pointer', fontFamily: 'inherit' }}>🎂 {bday.isToday ? 'Open your birthday surprise' : `${bday.age}${(() => { const v = bday.age % 100; return v >= 11 && v <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][bday.age % 10] || 'th'; })()} birthday in ${bday.days} day${bday.days === 1 ? '' : 's'} · Plan it`}</button>}
             {(() => { const h = holidayFor(new Date()); return h ? <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, padding: '4px 11px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, background: 'rgba(255,255,255,0.07)', border: '1px solid var(--accent-soft, rgba(255,255,255,.15))' }}>{h.icon} {h.greeting}</div> : null; })()}
           </div>
-          <LuxeMark size={38} animated />
+          <button onClick={tapMark} aria-label="Luxe" style={{ all: 'unset', cursor: 'pointer' }}><LuxeMark size={38} animated /></button>
         </div>
 
         {/* Net worth hero */}
@@ -167,7 +202,7 @@ export default function Dashboard() {
               <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-2)', flex: 1 }}>Net worth</div>
               <span title={tier.next ? `${formatShort(tier.toNext, 'KES')} to ${tier.next.name}` : 'Top tier'} style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, padding: '3px 9px', borderRadius: 20, color: 'var(--accent)', background: 'var(--accent-dim)', border: '1px solid var(--accent-glow)' }}>{tier.icon} {tier.name.toUpperCase()}</span>
             </div>
-            <div className="font-num lx-networth" style={{ fontSize: 38, fontWeight: 700, margin: '8px 0 4px', color: netWorth >= 0 ? 'var(--text)' : 'var(--red)', letterSpacing: '-0.035em', lineHeight: 1.05 }}>
+            <div className="font-num lx-networth" onPointerDown={() => { clearTimeout(holdT.current); holdT.current = setTimeout(() => setFuture(true), 1200); }} onPointerUp={() => clearTimeout(holdT.current)} onPointerLeave={() => clearTimeout(holdT.current)} onContextMenu={(e) => e.preventDefault()} style={{ userSelect: 'none', WebkitUserSelect: 'none', fontSize: 38, fontWeight: 700, margin: '8px 0 4px', color: netWorth >= 0 ? 'var(--text)' : 'var(--red)', letterSpacing: '-0.035em', lineHeight: 1.05 }}>
               <CountUp value={netWorth} format={(n) => formatCurrency(n, currency)} />
             </div>
             <div style={{ fontSize: 12.5, color: flow30 >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600, marginBottom: 16 }}>

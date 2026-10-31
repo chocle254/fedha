@@ -1871,3 +1871,41 @@ html[data-holiday="jamhuri"] .lx-networth, html[data-holiday="mashujaa"] .lx-net
 .hd-wave { animation: hdWave 2s ease-in-out infinite; transform-origin: bottom left; }
 @keyframes hdWave { 0%, 100% { transform: skewY(0) rotate(-4deg); } 50% { transform: skewY(-6deg) rotate(4deg); } }
 @media (prefers-reduced-motion: reduce) { .hd-move, html[data-holiday] .lx-networth { animation: none !important; } }
+
+/* Birthday Hub (components/BirthdayHub.js) */
+.bh-overlay { position: fixed; inset: 0; z-index: 1150; background: rgba(0,0,0,.65); backdrop-filter: blur(6px); display: flex; align-items: flex-end; justify-content: center; animation: lxWallIn .3s ease both; }
+.bh-sheet { width: 100%; max-width: 560px; max-height: 92dvh; overflow-y: auto; padding: 18px 16px calc(24px + env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0;
+  background: linear-gradient(180deg, rgba(236,72,153,.14), rgba(12,14,19,.97) 30%); border: 1px solid rgba(236,72,153,.35); animation: lxTierIn .5s cubic-bezier(.2,.9,.2,1.1) both; }
+.bh-envelope { position: relative; height: 190px; border-radius: 14px; background: linear-gradient(160deg, #FCE7F3, #F9A8D4); overflow: hidden; perspective: 600px; box-shadow: 0 14px 40px -16px rgba(236,72,153,.8); }
+.bh-flap { position: absolute; left: 0; right: 0; top: 0; height: 110px; background: linear-gradient(180deg, #F472B6, #EC4899); clip-path: polygon(0 0, 100% 0, 50% 100%); transform-origin: top; }
+.bh-envelope:hover .bh-flap, .bh-envelope:active .bh-flap { transform: rotateX(25deg); transition: transform .3s; }
+.bh-seal { position: absolute; left: 50%; top: 86px; transform: translateX(-50%); width: 44px; height: 44px; border-radius: 50%; background: #BE185D; display: grid; place-items: center; font-size: 20px; box-shadow: 0 3px 10px rgba(0,0,0,.3); }
+.bh-env-text { position: absolute; left: 0; right: 0; bottom: 18px; text-align: center; color: #831843; font-size: 13px; line-height: 1.5; }
+.bh-locked { filter: saturate(.6); }
+.bh-letter { padding: 18px 16px; border-radius: 14px; background: linear-gradient(180deg, #FFFBF5, #FDF2E9); color: #3B2A1A; box-shadow: 0 14px 40px -18px rgba(0,0,0,.6); animation: bhLetter .7s cubic-bezier(.2,.9,.2,1.05) both; }
+.bh-letter .md-code { background: rgba(0,0,0,.06); }
+@keyframes bhLetter { from { transform: translateY(40px) scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+.bh-gift { all: unset; cursor: pointer; text-align: center; padding: 14px 6px; border-radius: 14px; background: var(--card-2); border: 1px solid var(--border); }
+.bh-box { font-size: 38px; line-height: 1; display: inline-block; animation: bhWobble 3s ease-in-out infinite; }
+.bh-open .bh-box { animation: bhPop .6s cubic-bezier(.2,.9,.2,1.4) both; }
+.bh-shake .bh-box { animation: bhShake .5s ease both; }
+@keyframes bhWobble { 0%, 85%, 100% { transform: rotate(0); } 90% { transform: rotate(-8deg); } 95% { transform: rotate(8deg); } }
+@keyframes bhPop { from { transform: scale(.3) rotate(-20deg); } to { transform: scale(1); } }
+@keyframes bhShake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+
+/* Easter egg hunt (components/EasterHunt.js) */
+.eh-egg { all: unset; position: absolute; z-index: 60; width: 26px; height: 33px; cursor: pointer; animation: ehWobble 2.6s ease-in-out infinite; }
+.eh-shell { display: block; width: 100%; height: 100%; border-radius: 50% 50% 46% 46% / 60% 60% 40% 40%;
+  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.75) 0 12%, transparent 30%), repeating-linear-gradient(180deg, hsl(var(--h) 80% 70%) 0 6px, hsl(calc(var(--h) + 60) 80% 75%) 6px 9px, #fff 9px 11px);
+  box-shadow: 0 4px 8px rgba(0,0,0,.35); }
+.eh-crack { animation: ehCrack .65s ease both; }
+@keyframes ehWobble { 0%, 80%, 100% { transform: rotate(0); } 85% { transform: rotate(-12deg); } 90% { transform: rotate(10deg); } 95% { transform: rotate(-5deg); } }
+@keyframes ehCrack { 0% { transform: scale(1); } 40% { transform: scale(1.3) rotate(12deg); } 100% { transform: scale(0) rotate(-30deg); opacity: 0; } }
+.eh-count { all: unset; position: fixed; left: 12px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 70; padding: 6px 11px; border-radius: 20px; font-size: 12.5px; font-weight: 800; cursor: pointer;
+  background: rgba(20,18,30,.9); border: 1px solid rgba(167,139,250,.5); color: #FDE68A; box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+.eh-hint { display: block; max-width: 220px; margin-top: 6px; font-weight: 500; font-size: 11.5px; color: var(--text-2); line-height: 1.4; white-space: normal; }
+
+/* Secret money rain (Home: tap the Luxe mark 7 times) */
+.lx-rain { position: fixed; inset: 0; z-index: 1100; pointer-events: none; overflow: hidden; }
+.lx-rain .tm-p { animation-iteration-count: 2; }
+.lx-rain-note { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 8px 14px; border-radius: 20px; background: rgba(0,0,0,.75); color: #FDE68A; font-weight: 800; font-size: 13px; white-space: nowrap; animation: lxTierIn .5s ease both; }

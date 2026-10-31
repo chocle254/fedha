@@ -13,7 +13,7 @@ function easter(y) {
 
 // Each holiday: when (month 1-12, day ranges), a greeting, glow colours, and its emitters (see TierMotion).
 // The owner's birthday: 5 December 2001.
-const BIRTH = { y: 2001, m: 12, d: 5 };
+export const BIRTH = { y: 2001, m: 12, d: 5 };
 const ordinal = (n) => { const v = n % 100; return n + (v >= 11 && v <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'); };
 
 export const HOLIDAYS = [
@@ -67,5 +67,23 @@ export const SKINS = {
 export function holidayFor(date = new Date()) {
   const y = date.getFullYear(), m = date.getMonth() + 1, d = date.getDate();
   const h = HOLIDAYS.find((x) => x.when(m, d, y));
-  return h ? { ...h, greeting: h.greet(y, m), skin: SKINS[h.key] || {} } : null;
+  if (h) return { ...h, greeting: h.greet(y, m), skin: SKINS[h.key] || {} };
+  // A birthday gift: the birthday look kept on for the week after (localStorage 'luxe_bday_glow_until').
+  try {
+    const until = typeof localStorage !== 'undefined' && localStorage.getItem('luxe_bday_glow_until');
+    const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (until && iso <= until) { const b = HOLIDAYS.find((x) => x.key === 'birthday'); return { ...b, greeting: 'Birthday week ✨', skin: { ...SKINS.birthday, hello: (g) => g } }; }
+  } catch { /* private mode */ }
+  return null;
+}
+
+// Birthday countdown: days until the next 5 December (0 on the day) and the age turned on it.
+export function birthdayInfo(date = new Date()) {
+  const y = date.getFullYear();
+  const today = new Date(y, date.getMonth(), date.getDate());
+  let next = new Date(y, BIRTH.m - 1, BIRTH.d);
+  if (next < today) next = new Date(y + 1, BIRTH.m - 1, BIRTH.d);
+  const days = Math.round((next - today) / 864e5);
+  const iso = `${next.getFullYear()}-${String(BIRTH.m).padStart(2, '0')}-${String(BIRTH.d).padStart(2, '0')}`;
+  return { days, isToday: days === 0, age: next.getFullYear() - BIRTH.y, year: next.getFullYear(), iso };
 }
