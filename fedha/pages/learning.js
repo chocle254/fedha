@@ -204,7 +204,7 @@ export default function LearningPage(){
     }finally{setSavingCert(false);}
   }
 
-  return <Layout fab={false}><div style={{minHeight:'100vh',paddingBottom:90}}><div style={{maxWidth:1000,margin:'0 auto',padding:'28px 18px'}}>
+  return <Layout fab={false}><div style={{minHeight:'100vh',paddingBottom:'calc(160px + env(safe-area-inset-bottom))'}}><div style={{maxWidth:1000,margin:'0 auto',padding:'28px 18px'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,marginBottom:16}}>
       <div><h1 className="lx-h1" style={{margin:'0 0 6px'}}>Learning</h1><p style={{margin:0,color:'var(--text-2)',fontSize:14,lineHeight:1.55}}>Study, recall, prove it. Every focus block, card and quiz moves you forward.</p></div>
       {tab==='courses'?<button className="btn-primary" onClick={openNew}>＋ Course</button>:<button className="btn-primary" onClick={()=>setStudyAt({})}>🎧 Study</button>}
