@@ -14,6 +14,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.SystemClock;
 import android.text.format.DateFormat;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -49,6 +50,25 @@ public class LuxeDelegationService extends DelegationService {
     private static final Kind PLANNER = new Kind("luxe_planner_v1", "Planner reminders", new long[]{150, 100}, "sound_planner", 0xFF8B5CF6, "🗓️", "PLANNER");
     private static final Kind MONEY = new Kind("luxe_money_v1", "Money in", new long[]{150, 90, 70, 90, 70, 380, 200, 380}, "sound_success", 0xFF22C55E, "💰", "MONEY IN");
     private static final Kind OTHER = new Kind("luxe_jarvis_v1", "Jarvis and other", new long[]{150, 100}, "sound_jarvis", 0xFF64748B, "🔔", "JARVIS");
+
+    // Holiday looks and sounds (android/tools/holiday-sounds.mjs, drawable/bg_h_*.xml). On the day, everyday
+    // notifications (planner, money in, Jarvis and other) wear the holiday: its own channel, sound, colour, badge
+    // and background. Trading and withdrawal alerts keep their usual sounds so they are never missed.
+    private static final Kind H_HALLOWEEN = new Kind("luxe_h_halloween_v1", "Halloween", new long[]{150, 420, 160, 120, 90, 120}, "sound_h_halloween", 0xFF8B5CF6, "🦇", "HALLOWEEN");
+    private static final Kind H_CHRISTMAS = new Kind("luxe_h_christmas_v1", "Christmas", new long[]{150, 70, 60, 70, 60, 70, 160, 70, 60, 70, 60, 70}, "sound_h_christmas", 0xFFEF4444, "🎄", "CHRISTMAS");
+    private static final Kind H_BIRTHDAY = new Kind("luxe_h_birthday_v1", "Your birthday", new long[]{150, 90, 80, 90, 80, 220, 120, 260}, "sound_h_birthday", 0xFFEC4899, "🎂", "BIRTHDAY");
+    private static final Kind H_NEWYEAR = new Kind("luxe_h_newyear_v1", "New Year", new long[]{150, 60, 50, 60, 50, 420}, "sound_h_newyear", 0xFFFBBF24, "🎆", "NEW YEAR");
+
+    // Same dates as the site's lib/holidays.js (birthday: 5 December).
+    static Kind holidayToday() {
+        Calendar c = Calendar.getInstance();
+        int m = c.get(Calendar.MONTH) + 1, d = c.get(Calendar.DAY_OF_MONTH);
+        if (m == 12 && d == 5) return H_BIRTHDAY;
+        if ((m == 12 && d == 31) || (m == 1 && d <= 2)) return H_NEWYEAR;
+        if (m == 12 && d >= 20 && d <= 26) return H_CHRISTMAS;
+        if (m == 10 && (d == 30 || d == 31)) return H_HALLOWEEN;
+        return null;
+    }
 
     // The pinned planner card: silent (no sound, no buzz) because the block's own reminder already alerts.
     // v2: the live card is now THE planner notification (sound + buzz once per new block); v1 was silent.
@@ -90,7 +110,7 @@ public class LuxeDelegationService extends DelegationService {
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build();
-        for (Kind k : new Kind[]{NESTLINK, NESTLINK_FAIL, UPESIPAY, TRADE, TP, SL, PLANNER, MONEY, OTHER}) {
+        for (Kind k : new Kind[]{NESTLINK, NESTLINK_FAIL, UPESIPAY, TRADE, TP, SL, PLANNER, MONEY, OTHER, H_HALLOWEEN, H_CHRISTMAS, H_BIRTHDAY, H_NEWYEAR}) {
             if (nm.getNotificationChannel(k.id) != null) continue;
             NotificationChannel ch = new NotificationChannel(k.id, k.name, NotificationManager.IMPORTANCE_HIGH);
             ch.enableVibration(true);
@@ -256,6 +276,13 @@ public class LuxeDelegationService extends DelegationService {
         String t = title == null ? "" : stripLeadingEmoji(title.toString());
         String body = text == null ? "" : text.toString();
         String label = kind == OTHER && !(title != null && title.toString().startsWith("🤖")) ? "LUXE" : kind.label;
+        Kind base = kind; // the real kind, for its rules below
+        Kind holiday = holidayToday();
+        if (holiday != null && (kind == PLANNER || kind == MONEY || kind == OTHER)) {
+            label = holiday.label + " · " + label;
+            kind = holiday;
+            icon = badge(kind);
+        }
 
         RemoteViews small = new RemoteViews(getPackageName(), R.layout.notif_small);
         small.setInt(R.id.accent, "setColorFilter", kind.color);
@@ -277,9 +304,9 @@ public class LuxeDelegationService extends DelegationService {
                 .setCustomContentView(small)
                 .setCustomHeadsUpContentView(popup)
                 .setCustomBigContentView(expanded);
-        if (kind == NESTLINK || kind == NESTLINK_FAIL || kind == UPESIPAY || kind == MONEY) b.setCategory(Notification.CATEGORY_STATUS);
+        if (base == NESTLINK || base == NESTLINK_FAIL || base == UPESIPAY || base == MONEY) b.setCategory(Notification.CATEGORY_STATUS);
         // Block reminders clear themselves after 10 minutes: the pinned live card carries the plan from there.
-        if (kind == PLANNER && platformTag != null && platformTag.contains("block_")) b.setTimeoutAfter(10 * 60_000L);
+        if (base == PLANNER && platformTag != null && platformTag.contains("block_")) b.setTimeoutAfter(10 * 60_000L);
 
         try {
             nm.notify(platformTag, platformId, b.build());

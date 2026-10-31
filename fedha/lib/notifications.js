@@ -28,7 +28,13 @@ export async function requestPermission() {
 }
 
 // ─── SHOW NOTIFICATION ────────────────────────────────────────────────────────
-export async function showNotif({ title, body, icon = '/icon.svg', badge = '/icon.svg', tag, vibrate = VIBRATE.medium, requireInteraction = false, actions = [] }) {
+export async function showNotif({ title, body, icon = '/icon.svg', badge = '/icon.svg', tag, vibrate = VIBRATE.medium, requireInteraction = false, actions = [], url = '/', kind }) {
+  // Luxe is on screen: show its own banner (components/LuxeBanner.js, with the current look and sound) instead
+  // of the system tray. In the background it goes to the system, where the Android app styles it.
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus?.() !== false) {
+    window.dispatchEvent(new CustomEvent('luxe-notify', { detail: { title, body, tag, vibrate, requireInteraction, url, kind } }));
+    return;
+  }
   if (!notifGranted()) return;
 
   try {
@@ -48,7 +54,7 @@ export async function showNotif({ title, body, icon = '/icon.svg', badge = '/ico
       vibrate,
       requireInteraction,
       actions,
-      data: { url: '/' },
+      data: { url },
     });
   } catch {
     try { new Notification(title, { body, icon, tag }); } catch {}

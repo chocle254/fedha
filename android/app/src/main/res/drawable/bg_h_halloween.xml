@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Halloween: deep crypt purple fading to black, a faint violet edge. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient android:angle="315" android:startColor="#664C1D95" android:endColor="#1A07060D" />
+    <corners android:radius="14dp" />
+    <stroke android:width="1dp" android:color="#558B5CF6" />
+</shape>

@@ -36,6 +36,17 @@ export default function TierSync() {
   // Today's holiday takes over the motion; otherwise the tier's own mood. Only the current one is built.
   const [holiday, setHoliday] = useState(null);
   useEffect(() => { const check = () => setHoliday(holidayFor(new Date())); check(); const t = setInterval(check, 30 * 60e3); return () => clearInterval(t); }, []);
+  // The first time Luxe opens on a holiday, a holiday banner (with its sound) says hello.
+  useEffect(() => {
+    if (!holiday) return undefined;
+    const key = `luxe_hol_hello_${new Date().toDateString()}`;
+    try { if (localStorage.getItem(key)) return undefined; } catch { return undefined; }
+    const t = setTimeout(() => {
+      try { localStorage.setItem(key, '1'); } catch { /* private */ }
+      window.dispatchEvent(new CustomEvent('luxe-notify', { detail: { title: holiday.greeting, body: { halloween: 'The app is dark tonight. Watch the graves.', christmas: 'Snow is falling on Luxe. Look up for Santa.', birthday: 'Your Birthday Hub is waiting on Home.', newyear: 'A new year, a new tier to climb.' }[holiday.key] || `Luxe is dressed up for ${holiday.name}.`, tag: `holiday_${holiday.key}`, kind: 'other' } }));
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [holiday?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   const mood = holiday ? { glows: holiday.glows, emit: holiday.emit } : MOODS[tier.key];
   const moodKey = holiday ? `h-${holiday.key}` : tier.key;
   // The holiday's motion runs on every screen (the whole app dresses up); a tier's only on money screens.

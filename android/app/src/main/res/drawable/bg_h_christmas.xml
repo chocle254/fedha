@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Christmas: red into evergreen with a frosty edge. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient android:angle="0" android:startColor="#55B91C1C" android:endColor="#4415803D" />
+    <corners android:radius="14dp" />
+    <stroke android:width="1dp" android:color="#66F8FAFC" />
+</shape>

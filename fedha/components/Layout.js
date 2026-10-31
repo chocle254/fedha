@@ -11,6 +11,7 @@ import SmsCategoryPrompt from './SmsCategoryPrompt';
 import ZiidiInterest from './ZiidiInterest';
 import TierSync from './TierSync';
 import EasterHunt from './EasterHunt';
+import LuxeBanner from './LuxeBanner';
 import LuxeMark from './LuxeMark';
 import Icon from './Icon';
 import { getVoiceChoices, getVoiceName, setVoiceName, speak } from '../lib/voice';
@@ -276,6 +277,7 @@ export default function Layout({ children, fab, onFab }) {
       <ZiidiInterest />
       <TierSync />
       <EasterHunt />
+      <LuxeBanner />
 
       {/* More menu sheet */}
       {moreOpen && (

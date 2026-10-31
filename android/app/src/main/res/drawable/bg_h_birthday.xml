@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Birthday: party pink into gold. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient android:angle="0" android:startColor="#55EC4899" android:endColor="#33FBBF24" />
+    <corners android:radius="14dp" />
+    <stroke android:width="1dp" android:color="#66F472B6" />
+</shape>
