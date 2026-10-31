@@ -17,7 +17,7 @@ import { tierFor, TIERS } from '../lib/wealth-tiers';
 import { holidayFor } from '../lib/holidays';
 import HolidayDecor from '../components/HolidayDecor';
 import BirthdayHub from '../components/BirthdayHub';
-import { birthdayInfo } from '../lib/holidays';
+import { birthdayInfo, VICE, viceRelease } from '../lib/holidays';
 import { getSetting, setSetting } from '../lib/db';
 import { fireConfetti } from '../lib/confetti';
 import { formatCurrency, formatShort, formatDate, formatDateRelative, getCategoryById, groupByDay, monthRange } from '../lib/utils';
@@ -47,6 +47,25 @@ function useWealthTier(netWorth, ready) {
   useEffect(() => { if (ready) getSetting('wealth_tier_best', 0).then((b) => setBest(Number(b) || 0)).catch(() => {}); }, [ready, tier.index]);
   const lost = best > tier.index ? TIERS[best] : null;
   return { tier, lost, back: lost ? lost.min - (Number(netWorth) || 0) : 0 };
+}
+
+// GTA VI countdown (Vice Nights, Nov 2026): ticks every second, with a switch for the neon look.
+function ViceCountdown() {
+  const [now, setNow] = useState(() => Date.now());
+  const [off, setOff] = useState(false);
+  useEffect(() => { try { setOff(localStorage.getItem('luxe_vice_off') === '1'); } catch { /* private */ } const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const nd = new Date(now), today = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`;
+  if (today < VICE.start || today > VICE.end) return null;
+  const left = viceRelease() - now;
+  const p2 = (n) => String(n).padStart(2, '0');
+  const d = Math.floor(left / 864e5), h = Math.floor((left % 864e5) / 36e5), m = Math.floor((left % 36e5) / 6e4), sec = Math.floor((left % 6e4) / 1e3);
+  const toggle = () => { const v = !off; setOff(v); try { localStorage.setItem('luxe_vice_off', v ? '1' : '0'); } catch { /* private */ } window.dispatchEvent(new Event('luxe-holiday-refresh')); };
+  return (
+    <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
+      <span className="vc-chip font-num">🌴 {left > 0 ? <>GTA VI in {d}d {p2(h)}h {p2(m)}m {p2(sec)}s</> : left > -864e5 ? 'GTA VI is out today' : 'GTA VI is out'}</span>
+      <button className="vc-chip" onClick={toggle} style={{ opacity: 0.85 }}>{off ? 'Vice mode: off' : 'Vice mode: on'}</button>
+    </span>
+  );
 }
 
 function StatCard({ label, value, currency, sub, color = 'var(--green)' }) {
@@ -189,7 +208,8 @@ export default function Dashboard() {
             <h1 className="lx-h1">{(() => { const h = new Date().getHours(); const g = h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; const hol = holidayFor(new Date()); return hol?.skin?.hello ? hol.skin.hello(g) : g; })()}</h1>
             <div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 4 }}>{format(new Date(), 'EEEE, d MMMM')}</div>
             {bday.days <= 21 && <button onClick={() => setBdayOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, marginRight: 6, padding: '4px 11px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, color: 'var(--text)', background: 'linear-gradient(135deg, rgba(236,72,153,.18), rgba(251,191,36,.14))', border: '1px solid rgba(236,72,153,.4)', cursor: 'pointer', fontFamily: 'inherit' }}>🎂 {bday.isToday ? 'Open your birthday surprise' : `${bday.age}${(() => { const v = bday.age % 100; return v >= 11 && v <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][bday.age % 10] || 'th'; })()} birthday in ${bday.days} day${bday.days === 1 ? '' : 's'} · Plan it`}</button>}
-            {(() => { const h = holidayFor(new Date()); return h ? <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, padding: '4px 11px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, background: 'rgba(255,255,255,0.07)', border: '1px solid var(--accent-soft, rgba(255,255,255,.15))' }}>{h.icon} {h.greeting}</div> : null; })()}
+            <ViceCountdown />
+            {(() => { const h = holidayFor(new Date()); return h && h.key !== 'vice' ? <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, padding: '4px 11px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, background: 'rgba(255,255,255,0.07)', border: '1px solid var(--accent-soft, rgba(255,255,255,.15))' }}>{h.icon} {h.greeting}</div> : null; })()}
           </div>
           <button onClick={tapMark} aria-label="Luxe" style={{ all: 'unset', cursor: 'pointer' }}><LuxeMark size={38} animated /></button>
         </div>

@@ -15,7 +15,7 @@ const KINDS = {
   study: { color: '#818CF8', icon: '🎓', label: 'STUDY', sound: 'n-planner' },
   other: { color: '#64748B', icon: '🔔', label: 'LUXE', sound: 'n-jarvis' },
 };
-const HOLIDAY_SOUND = { halloween: 'h-halloween', christmas: 'h-christmas', birthday: 'h-birthday', newyear: 'h-newyear' };
+const HOLIDAY_SOUND = { halloween: 'h-halloween', christmas: 'h-christmas', birthday: 'h-birthday', newyear: 'h-newyear', vice: 'h-vice' };
 const MUTE = 'luxe_banner_mute';
 
 // Same sorting as the Android app (LuxeDelegationService.kindOf), from the tag and title.
@@ -68,8 +68,8 @@ export default function LuxeBanner() {
   return (
     <div className="lb-stack" role="region" aria-label="Notifications">
       {list.map((n) => {
-        const hol = n.hol && ['halloween', 'christmas', 'birthday', 'newyear'].includes(n.hol) && !['alert', 'trade'].includes(n.kind) ? n.hol : null;
-        const holIcon = { halloween: '🦇', christmas: '🎄', birthday: '🎂', newyear: '🎆' }[hol];
+        const hol = n.hol && ['halloween', 'christmas', 'birthday', 'newyear', 'vice'].includes(n.hol) && !['alert', 'trade'].includes(n.kind) ? n.hol : null;
+        const holIcon = { halloween: '🦇', christmas: '🎄', birthday: '🎂', newyear: '🎆', vice: '🌴' }[hol];
         return (
           <div key={n.id} className={`lb ${hol ? `lb-${hol}` : ''}`} style={{ '--k': n.k.color }}
             onPointerDown={(e) => { drag.current[n.id] = { y: e.clientY, el: e.currentTarget }; }}
@@ -77,7 +77,7 @@ export default function LuxeBanner() {
             onPointerUp={() => { const s = drag.current[n.id]; delete drag.current[n.id]; if (s?.dy < -40) close(n.id); else if (s) { s.el.style.transform = ''; if (!s.dy || s.dy > -6) { close(n.id); if (n.url) router.push(n.url); } } }}>
             <div className="lb-badge">{holIcon || n.k.icon}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="lb-label">{hol ? `${{ halloween: 'HALLOWEEN', christmas: 'CHRISTMAS', birthday: 'BIRTHDAY', newyear: 'NEW YEAR' }[hol]} · ` : ''}{n.k.label}</div>
+              <div className="lb-label">{hol ? `${{ halloween: 'HALLOWEEN', christmas: 'CHRISTMAS', birthday: 'BIRTHDAY', newyear: 'NEW YEAR', vice: 'VICE NIGHTS' }[hol]} · ` : ''}{n.k.label}</div>
               <div className="lb-title">{n.title}</div>
               {n.body && <div className="lb-body">{n.body}</div>}
             </div>

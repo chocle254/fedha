@@ -14,6 +14,10 @@ function easter(y) {
 // Each holiday: when (month 1-12, day ranges), a greeting, glow colours, and its emitters (see TierMotion).
 // The owner's birthday: 5 December 2001.
 export const BIRTH = { y: 2001, m: 12, d: 5 };
+// GTA VI release as announced by Rockstar (Nov 2025). Change here if it moves.
+export const VICE = { release: '2026-11-19', start: '2026-11-01', end: '2026-11-26' };
+export const viceRelease = () => new Date(`${VICE.release}T00:00:00`);
+export const viceDays = (now = new Date()) => { const t = new Date(now.getFullYear(), now.getMonth(), now.getDate()); return Math.round((viceRelease() - t) / 864e5); };
 const ordinal = (n) => { const v = n % 100; return n + (v >= 11 && v <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'); };
 
 export const HOLIDAYS = [
@@ -48,6 +52,12 @@ export const HOLIDAYS = [
   { key: 'halloween', name: 'Halloween', icon: '🦇', when: (m, d) => m === 10 && (d === 30 || d === 31),
     greet: () => 'Happy Halloween. Stay out of the cemetery.', glows: ['76,29,149'], scene: 'halloween',
     emit: [{ shape: 'dust', motion: 'fall', n: 14, size: [1.5, 3], colors: ['#9CA3AF', '#6B7280'], slow: true }] },
+  // Vice Nights: an original neon-sunset look while we wait for GTA VI (release announced for 19 Nov 2026),
+  // until a week after. Real holidays win. Switch off on Home (localStorage 'luxe_vice_off').
+  { key: 'vice', name: 'Vice Nights', icon: '🌴', scene: 'vice', glows: ['255,46,136', '34,211,238'],
+    when: (m, d, y) => { try { if (localStorage.getItem('luxe_vice_off') === '1') return false; } catch { /* private */ } const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`; return iso >= VICE.start && iso <= VICE.end; },
+    greet: () => { const n = viceDays(); return n > 0 ? `GTA VI in ${n} day${n === 1 ? '' : 's'}` : n === 0 ? 'GTA VI is out today' : 'Vice Nights'; },
+    emit: [{ shape: 'sparkle', n: 8, size: [5, 9], colors: ['#22D3EE', '#FF2E88'] }] },
 ];
 
 // The app-wide skin for each holiday: accent colours, a display font for headings and the net worth (loaded only on
@@ -63,6 +73,7 @@ export const SKINS = {
   easter: { accent: '#A78BFA', accent2: '#FDE68A', hello: () => 'Happy Easter', decor: 'chick' },
   jamhuri: KENYA_SKIN, mashujaa: KENYA_SKIN, madaraka: KENYA_SKIN,
   labour: { accent: '#EF4444', accent2: '#FBBF24' },
+  vice: { accent: '#FF2E88', accent2: '#22D3EE', font: 'Monoton', hello: (g) => `${g}, Vice`, decor: 'palm' },
 };
 
 export function holidayFor(date = new Date()) {

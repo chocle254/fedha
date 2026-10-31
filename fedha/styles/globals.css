@@ -1994,3 +1994,31 @@ html[data-holiday="christmas"] .bottom-nav { background: rgba(6,11,28,.92) !impo
 .lb-birthday .lb-label { color: #FDE68A; } .lb-birthday .lb-body { color: rgba(255,255,255,.85); }
 /* New Year: midnight and gold */
 .lb-newyear { --k: #FBBF24; background: linear-gradient(135deg, rgba(10,10,20,.97), rgba(66,32,6,.95)); border-color: rgba(251,191,36,.55); box-shadow: 0 14px 40px -10px rgba(251,191,36,.45); }
+
+/* Vice Nights (GTA VI countdown, original art: components/HolidayScene.js) */
+.hs-vice .hs-sky { background: linear-gradient(180deg, #12002B 0%, #3A0A5E 28%, #8E1F7A 46%, #FF2E88 56%, #FF7A45 63%, #2A0844 64%, #0A0216 100%); }
+.hs-vice-ground { height: 52vh; }
+.hs-car-svg { left: 0; bottom: calc(52vh * .05); width: 120px; height: 24px; animation: hsCar 13s linear infinite; will-change: transform; }
+@keyframes hsCar { from { transform: translate3d(-130px, 0, 0); } to { transform: translate3d(110vw, 0, 0); } }
+.hs-palm { bottom: 0; width: 34vw; max-width: 200px; height: 52vh; transform-origin: 50% 100%; animation: hsPalm 6s ease-in-out infinite; will-change: transform; }
+.hs-palm-0 { left: -6vw; } .hs-palm-1 { right: -6vw; }
+@keyframes hsPalm { 0%, 100% { transform: rotate(-1.6deg); } 50% { transform: rotate(1.8deg); } }
+.hs-heli { position: absolute; top: 9%; left: 0; animation: hsHeli 34s linear infinite; will-change: transform; }
+@keyframes hsHeli { 0% { transform: translate3d(110vw, 0, 0); } 100% { transform: translate3d(-90px, 4vh, 0); } }
+.hs-rotor { transform-box: fill-box; transform-origin: center; animation: hsRotor .12s linear infinite alternate; }
+@keyframes hsRotor { from { transform: scaleX(1); } to { transform: scaleX(.15); } }
+.hs-beam { position: absolute; left: 14px; top: 20px; width: 160px; height: 46vh; transform-origin: 6px 0; background: linear-gradient(180deg, rgba(254,240,138,.32), rgba(254,240,138,0)); clip-path: polygon(0 0, 12px 0, 100% 100%, 20% 100%); animation: hsSweep 5s ease-in-out infinite alternate; }
+@keyframes hsSweep { from { transform: rotate(18deg); } to { transform: rotate(-22deg); } }
+html[data-holiday="vice"] .card, html[data-holiday="vice"] .card-2 { background: rgba(16,4,34,.82) !important; border-color: rgba(255,46,136,.35) !important; }
+html[data-holiday="vice"] .hero-card { background: linear-gradient(160deg, rgba(58,10,94,.85), rgba(10,2,22,.92)) !important; border-color: rgba(34,211,238,.4) !important; }
+html[data-holiday="vice"] .card::before { top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, #FF2E88, #FF7A45, #22D3EE); }
+html[data-holiday="vice"] .lx-h1 { color: #FF6FB1 !important; text-shadow: 0 0 10px rgba(255,46,136,.8), 2px 2px 0 rgba(34,211,238,.6); }
+html[data-holiday="vice"] .lx-networth { color: #FFE4F1 !important; text-shadow: 0 0 12px rgba(255,46,136,.9), 0 0 24px rgba(255,46,136,.5), 2px 2px 0 rgba(34,211,238,.7); font-size: 32px !important; }
+html[data-holiday="vice"] .font-num { text-shadow: 0 0 8px rgba(34,211,238,.35); }
+html[data-holiday="vice"] .bottom-nav { background: rgba(14,2,30,.94) !important; border-color: rgba(255,46,136,.4) !important; }
+.lb-vice { --k: #FF2E88; background: linear-gradient(135deg, rgba(58,10,94,.97), rgba(10,2,22,.97)); border-color: rgba(34,211,238,.5); box-shadow: 0 14px 40px -10px rgba(255,46,136,.6); }
+.lb-vice .lb-label { color: #22D3EE; } .lb-vice .lb-title { color: #FFE4F1; text-shadow: 0 0 8px rgba(255,46,136,.7); }
+.hd-sway { animation: hdSway 4s ease-in-out infinite; transform-origin: bottom center; }
+@keyframes hdSway { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
+.vc-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; margin-right: 6px; padding: 4px 11px; border-radius: 20px; font-size: 12.5px; font-weight: 800; color: #FFE4F1; cursor: pointer; font-family: inherit;
+  background: linear-gradient(90deg, rgba(255,46,136,.25), rgba(34,211,238,.18)); border: 1px solid rgba(255,46,136,.55); text-shadow: 0 0 6px rgba(255,46,136,.6); }

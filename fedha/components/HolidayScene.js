@@ -122,9 +122,9 @@ function Christmas() {
         {/* houses with warm windows */}
         <g>
           <path d="M150 178 L170 160 L190 178 L190 206 L150 206Z" fill="#1E293B" /><path d="M146 180 L170 156 L194 180" fill="none" stroke="#F8FAFC" strokeWidth="4" strokeLinecap="round" />
-          <rect className="hs-window" x="158" y="184" width="9" height="9" fill="#FBBF24" /><rect className="hs-window" x="174" y="184" width="9" height="9" fill="#FCD34D" style={{ animationDelay: '-1.3s' }} />
+          <rect x="158" y="184" width="9" height="9" fill="#FBBF24" /><rect x="174" y="184" width="9" height="9" fill="#FCD34D" />
           <path d="M196 186 L212 172 L228 186 L228 208 L196 208Z" fill="#273449" /><path d="M193 188 L212 169 L231 188" fill="none" stroke="#F8FAFC" strokeWidth="4" strokeLinecap="round" />
-          <rect className="hs-window" x="206" y="192" width="10" height="8" fill="#FBBF24" style={{ animationDelay: '-2.1s' }} />
+          <rect x="206" y="192" width="10" height="8" fill="#FBBF24" />
         </g>
         {/* snowman */}
         <g>
@@ -137,12 +137,12 @@ function Christmas() {
         </g>
         {/* tree */}
         <g>
-          <circle className="hs-tree-star" cx="320" cy="92" r="16" fill="url(#hsStar)" />
+          <circle cx="320" cy="92" r="16" fill="url(#hsStar)" />
           <path d="M320 84 L323 92 L331 92 L325 97 L327 105 L320 100 L313 105 L315 97 L309 92 L317 92Z" fill="#FDE047" />
           <path d="M320 100 L292 150 L348 150Z" fill="#14532D" /><path d="M320 120 L282 180 L358 180Z" fill="#166534" /><path d="M320 146 L272 212 L368 212Z" fill="#15803D" />
           <path d="M296 148 Q320 156 344 148 M286 178 Q320 188 354 178 M276 210 Q320 220 364 210" stroke="#F8FAFC" strokeWidth="3" fill="none" strokeLinecap="round" opacity=".9" />
           <rect x="314" y="212" width="12" height="14" fill="#5B3412" />
-          {[[306, 136, 0], [334, 132, 1], [298, 166, 2], [340, 164, 3], [320, 156, 4], [290, 198, 0], [352, 196, 1], [318, 190, 2], [334, 202, 3]].map(([x, y, c], k) => <circle key={k} className="hs-bulb" cx={x} cy={y} r="3" fill={bulbs[c]} style={{ animationDelay: `${-k * 0.4}s`, '--c': bulbs[c] }} />)}
+          {[[306, 136, 0], [334, 132, 1], [298, 166, 2], [340, 164, 3], [320, 156, 4], [290, 198, 0], [352, 196, 1], [318, 190, 2], [334, 202, 3]].map(([x, y, c], k) => <circle key={k} cx={x} cy={y} r="3" fill={bulbs[c]} />)}
         </g>
         {/* gifts */}
         <g>
@@ -157,9 +157,69 @@ function Christmas() {
   );
 }
 
+// Vice Nights (original art, a retro neon sunset while we wait for GTA VI): a striped synthwave sun sinking into
+// the sea, a neon skyline with twinkling windows and a blinking tower, a flickering LUXE sign, palms swaying,
+// sun reflections shimmering on the water, a helicopter sweeping its searchlight and a car with pink underglow
+// cruising the beach road.
+function Vice() {
+  const win = [];
+  const towers = [[8, 120, 22], [34, 96, 18], [56, 132, 26], [86, 104, 20], [110, 84, 16], [130, 116, 24], [158, 140, 20], [182, 100, 14], [218, 112, 22], [244, 92, 18], [266, 128, 26], [296, 86, 16], [316, 108, 22], [342, 124, 20], [366, 98, 18], [386, 114, 16]];
+  towers.forEach(([x, top, w], i) => { for (let y = top + 6; y < 166; y += 7) for (let xx = x + 3; xx < x + w - 2; xx += 5) { const r = Math.sin(i * 31 + y * 7 + xx * 13); if (r > 0.35) win.push([xx, y, r > 0.75 ? '#22D3EE' : r > 0.55 ? '#FF2E88' : '#FDE68A', i]); } });
+  return (
+    <div className="hs hs-vice" aria-hidden="true">
+      <div className="hs-sky" />
+      {Array.from({ length: 14 }, (_, i) => <i key={i} className="hs-star" style={{ left: `${(i * 53) % 100}%`, top: `${(i * 17) % 26}%`, animationDelay: `${-(i % 6) * 0.7}s` }} />)}
+      {/* helicopter and its searchlight */}
+      <div className="hs-heli">
+        <div className="hs-beam" />
+        <svg viewBox="0 0 70 30" width="70" height="30"><rect x="18" y="10" width="26" height="11" rx="5.5" fill="#0B0218" /><rect x="40" y="13" width="26" height="3" fill="#0B0218" /><rect x="63" y="9" width="3" height="9" fill="#0B0218" /><line className="hs-rotor" x1="6" y1="7" x2="56" y2="7" stroke="#0B0218" strokeWidth="2" /><rect x="29" y="7" width="3" height="4" fill="#0B0218" /><circle className="hs-nose" cx="20" cy="18" r="1.6" fill="#EF4444" /><circle cx="64" cy="10" r="1.2" fill="#22D3EE" /></svg>
+      </div>
+      <svg className="hs-ground hs-vice-ground" viewBox="0 0 400 300" preserveAspectRatio="xMidYMax slice">
+        <defs>
+          <linearGradient id="hvSun" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#FDE047" /><stop offset=".55" stopColor="#FF7A45" /><stop offset="1" stopColor="#FF2E88" /></linearGradient>
+          <linearGradient id="hvSea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#3B0A5C" /><stop offset="1" stopColor="#0A0216" /></linearGradient>
+          <mask id="hvStripes"><rect x="0" y="0" width="400" height="300" fill="#fff" />{[130, 140, 149, 157, 164].map((y, i) => <rect key={y} x="0" y={y} width="400" height={1.5 + i * 0.9} fill="#000" />)}</mask>
+          <filter id="hvGlow"><feGaussianBlur stdDeviation="1.6" /></filter>
+        </defs>
+        <circle cx="200" cy="170" r="74" fill="url(#hvSun)" mask="url(#hvStripes)" />
+        {/* skyline */}
+        <g fill="#14022B">{towers.map(([x, top, w], i) => <rect key={i} x={x} y={top} width={w} height={170 - top} />)}<rect x="113" y="70" width="2" height="16" /></g>
+        <circle cx="114" cy="69" r="1.8" fill="#EF4444" />
+        {win.map(([x, y, c], k) => <rect key={k} x={x} y={y} width="2.4" height="3" fill={c} opacity=".85" />)}
+        {/* neon sign */}
+        <g><text x="282" y="122" fontSize="11" fontWeight="800" fill="#FF2E88" fontFamily="sans-serif" letterSpacing="2" filter="url(#hvGlow)">LUXE</text><text x="282" y="122" fontSize="11" fontWeight="800" fill="#FFE4F1" fontFamily="sans-serif" letterSpacing="2">LUXE</text></g>
+        {/* sea and the sun's reflection */}
+        <rect x="0" y="170" width="400" height="130" fill="url(#hvSea)" />
+        {[176, 184, 193, 203, 214, 226].map((y, i) => <rect key={y} x={200 - (60 - i * 7)} y={y} width={(60 - i * 7) * 2} height={1.6} rx=".8" fill="#FF7A45" opacity={0.8 - i * 0.1} />)}
+        <line x1="0" y1="170" x2="400" y2="170" stroke="#FF9EC7" strokeWidth=".8" opacity=".7" />
+        {/* beach road and the car */}
+        <rect x="0" y="262" width="400" height="38" fill="#07010F" /><line x1="0" y1="281" x2="400" y2="281" stroke="#FDE68A" strokeWidth="1" strokeDasharray="10 12" opacity=".5" />
+      </svg>
+      <svg className="hs-car-svg" viewBox="0 262 104 20">
+        <g>
+          <ellipse cx="30" cy="278" rx="30" ry="4" fill="#FF2E88" opacity=".55" filter="url(#hvGlow)" />
+          <path d="M2 274 L10 266 L24 263 L36 263 L48 268 L58 270 L60 275 L2 276Z" fill="#160428" stroke="#22D3EE" strokeWidth=".8" />
+          <path d="M14 266 L24 264 L34 264 L42 268 L16 268Z" fill="#22D3EE" opacity=".35" />
+          <circle cx="14" cy="276" r="3.4" fill="#05010A" /><circle cx="48" cy="276" r="3.4" fill="#05010A" />
+          <rect x="58" y="270" width="3" height="2" fill="#FDE68A" /><rect x="1" y="270" width="3" height="2" fill="#EF4444" />
+          <path d="M61 271 L100 266 L100 278Z" fill="#FDE68A" opacity=".18" />
+        </g>
+      </svg>
+      {[0, 1].map((k) => (
+        <svg key={k} className={`hs-palm hs-palm-${k}`} viewBox="0 100 100 200" style={{ animationDelay: `${-k * 1.7}s` }}>
+          {(() => { const x = k ? 70 : 30, dir = k ? -1 : 1; return (<>
+            <path d={`M${x - 4} 300 C${x - 2 + dir * 4} 240 ${x + dir * 12} 170 ${x + dir * 26} 112 L${x + dir * 30} 114 C${x + dir * 18} 172 ${x + 6 + dir * 4} 240 ${x + 5} 300Z`} fill="#0A0114" />
+            {[-60, -25, 10, 45, 80, 120].map((a, i) => { const cx = x + dir * 28, cy = 112, rad = ((a - 90) * Math.PI) / 180, ex = cx + Math.cos(rad) * 52 * dir, ey = cy + Math.sin(rad) * 30 + 22; return <path key={i} d={`M${cx} ${cy} Q${(cx + ex) / 2} ${Math.min(cy, ey) - 18} ${ex} ${ey} Q${(cx + ex) / 2} ${Math.min(cy, ey) - 8} ${cx} ${cy + 3}Z`} fill="#0A0114" />; })}
+          </>); })()}
+        </svg>
+      ))}
+    </div>
+  );
+}
+
 export default function HolidayScene({ kind }) {
   const [host, setHost] = useState(null);
   useEffect(() => { setHost(document.body); }, []);
-  if (!host || !['halloween', 'christmas'].includes(kind)) return null;
-  return createPortal(kind === 'halloween' ? <><Halloween /><div className="hs-flash" aria-hidden="true" /></> : <Christmas />, host);
+  if (!host || !['halloween', 'christmas', 'vice'].includes(kind)) return null;
+  return createPortal(kind === 'halloween' ? <><Halloween /><div className="hs-flash" aria-hidden="true" /></> : kind === 'vice' ? <Vice /> : <Christmas />, host);
 }

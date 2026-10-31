@@ -4,7 +4,7 @@ import { useApp } from '../context/AppContext';
 import { tierFor, applyTier, clearTier } from '../lib/wealth-tiers';
 import { getSetting, setSetting } from '../lib/db';
 import { fireConfetti } from '../lib/confetti';
-import { themeKeyFor } from '../lib/themes';
+import { themeKeyFor, applyTheme } from '../lib/themes';
 import { formatCurrency, formatShort } from '../lib/utils';
 import TierMotion, { MOODS } from './TierMotion';
 import HolidayScene from './HolidayScene';
@@ -35,7 +35,7 @@ export default function TierSync() {
 
   // Today's holiday takes over the motion; otherwise the tier's own mood. Only the current one is built.
   const [holiday, setHoliday] = useState(null);
-  useEffect(() => { const check = () => setHoliday(holidayFor(new Date())); check(); const t = setInterval(check, 30 * 60e3); return () => clearInterval(t); }, []);
+  useEffect(() => { const check = () => setHoliday(holidayFor(new Date())); check(); const t = setInterval(check, 30 * 60e3); window.addEventListener('luxe-holiday-refresh', check); return () => { clearInterval(t); window.removeEventListener('luxe-holiday-refresh', check); }; }, []);
   // The first time Luxe opens on a holiday, a holiday banner (with its sound) says hello.
   useEffect(() => {
     if (!holiday) return undefined;
@@ -43,7 +43,7 @@ export default function TierSync() {
     try { if (localStorage.getItem(key)) return undefined; } catch { return undefined; }
     const t = setTimeout(() => {
       try { localStorage.setItem(key, '1'); } catch { /* private */ }
-      window.dispatchEvent(new CustomEvent('luxe-notify', { detail: { title: holiday.greeting, body: { halloween: 'The app is dark tonight. Watch the graves.', christmas: 'Snow is falling on Luxe. Look up for Santa.', birthday: 'Your Birthday Hub is waiting on Home.', newyear: 'A new year, a new tier to climb.' }[holiday.key] || `Luxe is dressed up for ${holiday.name}.`, tag: `holiday_${holiday.key}`, kind: 'other' } }));
+      window.dispatchEvent(new CustomEvent('luxe-notify', { detail: { title: holiday.greeting, body: { halloween: 'The app is dark tonight. Watch the graves.', christmas: 'Snow is falling on Luxe. Look up for Santa.', birthday: 'Your Birthday Hub is waiting on Home.', newyear: 'A new year, a new tier to climb.', vice: 'Neon nights until release. Stack your money while you wait.' }[holiday.key] || `Luxe is dressed up for ${holiday.name}.`, tag: `holiday_${holiday.key}`, kind: 'other' } }));
     }, 2500);
     return () => clearTimeout(t);
   }, [holiday?.key]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -56,7 +56,13 @@ export default function TierSync() {
   // the holiday accent wins over the section's, and only today's display font is downloaded.
   useEffect(() => {
     const root = document.documentElement;
-    if (!holiday) { delete root.dataset.holiday; return undefined; }
+    if (!holiday) {
+      if (!root.dataset.holiday) return undefined;
+      // A holiday just ended (or Vice mode was switched off): put the tier's or section's colours back.
+      delete root.dataset.holiday; root.style.removeProperty('--holiday-font');
+      const t = setTimeout(() => { applyTheme(themeKeyFor(router.pathname)); if (money) applyTier(tier); }, 50);
+      return () => clearTimeout(t);
+    }
     root.dataset.holiday = holiday.key;
     const sk = holiday.skin || {};
     if (sk.font && !document.getElementById('lx-holiday-font')) {

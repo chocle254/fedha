@@ -26,6 +26,7 @@ const ITEMS = {
   heart: { emoji: '💘', cls: 'hd-beat' },
   chick: { emoji: '🐣', cls: 'hd-hop' },
   flag: { emoji: '🇰🇪', cls: 'hd-wave' },
+  palm: { emoji: '🌴', cls: 'hd-sway' },
 };
 
 export default function HolidayDecor({ kind }) {

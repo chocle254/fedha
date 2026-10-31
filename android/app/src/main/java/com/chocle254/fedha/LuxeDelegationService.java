@@ -57,6 +57,7 @@ public class LuxeDelegationService extends DelegationService {
     private static final Kind H_HALLOWEEN = new Kind("luxe_h_halloween_v1", "Halloween", new long[]{150, 420, 160, 120, 90, 120}, "sound_h_halloween", 0xFF8B5CF6, "🦇", "HALLOWEEN");
     private static final Kind H_CHRISTMAS = new Kind("luxe_h_christmas_v1", "Christmas", new long[]{150, 70, 60, 70, 60, 70, 160, 70, 60, 70, 60, 70}, "sound_h_christmas", 0xFFEF4444, "🎄", "CHRISTMAS");
     private static final Kind H_BIRTHDAY = new Kind("luxe_h_birthday_v1", "Your birthday", new long[]{150, 90, 80, 90, 80, 220, 120, 260}, "sound_h_birthday", 0xFFEC4899, "🎂", "BIRTHDAY");
+    private static final Kind H_VICE = new Kind("luxe_h_vice_v1", "Vice Nights (GTA VI countdown)", new long[]{150, 80, 70, 80, 70, 80, 70, 240}, "sound_h_vice", 0xFFFF2E88, "🌴", "VICE NIGHTS");
     private static final Kind H_NEWYEAR = new Kind("luxe_h_newyear_v1", "New Year", new long[]{150, 60, 50, 60, 50, 420}, "sound_h_newyear", 0xFFFBBF24, "🎆", "NEW YEAR");
 
     // Same dates as the site's lib/holidays.js (birthday: 5 December).
@@ -67,6 +68,8 @@ public class LuxeDelegationService extends DelegationService {
         if ((m == 12 && d == 31) || (m == 1 && d <= 2)) return H_NEWYEAR;
         if (m == 12 && d >= 20 && d <= 26) return H_CHRISTMAS;
         if (m == 10 && (d == 30 || d == 31)) return H_HALLOWEEN;
+        // Vice Nights: 1-26 Nov 2026, around GTA VI's announced release (19 Nov). Same window as lib/holidays.js.
+        if (c.get(Calendar.YEAR) == 2026 && m == 11 && d <= 26) return H_VICE;
         return null;
     }
 
@@ -110,7 +113,7 @@ public class LuxeDelegationService extends DelegationService {
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build();
-        for (Kind k : new Kind[]{NESTLINK, NESTLINK_FAIL, UPESIPAY, TRADE, TP, SL, PLANNER, MONEY, OTHER, H_HALLOWEEN, H_CHRISTMAS, H_BIRTHDAY, H_NEWYEAR}) {
+        for (Kind k : new Kind[]{NESTLINK, NESTLINK_FAIL, UPESIPAY, TRADE, TP, SL, PLANNER, MONEY, OTHER, H_HALLOWEEN, H_CHRISTMAS, H_BIRTHDAY, H_NEWYEAR, H_VICE}) {
             if (nm.getNotificationChannel(k.id) != null) continue;
             NotificationChannel ch = new NotificationChannel(k.id, k.name, NotificationManager.IMPORTANCE_HIGH);
             ch.enableVibration(true);

@@ -4,6 +4,7 @@
 //   sound_h_christmas  "Sleigh"       sleigh bells shaking under the first notes of Jingle Bells on a glass bell
 //   sound_h_birthday   "Candles"      Happy Birthday's opening on crystal with a sparkle on top
 //   sound_h_newyear    "Midnight"     a firework whistle rising, a pop, crackle, and a bright glass chord
+//   sound_h_vice       "Neon"         synthwave: pulsing octave bass, a gated snare, a bright saw arpeggio (Vice Nights)
 // Uses the engine in make-sounds.mjs (echo, reverb, shimmer, speaker mastering) and the glass voices from
 // make-sound-pack.mjs, plus four voices made for these: organ, thunder, jingle and pop.
 import { writeFileSync, copyFileSync, existsSync } from 'fs';
@@ -47,7 +48,20 @@ function jingle(f, t, dur) {
 function pop(f, t) {
   return Math.exp(-t * 30) * (noise() * 0.8 + Math.sin(TAU * 70 * t) * 0.6);
 }
-Object.assign(VOICES, { organ, thunder, jingle, pop });
+// Synthwave saw: two detuned band-limited saws, a filter that opens then closes, short and punchy.
+function saw(f, t, dur) {
+  const env = Math.min(1, t / 0.004) * Math.exp((-3.2 * t) / dur);
+  const bright = 4 + 18 * Math.exp(-t * 7);
+  let v = 0;
+  for (const d of [-0.007, 0.007]) for (let h = 1; h <= 14; h++) { if (h > bright) break; v += Math.sin(TAU * f * (1 + d) * h * t) / h; }
+  return env * v * 0.32;
+}
+// Gated snare: noise with a fast gate plus a tonal body.
+function snare(f, t) {
+  const gate = t < 0.14 ? 1 : Math.exp(-(t - 0.14) * 60);
+  return gate * Math.exp(-t * 9) * (noise() * 0.55 + Math.sin(TAU * 190 * t) * 0.35 * Math.exp(-t * 30));
+}
+Object.assign(VOICES, { organ, thunder, jingle, pop, saw, snare });
 
 const roll = (voice, midis, step, dur, gain, at = 0) => midis.map((m, i) => [voice, m, at + i * step, dur, gain, i % 2 ? 0.35 : -0.35]);
 
@@ -74,6 +88,13 @@ const SOUNDS = {
     ['riser', 66, 0, 0.55, 0.3], ['pop', 50, 0.55, 0.2, 0.7], ['sub', 36, 0.55, 0.8, 0.5],
     ...roll('crystal', [84, 88, 91, 96], 0.04, 0.9, 0.36, 0.6), ['sparkle', 98, 0.7, 0.8, 0.22, 0.4],
   ], { tail: 0.8, wet: 0.32, maxLen: 2.2 }],
+  // Am9 synthwave: octave bass pulsing in eighths, snare on 2, a saw arpeggio climbing A C E G B.
+  sound_h_vice: [[
+    ...[0, 0.14, 0.28, 0.42, 0.56, 0.7].map((at, i) => ['sub', i % 2 ? 45 : 33, at, 0.16, 0.45]),
+    ['snare', 60, 0.28, 0.3, 0.5], ['snare', 60, 0.84, 0.3, 0.42],
+    ...[[69, 0], [72, 0.1], [76, 0.2], [79, 0.3], [83, 0.4], [88, 0.56]].map(([m, at], i) => ['saw', m, at, 0.34, 0.34, i % 2 ? 0.4 : -0.4]),
+    ['pad', 57, 0, 1.2, 0.16], ['sparkle', 95, 0.6, 0.6, 0.15, 0.3],
+  ], { tail: 0.7, wet: 0.3, delay: 0.25, fb: 0.4, maxLen: 2.0 }],
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
