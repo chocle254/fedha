@@ -14,7 +14,7 @@ const RANGES = [
   { id: 'ALL', label: 'All', days: null },
 ];
 
-const LINE = '#34D399';
+const LINE = 'var(--chart-line, #34D399)'; // follows the wealth tier on Home (lib/wealth-tiers.js)
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // Money in or out of your total. Transfers between your own wallets don't

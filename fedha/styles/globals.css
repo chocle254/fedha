@@ -1725,3 +1725,10 @@ label { color: var(--text-2); }
 @keyframes learnToast { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .md-code { font-family: ui-monospace, monospace; font-size: .92em; background: var(--card-2); padding: 1px 5px; border-radius: 5px; }
 .md-pre { font-family: ui-monospace, monospace; font-size: 12px; background: var(--card-2); border: 1px solid var(--border); padding: 10px; border-radius: 8px; overflow-x: auto; white-space: pre; margin: 6px 0; }
+
+/* Wealth tier background on Home (lib/wealth-tiers.js sets --tier-bg and data-tier on <html>): drawn over the
+   section wallpaper inside the background layer, with a soft shade at the bottom. */
+html[data-tier] .lx-ambience::before { content: ''; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, transparent 55%, rgba(0,0,0,.35)), var(--tier-bg); animation: lxWallIn 1.2s ease both; }
+.lx-tier-pop { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; background: rgba(0,0,0,.6); backdrop-filter: blur(6px); animation: lxWallIn .4s ease both; }
+.lx-tier-pop > div { text-align: center; padding: 26px 24px; border-radius: 24px; max-width: 320px; background: rgba(12,14,19,.92); border: 1px solid var(--accent); box-shadow: 0 0 60px var(--accent-glow); animation: lxTierIn .7s cubic-bezier(.2,.9,.2,1.2) both; }
+@keyframes lxTierIn { from { transform: scale(.6) translateY(20px); opacity: 0; } to { transform: none; opacity: 1; } }

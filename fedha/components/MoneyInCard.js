@@ -31,7 +31,7 @@ export default function MoneyInCard({ transactions }) {
   if (!s.month && !s.recent.length) return null;
 
   return (
-    <div className="card" style={{ padding: 16, background: 'linear-gradient(135deg, rgba(16,185,129,0.14), rgba(16,185,129,0.03))', border: '1px solid rgba(16,185,129,0.25)' }}>
+    <div className="card" style={{ padding: 16, background: 'linear-gradient(135deg, var(--chart-bg, rgba(16,185,129,0.14)), rgba(16,185,129,0.02))', border: '1px solid var(--chart-glow, rgba(16,185,129,0.25))' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: 'var(--green)' }}>💸 MONEY IN</div>
         <span style={{ flex: 1 }} />
@@ -59,8 +59,8 @@ export default function MoneyInCard({ transactions }) {
           <button key={d.day} type="button" onClick={() => setSel(i)} aria-label={`${d.day}: ${kes(d.amount)}`} aria-pressed={sel === i}
             style={{ flex: 1, height: '100%', padding: 0, border: 0, background: 'transparent', display: 'flex', alignItems: 'flex-end', cursor: 'pointer' }}>
             <span style={{ width: '100%', height: `${Math.max(5, (d.amount / max) * 100)}%`, borderRadius: 4,
-              background: d.amount ? (sel === i ? 'var(--green)' : 'rgba(52,211,153,0.5)') : 'rgba(255,246,232,0.12)',
-              boxShadow: sel === i ? '0 0 0 2px rgba(52,211,153,0.35)' : 'none' }} />
+              background: d.amount ? (sel === i ? 'var(--chart-line, var(--green))' : 'var(--chart-soft, rgba(52,211,153,0.5))') : 'rgba(255,246,232,0.12)',
+              boxShadow: sel === i ? '0 0 0 2px var(--chart-glow, rgba(52,211,153,0.35))' : 'none' }} />
           </button>
         ))}
       </div>
