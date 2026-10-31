@@ -1,0 +1,198 @@
+import { useEffect, useRef, useState } from 'react';
+import { askStudy, studyText } from '../../lib/study';
+import { showNotif } from '../../lib/notifications';
+import QuickQuiz from './QuickQuiz';
+import Md from './Md';
+
+// Study mode: pick what you're studying, run Pomodoro blocks, and keep an AI tutor beside you that works from
+// your notes. Each finished focus block earns XP and offers a 3-question recall check before the break.
+// The timer runs on the clock (end time), so it stays right if the phone sleeps or you switch apps.
+const QUICK = [
+  ['simple', '🧒 Explain simply'], ['normal', '💡 Explain'], ['deep', '🔬 Go deep'],
+  ['example', '🧪 Examples'], ['mistakes', '⚠️ Common mistakes'],
+];
+const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+
+export default function StudyMode({ courses, notes, prefs, start, onClose, onFocusDone, onQuizDone, onLessonDone, onSaveNote, onPrefs }) {
+  const [courseId, setCourseId] = useState(start?.courseId || courses.find((c) => c.status !== 'completed')?.id || '');
+  const course = courses.find((c) => c.id === courseId);
+  const lessons = course?.modules || [];
+  const [lessonId, setLessonId] = useState(start?.lessonId || lessons.find((m) => !m.completed)?.id || '');
+  const lesson = lessons.find((m) => m.id === lessonId);
+  const [topic, setTopic] = useState('');
+  const [p, setP] = useState(prefs);
+
+  const [phase, setPhase] = useState('setup'); // setup | focus | recall | break
+  const [endAt, setEndAt] = useState(null);
+  const [pausedLeft, setPausedLeft] = useState(null);
+  const [left, setLeft] = useState(prefs.focus * 60);
+  const [blocks, setBlocks] = useState(0);
+  const [focusedMin, setFocusedMin] = useState(0);
+
+  const [chat, setChat] = useState([]);
+  const [q, setQ] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const chatEnd = useRef(null);
+
+  const subject = topic.trim() || lesson?.title || course?.title || 'my studies';
+  const context = () => studyText(course, lesson, notes.filter((n) => n.course_id && n.course_id === courseId).slice(0, 4));
+  const total = (phase === 'focus' ? p.focus : phase === 'break' ? ((blocks % p.every === 0 && blocks) ? p.long : p.short) : p.focus) * 60;
+
+  // Tick.
+  useEffect(() => {
+    if (!endAt) return undefined;
+    const t = setInterval(() => {
+      const s = Math.max(0, Math.round((endAt - Date.now()) / 1000));
+      setLeft(s);
+      if (s === 0) { clearInterval(t); finishPhase(); }
+    }, 500);
+    return () => clearInterval(t);
+  }, [endAt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the screen awake while a block runs, where the browser allows it.
+  useEffect(() => {
+    let lock = null;
+    if (endAt && navigator.wakeLock?.request) navigator.wakeLock.request('screen').then((l) => { lock = l; }).catch(() => {});
+    return () => { lock?.release?.().catch(() => {}); };
+  }, [endAt]);
+
+  const begin = (kind, minutes) => { setPhase(kind); setPausedLeft(null); setLeft(minutes * 60); setEndAt(Date.now() + minutes * 60 * 1000); };
+  const startFocus = () => { onPrefs?.(p); begin('focus', p.focus); };
+
+  async function finishPhase() {
+    setEndAt(null);
+    if (phase === 'focus') {
+      const n = blocks + 1;
+      setBlocks(n); setFocusedMin((m) => m + p.focus);
+      try { navigator.vibrate?.([200, 100, 200]); } catch { /* not supported */ }
+      showNotif({ title: '🍅 Focus block done', body: `${p.focus} minutes on ${subject}. Quick recall, then a break.`, tag: 'study-pomodoro' }).catch?.(() => {});
+      await onFocusDone({ minutes: p.focus, course_id: courseId || null, lesson_id: lessonId || null, topic: subject });
+      setPhase('recall');
+    } else {
+      try { navigator.vibrate?.([120, 80, 120]); } catch { /* not supported */ }
+      showNotif({ title: '⏰ Break over', body: 'Back to it. One more block.', tag: 'study-pomodoro' }).catch?.(() => {});
+      setPhase('focus-ready');
+    }
+  }
+  const takeBreak = () => begin('break', blocks % p.every === 0 ? p.long : p.short);
+  const pause = () => { if (endAt) { setPausedLeft(Math.max(0, Math.round((endAt - Date.now()) / 1000))); setEndAt(null); } };
+  const resume = () => { if (pausedLeft != null) { setEndAt(Date.now() + pausedLeft * 1000); setPausedLeft(null); } };
+  const endSession = async () => {
+    // Count the minutes of an unfinished focus block too (at least 5), so honest effort isn't lost.
+    if (phase === 'focus') {
+      const done = Math.floor(((p.focus * 60) - (pausedLeft ?? left)) / 60);
+      if (done >= 5) await onFocusDone({ minutes: done, course_id: courseId || null, lesson_id: lessonId || null, topic: subject, partial: true });
+    }
+    onClose();
+  };
+
+  const ask = async (question, level) => {
+    if (thinking) return;
+    const userText = level ? QUICK.find(([k]) => k === level)[1].replace(/^\S+\s/, '') + `: ${subject}` : question.trim();
+    if (!userText) return;
+    setChat((c) => [...c, { role: 'user', text: userText }]); setQ(''); setThinking(true);
+    try {
+      const j = level
+        ? await askStudy({ type: 'explain', level, topic: subject, context: context() })
+        : await askStudy({ type: 'tutor', question: userText, topic: subject, context: context(), history: chat });
+      setChat((c) => [...c, { role: 'ai', text: j.text }]);
+    } catch (e) { setChat((c) => [...c, { role: 'ai', text: `⚠️ ${e.message}`, error: true }]); }
+    finally { setThinking(false); setTimeout(() => chatEnd.current?.scrollIntoView({ behavior: 'smooth' }), 50); }
+  };
+
+  const ring = 2 * Math.PI * 88;
+  const shownLeft = pausedLeft ?? left;
+  const frac = phase === 'setup' || phase === 'recall' || phase === 'focus-ready' ? 1 : shownLeft / total;
+  const color = phase === 'break' ? '#60A5FA' : '#10B981';
+
+  return (
+    <div className="study-overlay">
+      <div className="study-wrap">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <div style={{ flex: 1 }}><div style={{ fontWeight: 800, fontSize: 17 }}>🎧 Study mode</div><div style={{ fontSize: 12, color: 'var(--text-3)' }}>{blocks} block{blocks === 1 ? '' : 's'} · {focusedMin} min focused</div></div>
+          <button className="btn-ghost" onClick={endSession}>End</button>
+        </div>
+
+        {phase === 'setup' && (
+          <div className="card" style={{ padding: 14, marginBottom: 14 }}>
+            <label className="study-lbl">Course</label>
+            <select className="input" value={courseId} onChange={(e) => { setCourseId(e.target.value); setLessonId(courses.find((c) => c.id === e.target.value)?.modules?.find((m) => !m.completed)?.id || ''); }}>
+              <option value="">— Free study (no course) —</option>
+              {courses.map((c) => <option key={c.id} value={c.id}>{c.status === 'completed' ? '✓ ' : ''}{c.title}</option>)}
+            </select>
+            {lessons.length > 0 && <><label className="study-lbl">Lesson</label>
+              <select className="input" value={lessonId} onChange={(e) => setLessonId(e.target.value)}>
+                <option value="">— Whole course —</option>
+                {lessons.map((m) => <option key={m.id} value={m.id}>{m.completed ? '✓ ' : ''}{m.title}</option>)}
+              </select></>}
+            <label className="study-lbl">Topic (optional)</label>
+            <input className="input" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. Transformers attention, React hooks…" />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginTop: 10 }}>
+              {[['focus', 'Focus'], ['short', 'Break'], ['long', 'Long break']].map(([k, l]) => (
+                <label key={k} style={{ fontSize: 11, color: 'var(--text-3)' }}>{l} (min)<input className="input font-num" type="number" min="1" max="120" value={p[k]} onChange={(e) => setP({ ...p, [k]: Math.max(1, Math.min(120, Number(e.target.value) || 1)) })} /></label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              {[[25, 5], [50, 10], [90, 20]].map(([f, s]) => <button key={f} className={`chip ${p.focus === f ? 'active' : ''}`} onClick={() => setP({ ...p, focus: f, short: s })}>{f}/{s}</button>)}
+            </div>
+          </div>
+        )}
+
+        {phase !== 'recall' && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 14 }}>
+            <svg width="200" height="200" viewBox="0 0 200 200">
+              <circle cx="100" cy="100" r="88" fill="none" stroke="var(--border)" strokeWidth="10" />
+              <circle cx="100" cy="100" r="88" fill="none" stroke={color} strokeWidth="10" strokeLinecap="round" strokeDasharray={ring} strokeDashoffset={ring * (1 - frac)} transform="rotate(-90 100 100)" style={{ transition: 'stroke-dashoffset .5s linear' }} />
+              <text x="100" y="98" textAnchor="middle" fontSize="40" fontWeight="800" fill="var(--text)" className="font-num">{fmt(phase === 'setup' || phase === 'focus-ready' ? p.focus * 60 : shownLeft)}</text>
+              <text x="100" y="128" textAnchor="middle" fontSize="13" fill="var(--text-3)">{phase === 'break' ? 'Break: stand, stretch, water' : phase === 'focus' ? (pausedLeft != null ? 'Paused' : 'Focus') : 'Ready'}</text>
+            </svg>
+            <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4, textAlign: 'center' }}>{subject}</div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              {(phase === 'setup' || phase === 'focus-ready') && <button className="btn-primary" style={{ padding: '12px 28px' }} onClick={startFocus}>▶ Start focus</button>}
+              {(phase === 'focus' || phase === 'break') && (pausedLeft != null ? <button className="btn-primary" onClick={resume}>▶ Resume</button> : <button className="btn-ghost" onClick={pause}>⏸ Pause</button>)}
+              {phase === 'break' && <button className="btn-ghost" onClick={() => { setEndAt(null); setPhase('focus-ready'); }}>Skip break</button>}
+              {lesson && !lesson.completed && phase !== 'setup' && <button className="btn-ghost" style={{ color: 'var(--green)' }} onClick={() => onLessonDone(course, lesson.id)}>✓ Lesson done</button>}
+            </div>
+          </div>
+        )}
+
+        {phase === 'recall' && (
+          <div style={{ marginBottom: 14 }}>
+            <div className="card" style={{ padding: 14, marginBottom: 10, textAlign: 'center' }}>
+              <div style={{ fontSize: 30 }}>🍅</div>
+              <div style={{ fontWeight: 800 }}>Block {blocks} done · +{p.focus} XP</div>
+              <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4 }}>Recall right after studying is the strongest way to remember it. 3 quick questions?</div>
+            </div>
+            <QuickQuiz compact context={context()} topic={subject} count={3} seconds={25} onDone={(r) => onQuizDone({ ...r, course_id: courseId || null, topic: subject })} onCancel={takeBreak} />
+            <button className="btn-ghost" style={{ width: '100%', marginTop: 8 }} onClick={takeBreak}>Skip to break →</button>
+          </div>
+        )}
+
+        <div className="card" style={{ padding: 12 }}>
+          <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>🤖 Tutor{course ? <span style={{ fontWeight: 500, color: 'var(--text-3)' }}> · reading your notes for {lesson ? 'this lesson' : 'this course'}</span> : ''}</div>
+          <div className="tab-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 8 }}>
+            {QUICK.map(([k, l]) => <button key={k} className="chip" disabled={thinking} onClick={() => ask('', k)}>{l}</button>)}
+            <button className="chip" disabled={thinking} onClick={() => setQ(`Let me explain ${subject} back to you: `)}>🗣 I'll explain it back</button>
+          </div>
+          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+            {chat.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--text-3)', padding: '6px 2px', lineHeight: 1.5 }}>Ask anything while you study. Try "I'll explain it back": teaching it is the fastest way to find what you don't really know yet.</div>}
+            {chat.map((m, i) => (
+              <div key={i} style={{ margin: '8px 0', display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                <div style={{ maxWidth: '92%', padding: '9px 11px', borderRadius: 12, background: m.role === 'user' ? 'var(--green-dim)' : 'var(--card-2)', border: '1px solid var(--border)' }}>
+                  {m.role === 'user' ? <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{m.text}</div> : <Md text={m.text} />}
+                  {m.role === 'ai' && !m.error && <button className="tx-link" style={{ background: 'none', border: 0, color: 'var(--text-3)', fontSize: 11.5, padding: 0, marginTop: 4, cursor: 'pointer' }} onClick={() => { onSaveNote({ title: chat[i - 1]?.text?.slice(0, 80) || subject, body: m.text, course_id: courseId || null }); setChat((c) => c.map((x, k) => (k === i ? { ...x, saved: true } : x))); }}>{m.saved ? '✓ Saved to notes' : '📝 Save to notes'}</button>}
+                </div>
+              </div>
+            ))}
+            {thinking && <div style={{ fontSize: 12.5, color: 'var(--text-3)', padding: 6 }}>Thinking…</div>}
+            <div ref={chatEnd} />
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <textarea className="input" rows={2} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(q); } }} placeholder={`Ask about ${subject}…`} />
+            <button className="btn-primary" disabled={thinking || !q.trim()} onClick={() => ask(q)}>Ask</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

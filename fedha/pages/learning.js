@@ -1,7 +1,17 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Layout from '../components/Layout';
 import { useApp } from '../context/AppContext';
 import { resizeImage, genId, todayISO } from '../lib/utils';
+import { loadAll, record, schedule, newCard, saveCards, saveNotes, saveProjects, savePrefs, masteryFor, XP } from '../lib/study';
+import { fireConfetti } from '../lib/confetti';
+import Today, { QuizPicker } from '../components/learn/Today';
+import StudyMode from '../components/learn/StudyMode';
+import Review from '../components/learn/Review';
+import NotesHub from '../components/learn/NotesHub';
+import Projects from '../components/learn/Projects';
+import Gains from '../components/learn/Gains';
+
+const TABS = [['today', '🏠 Today'], ['courses', '📚 Courses'], ['review', '🃏 Review'], ['quiz', '⚡ Quiz'], ['notes', '📝 Notes'], ['projects', '🛠️ Projects'], ['gains', '🏅 Gains']];
 
 const EMPTY = {
   title:'', provider:'', url:'', description:'', priority:3, status:'active',
@@ -30,7 +40,7 @@ function progress(c){
 }
 function daysLeft(c){return c.deadline?Math.ceil((new Date(c.deadline+'T23:59:59').getTime()-Date.now())/86400000):null;}
 function Field({label,children}){return <div style={{marginBottom:14}}><label style={{display:'block',fontSize:11,color:'var(--text-3)',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:7}}>{label}</label>{children}</div>;}
-function normalizeModules(modules=[]){return modules.map((m,i)=>({id:m.id||genId(),section:m.section||'Course content',title:m.title||`Lesson ${i+1}`,type:m.type||'video',minutes:Number(m.minutes)||10,completed:!!m.completed,notes:m.notes||'',aiNotes:m.aiNotes||'',url:m.url||''}));}
+function normalizeModules(modules=[]){return modules.map((m,i)=>({id:m.id||genId(),section:m.section||'Course content',title:m.title||`Lesson ${i+1}`,type:m.type||'video',minutes:Number(m.minutes)||10,completed:!!m.completed,notes:m.notes||'',aiNotes:m.aiNotes||'',url:m.url||'',...(m.xp?{xp:true}:{})}));}
 
 export default function LearningPage(){
   const {courses,addCourse,updateCourse,removeCourse,addCertificate}=useApp();
@@ -38,11 +48,59 @@ export default function LearningPage(){
   const [lesson,setLesson]=useState({title:'',type:'video',minutes:'',section:'',url:''}),[savingCert,setSavingCert]=useState(false),[openLesson,setOpenLesson]=useState(null),[aiLesson,setAiLesson]=useState(null),[aiTranscript,setAiTranscript]=useState(''),[aiLoading,setAiLoading]=useState(false),[aiError,setAiError]=useState('');
   const active=courses.filter(c=>c.status!=='completed'),completed=courses.filter(c=>c.status==='completed').sort((a,b)=>String(b.completed_at||'').localeCompare(String(a.completed_at||'')));
   const [view,setView]=useState('active');
+
+  // ── Study hub state (lib/study.js) ──
+  const [tab,setTab]=useState('today'),[study,setStudy]=useState(null),[studyAt,setStudyAt]=useState(null),[toast,setToast]=useState(null);
+  const studyRef=useRef(null);studyRef.current=study;
+  useEffect(()=>{loadAll().then(setStudy);},[]);
+  useEffect(()=>{const t=new URLSearchParams(window.location.search).get('tab');if(t&&TABS.some(([k])=>k===t))setTab(t);},[]);
+  const patch=useCallback((p)=>{studyRef.current={...studyRef.current,...p};setStudy(studyRef.current);},[]);
+  // Adds XP (and streak, counts, medals) for one study event; celebrates new medals.
+  const award=useCallback(async(event)=>{
+    const s=studyRef.current;if(!s)return;
+    const coursesDone=courses.filter(c=>c.status==='completed').length+(event.kind==='course'?1:0);
+    const bestMastery=Math.max(0,...courses.map(c=>masteryFor(s,c.id).score||0));
+    const r=await record(s,event,{coursesDone,bestMastery});
+    patch({stats:r.stats,log:r.log});
+    if(r.newMedals.length){fireConfetti();setToast({medals:r.newMedals});setTimeout(()=>setToast(null),5000);}
+    else if(event.xp>=10){setToast({xp:event.xp});setTimeout(()=>setToast(null),2200);}
+  },[courses,patch]);
+  const addCards=useCallback(async(list)=>{const cards=[...studyRef.current.cards,...list];patch({cards});await saveCards(cards);},[patch]);
+  const deleteCard=useCallback(async(id)=>{const cards=studyRef.current.cards.filter(c=>c.id!==id);patch({cards});await saveCards(cards);},[patch]);
+  const gradeCard=useCallback(async(card,g)=>{
+    const cards=studyRef.current.cards.map(c=>c.id===card.id?schedule(c,g):c);patch({cards});await saveCards(cards);
+    await award({kind:'review',course_id:card.course_id||null,xp:g?XP.reviewGood:XP.reviewAgain,count:{reviews:1}});
+  },[patch,award]);
+  const saveNote=useCallback(async(n)=>{
+    const now=new Date().toISOString(),list=studyRef.current.notes;
+    const note={...n,id:n.id||genId(),title:(n.title||'').trim()||'Untitled',updated_at:now,created_at:n.created_at||now};
+    const notes=list.some(x=>x.id===note.id)?list.map(x=>x.id===note.id?note:x):[note,...list];patch({notes});await saveNotes(notes);
+  },[patch]);
+  const deleteNote=useCallback(async(id)=>{const notes=studyRef.current.notes.filter(n=>n.id!==id);patch({notes});await saveNotes(notes);},[patch]);
+  const saveProject=useCallback(async(p)=>{const list=studyRef.current.projects;const projects=list.some(x=>x.id===p.id)?list.map(x=>x.id===p.id?p:x):[p,...list];patch({projects});await saveProjects(projects);},[patch]);
+  const deleteProject=useCallback(async(id)=>{const projects=studyRef.current.projects.filter(p=>p.id!==id);patch({projects});await saveProjects(projects);},[patch]);
+  const toggleMilestone=useCallback(async(p,id)=>{
+    const m=p.milestones.find(x=>x.id===id),first=!m.done&&!m.awarded;
+    await saveProject({...p,milestones:p.milestones.map(x=>x.id===id?{...x,done:!x.done,awarded:x.awarded||!x.done}:x)});
+    if(first)await award({kind:'milestone',course_id:p.course_id||null,topic:p.title,xp:XP.milestone,count:{milestones:1}});
+  },[saveProject,award]);
+  const shipProject=useCallback(async(p)=>{
+    await saveProject({...p,status:'shipped',shipped_at:new Date().toISOString(),awarded_ship:true});
+    if(!p.awarded_ship)await award({kind:'project',course_id:p.course_id||null,topic:p.title,xp:XP.project,count:{projects_done:1}});
+  },[saveProject,award]);
+  // Quiz finished anywhere: misses become flashcards, score earns XP.
+  const quizDone=useCallback(async({score,total,wrong=[],course_id,topic})=>{
+    if(wrong.length)await addCards(wrong.map(w=>newCard({q:w.q,a:w.options[w.answer]+(w.why?`\n\n${w.why}`:''),course_id,topic,source:'quiz'})));
+    const perfect=total>0&&score===total;
+    await award({kind:'quiz',course_id,topic,score,total,xp:score*XP.quizRight+(perfect?XP.quizPerfect:0),count:{quizzes:1,perfect:perfect?1:0}});
+  },[addCards,award]);
+  const focusDone=useCallback(({minutes,course_id,lesson_id,topic,partial})=>award({kind:'focus',minutes,course_id,lesson_id,topic,xp:minutes*XP.focusMin,count:{focus:partial?0:1,focus_min:minutes}}),[award]);
   // Finishing a course moves it to the Completed tab; reopening moves it back.
   async function setCompleted(course,done){
-    const updated={...course,status:done?'completed':'active',completed_at:done?(course.completed_at||todayISO()):null,manual_complete:done};
+    const updated={...course,status:done?'completed':'active',completed_at:done?(course.completed_at||todayISO()):null,manual_complete:done,xp_awarded:course.xp_awarded||done};
     await updateCourse(updated);
     setSelected(s=>s&&s.id===course.id?updated:s);
+    if(done&&!course.xp_awarded){await award({kind:'course',course_id:course.id,topic:course.title,xp:50});}
     if(done)setView('completed');
   }
 
@@ -62,11 +120,13 @@ export default function LearningPage(){
     setForm(f=>({...f,modules:[...(f.modules||[]),next]}));setLesson({title:'',type:'video',minutes:'',section:lesson.section,url:''});
   }
   async function toggleLesson(course,id){
-    const modules=normalizeModules(course.modules).map(m=>m.id===id?{...m,completed:!m.completed}:m),done=modules.length>0&&modules.every(m=>m.completed);
+    const before=(course.modules||[]).find(m=>m.id===id),firstTime=before&&!before.completed&&!before.xp;
+    const modules=normalizeModules(course.modules).map(m=>m.id===id?{...m,completed:!m.completed,xp:m.xp||firstTime}:m),done=modules.length>0&&modules.every(m=>m.completed);
     const minutes=modules.filter(m=>m.completed).reduce((s,m)=>s+Number(m.minutes||0),0),total=modules.reduce((s,m)=>s+Number(m.minutes||0),0);
     const keepDone=course.status==='completed'&&course.manual_complete;
     const updated={...course,modules,completed_minutes:minutes,status:done||keepDone?'completed':'active',completed_at:done||keepDone?(course.completed_at||todayISO()):null,estimated_hours:Number((total/60).toFixed(2))};
-    await updateCourse(updated);setSelected(updated);
+    await updateCourse(updated);setSelected(s=>s?updated:s);
+    if(firstTime)await award({kind:'lesson',course_id:course.id,lesson_id:id,topic:before.title,xp:XP.lesson,count:{lessons:1}});
   }
   async function saveLessonNotes(course,id,notes){
     const updated=id==='__course__'?{...course,notes}:{...course,modules:normalizeModules(course.modules).map(m=>m.id===id?{...m,notes}:m)};
@@ -139,11 +199,21 @@ export default function LearningPage(){
   }
 
   return <Layout fab={false}><div style={{minHeight:'100vh',paddingBottom:90}}><div style={{maxWidth:1000,margin:'0 auto',padding:'28px 18px'}}>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,marginBottom:22}}>
-      <div><h1 className="lx-h1" style={{margin:'0 0 8px'}}>Courses & certificates</h1><p style={{margin:0,color:'var(--text-2)',fontSize:14,lineHeight:1.55}}>Build your real course library: lessons, knowledge checks, readings, assessments, notes, progress and certificates.</p></div>
-      <button className="btn-primary" onClick={openNew}>＋ Course</button>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,marginBottom:16}}>
+      <div><h1 className="lx-h1" style={{margin:'0 0 6px'}}>Learning</h1><p style={{margin:0,color:'var(--text-2)',fontSize:14,lineHeight:1.55}}>Study, recall, prove it. Every focus block, card and quiz moves you forward.</p></div>
+      {tab==='courses'?<button className="btn-primary" onClick={openNew}>＋ Course</button>:<button className="btn-primary" onClick={()=>setStudyAt({})}>🎧 Study</button>}
     </div>
-    <div className="card" style={{padding:16,marginBottom:18,background:'linear-gradient(135deg,rgba(16,185,129,.10),rgba(59,130,246,.07))'}}><div style={{fontWeight:800,marginBottom:6}}>🧠 Smart learning + Planner</div><div style={{color:'var(--text-2)',fontSize:13,lineHeight:1.6}}>Luxe now understands individual lessons and their durations. Course workload, progress, priority and deadline can compete for time with client work and other important commitments.</div></div>
+    <div className="tab-scroll" role="tablist" style={{display:'flex',gap:6,overflowX:'auto',marginBottom:16,paddingBottom:2}}>
+      {TABS.map(([k,l])=><button key={k} role="tab" aria-selected={tab===k} className={`chip ${tab===k?'active':''}`} onClick={()=>setTab(k)}>{l}{k==='review'&&study?` (${study.cards.filter(c=>!c.due||c.due<=todayISO()).length})`:''}</button>)}
+    </div>
+    {!study&&tab!=='courses'&&<div className="card-2" style={{padding:18,textAlign:'center',color:'var(--text-3)',fontSize:13}}>Loading…</div>}
+    {study&&tab==='today'&&<Today study={study} courses={courses} onStudy={setStudyAt} onTab={setTab} onRecap={()=>award({kind:'recap',xp:XP.recap,count:{recaps:1}})} onSaveNote={saveNote} onQuizDone={quizDone}/>}
+    {study&&tab==='review'&&<Review cards={study.cards} courses={courses} onGrade={gradeCard} onSaveCards={addCards} onDelete={deleteCard}/>}
+    {study&&tab==='quiz'&&<><div style={{fontSize:13,color:'var(--text-2)',marginBottom:10,lineHeight:1.5}}>Quick questions from your notes (or any topic). Misses turn into flashcards so they come back until you know them.</div><QuizPicker courses={courses} notes={study.notes} onDone={quizDone}/></>}
+    {study&&tab==='notes'&&<NotesHub courses={courses} notes={study.notes} cards={study.cards} onSaveNote={saveNote} onDeleteNote={deleteNote} onSaveCards={addCards} onQuizDone={quizDone} onStudy={setStudyAt}/>}
+    {study&&tab==='projects'&&<Projects courses={courses} projects={study.projects} onSave={saveProject} onDelete={deleteProject} onMilestone={toggleMilestone} onShip={shipProject}/>}
+    {study&&tab==='gains'&&<Gains study={study} courses={courses}/>}
+    {tab==='courses'&&<>
     {active.length===0&&completed.length===0&&<div className="card" style={{padding:32,textAlign:'center'}}><div style={{fontSize:42}}>🎓</div><div style={{fontWeight:800,marginTop:8}}>Start your learning library</div><div style={{color:'var(--text-3)',fontSize:13,margin:'6px 0 16px'}}>Add an AI/ML, programming, startup, cloud or any other course.</div><button className="btn-primary" onClick={openNew}>Add your first course</button></div>}
     {(active.length>0||completed.length>0)&&<div role="tablist" style={{display:'flex',gap:8,marginBottom:14}}>
       <button role="tab" aria-selected={view==='active'} className={`chip ${view==='active'?'active':''}`} onClick={()=>setView('active')}>📚 In progress ({active.length})</button>
@@ -153,6 +223,7 @@ export default function LearningPage(){
     {view==='active'&&active.map(c=><CourseCard key={c.id} course={c} onOpen={()=>setSelected(c)} onEdit={()=>openEdit(c)} onDelete={()=>{if(confirm(`Delete "${c.title}"?`))removeCourse(c.id)}} onComplete={()=>setCompleted(c,true)}/>)}
     {view==='completed'&&completed.length===0&&<div className="card-2" style={{padding:16,fontSize:13,color:'var(--text-2)',textAlign:'center'}}>No finished courses yet. Mark one complete and it moves here.</div>}
     {view==='completed'&&completed.map(c=><CourseCard key={c.id} course={c} onOpen={()=>setSelected(c)} onEdit={()=>openEdit(c)} onDelete={()=>{if(confirm(`Delete "${c.title}"?`))removeCourse(c.id)}} onReopen={()=>setCompleted(c,false)}/>)}
+    </>}
   </div></div>
 
   {formOpen&&<div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setFormOpen(false)}><div className="modal-sheet" style={{maxHeight:'92vh',overflowY:'auto'}}><div style={{width:36,height:4,background:'var(--border)',borderRadius:2,margin:'12px auto'}}/><div className="modal-header"><span style={{fontWeight:800}}>{selected?'Edit Course':'Add Course'}</span><button className="btn-icon" onClick={()=>setFormOpen(false)}>✕</button></div><div className="modal-body">
@@ -171,7 +242,9 @@ export default function LearningPage(){
     </div><button className="btn-primary" style={{width:'100%',marginTop:18}} onClick={save}>Save Course</button>
   </div></div></div>}
 
-  {selected&&!formOpen&&<CourseDetail course={selected} onClose={()=>setSelected(null)} onEdit={()=>{setFormOpen(true);setForm({...EMPTY,...selected,modules:normalizeModules(selected.modules)});setSelected(null)}} onToggle={toggleLesson} onSaveNotes={saveLessonNotes} onCertificate={uploadCertificate} onSetCompleted={setCompleted} savingCert={savingCert} openLesson={openLesson} setOpenLesson={setOpenLesson} aiLesson={aiLesson} setAiLesson={setAiLesson} aiTranscript={aiTranscript} setAiTranscript={setAiTranscript} aiLoading={aiLoading} aiError={aiError} generateLessonNotes={generateLessonNotes} generateVimeoNotes={generateVimeoNotes}/>}
+  {studyAt&&study&&<StudyMode courses={courses} notes={study.notes} prefs={study.prefs} start={studyAt} onClose={()=>setStudyAt(null)} onFocusDone={focusDone} onQuizDone={quizDone} onLessonDone={(c,id)=>toggleLesson(courses.find(x=>x.id===c.id)||c,id)} onSaveNote={saveNote} onPrefs={(p)=>{patch({prefs:p});savePrefs(p);}}/>}
+  {toast&&<div className="learn-toast">{toast.medals?toast.medals.map(m=><div key={m.id}><span style={{fontSize:26}}>{m.icon}</span> <b>Medal: {m.name}</b><div style={{fontSize:12,opacity:.8}}>{m.desc}</div></div>):<b>+{toast.xp} XP</b>}</div>}
+  {selected&&!formOpen&&<CourseDetail onStudy={(lessonId)=>{setStudyAt({courseId:selected.id,lessonId});setSelected(null);}} course={selected} onClose={()=>setSelected(null)} onEdit={()=>{setFormOpen(true);setForm({...EMPTY,...selected,modules:normalizeModules(selected.modules)});setSelected(null)}} onToggle={toggleLesson} onSaveNotes={saveLessonNotes} onCertificate={uploadCertificate} onSetCompleted={setCompleted} savingCert={savingCert} openLesson={openLesson} setOpenLesson={setOpenLesson} aiLesson={aiLesson} setAiLesson={setAiLesson} aiTranscript={aiTranscript} setAiTranscript={setAiTranscript} aiLoading={aiLoading} aiError={aiError} generateLessonNotes={generateLessonNotes} generateVimeoNotes={generateVimeoNotes}/>}
   </Layout>;
 }
 
@@ -182,14 +255,14 @@ function CourseCard({course,onOpen,onEdit,onDelete,onComplete,onReopen}){
   return <div className="card" style={{padding:15,marginBottom:10,borderColor:isDone?'rgba(245,197,107,.35)':urgent?'rgba(239,68,68,.45)':'var(--border)'}}><div style={{display:'flex',gap:12,alignItems:'flex-start'}}><div style={{width:44,height:44,borderRadius:12,background:isDone?'var(--gold-dim)':'rgba(16,185,129,.12)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:23,flexShrink:0}}>{isDone?(course.certificate?'🏆':'🏁'):'🎓'}</div><div style={{flex:1,minWidth:0}}><div style={{display:'flex',justifyContent:'space-between',gap:8}}><div style={{fontWeight:800,fontSize:15}}>{course.title}</div><span style={{fontSize:11,color:course.status==='completed'?'var(--green)':urgent?'var(--red)':'var(--text-3)'}}>P{course.priority||3}</span></div><div style={{fontSize:11,color:'var(--text-2)',marginTop:3}}>{course.provider||'Self study'} · {isDone?('Completed'+(doneOn?' '+doneOn:'')+(course.certificate?' · certified':'')):(mods.length?done+'/'+mods.length+' lessons':hoursLeft(course).toFixed(1)+'h remaining')}{d!==null?' · '+(d<0?'overdue':d+'d left'):''}</div><div style={{height:6,background:'var(--card-2)',borderRadius:8,overflow:'hidden',marginTop:10}}><div style={{height:'100%',width:p+'%',background:isDone?'var(--gold)':'var(--green)'}}/></div><div style={{display:'flex',gap:7,marginTop:10,flexWrap:'wrap'}}><button className="btn-ghost" style={{flex:1}} onClick={onOpen}>Open</button>{onComplete&&<button className="btn-ghost" style={{color:'var(--green)'}} onClick={onComplete}>✓ Completed</button>}{onReopen&&<button className="btn-ghost" onClick={onReopen}>↩ Reopen</button>}<button className="btn-ghost" onClick={onEdit}>Edit</button><button className="btn-icon" onClick={onDelete} aria-label="Delete course">✕</button></div></div></div></div>;
 }
 
-function CourseDetail({course,onClose,onEdit,onToggle,onSaveNotes,onCertificate,onSetCompleted,savingCert,openLesson,setOpenLesson,aiLesson,setAiLesson,aiTranscript,setAiTranscript,aiLoading,aiError,generateLessonNotes,generateVimeoNotes}){
+function CourseDetail({onStudy,course,onClose,onEdit,onToggle,onSaveNotes,onCertificate,onSetCompleted,savingCert,openLesson,setOpenLesson,aiLesson,setAiLesson,aiTranscript,setAiTranscript,aiLoading,aiError,generateLessonNotes,generateVimeoNotes}){
   const mods=normalizeModules(course.modules),p=progress(course),d=daysLeft(course),groups=mods.reduce((a,m)=>{const k=m.section||'Course content';(a[k]||(a[k]=[])).push(m);return a},{});
   return <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}><div className="modal-sheet" style={{maxHeight:'94vh',overflowY:'auto'}}><div style={{width:36,height:4,background:'var(--border)',borderRadius:2,margin:'12px auto'}}/><div className="modal-header"><span style={{fontWeight:800}}>🎓 {course.title}</span><button className="btn-icon" onClick={onClose}>✕</button></div><div className="modal-body">
     <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}><span className="badge">{course.provider||'Self study'}</span><span className="badge">P{course.priority||3}</span>{d!==null&&<span className="badge">{d<0?'Overdue':d+'d left'}</span>}</div>
     {course.description&&<div style={{fontSize:13,color:'var(--text-2)',lineHeight:1.6,marginBottom:16}}>{course.description}</div>}
     <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'var(--text-3)',marginBottom:6}}><span>{mods.length?mods.filter(m=>m.completed).length+'/'+mods.length+' lessons':''} {p}% complete</span><span>{hoursLeft(course).toFixed(1)}h remaining</span></div><div style={{height:8,background:'var(--card-2)',borderRadius:10,overflow:'hidden',marginBottom:18}}><div style={{height:'100%',width:p+'%',background:'var(--green)'}}/></div>
     <div style={{fontSize:12,fontWeight:800,letterSpacing:1,textTransform:'uppercase',marginBottom:9}}>Curriculum</div>
-    {Object.entries(groups).map(([section,items])=><div key={section} style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:13,marginBottom:7,padding:'8px 10px',background:'var(--card-2)',borderRadius:9}}>§ {section}<span style={{float:'right',fontWeight:500,color:'var(--text-3)'}}>{items.filter(m=>m.completed).length}/{items.length}</span></div>{items.map(m=><div key={m.id} style={{border:'1px solid var(--border)',borderRadius:10,marginBottom:7,overflow:'hidden'}}><button onClick={()=>setOpenLesson(openLesson===m.id?null:m.id)} style={{width:'100%',border:0,background:'transparent',color:'var(--text)',padding:'11px 10px',display:'flex',gap:9,alignItems:'center',textAlign:'left',cursor:'pointer'}}><span>{m.completed?'✅':(TYPES.find(t=>t.value===m.type)?.label.split(' ')[0]||'📌')}</span><span style={{flex:1,fontSize:13}}>{m.title}</span><span style={{fontSize:11,color:'var(--text-3)'}}>{m.minutes}m</span><span style={{fontSize:12}}>{openLesson===m.id?'⌃':'⌄'}</span></button>{openLesson===m.id&&<div style={{padding:'0 10px 11px',borderTop:'1px solid var(--border)'}}><div style={{display:'flex',gap:7,marginTop:9}}><button className={`btn-${m.completed?'ghost':'primary'}`} style={{flex:1}} onClick={()=>onToggle(course,m.id)}>{m.completed?'↩ Mark incomplete':'✓ Mark complete'}</button>{m.url&&<a className="btn-ghost" href={m.url} target="_blank" rel="noreferrer" style={{textDecoration:'none'}}>Open ↗</a>}</div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginTop:10,marginBottom:6}}><label style={{fontSize:11,color:'var(--text-3)',fontWeight:700}}>AI NOTES</label><button className="btn-ghost" onClick={()=>{setAiLesson(m);setAiTranscript('');setAiError('');}}>✨ Generate AI Notes</button>{m.url&&<button className="btn-ghost" disabled={aiLoading} onClick={()=>generateVimeoNotes(course,m)}>🎬 Read Vimeo captions</button>}</div>{m.aiNotes&&<div style={{padding:11,background:'rgba(16,185,129,.07)',border:'1px solid rgba(16,185,129,.2)',borderRadius:9,fontSize:12,lineHeight:1.65,whiteSpace:'pre-wrap',marginBottom:9}}>{m.aiNotes}</div>}<label style={{display:'block',fontSize:11,color:'var(--text-3)',fontWeight:700,marginBottom:5}}>MY NOTES</label><textarea className="input" rows={5} defaultValue={m.notes||''} onBlur={e=>onSaveNotes(course,m.id,e.target.value)} placeholder="Your own notes, thoughts and examples..."/></div>}</div>)}</div>)}
+    {Object.entries(groups).map(([section,items])=><div key={section} style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:13,marginBottom:7,padding:'8px 10px',background:'var(--card-2)',borderRadius:9}}>§ {section}<span style={{float:'right',fontWeight:500,color:'var(--text-3)'}}>{items.filter(m=>m.completed).length}/{items.length}</span></div>{items.map(m=><div key={m.id} style={{border:'1px solid var(--border)',borderRadius:10,marginBottom:7,overflow:'hidden'}}><button onClick={()=>setOpenLesson(openLesson===m.id?null:m.id)} style={{width:'100%',border:0,background:'transparent',color:'var(--text)',padding:'11px 10px',display:'flex',gap:9,alignItems:'center',textAlign:'left',cursor:'pointer'}}><span>{m.completed?'✅':(TYPES.find(t=>t.value===m.type)?.label.split(' ')[0]||'📌')}</span><span style={{flex:1,fontSize:13}}>{m.title}</span><span style={{fontSize:11,color:'var(--text-3)'}}>{m.minutes}m</span><span style={{fontSize:12}}>{openLesson===m.id?'⌃':'⌄'}</span></button>{openLesson===m.id&&<div style={{padding:'0 10px 11px',borderTop:'1px solid var(--border)'}}><div style={{display:'flex',gap:7,marginTop:9}}><button className={`btn-${m.completed?'ghost':'primary'}`} style={{flex:1}} onClick={()=>onToggle(course,m.id)}>{m.completed?'↩ Mark incomplete':'✓ Mark complete'}</button><button className="btn-ghost" onClick={()=>onStudy(m.id)}>🎧 Study</button>{m.url&&<a className="btn-ghost" href={m.url} target="_blank" rel="noreferrer" style={{textDecoration:'none'}}>Open ↗</a>}</div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginTop:10,marginBottom:6}}><label style={{fontSize:11,color:'var(--text-3)',fontWeight:700}}>AI NOTES</label><button className="btn-ghost" onClick={()=>{setAiLesson(m);setAiTranscript('');setAiError('');}}>✨ Generate AI Notes</button>{m.url&&<button className="btn-ghost" disabled={aiLoading} onClick={()=>generateVimeoNotes(course,m)}>🎬 Read Vimeo captions</button>}</div>{m.aiNotes&&<div style={{padding:11,background:'rgba(16,185,129,.07)',border:'1px solid rgba(16,185,129,.2)',borderRadius:9,fontSize:12,lineHeight:1.65,whiteSpace:'pre-wrap',marginBottom:9}}>{m.aiNotes}</div>}<label style={{display:'block',fontSize:11,color:'var(--text-3)',fontWeight:700,marginBottom:5}}>MY NOTES</label><textarea className="input" rows={5} defaultValue={m.notes||''} onBlur={e=>onSaveNotes(course,m.id,e.target.value)} placeholder="Your own notes, thoughts and examples..."/></div>}</div>)}</div>)}
     {!mods.length&&<div className="card-2" style={{padding:14,color:'var(--text-3)',fontSize:12}}>No curriculum added yet. Edit the course and add lessons with their real durations.</div>}
     <Field label="Course notes / overall notes"><textarea className="input" rows={5} defaultValue={course.notes||''} onBlur={e=>onSaveNotes(course,'__course__',e.target.value)} placeholder="Big-picture notes, projects, ideas and things to revisit..."/></Field>
     {course.url&&<a href={course.url} target="_blank" rel="noreferrer" className="btn-ghost" style={{display:'block',textAlign:'center',textDecoration:'none',marginBottom:10}}>🌐 Open Course</a>}

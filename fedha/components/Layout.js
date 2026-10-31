@@ -37,7 +37,7 @@ const MORE_GROUPS = [
   { title: 'Grow & earn', items: [
     { href:'/trading', label:'Trading', icon:'trending', desc:'Charts, paper trades & Binance wallet' },
     { href:'/discover', label:'Business', icon:'briefcase', desc:'Jobs & earning' },
-    { href:'/learning', label:'Learning', icon:'learn', desc:'Courses, hackathons & startups' },
+    { href:'/learning', label:'Learning', icon:'learn', desc:'Study mode, flashcards, quizzes & courses' },
   ]},
 ];
 const HUBS = [

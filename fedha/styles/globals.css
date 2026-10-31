@@ -1706,3 +1706,22 @@ label { color: var(--text-2); }
 .smsq-chip:active { transform: scale(0.96); }
 .smsq-chip:disabled { opacity: 0.5; }
 @media (min-width: 960px) { .smsq { bottom: 24px; left: auto; right: 24px; width: 420px; } }
+
+/* ── Learning hub (pages/learning.js, components/learn) ── */
+.study-overlay { position: fixed; inset: 0; z-index: 900; background: var(--bg, #0B0F14); overflow-y: auto; padding: max(16px, env(safe-area-inset-top)) 16px 40px; }
+.study-wrap { max-width: 640px; margin: 0 auto; }
+.study-lbl { display: block; font-size: 11px; color: var(--text-3); font-weight: 700; letter-spacing: .8px; text-transform: uppercase; margin: 10px 0 5px; }
+.study-cta { width: 100%; padding: 16px; font-size: 16px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.study-cta span { font-size: 11.5px; font-weight: 500; opacity: .8; }
+.learn-tile { padding: 14px 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; cursor: pointer; color: var(--text); width: 100%; }
+.learn-tile b { font-size: 14px; }
+.learn-tile span:last-child { font-size: 11.5px; color: var(--text-3); }
+.learn-hero { background: linear-gradient(135deg, rgba(233,216,166,.10), rgba(16,185,129,.07)); }
+.lvl-badge { width: 52px; height: 52px; flex-shrink: 0; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 22px; color: #1a1406; background: linear-gradient(135deg, #F5E3B3, #C9A44C); box-shadow: 0 4px 16px rgba(201,164,76,.3); }
+.medal { border: 1px solid var(--border); border-radius: 12px; padding: 10px 6px; text-align: center; background: var(--card-2); }
+.quiz-opt { text-align: left; padding: 11px 12px; border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 13.5px; line-height: 1.45; cursor: pointer; transition: border-color .2s, background .2s; }
+.quiz-opt:disabled { cursor: default; }
+.learn-toast { position: fixed; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 1000; background: var(--card, #151A21); border: 1px solid rgba(233,216,166,.45); border-radius: 14px; padding: 12px 18px; box-shadow: 0 10px 30px rgba(0,0,0,.4); text-align: center; animation: learnToast .35s cubic-bezier(.2,.8,.2,1); max-width: 90vw; }
+@keyframes learnToast { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.md-code { font-family: ui-monospace, monospace; font-size: .92em; background: var(--card-2); padding: 1px 5px; border-radius: 5px; }
+.md-pre { font-family: ui-monospace, monospace; font-size: 12px; background: var(--card-2); border: 1px solid var(--border); padding: 10px; border-radius: 8px; overflow-x: auto; white-space: pre; margin: 6px 0; }
