@@ -24,7 +24,9 @@ const BOARD_HELP = `Boards (pick the one that teaches best; use one in most scen
 {"type":"big","text":"key term or formula","sub":"one line"}
 {"type":"compare","left":{"title":"","items":[""]},"right":{"title":"","items":[""]}}
 {"type":"flow","title":"","nodes":["",""]}  up to 6 nodes, top to bottom
-{"type":"story","title":"","text":"..."}  for a story tangent, under 70 words`;
+{"type":"story","title":"","text":"..."}  for a story tangent, under 70 words
+{"type":"picture","title":"","items":[{"emoji":"🚗","label":"car","note":"what it stands for"}],"join":"→","wiki":"Car","scene":"a cartoon car stopping at a toll gate","caption":""}  SHOW what you are talking about: 1-4 items, each one emoji with a short label (and optional note); "join" between items is "→", "+", "vs", "=" or ""; "wiki" is the exact English Wikipedia article title when it is a real object or thing (Car, Padlock, Neuron, Router), else ""; "scene" is a one-line description to draw an illustration when a photo would not fit, else "".
+MAKE IT VISUAL: whenever you say "take this car", "imagine a lock", use an analogy, or name a concrete thing, put a picture board up in that same scene so the learner SEES it. Use at least one picture board in most answers.`;
 
 const STAGE_ASK = {
   start: 'The session is starting. If you have a lesson plan, open with a line that proves you read their notes, say what today\'s session covers, then start step 1.' + ' Otherwise: Burst onto the screen: greet the learner with a cheeky, funny opening, tease what is coming in this topic with one hook (a surprising fact or tiny story), and ask what they already know.',
@@ -201,6 +203,11 @@ function cleanBoard(bd) {
     }
     case 'flow': { const nodes = strs(bd.nodes, 6, 60); return nodes.length >= 2 ? { type: 'flow', title: clip(bd.title, 60), nodes } : null; }
     case 'story': return bd.text ? { type: 'story', title: clip(bd.title, 60), text: clip(bd.text, 600) } : null;
+    case 'picture': {
+      const items = (Array.isArray(bd.items) ? bd.items : []).filter((x) => x && x.emoji).slice(0, 4).map((x) => ({ emoji: clip(x.emoji, 8), label: clip(x.label, 28), note: clip(x.note, 60) }));
+      if (!items.length) return null;
+      return { type: 'picture', title: clip(bd.title, 60), items, join: ['→', '+', 'vs', '=', '←', '↔'].includes(bd.join) ? bd.join : '', wiki: clip(String(bd.wiki || '').replace(/[^\w\s()'.,-]/g, ''), 60), scene: clip(bd.scene, 200), caption: clip(bd.caption, 120) };
+    }
     default: return null;
   }
 }

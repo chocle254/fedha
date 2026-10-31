@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 
 // Professor Byte's board: what he points at while he talks. One board per scene, drawn with a little life:
@@ -43,8 +44,76 @@ function Chart({ b }) {
   );
 }
 
+// "Take this car": the thing he's talking about appears. Emoji first (instant, animated, labelled), then a real
+// photo from Wikipedia when it is a real object, or a drawn illustration (Pollinations, free, one every ~15 s).
+let lastDraw = 0;
+const pictureCache = new Map();
+function usePicture(b) {
+  const [src, setSrc] = useState(() => pictureCache.get(b.wiki || b.scene) || null);
+  useEffect(() => {
+    let dead = false;
+    const key = b.wiki || b.scene;
+    if (!key) return undefined;
+    if (pictureCache.has(key)) { setSrc(pictureCache.get(key)); return undefined; }
+    const draw = () => {
+      if (!b.scene || dead) return;
+      const wait = Math.max(0, lastDraw + 15500 - Date.now());
+      const t = setTimeout(() => {
+        if (dead) return;
+        lastDraw = Date.now();
+        let h = 0; for (const ch of b.scene) h = (h * 31 + ch.charCodeAt(0)) | 0;
+        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(`${b.scene}, friendly colourful flat illustration, clean background, no text`)}?width=512&height=320&nologo=true&seed=${Math.abs(h) % 100000}`;
+        const img = new Image();
+        img.onload = () => { pictureCache.set(key, url); if (!dead) setSrc(url); };
+        img.src = url;
+      }, wait);
+      return () => clearTimeout(t);
+    };
+    if (b.wiki) {
+      fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(b.wiki.replace(/ /g, '_'))}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          const u = j?.thumbnail?.source || j?.originalimage?.source;
+          if (u && j.type !== 'disambiguation') { const img = new Image(); img.onload = () => { pictureCache.set(key, u); if (!dead) setSrc(u); }; img.onerror = draw; img.src = u; } else draw();
+        })
+        .catch(draw);
+    } else draw();
+    return () => { dead = true; };
+  }, [b.wiki, b.scene]);
+  return src;
+}
+
+function Picture({ b }) {
+  const src = usePicture(b);
+  const items = b.items || [];
+  return (
+    <div>
+      {b.title && <div style={ink.title}>{b.title}</div>}
+      {src && (
+        <motion.div initial={{ opacity: 0, scale: 0.92 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5 }} style={{ borderRadius: 9, overflow: 'hidden', marginBottom: 7, background: '#0B1020' }}>
+          <img src={src} alt={b.wiki || b.scene || b.title || 'Illustration'} style={{ width: '100%', maxHeight: 112, objectFit: 'cover', display: 'block' }} />
+        </motion.div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, flexWrap: 'wrap' }}>
+        {items.map((it, i) => (
+          <motion.div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }} initial={{ opacity: 0, scale: 0.3, y: 14 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ delay: 0.15 + i * 0.45, type: 'spring', stiffness: 220, damping: 12 }}>
+            {i > 0 && b.join && <span style={{ fontSize: 15, fontWeight: 900, color: '#34D399', margin: '0 2px' }}>{b.join}</span>}
+            <div style={{ textAlign: 'center', minWidth: 54, maxWidth: 92 }}>
+              <motion.div animate={{ y: [0, -4, 0] }} transition={{ duration: 2.2, repeat: Infinity, delay: i * 0.3, ease: 'easeInOut' }} style={{ fontSize: src ? 26 : items.length > 2 ? 34 : 46, lineHeight: 1.1 }}>{it.emoji}</motion.div>
+              {it.label && <div style={{ fontSize: 11, fontWeight: 800, marginTop: 2 }}>{it.label}</div>}
+              {it.note && <div style={{ fontSize: 10, color: 'rgba(255,255,255,.65)', lineHeight: 1.3 }}>{it.note}</div>}
+            </div>
+          </motion.div>
+        ))}
+      </div>
+      {b.caption && <motion.div {...rise(items.length)} style={{ fontSize: 11, color: 'rgba(255,255,255,.75)', textAlign: 'center', marginTop: 6, fontStyle: 'italic' }}>{b.caption}</motion.div>}
+    </div>
+  );
+}
+
 export default function TutorBoard({ board: b }) {
   if (!b) return null;
+  if (b.type === 'picture') return <Picture b={b} />;
   if (b.type === 'chart') return <Chart b={b} />;
   if (b.type === 'steps') return (
     <div>
@@ -111,6 +180,7 @@ export function boardToMd(b) {
     case 'compare': return [b.left, b.right].filter(Boolean).map((s) => `**${s.title}**\n${(s.items || []).map((x) => `- ${x}`).join('\n')}`).join('\n\n');
     case 'flow': return `**${b.title || 'Flow'}**\n${(b.nodes || []).join(' → ')}`;
     case 'story': return `**${b.title || 'Story'}**\n${b.text}`;
+    case 'picture': return `**${b.title || 'Picture'}**: ${(b.items || []).map((x) => `${x.emoji} ${x.label || ''}${x.note ? ` (${x.note})` : ''}`).join(` ${b.join || '·'} `)}${b.caption ? `\n${b.caption}` : ''}`;
     default: return '';
   }
 }
