@@ -68,8 +68,8 @@ public class LuxeDelegationService extends DelegationService {
         if ((m == 12 && d == 31) || (m == 1 && d <= 2)) return H_NEWYEAR;
         if (m == 12 && d >= 20 && d <= 26) return H_CHRISTMAS;
         if (m == 10 && (d == 30 || d == 31)) return H_HALLOWEEN;
-        // Vice Nights: 1-26 Nov 2026, around GTA VI's announced release (19 Nov). Same window as lib/holidays.js.
-        if (c.get(Calendar.YEAR) == 2026 && m == 11 && d <= 26) return H_VICE;
+        // Vice Nights: until GTA VI's announced release day (19 Nov 2026), gone the day after. Same as lib/holidays.js.
+        if (c.get(Calendar.YEAR) == 2026 && ((m == 10 && d == 31) || (m == 11 && d <= 19))) return H_VICE;
         return null;
     }
 

@@ -15,7 +15,7 @@ function easter(y) {
 // The owner's birthday: 5 December 2001.
 export const BIRTH = { y: 2001, m: 12, d: 5 };
 // GTA VI release as announced by Rockstar (Nov 2025). Change here if it moves.
-export const VICE = { release: '2026-11-19', start: '2026-11-01', end: '2026-11-26' };
+export const VICE = { release: '2026-11-19', start: '2026-10-31', end: '2026-11-19' }; // from now until release day, gone the day after
 export const viceRelease = () => new Date(`${VICE.release}T00:00:00`);
 export const viceDays = (now = new Date()) => { const t = new Date(now.getFullYear(), now.getMonth(), now.getDate()); return Math.round((viceRelease() - t) / 864e5); };
 const ordinal = (n) => { const v = n % 100; return n + (v >= 11 && v <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'); };
@@ -53,7 +53,7 @@ export const HOLIDAYS = [
     greet: () => 'Happy Halloween. Stay out of the cemetery.', glows: ['76,29,149'], scene: 'halloween',
     emit: [{ shape: 'dust', motion: 'fall', n: 14, size: [1.5, 3], colors: ['#9CA3AF', '#6B7280'], slow: true }] },
   // Vice Nights: an original neon-sunset look while we wait for GTA VI (release announced for 19 Nov 2026),
-  // until a week after. Real holidays win. Switch off on Home (localStorage 'luxe_vice_off').
+  // up to and including release day. Real holidays win. Switch off on Home (localStorage 'luxe_vice_off').
   { key: 'vice', name: 'Vice Nights', icon: '🌴', scene: 'vice', glows: ['255,46,136', '34,211,238'],
     when: (m, d, y) => { try { if (localStorage.getItem('luxe_vice_off') === '1') return false; } catch { /* private */ } const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`; return iso >= VICE.start && iso <= VICE.end; },
     greet: () => { const n = viceDays(); return n > 0 ? `GTA VI in ${n} day${n === 1 ? '' : 's'}` : n === 0 ? 'GTA VI is out today' : 'Vice Nights'; },
