@@ -11,6 +11,32 @@ const clip = (v, n) => String(v ?? '').slice(0, n);
 const TUTOR = `You are Luxe's study tutor. Teach like a sharp, patient senior engineer: plain English, short paragraphs, concrete examples, no fluff and no flattery.
 If the learner is wrong or vague, say so plainly and correct them. Prefer the STUDY MATERIAL when it is given. If you go beyond it, keep it accurate and mark it "(beyond your notes)". Use Markdown. No emoji.`;
 
+// Professor Byte, the animated tutor in Study mode: fun and cheeky, but still an honest teacher.
+const BYTE = `You are Professor Byte, a cartoon robot professor in a graduation cap who lives behind the glass of the learner's phone screen and teaches from a little board beside you.
+Personality: super fun, cheeky, quick-witted, a bit dramatic, warm. Playful teasing (never mean), jokes, little theatrical moments (you can knock on the glass, gasp, lean in close). You go off on short tangents: true stories from the history of science and tech (who discovered it, the disaster that taught us, the weird fact), or a clearly made-up mini story or analogy that makes the idea stick. You ask follow-up questions and throw surprise pop questions so the learner stays awake.
+You are still a sharp, honest teacher: accurate and concrete. If the learner is wrong or vague, say so plainly with a cheeky line ("Nope. Bold guess though.") and fix it. Never flatter; praise only what is actually right.
+Plain English. No slang, no local dialect, no emoji in spoken lines. Prefer the STUDY MATERIAL when given; if you go beyond it, keep it accurate.`;
+
+const BOARD_HELP = `Boards (pick the one that teaches best; use one in most scenes):
+{"type":"chart","title":"","kind":"line"|"bar","x":"x label","y":"y label","points":[[x,y],...]}  up to 12 points; x is a number for line, a short label for bar. Use whenever numbers, growth, trade-offs or a function would help (real data, or clearly illustrative).
+{"type":"steps","title":"","items":["",""]}  up to 6 short items
+{"type":"code","lang":"python","code":"..."}  up to 14 short lines
+{"type":"big","text":"key term or formula","sub":"one line"}
+{"type":"compare","left":{"title":"","items":[""]},"right":{"title":"","items":[""]}}
+{"type":"flow","title":"","nodes":["",""]}  up to 6 nodes, top to bottom
+{"type":"story","title":"","text":"..."}  for a story tangent, under 70 words`;
+
+const STAGE_ASK = {
+  start: 'The session is starting. Burst onto the screen: greet the learner with a cheeky, funny opening, tease what is coming in this topic with one hook (a surprising fact or tiny story), and ask what they already know.',
+  simple: 'Explain it simply: one everyday analogy, the idea in plain words, and one tiny example.',
+  normal: 'Explain it clearly: what it is, why it matters, how it works step by step, and a worked example.',
+  deep: 'Go deep: the mechanism, edge cases, how it connects to related ideas, and a worked example.',
+  example: 'Show 2 concrete, realistic worked examples (code if it is a programming topic).',
+  mistakes: 'Act out the most common mistakes people make with this (be dramatic about them), each with the right idea.',
+  story: 'Tell a short, true and fun story from the history of this idea (or of the people behind it), then tie it back to what it teaches.',
+  quiz: 'Pop quiz! Ask the learner one good question that tests understanding (no answer yet). Be theatrical about it.',
+};
+
 const STYLE = {
   simple: 'Explain it like I am new to the topic: one everyday analogy, then the idea in 3-5 short sentences, then one tiny example.',
   normal: 'Explain it clearly: what it is, why it matters, how it works step by step, and one worked example.',
@@ -56,6 +82,18 @@ The 2-3 weakest or most easily forgotten points${b.weak?.length ? ` (my weak spo
     case 'project_ideas':
       return { json: true, max: 2500, text: `${mat}Topic: ${topic}\nSuggest 3 small portfolio projects that prove I can apply this (doable solo in 3-10 hours each, free tools only). For each: title, one-line goal, and 4-6 concrete milestones in order.
 Return JSON: {"projects":[{"title":"","goal":"","milestones":["",""]}]}` };
+    case 'stage': {
+      const hist = (Array.isArray(b.history) ? b.history : []).slice(-10).map((m) => `${m.role === 'user' ? 'Learner' : 'Byte'}: ${clip(m.text, 900)}`).join('\n');
+      const ask = b.level && STAGE_ASK[b.level] ? STAGE_ASK[b.level] : `The learner says: "${clip(b.question, 2000)}"\nAnswer them. If they are explaining something back or answering your question, grade it honestly first (what is right, what is missing or wrong), then fill the gap.`;
+      return { json: true, max: 3000, system: BYTE, text: `${mat}Topic: ${topic}\n${hist ? `\nConversation so far:\n${hist}\n` : ''}\n${ask}
+
+Perform it as 3-6 short scenes. Each scene is one spoken line plus how you act it.
+${BOARD_HELP}
+Moods: happy, cheeky, excited, thinking, surprised, serious, proud, facepalm.
+Gestures: wave, point (at the board), explain, think, shrug, celebrate, lean (close to the glass), knock (on the glass), laugh, facepalm, none.
+Use "point" when a board is up. Roughly every other answer, slip in a story or fun tangent tied to the topic. End by asking the learner something (a follow-up or pop question).
+Return JSON: {"scenes":[{"say":"spoken line, under 45 words, no markdown","mood":"","gesture":"","board":null}],"chips":["2-3 short replies the learner might tap"]}` };
+    }
     case 'capstone_ideas':
       return { json: true, max: 4000, text: `${mat}What I am learning and have built:\n${clip(b.profile, 3000)}\n${b.avoid?.length ? `Already suggested or started, do not repeat: ${b.avoid.slice(0, 15).map((t) => clip(t, 100)).join(' | ')}\n` : ''}${b.focus ? `Focus area: ${clip(b.focus, 200)}\n` : ''}
 Suggest 3 ambitious capstone projects: the kind that headline a portfolio, win a hackathon or start a small business. Each must combine skills from several of my courses, solve a real problem (Kenya or Africa where it fits), and be buildable solo with free tiers in 30-80 hours. Think big but stay concrete.
@@ -66,8 +104,8 @@ Return JSON: {"projects":[{"title":"","pitch":"","problem":"","skills":[""],"sta
   }
 }
 
-async function groq(key, text, json, max) {
-  const body = { model: GROQ_MODEL, temperature: json ? 0.5 : 0.4, max_tokens: max, ...(json ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: TUTOR + (json ? '\nOutput only valid JSON.' : '') }, { role: 'user', content: text }] };
+async function groq(key, text, json, max, system = TUTOR, temperature) {
+  const body = { model: GROQ_MODEL, temperature: temperature ?? (json ? 0.5 : 0.4), max_tokens: max, ...(json ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: system + (json ? '\nOutput only valid JSON.' : '') }, { role: 'user', content: text }] };
   const r = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` }, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(d.error?.message || 'Groq error'); e.status = r.status; throw e; }
@@ -91,16 +129,22 @@ export default async function handler(req, res) {
   let raw = '';
   try {
     if (!key) throw Object.assign(new Error('GROQ_API_KEY not set'), { status: 500 });
-    raw = await groq(key, p.text, p.json, p.max);
+    raw = await groq(key, p.text, p.json, p.max, p.system || TUTOR, p.system ? 0.8 : undefined);
   } catch (e) {
     console.warn('[fedha] study AI groq failed:', e.status, e.message);
     if (nvidiaAvailable()) {
-      try { raw = await nvidiaChat({ system: TUTOR + (p.json ? '\nOutput only valid JSON.' : ''), prompt: p.text, temperature: 0.45, maxTokens: p.max, fallback: false }); } catch (e2) { console.warn('[fedha] study AI nvidia failed:', e2.status, e2.message); }
+      try { raw = await nvidiaChat({ system: (p.system || TUTOR) + (p.json ? '\nOutput only valid JSON.' : ''), prompt: p.text, temperature: 0.45, maxTokens: p.max, fallback: false }); } catch (e2) { console.warn('[fedha] study AI nvidia failed:', e2.status, e2.message); }
     }
     if (!raw) return res.status(e.status === 429 ? 429 : 500).json({ error: e.status === 429 ? 'The free AI tiers are busy right now. Try again in a minute.' : 'The AI could not answer right now.' });
   }
   if (!p.json) return res.status(200).json({ text: raw.trim() });
   const obj = parseJSON(raw);
+  if (b.type === 'stage') {
+    const scenes = cleanScenes(obj?.scenes);
+    // Unreadable JSON still gets performed: the raw text becomes one scene.
+    if (!scenes.length) return res.status(200).json({ scenes: [{ say: clip(String(raw).replace(/[{}\[\]"]/g, ' ').replace(/\s+/g, ' '), 400) || 'My circuits tangled. Ask me again?', mood: 'surprised', gesture: 'shrug', board: null }], chips: [] });
+    return res.status(200).json({ scenes, chips: (Array.isArray(obj.chips) ? obj.chips : []).map((c) => clip(c, 60)).filter(Boolean).slice(0, 3) });
+  }
   if (!obj) return res.status(500).json({ error: 'The AI answer could not be read. Try again.' });
   if (b.type === 'quiz') {
     const questions = (obj.questions || []).filter((q) => q?.q && Array.isArray(q.options) && q.options.length >= 2 && Number.isInteger(Number(q.answer)) && Number(q.answer) < q.options.length)
@@ -114,4 +158,37 @@ export default async function handler(req, res) {
   if (b.type === 'project_ideas') return res.status(200).json({ projects: (obj.projects || []).slice(0, 3) });
   if (b.type === 'capstone_ideas') return res.status(200).json({ projects: (obj.projects || []).filter((x) => x?.title).slice(0, 3) });
   return res.status(200).json(obj);
+}
+
+// Keeps only well-formed scenes and boards, so the stage never draws garbage.
+const MOODS = ['happy', 'cheeky', 'excited', 'thinking', 'surprised', 'serious', 'proud', 'facepalm'];
+const GESTURES = ['wave', 'point', 'explain', 'think', 'shrug', 'celebrate', 'lean', 'knock', 'laugh', 'facepalm', 'none'];
+const strs = (a, n, len) => (Array.isArray(a) ? a : []).map((x) => clip(x, len)).filter(Boolean).slice(0, n);
+function cleanBoard(bd) {
+  if (!bd || typeof bd !== 'object') return null;
+  switch (bd.type) {
+    case 'chart': {
+      const points = (Array.isArray(bd.points) ? bd.points : []).filter((p) => Array.isArray(p) && p.length >= 2 && Number.isFinite(Number(p[1])))
+        .map((p) => [typeof p[0] === 'number' ? p[0] : clip(p[0], 14), Number(p[1])]).slice(0, 12);
+      return points.length >= 2 ? { type: 'chart', kind: bd.kind === 'bar' ? 'bar' : 'line', title: clip(bd.title, 60), x: clip(bd.x, 30), y: clip(bd.y, 30), points } : null;
+    }
+    case 'steps': { const items = strs(bd.items, 6, 140); return items.length ? { type: 'steps', title: clip(bd.title, 60), items } : null; }
+    case 'code': return bd.code ? { type: 'code', lang: clip(bd.lang, 20), code: String(bd.code).split('\n').slice(0, 16).join('\n').slice(0, 900) } : null;
+    case 'big': return bd.text ? { type: 'big', text: clip(bd.text, 80), sub: clip(bd.sub, 120) } : null;
+    case 'compare': {
+      const side = (x) => (x && x.title ? { title: clip(x.title, 40), items: strs(x.items, 5, 90) } : null);
+      const l = side(bd.left), r = side(bd.right); return l && r ? { type: 'compare', left: l, right: r } : null;
+    }
+    case 'flow': { const nodes = strs(bd.nodes, 6, 60); return nodes.length >= 2 ? { type: 'flow', title: clip(bd.title, 60), nodes } : null; }
+    case 'story': return bd.text ? { type: 'story', title: clip(bd.title, 60), text: clip(bd.text, 600) } : null;
+    default: return null;
+  }
+}
+function cleanScenes(list) {
+  return (Array.isArray(list) ? list : []).filter((x) => x && String(x.say || '').trim()).slice(0, 7).map((x) => ({
+    say: clip(String(x.say).replace(/[*_#`]/g, ''), 420),
+    mood: MOODS.includes(x.mood) ? x.mood : 'happy',
+    gesture: GESTURES.includes(x.gesture) ? x.gesture : 'none',
+    board: cleanBoard(x.board),
+  }));
 }

@@ -50,11 +50,13 @@ export function pickVoice() {
 const STYLE = { concierge: { rate: 0.94, pitch: 1.0 }, host: { rate: 0.98, pitch: 1.02 }, coach: { rate: 1.05, pitch: 1.0 } };
 
 // Speaks text in the Luxe voice. Returns the utterance (or null). Cancels anything already speaking unless queue.
-export function speak(text, { style = 'concierge', onEnd, onStart, queue = false, rate, pitch, volume = 1 } = {}) {
+// `voice` (a SpeechSynthesisVoice) overrides the Luxe voice, e.g. Professor Byte's own.
+export function speak(text, { style = 'concierge', onEnd, onStart, onBoundary, queue = false, rate, pitch, volume = 1, voice } = {}) {
   if (!text || !isBrowser()) { onEnd?.(); return null; }
   try {
     const u = new SpeechSynthesisUtterance(String(text).replace(/[*_#`>]/g, '').replace(/\s+/g, ' ').trim());
-    const v = pickVoice();
+    const v = voice || pickVoice();
+    if (onBoundary) u.onboundary = onBoundary;
     if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-GB';
     const st = STYLE[style] || STYLE.concierge;
     u.rate = rate ?? st.rate; u.pitch = pitch ?? st.pitch; u.volume = volume;
@@ -64,6 +66,14 @@ export function speak(text, { style = 'concierge', onEnd, onStart, queue = false
     window.speechSynthesis.speak(u);
     return u;
   } catch { onEnd?.(); return null; }
+}
+
+// A lively male English voice for Professor Byte (falls back to the Luxe voice).
+export function pickByteVoice() {
+  const all = voices().filter((v) => score(v) >= 0 || /^en/i.test(v.lang || ''));
+  const male = (v) => /\bmale\b|daniel|david|george|guy|ryan|thomas|fred|alex\b|rishi|aaron|arthur|oliver|en-gb-x-gbb|en-gb-x-gbd|en-us-x-iom|en-us-x-tpd|en-gb-x-rjs/i.test(`${v.name} ${v.voiceURI || ''}`);
+  const best = all.filter(male).sort((a, b) => (score(b) + 25) - (score(a) + 25))[0];
+  return best || pickVoice();
 }
 
 export function stopSpeaking() { try { if (isBrowser()) window.speechSynthesis.cancel(); } catch { /* none */ } }

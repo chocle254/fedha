@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { askStudy, studyText } from '../../lib/study';
+import { studyText } from '../../lib/study';
 import { showNotif } from '../../lib/notifications';
 import QuickQuiz from './QuickQuiz';
-import Md from './Md';
+import TutorStage from './TutorStage';
 import StudyMaterials from './StudyMaterials';
 import StudyMusic from './StudyMusic';
 import { useMusic } from '../../context/MusicContext';
@@ -10,10 +10,6 @@ import { useMusic } from '../../context/MusicContext';
 // Study mode: pick what you're studying, run Pomodoro blocks, and keep an AI tutor beside you that works from
 // your notes. Each finished focus block earns XP and offers a 3-question recall check before the break.
 // The timer runs on the clock (end time), so it stays right if the phone sleeps or you switch apps.
-const QUICK = [
-  ['simple', '🧒 Explain simply'], ['normal', '💡 Explain'], ['deep', '🔬 Go deep'],
-  ['example', '🧪 Examples'], ['mistakes', '⚠️ Common mistakes'],
-];
 const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
 export default function StudyMode({ courses, notes, cards = [], prefs, start, onClose, onFocusDone, onQuizDone, onLessonDone, onSaveNote, onSaveLessonNotes, onPrefs }) {
@@ -32,10 +28,7 @@ export default function StudyMode({ courses, notes, cards = [], prefs, start, on
   const [blocks, setBlocks] = useState(0);
   const [focusedMin, setFocusedMin] = useState(0);
 
-  const [chat, setChat] = useState([]);
-  const [q, setQ] = useState('');
-  const [thinking, setThinking] = useState(false);
-  const chatEnd = useRef(null);
+  const [tutorReq, setTutorReq] = useState(null);
   const hasMaterial = !!(start?.lessonId || start?.courseId);
   const [panel, setPanel] = useState(hasMaterial ? 'materials' : 'tutor');
   const music = useMusic();
@@ -101,19 +94,7 @@ export default function StudyMode({ courses, notes, cards = [], prefs, start, on
     onClose();
   };
 
-  const ask = async (question, level) => {
-    if (thinking) return;
-    const userText = level ? QUICK.find(([k]) => k === level)[1].replace(/^\S+\s/, '') + `: ${subject}` : question.trim();
-    if (!userText) return;
-    setChat((c) => [...c, { role: 'user', text: userText }]); setQ(''); setThinking(true);
-    try {
-      const j = level
-        ? await askStudy({ type: 'explain', level, topic: subject, context: context() })
-        : await askStudy({ type: 'tutor', question: userText, topic: subject, context: context(), history: chat });
-      setChat((c) => [...c, { role: 'ai', text: j.text }]);
-    } catch (e) { setChat((c) => [...c, { role: 'ai', text: `⚠️ ${e.message}`, error: true }]); }
-    finally { setThinking(false); setTimeout(() => chatEnd.current?.scrollIntoView({ behavior: 'smooth' }), 50); }
-  };
+
 
   const ring = 2 * Math.PI * 88;
   const shownLeft = pausedLeft ?? left;
@@ -188,7 +169,7 @@ export default function StudyMode({ courses, notes, cards = [], prefs, start, on
         </div>
         <div className="card" style={{ padding: 12, marginBottom: 12, display: panel === 'materials' ? 'block' : 'none' }}>
           <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>📚 {lesson ? lesson.title : course ? course.title : subject}</div>
-          <StudyMaterials course={course} lesson={lesson} topic={topic.trim() || (!course ? subject : '')} notes={notes} cards={cards} onSaveLessonNotes={onSaveLessonNotes} onAskTutor={(lvl) => { setPanel('tutor'); ask('', lvl); }} />
+          <StudyMaterials course={course} lesson={lesson} topic={topic.trim() || (!course ? subject : '')} notes={notes} cards={cards} onSaveLessonNotes={onSaveLessonNotes} onAskTutor={(lvl) => { setTutorReq({ level: lvl, n: Date.now() }); setPanel('tutor'); }} />
         </div>
         {/* kept mounted while hidden, so focus sounds keep playing when you switch panels */}
         <div className="card" style={{ padding: 12, marginBottom: 12, display: panel === 'music' ? 'block' : 'none' }}>
@@ -196,28 +177,8 @@ export default function StudyMode({ courses, notes, cards = [], prefs, start, on
           <StudyMusic pauseOnBreak={p.musicBreak} onPauseOnBreak={setMusicBreak} />
         </div>
         <div className="card" style={{ padding: 12, display: panel === 'tutor' ? 'block' : 'none' }}>
-          <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>🤖 Tutor{course ? <span style={{ fontWeight: 500, color: 'var(--text-3)' }}> · reading your notes for {lesson ? 'this lesson' : 'this course'}</span> : ''}</div>
-          <div className="tab-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 8 }}>
-            {QUICK.map(([k, l]) => <button key={k} className="chip" disabled={thinking} onClick={() => ask('', k)}>{l}</button>)}
-            <button className="chip" disabled={thinking} onClick={() => setQ(`Let me explain ${subject} back to you: `)}>🗣 I'll explain it back</button>
-          </div>
-          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
-            {chat.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--text-3)', padding: '6px 2px', lineHeight: 1.5 }}>Ask anything while you study. Try "I'll explain it back": teaching it is the fastest way to find what you don't really know yet.</div>}
-            {chat.map((m, i) => (
-              <div key={i} style={{ margin: '8px 0', display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                <div style={{ maxWidth: '92%', padding: '9px 11px', borderRadius: 12, background: m.role === 'user' ? 'var(--green-dim)' : 'var(--card-2)', border: '1px solid var(--border)' }}>
-                  {m.role === 'user' ? <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{m.text}</div> : <Md text={m.text} />}
-                  {m.role === 'ai' && !m.error && <button className="tx-link" style={{ background: 'none', border: 0, color: 'var(--text-3)', fontSize: 11.5, padding: 0, marginTop: 4, cursor: 'pointer' }} onClick={() => { onSaveNote({ title: chat[i - 1]?.text?.slice(0, 80) || subject, body: m.text, course_id: courseId || null }); setChat((c) => c.map((x, k) => (k === i ? { ...x, saved: true } : x))); }}>{m.saved ? '✓ Saved to notes' : '📝 Save to notes'}</button>}
-                </div>
-              </div>
-            ))}
-            {thinking && <div style={{ fontSize: 12.5, color: 'var(--text-3)', padding: 6 }}>Thinking…</div>}
-            <div ref={chatEnd} />
-          </div>
-          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-            <textarea className="input" rows={2} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(q); } }} placeholder={`Ask about ${subject}…`} />
-            <button className="btn-primary" disabled={thinking || !q.trim()} onClick={() => ask(q)}>Ask</button>
-          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 8 }}>🎓 Professor Byte{course ? ` · reading your notes for ${lesson ? 'this lesson' : 'this course'}` : ''} · tap him, he reacts</div>
+          <TutorStage active={panel === 'tutor'} subject={subject} context={context} onSaveNote={onSaveNote} courseId={courseId} request={tutorReq} />
         </div>
       </div>
     </div>
