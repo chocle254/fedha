@@ -20,8 +20,9 @@ const clip = (v, n) => String(v ?? '').slice(0, n);
 function queries(fields, focus) {
   const year = new Date().getFullYear();
   const fs = fields.length ? fields.slice(0, 3) : ['AI and machine learning', 'cybersecurity'];
+  const month = new Date().toLocaleString('en', { month: 'long' });
   const per = (f) => ({
-    bootcamp: [`fully sponsored ${f} bootcamp Kenya ${year} no degree required`, `free residential ${f} bootcamp Africa ${year} accommodation meals provided`],
+    bootcamp: [`fully sponsored ${f} bootcamp Kenya applications open ${month} ${year} no degree required adults`, `free residential ${f} bootcamp Africa ${year} accommodation meals provided`],
     course: [`free ${f} course with free certificate ${year} self-taught beginners`],
     scholarship: [`${f} scholarship ${year} open to self-taught non-students Africa`],
     fellowship: [`${f} fellowship ${year} Africa no degree required applications open`],
@@ -46,6 +47,9 @@ async function groqJSON(key, system, text) {
   return d.choices?.[0]?.message?.content || '';
 }
 const parseJSON = (t) => { try { return JSON.parse(t); } catch { const m = String(t).match(/\{[\s\S]*\}/); try { return m ? JSON.parse(m[0]) : null; } catch { return null; } } };
+// Mentions only past years (e.g. "2024 cohort") and none from this year on: treat it as over.
+const STALE = (text, year) => { const ys = (String(text).match(/\b20\d{2}\b/g) || []).map(Number); return ys.length > 0 && ys.every((y) => y < Number(year)); };
+const SCHOOL = /\b(high school students?|secondary school students?|kcse candidates?|teens only|under[- ]18s?|primary school|k-12)\b/i;
 const perk = (it) => (it.stay && it.meals ? 4 : 0) + (it.stay ? 2 : 0) + (it.meals ? 1 : 0) + (it.stipend ? 0.5 : 0);
 const norm = (u) => String(u || '').trim().replace(/[#?].*$/, '').replace(/\/+$/, '').toLowerCase();
 
@@ -64,7 +68,7 @@ export default async function handler(req, res) {
   const system = 'You sort real web search results into learning opportunities. Use only facts in the results. Never invent a link, date, price or sponsor. Output only valid JSON.';
   const text = `Today is ${today}. The learner is in Kenya, SELF-TAUGHT, with NO university degree and NOT enrolled at a university. Their fields: ${(fields.length ? fields : ['AI and machine learning', 'cybersecurity']).join(', ')}${interests.length ? ` (current courses: ${interests.join(', ')})` : ''}.
 From these search results, pick the real, specific opportunities (one programme, course, bootcamp, scholarship or fellowship each) in those fields.
-Skip: anything that requires a bachelor's or other degree, current university or college enrolment, being a graduate, or a university nomination; anything outside their fields (general business, teaching, health etc.); hackathons and competitions; list articles, ads, paid-only courses, expired ones (deadline before today) and anything not open to someone in Kenya or online.
+Skip: anything only for high school or secondary students, children or teenagers under 18; anything that requires a bachelor's or other degree, current university or college enrolment, being a graduate, or a university nomination; anything outside their fields (general business, teaching, health etc.); hackathons and competitions; list articles, ads, paid-only courses, expired or closed ones (deadline before today, "applications closed", or a cohort, intake or edition dated before ${today.slice(0, 4)} with no newer one mentioned) and anything not open to someone in Kenya or online.
 For each give:
 - title: the programme's own name
 - org: who runs or sponsors it
@@ -75,6 +79,8 @@ For each give:
 - url: copied exactly from the results
 - why: one plain sentence on what you get and who it suits
 - field: which of their fields it fits
+- status: "open" if applications are open now, "upcoming" if a future intake is announced, "closed" if it has ended or the only dates shown are in the past, "unknown" if the results give no dates
+- audience: "adults" (18+ / youth / anyone), "high_school" (secondary school students or under 18), "university" (current university or college students only)
 - open: "anyone" if self-taught people with no degree can apply, "degree" if it needs a degree or university enrolment, "unclear" if the results do not say
 - eligibility: who can apply, in a few words from the results (e.g. "Kenyans 18-35, no degree needed")
 - match: 0-100, how well it fits their fields (under 40 if it is only loosely related)
@@ -101,17 +107,20 @@ ${found.text.slice(0, 16000)}`;
   const items = (obj?.items || [])
     .filter((it) => it?.title && real.has(norm(it.url)))
     .filter((it) => it.open !== 'degree' && (Number(it.match) || 0) >= 40) // self-taught: no degree-only offers, nothing off-field
+    .filter((it) => it.status !== 'closed' && !['high_school', 'university'].includes(it.audience)) // ended, or not for an adult self-learner
+    .filter((it) => !STALE(`${it.title} ${it.why} ${it.deadline}`, today.slice(0, 4)) && !SCHOOL.test(`${it.title} ${it.why} ${it.eligibility}`))
     .filter((it) => !it.deadline || !/^\d{4}-\d{2}-\d{2}$/.test(it.deadline) || it.deadline >= today)
     .filter((it) => { const k = norm(it.url); if (seen.has(k)) return false; seen.add(k); return true; })
     .map((it) => ({
       title: clip(it.title, 140), org: clip(it.org, 80), kind: KINDS.includes(it.kind) ? it.kind : 'program',
       cost: clip(it.cost, 40) || 'Free', deadline: /^\d{4}-\d{2}-\d{2}$/.test(it.deadline || '') ? it.deadline : '',
       where: clip(it.where, 40), url: real.get(norm(it.url)), why: clip(it.why, 260), match: Math.max(0, Math.min(100, Number(it.match) || 0)),
+      status: ['open', 'upcoming'].includes(it.status) ? it.status : 'unknown',
       field: clip(it.field, 50), open: it.open === 'anyone' ? 'anyone' : 'unclear', eligibility: clip(it.eligibility, 120),
       stay: it.stay === true, meals: it.meals === true, stipend: it.stipend === true,
     }))
     // Full accommodation and meals first, then housing or meals alone, then the rest by match.
-    .sort((a, b) => (perk(b) - perk(a)) || ((b.open === 'anyone') - (a.open === 'anyone')) || (b.match - a.match))
+    .sort((a, b) => (perk(b) - perk(a)) || ((b.status === 'open') - (a.status === 'open')) || ((b.status !== 'unknown') - (a.status !== 'unknown')) || ((b.open === 'anyone') - (a.open === 'anyone')) || (b.match - a.match))
     .slice(0, 18);
   return res.status(200).json({ items, searched: found.citations.length });
 }

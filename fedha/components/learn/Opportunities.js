@@ -40,7 +40,7 @@ export default function Opportunities({ courses, onAddCourse }) {
   const [err, setErr] = useState('');
   const [added, setAdded] = useState({});
 
-  useEffect(() => { getSetting(KEY, null).then((d) => d && setData({ at: d.at || null, items: (d.items || []).filter(noHack).filter((it) => it.open) /* older searches weren't checked for fields or degree rules */, saved: (d.saved || []).filter(noHack), fields: d.fields?.length ? d.fields : DEFAULT_FIELDS })); }, []);
+  useEffect(() => { getSetting(KEY, null).then((d) => d && setData({ at: d.at || null, items: (d.items || []).filter(noHack).filter((it) => it.open && it.status) /* older searches weren't checked for fields or degree rules */, saved: (d.saved || []).filter(noHack), fields: d.fields?.length ? d.fields : DEFAULT_FIELDS })); }, []);
 
   const store = async (next) => { setData(next); await setSetting(KEY, { at: next.at, items: next.items.slice(0, 18), saved: next.saved.slice(0, SAVED_CAP), fields: next.fields }); };
   const interests = useMemo(() => courses.filter((c) => c.status !== 'completed').slice(0, 4).map((c) => c.title), [courses]);
@@ -64,7 +64,8 @@ export default function Opportunities({ courses, onAddCourse }) {
     setAdded((a) => ({ ...a, [idOf(it)]: true }));
   };
   // Full accommodation and meals always first, in every list.
-  const show = (list) => (filter === 'all' ? list : list.filter((it) => it.kind === filter)).map((it, i) => [it, i]).sort((a, b) => (perk(b[0]) - perk(a[0])) || (a[1] - b[1])).map(([it]) => it);
+  const today = new Date().toISOString().slice(0, 10);
+  const show = (list) => (filter === 'all' ? list : list.filter((it) => it.kind === filter)).filter((it) => !it.deadline || it.deadline >= today).map((it, i) => [it, i]).sort((a, b) => (perk(b[0]) - perk(a[0])) || (a[1] - b[1])).map(([it]) => it);
 
   const Item = ({ it }) => {
     const d = daysTo(it.deadline), inCourses = added[idOf(it)] || hasCourse(it);
@@ -82,6 +83,8 @@ export default function Opportunities({ courses, onAddCourse }) {
               {it.stay && !it.meals && <span className="chip" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--gold)' }}>🏠 Housing</span>}
               {it.meals && !it.stay && <span className="chip" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--gold)' }}>🍽️ Meals</span>}
               {it.stipend && <span className="chip" style={{ fontSize: 11, padding: '2px 8px' }}>💵 Stipend</span>}
+              {it.status === 'open' && <span className="chip" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--green)' }}>● Open now</span>}
+              {it.status === 'upcoming' && <span className="chip" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--blue)' }}>◷ Opening soon</span>}
               {it.open === 'anyone' && <span className="chip" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--green)' }}>✓ No degree needed</span>}
               {it.field && <span className="chip" style={{ fontSize: 11, padding: '2px 8px' }}>{it.field}</span>}
               {it.match > 0 && <span className="chip" style={{ fontSize: 11, padding: '2px 8px' }}>{it.match}% match</span>}
