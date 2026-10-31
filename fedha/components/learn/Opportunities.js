@@ -40,7 +40,7 @@ export default function Opportunities({ courses, onAddCourse }) {
   const [err, setErr] = useState('');
   const [added, setAdded] = useState({});
 
-  useEffect(() => { getSetting(KEY, null).then((d) => d && setData({ at: d.at || null, items: (d.items || []).filter(noHack).filter((it) => it.open), // older searches weren't checked for fields or degree rules saved: (d.saved || []).filter(noHack), fields: d.fields?.length ? d.fields : DEFAULT_FIELDS })); }, []);
+  useEffect(() => { getSetting(KEY, null).then((d) => d && setData({ at: d.at || null, items: (d.items || []).filter(noHack).filter((it) => it.open) /* older searches weren't checked for fields or degree rules */, saved: (d.saved || []).filter(noHack), fields: d.fields?.length ? d.fields : DEFAULT_FIELDS })); }, []);
 
   const store = async (next) => { setData(next); await setSetting(KEY, { at: next.at, items: next.items.slice(0, 18), saved: next.saved.slice(0, SAVED_CAP), fields: next.fields }); };
   const interests = useMemo(() => courses.filter((c) => c.status !== 'completed').slice(0, 4).map((c) => c.title), [courses]);
