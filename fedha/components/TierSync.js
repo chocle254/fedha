@@ -7,6 +7,7 @@ import { fireConfetti } from '../lib/confetti';
 import { themeKeyFor } from '../lib/themes';
 import { formatCurrency, formatShort } from '../lib/utils';
 import TierMotion, { MOODS } from './TierMotion';
+import HolidayScene from './HolidayScene';
 import { holidayFor } from '../lib/holidays';
 
 // The wealth tier follows you onto every money screen (Home, Wallets, Transactions, Budgets, Goals, Reports,
@@ -38,7 +39,7 @@ export default function TierSync() {
   const mood = holiday ? { glows: holiday.glows, emit: holiday.emit } : MOODS[tier.key];
   const moodKey = holiday ? `h-${holiday.key}` : tier.key;
   // The holiday's motion runs on every screen (the whole app dresses up); a tier's only on money screens.
-  const motion = mood && (money || holiday) ? <TierMotion moodKey={moodKey} mood={mood} /> : null;
+  const motion = mood && (money || holiday) ? <>{holiday?.scene && <HolidayScene kind={holiday.scene} />}<TierMotion moodKey={moodKey} mood={mood} /></> : null;
 
   // Holiday skin, app-wide: html[data-holiday] styles cards, numbers, buttons and the nav (styles/globals.css),
   // the holiday accent wins over the section's, and only today's display font is downloaded.

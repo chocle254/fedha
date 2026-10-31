@@ -25,7 +25,8 @@ export const HOLIDAYS = [
     emit: [{ shape: 'burst', n: 6, colors: ['#FDE68A', '#F472B6', '#67E8F9', '#FFFFFF', '#A78BFA'] }, { shape: 'confetti', motion: 'fall', n: 16, colors: ['#FBBF24', '#F472B6', '#60A5FA', '#34D399', '#FFFFFF'] }] },
   { key: 'christmas', name: 'Christmas', icon: '🎄', when: (m, d) => m === 12 && d >= 20 && d <= 26,
     greet: () => 'Merry Christmas!', glows: ['220,38,38', '22,163,74'],
-    emit: [{ shape: 'snow', motion: 'fall', n: 26, slow: true }, { emoji: ['❄️'], motion: 'fall', n: 6, size: [14, 22], slow: true }, { shape: 'light', n: 10, colors: ['#EF4444', '#22C55E', '#FBBF24', '#60A5FA'] }] },
+    scene: 'christmas',
+    emit: [{ shape: 'snow', motion: 'fall', n: 26, size: [3, 6], slow: true }, { shape: 'snow', motion: 'fall', n: 8, size: [8, 13] }] },
   { key: 'jamhuri', name: 'Jamhuri Day', icon: '🇰🇪', when: (m, d) => m === 12 && d === 12,
     greet: () => 'Happy Jamhuri Day!', glows: ['187,0,0', '0,102,0'],
     emit: [{ shape: 'confetti', motion: 'fall', n: 18, colors: KE }, { emoji: ['🇰🇪'], motion: 'float', n: 5, size: [18, 26] }] },
@@ -44,9 +45,9 @@ export const HOLIDAYS = [
   { key: 'labour', name: 'Labour Day', icon: '🛠️', when: (m, d) => m === 5 && d === 1,
     greet: () => 'Happy Labour Day. Rest, you earned it.', glows: ['239,68,68', '251,191,36'],
     emit: [{ shape: 'confetti', motion: 'fall', n: 14, colors: ['#EF4444', '#FBBF24', '#FFFFFF'] }] },
-  { key: 'halloween', name: 'Halloween', icon: '🎃', when: (m, d) => m === 10 && (d === 30 || d === 31),
-    greet: () => 'Happy Halloween!', glows: ['249,115,22', '126,34,206'],
-    emit: [{ emoji: ['🦇'], motion: 'flutter', n: 6, size: [16, 26] }, { emoji: ['👻'], motion: 'flutter', n: 2, size: [24, 32] }, { emoji: ['🎃'], motion: 'fall', n: 4, size: [18, 26], slow: true }, { shape: 'ember', motion: 'rise', n: 14, colors: ['#FB923C'] }] },
+  { key: 'halloween', name: 'Halloween', icon: '🦇', when: (m, d) => m === 10 && (d === 30 || d === 31),
+    greet: () => 'Happy Halloween. Stay out of the cemetery.', glows: ['76,29,149'], scene: 'halloween',
+    emit: [{ shape: 'dust', motion: 'fall', n: 14, size: [1.5, 3], colors: ['#9CA3AF', '#6B7280'], slow: true }] },
 ];
 
 // The app-wide skin for each holiday: accent colours, a display font for headings and the net worth (loaded only on
@@ -54,7 +55,7 @@ export const HOLIDAYS = [
 // Cards, numbers, buttons and the nav pick it up from html[data-holiday] in styles/globals.css.
 const KENYA_SKIN = { accent: '#BB0000', accent2: '#16A34A', decor: 'flag' };
 export const SKINS = {
-  halloween: { accent: '#F97316', accent2: '#A855F7', font: 'Creepster', hello: (g) => g.replace(/^Good/, 'Spooky'), decor: 'spider' },
+  halloween: { accent: '#A78BFA', accent2: '#4C1D95', font: 'Pirata One', hello: (g) => g.replace(/^Good/, 'Wicked'), decor: 'spider' },
   christmas: { accent: '#EF4444', accent2: '#22C55E', font: 'Mountains of Christmas', hello: (g) => g.replace(/^Good/, 'Merry'), decor: 'ornament' },
   newyear: { accent: '#FBBF24', accent2: '#F472B6', font: 'Monoton', hello: () => 'Happy New Year', decor: 'cheers' },
   birthday: { accent: '#EC4899', accent2: '#FBBF24', font: 'Pacifico', hello: () => "It's your day", decor: 'balloon' },

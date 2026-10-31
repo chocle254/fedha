@@ -1805,15 +1805,17 @@ html[data-holiday] .btn-primary { background: linear-gradient(135deg, var(--acce
 html[data-holiday] .lx-h1 { font-family: var(--holiday-font, inherit); letter-spacing: .01em !important; }
 html[data-holiday] .lx-networth { font-family: var(--holiday-font, 'Onest'), 'Onest', sans-serif; letter-spacing: .01em !important; }
 
-/* Halloween: cobwebs in card corners, haunted purple-black cards, pumpkin glow on numbers, dripping title */
-html[data-holiday="halloween"] .card { background-image: linear-gradient(160deg, rgba(88,28,135,.28), rgba(0,0,0,.18) 60%) !important; border-color: rgba(249,115,22,.38) !important; }
-html[data-holiday="halloween"] .card::before { top: 0; right: 0; width: 58px; height: 58px; opacity: .55;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60' fill='none' stroke='%23E5E7EB' stroke-width='.8'%3E%3Cpath d='M60 0L0 0M60 0L8 26M60 0L26 44M60 0L48 58M60 0L60 60'/%3E%3Cpath d='M48 0Q50 6 55 10Q57 5 60 12'/%3E%3Cpath d='M34 0Q38 10 45 18Q50 20 52 26Q56 22 60 26'/%3E%3Cpath d='M20 0Q26 14 36 26Q42 30 44 38Q52 36 60 40'/%3E%3Cpath d='M6 0Q14 18 26 34Q32 40 34 50Q48 50 60 54'/%3E%3C/svg%3E") no-repeat top right / contain; }
-html[data-holiday="halloween"] .font-num { text-shadow: 0 0 10px rgba(249,115,22,.45); }
-html[data-holiday="halloween"] .lx-networth { color: #FDBA74 !important; text-shadow: 0 0 14px rgba(249,115,22,.7), 0 3px 0 rgba(126,34,206,.6); animation: hdFlicker 6s infinite; }
-html[data-holiday="halloween"] .lx-h1 { color: #FB923C !important; text-shadow: 0 0 16px rgba(249,115,22,.6); }
-html[data-holiday="halloween"] .bottom-nav { box-shadow: 0 0 24px -6px rgba(249,115,22,.55), inset 0 1px 0 rgba(249,115,22,.2) !important; }
-@keyframes hdFlicker { 0%, 92%, 100% { opacity: 1; } 93% { opacity: .55; } 94% { opacity: 1; } 96% { opacity: .7; } 97% { opacity: 1; } }
+/* Halloween, gothic and dark: near-black cards, bone-white numbers, faint violet, grey cobwebs */
+html[data-holiday="halloween"] .card, html[data-holiday="halloween"] .card-2 { background: rgba(7,7,11,.86) !important; border-color: rgba(203,200,220,.12) !important; }
+html[data-holiday="halloween"] .hero-card { background: linear-gradient(180deg, rgba(20,16,32,.9), rgba(5,5,8,.92)) !important; border-color: rgba(167,139,250,.22) !important; }
+html[data-holiday="halloween"] .card::before { top: 0; right: 0; width: 58px; height: 58px; opacity: .3;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60' fill='none' stroke='%23D1D5DB' stroke-width='.7'%3E%3Cpath d='M60 0L0 0M60 0L8 26M60 0L26 44M60 0L48 58M60 0L60 60'/%3E%3Cpath d='M48 0Q50 6 55 10Q57 5 60 12'/%3E%3Cpath d='M34 0Q38 10 45 18Q50 20 52 26Q56 22 60 26'/%3E%3Cpath d='M20 0Q26 14 36 26Q42 30 44 38Q52 36 60 40'/%3E%3Cpath d='M6 0Q14 18 26 34Q32 40 34 50Q48 50 60 54'/%3E%3C/svg%3E") no-repeat top right / contain; }
+html[data-holiday="halloween"] .font-num { text-shadow: 0 0 8px rgba(139,92,246,.25); }
+html[data-holiday="halloween"] .lx-networth { color: #E7E5DA !important; text-shadow: 0 0 18px rgba(139,92,246,.45), 0 2px 0 rgba(0,0,0,.8); animation: hdFlicker 7s infinite; }
+html[data-holiday="halloween"] .lx-h1 { color: #E7E5DA !important; text-shadow: 0 0 14px rgba(139,92,246,.4); }
+html[data-holiday="halloween"] .bottom-nav { background: rgba(5,5,8,.94) !important; border-color: rgba(167,139,250,.18) !important; }
+html[data-holiday="halloween"] .btn-primary { background: linear-gradient(135deg, #2E1065, #111827) !important; color: #EDE9FE !important; border: 1px solid rgba(167,139,250,.35) !important; }
+@keyframes hdFlicker { 0%, 92%, 100% { opacity: 1; } 93% { opacity: .45; } 94% { opacity: 1; } 96% { opacity: .65; } 97% { opacity: 1; } }
 
 /* Christmas: snow sitting on top of every card, red and green trim */
 html[data-holiday="christmas"] .card { border-color: rgba(239,68,68,.35) !important; }
@@ -1909,3 +1911,56 @@ html[data-holiday="jamhuri"] .lx-networth, html[data-holiday="mashujaa"] .lx-net
 .lx-rain { position: fixed; inset: 0; z-index: 1100; pointer-events: none; overflow: hidden; }
 .lx-rain .tm-p { animation-iteration-count: 2; }
 .lx-rain-note { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 8px 14px; border-radius: 20px; background: rgba(0,0,0,.75); color: #FDE68A; font-weight: 800; font-size: 13px; white-space: nowrap; animation: lxTierIn .5s ease both; }
+
+/* ── Holiday scenes (components/HolidayScene.js) ─────────────────────────────────────────────────────────── */
+.hs { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; contain: strict; animation: lxWallIn 1.4s ease both; }
+.hs-sky { position: absolute; inset: 0; }
+.hs-halloween .hs-sky { background: radial-gradient(90% 50% at 78% 10%, rgba(76,29,149,.35), transparent 60%), linear-gradient(180deg, #07060D 0%, #0D0B16 55%, #050508 100%); }
+.hs-christmas .hs-sky { background: radial-gradient(80% 50% at 20% 8%, rgba(30,64,175,.35), transparent 60%), linear-gradient(180deg, #050B1F 0%, #0B1530 60%, #101B36 100%); }
+.hs svg { position: absolute; display: block; }
+.hs-ground { left: 0; right: 0; bottom: 0; width: 100%; height: 40vh; }
+.hs-moon { right: 8%; top: 7%; width: 120px; height: 120px; }
+.hs-moon-x { left: 8%; right: auto; }
+.hs-cloud { position: absolute; top: 9%; width: 70vw; height: 70px; border-radius: 50%; background: radial-gradient(closest-side, rgba(25,22,36,.95), rgba(25,22,36,0)); animation: hsCloud 38s linear infinite; will-change: transform; }
+.hs-cloud-b { top: 15%; width: 55vw; height: 50px; animation-duration: 52s; animation-delay: -20s; opacity: .8; }
+@keyframes hsCloud { from { transform: translateX(110vw); } to { transform: translateX(-80vw); } }
+.hs-bat { width: 46px; height: 23px; top: 20%; left: 0; animation: hsBat 16s linear infinite; will-change: transform; }
+.hs-bat-1 { top: 13%; width: 32px; animation-duration: 21s; animation-delay: -7s; }
+.hs-bat-2 { top: 27%; width: 26px; animation-duration: 26s; animation-delay: -15s; }
+.hs-wings { transform-box: fill-box; transform-origin: center; animation: hsFlap .28s ease-in-out infinite alternate; }
+@keyframes hsFlap { from { transform: scaleY(1); } to { transform: scaleY(.35); } }
+@keyframes hsBat { 0% { transform: translate3d(-12vw, 0, 0); } 25% { transform: translate3d(25vw, -4vh, 0); } 50% { transform: translate3d(55vw, 3vh, 0); } 75% { transform: translate3d(82vw, -3vh, 0); } 100% { transform: translate3d(112vw, 1vh, 0); } }
+.hs-ghost { width: 70px; height: 96px; left: 0; top: 38%; animation: hsGhost 24s ease-in-out infinite; will-change: transform, opacity; }
+.hs-ghost-1 { top: 52%; width: 52px; animation-duration: 31s; animation-delay: -14s; }
+@keyframes hsGhost { 0% { transform: translate3d(-20vw, 0, 0); opacity: 0; } 15% { opacity: .9; } 30% { transform: translate3d(20vw, -3vh, 0); } 45% { opacity: .2; } 55% { transform: translate3d(50vw, 2vh, 0); opacity: .85; } 80% { transform: translate3d(85vw, -2vh, 0); opacity: .6; } 100% { transform: translate3d(115vw, 0, 0); opacity: 0; } }
+.hs-hand { transform-box: fill-box; animation: hsHand 14s ease-in-out infinite; }
+@keyframes hsHand { 0%, 20% { transform: translateY(34px); } 35% { transform: translateY(4px) rotate(-3deg); } 40% { transform: translateY(0) rotate(4deg); } 45% { transform: translateY(2px) rotate(-4deg); } 60% { transform: translateY(0); } 75%, 100% { transform: translateY(34px); } }
+.hs-skull { transform-box: fill-box; animation: hsSkull 11s ease-in-out infinite; }
+@keyframes hsSkull { 0%, 55%, 100% { transform: translate(-14px, 4px); opacity: 0; } 62%, 84% { transform: translate(0, 0); opacity: 1; } 72% { transform: translate(0, 0) rotate(-8deg); } }
+.hs-eye { animation: hsEye 6s steps(1) infinite; }
+@keyframes hsEye { 0%, 70% { opacity: 1; } 71%, 74% { opacity: 0; } 75%, 90% { opacity: 1; } 91%, 100% { opacity: 0; } }
+.hs-mist { position: absolute; left: -50%; width: 200%; bottom: -4vh; height: 20vh; border-radius: 50%; background: radial-gradient(closest-side, rgba(200,198,215,.22), rgba(200,198,215,0)); animation: hsMist 30s ease-in-out infinite alternate; will-change: transform; }
+.hs-mist-b { bottom: 2vh; height: 14vh; opacity: .8; animation-duration: 42s; animation-direction: alternate-reverse; }
+.hs-mist-c { bottom: 8vh; height: 10vh; opacity: .5; animation-duration: 55s; }
+@keyframes hsMist { from { transform: translate3d(-12%, 0, 0); } to { transform: translate3d(12%, 0, 0); } }
+.hs-bolt { left: 18%; top: 0; width: 22vw; height: 48vh; opacity: 0; filter: drop-shadow(0 0 8px #C4B5FD); animation: hsBolt 13s linear infinite; }
+@keyframes hsBolt { 0%, 88% { opacity: 0; } 88.5% { opacity: 1; } 89.5% { opacity: .1; } 90% { opacity: 1; } 92%, 100% { opacity: 0; } }
+.hs-flash { position: fixed; inset: 0; z-index: 1000; pointer-events: none; background: #EDE9FE; opacity: 0; animation: hsFlash 13s linear infinite; }
+@keyframes hsFlash { 0%, 88% { opacity: 0; } 88.5% { opacity: .22; } 89.5% { opacity: .03; } 90% { opacity: .28; } 92%, 100% { opacity: 0; } }
+/* Christmas */
+.hs-star { position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #fff; box-shadow: 0 0 4px #fff; animation: tmBlink 3.4s ease-in-out infinite; }
+.hs-lights { left: 0; right: 0; top: 0; width: 100%; height: 60px; }
+.hs-bulb { animation: hsBulb 1.8s ease-in-out infinite; filter: drop-shadow(0 0 4px var(--c)); }
+@keyframes hsBulb { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+.hs-window { animation: hsWindow 5s ease-in-out infinite; }
+@keyframes hsWindow { 0%, 100% { opacity: 1; } 50% { opacity: .75; } }
+.hs-tree-star { transform-box: fill-box; transform-origin: center; animation: hsStarPulse 2.4s ease-in-out infinite; }
+@keyframes hsStarPulse { 0%, 100% { transform: scale(.8); opacity: .7; } 50% { transform: scale(1.25); opacity: 1; } }
+.hs-sleigh { width: 220px; height: 60px; left: 0; top: 16%; animation: hsSleigh 28s linear infinite; will-change: transform; }
+@keyframes hsSleigh { 0%, 55% { transform: translate3d(110vw, 6vh, 0); } 100% { transform: translate3d(-70vw, -4vh, 0); } }
+.hs-sleigh-bob { animation: hsBob 1.6s ease-in-out infinite; }
+@keyframes hsBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+.hs-nose { animation: tmBlink 1s ease-in-out infinite; filter: drop-shadow(0 0 3px #EF4444); }
+html[data-holiday="christmas"] .card, html[data-holiday="christmas"] .card-2 { background: rgba(8,14,32,.78) !important; }
+html[data-holiday="christmas"] .bottom-nav { background: rgba(6,11,28,.92) !important; }
+@media (prefers-reduced-motion: reduce) { .hs *, .hs-flash { animation: none !important; } .hs-flash { display: none; } }
