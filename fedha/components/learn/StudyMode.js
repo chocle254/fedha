@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { studyText, learnerBrief, loadHomework, saveHomework, pendingHomework, homeworkKey } from '../../lib/study';
 import { getSetting } from '../../lib/db';
+import { getKb, buildKb, kbToMarkdown, kbForPrompt } from '../../lib/byte-kb';
 import { genId, todayISO } from '../../lib/utils';
 import { showNotif } from '../../lib/notifications';
 import QuickQuiz from './QuickQuiz';
@@ -14,7 +15,7 @@ import { useMusic } from '../../context/MusicContext';
 // The timer runs on the clock (end time), so it stays right if the phone sleeps or you switch apps.
 const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
-export default function StudyMode({ courses, notes, cards = [], log = [], prefs, start, onClose, onFocusDone, onQuizDone, onLessonDone, onSaveNote, onSaveLessonNotes, onPrefs }) {
+export default function StudyMode({ onSaveAiNotes, courses, notes, cards = [], log = [], prefs, start, onClose, onFocusDone, onQuizDone, onLessonDone, onSaveNote, onSaveLessonNotes, onPrefs }) {
   const [courseId, setCourseId] = useState(start?.courseId || courses.find((c) => c.status !== 'completed')?.id || '');
   const course = courses.find((c) => c.id === courseId);
   const lessons = course?.modules || [];
@@ -44,7 +45,27 @@ export default function StudyMode({ courses, notes, cards = [], log = [], prefs,
   const subject = topic.trim() || lesson?.title || course?.title || 'my studies';
   const context = () => studyText(course, lesson, notes.filter((n) => n.course_id && n.course_id === courseId).slice(0, 4));
   // Professor Byte reads everything: the material plus a brief on how you're doing (lib/study.js).
-  const brief = () => learnerBrief({ course, lesson, topic: topic.trim() || subject, notes, cards, log });
+  // Byte's stored research on this lesson (lib/byte-kb.js) goes first in everything he reads.
+  const kbRef = useRef(null);
+  useEffect(() => { kbRef.current = null; if (course && lesson) getKb(course.id, lesson.id).then((k) => { kbRef.current = k; }); }, [courseId, lessonId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const brief = () => {
+    const b = learnerBrief({ course, lesson, topic: topic.trim() || subject, notes, cards, log });
+    const k = kbForPrompt(kbRef.current);
+    return { text: `${k ? `${k}\n\n` : ''}${b.text}`.slice(0, 14000), read: { ...b.read, kb: !!kbRef.current } };
+  };
+  // First time on a lesson: Byte researches it once and keeps it (and it becomes the lesson's notes if it has none).
+  const prepare = async (onBuild) => {
+    if (!course || !lesson || kbRef.current) return kbRef.current;
+    const have = await getKb(course.id, lesson.id);
+    if (have) { kbRef.current = have; return have; }
+    onBuild?.();
+    try {
+      const kb = await buildKb(course, lesson);
+      kbRef.current = kb;
+      if (!lesson.aiNotes) onSaveAiNotes?.(course, lesson.id, kbToMarkdown(kb, lesson.title));
+      return kb;
+    } catch { return null; }
+  };
   const planKey = `${courseId || 'free'}|${lessonId || ''}|${topic.trim().toLowerCase()}`;
 
   // Homework Byte set last class on this course (or free-study topic).
@@ -224,7 +245,7 @@ export default function StudyMode({ courses, notes, cards = [], log = [], prefs,
         </div>
         <div className="card" style={{ padding: 12, display: panel === 'tutor' ? 'block' : 'none' }}>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 8 }}>🎓 Professor Byte{course ? ` · reading your notes for ${lesson ? 'this lesson' : 'this course'}` : ''} · tap him, he reacts</div>
-          <TutorStage homework={homework} onSetHomework={setHomework} onGradeHomework={gradeHomework} active={panel === 'tutor'} subject={subject} context={() => brief().text} brief={brief} planKey={planKey} onSaveNote={onSaveNote} courseId={courseId} request={tutorReq} />
+          <TutorStage prepare={prepare} homework={homework} onSetHomework={setHomework} onGradeHomework={gradeHomework} active={panel === 'tutor'} subject={subject} context={() => brief().text} brief={brief} planKey={planKey} onSaveNote={onSaveNote} courseId={courseId} request={tutorReq} />
         </div>
       </div>
     </div>

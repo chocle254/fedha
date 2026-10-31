@@ -3,6 +3,7 @@
 // It works from your own notes when there are any, and says so when it falls back on general knowledge.
 import { requireUser } from '../../lib/require-user';
 import { nvidiaChat, nvidiaAvailable } from '../../lib/nvidia-client';
+import { webSearch } from '../../lib/web-search';
 
 export const config = { maxDuration: 60 };
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
@@ -90,6 +91,16 @@ The 2-3 weakest or most easily forgotten points${b.weak?.length ? ` (my weak spo
     case 'project_ideas':
       return { json: true, max: 2500, text: `${mat}Topic: ${topic}\nSuggest 3 small portfolio projects that prove I can apply this (doable solo in 3-10 hours each, free tools only). For each: title, one-line goal, and 4-6 concrete milestones in order.
 Return JSON: {"projects":[{"title":"","goal":"","milestones":["",""]}]}` };
+    case 'lesson_kb':
+      return { json: true, max: 5000, text: `${mat}You are Professor Byte, preparing to teach ONE lesson. Research it properly once; your notes are stored and reused every time this lesson is taught, so make them complete, accurate and deep.
+Course: ${clip(b.course, 160)}
+Section: ${clip(b.section, 120)}
+LESSON: ${clip(b.lesson, 200)}
+Where it sits in the curriculum (before -> after): ${clip(b.outline, 1500)}
+${b.web ? `Web research (use for accuracy and current facts; ignore anything off-topic):\n${clip(b.web, 5000)}\n` : ''}
+Cover what this lesson teaches in THIS course at the right level, then go deeper than a typical video does.
+Return JSON: {"summary":"3-4 sentence overview","keyterms":[{"term":"","def":"one line"}],"concepts":[{"name":"","idea":"plain explanation, 2-4 sentences","deep":"the mechanism, edge cases and why it works, 3-6 sentences","example":"a concrete worked example (code if it is a programming topic)","mistakes":["common mistake and the right idea"],"check":"a question that proves understanding","answer":"its answer"}],"prerequisites":["what to know first"],"connects":["how it links to other lessons or real work"]}
+3-7 concepts, most important first. Plain English.` };
     case 'plan':
       return { json: true, max: 2200, text: `${mat}Topic: ${topic}
 You are about to tutor this learner one-on-one. You have read everything above: their material and the brief on them. Plan the session the way a great private tutor would.
@@ -154,6 +165,9 @@ export default async function handler(req, res) {
   if (!(await requireUser(req, res))) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const b = req.body || {};
+  if (b.type === 'lesson_kb' && b.research !== false) {
+    try { const r = await webSearch(`${clip(b.lesson, 120)} ${clip(b.course, 80)} explained`, { limit: 5 }); b.web = r.map((x) => `- ${x.title}: ${x.snippet}`).join('\n'); } catch { /* teach from knowledge */ }
+  }
   const p = prompt(b);
   if (!p) return res.status(400).json({ error: 'Unknown request type' });
   if (b.type === 'tutor' && !String(b.question || '').trim()) return res.status(400).json({ error: 'Ask a question first.' });
@@ -190,6 +204,14 @@ export default async function handler(req, res) {
     return cards.length ? res.status(200).json({ cards }) : res.status(500).json({ error: 'No usable flashcards came back. Try again.' });
   }
   if (b.type === 'project_ideas') return res.status(200).json({ projects: (obj.projects || []).slice(0, 3) });
+  if (b.type === 'lesson_kb') {
+    const arr = (a, n, len) => (Array.isArray(a) ? a : []).map((x) => clip(x, len)).filter(Boolean).slice(0, n);
+    const concepts = (Array.isArray(obj.concepts) ? obj.concepts : []).filter((c) => c?.name).slice(0, 7).map((c) => ({
+      name: clip(c.name, 100), idea: clip(c.idea, 700), deep: clip(c.deep, 1200), example: clip(c.example, 1200), mistakes: arr(c.mistakes, 4, 260), check: clip(c.check, 300), answer: clip(c.answer, 500),
+    }));
+    if (!concepts.length) return res.status(500).json({ error: 'Byte could not study this lesson. Try again.' });
+    return res.status(200).json({ kb: { summary: clip(obj.summary, 900), keyterms: (Array.isArray(obj.keyterms) ? obj.keyterms : []).filter((k) => k?.term).slice(0, 10).map((k) => ({ term: clip(k.term, 60), def: clip(k.def, 200) })), concepts, prerequisites: arr(obj.prerequisites, 5, 160), connects: arr(obj.connects, 5, 200), at: new Date().toISOString() } });
+  }
   if (b.type === 'plan') {
     const steps = (Array.isArray(obj.steps) ? obj.steps : []).filter((x) => x?.title).slice(0, 7).map((x) => ({ title: clip(x.title, 80), goal: clip(x.goal, 200), check: clip(x.check, 200) }));
     if (!steps.length) return res.status(500).json({ error: 'No lesson plan came back.' });

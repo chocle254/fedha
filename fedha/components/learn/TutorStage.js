@@ -17,6 +17,17 @@ const QUICK = [
 ];
 const POKES = ['Hey! That tickles.', 'Careful, this glass is not cheap.', 'Yes, I am real. Mostly.', 'Poke me again and I give you homework.', 'I felt that in my circuits.', 'Ooh, attention. I like it.'];
 const IDLE = ['Still with me?', 'I live here, you know. I can wait.', 'Psst. Ask me something. I get bored.', 'Fun fact: I never sleep. Do you?', 'Tap Pop quiz. I dare you.'];
+// Quick-button answers are kept (last 60) so the same lesson + button replays instantly; "↻ New take" refreshes.
+const AKEY = 'luxe_byte_answers';
+const CACHEABLE = ['simple', 'normal', 'deep', 'example', 'mistakes', 'story'];
+const readAnswers = () => { try { return JSON.parse(localStorage.getItem(AKEY) || '{}'); } catch { return {}; } };
+function saveAnswer(k, entry) {
+  try {
+    const a = readAnswers(); a[k] = { scenes: entry.scenes, chips: entry.chips, at: Date.now() };
+    const keep = Object.entries(a).sort((x, y) => y[1].at - x[1].at).slice(0, 60);
+    localStorage.setItem(AKEY, JSON.stringify(Object.fromEntries(keep)));
+  } catch { /* storage full */ }
+}
 const CUTS = ['Oh, interrupting the professor? Bold. Go on.', 'Whoa, okay, you talk. I am listening.', 'Rude. But I like the energy. Go.', 'Mid-sentence? Fine. Your turn.'];
 const NUDGES = ['Tick tock. My circuits are getting old here.', 'Any day now. I live in here, I have time. You do not.', 'Hello? Is this thing on?', 'Take your time. Actually, no. Hurry up.', 'I can hear you thinking. Say it out loud.'];
 
@@ -44,7 +55,7 @@ function savePlan(key, v) {
   } catch { /* storage full or private */ }
 }
 
-export default function TutorStage({ active, subject, context, brief, planKey, onSaveNote, courseId, request, homework, onSetHomework, onGradeHomework }) {
+export default function TutorStage({ prepare, active, subject, context, brief, planKey, onSaveNote, courseId, request, homework, onSetHomework, onGradeHomework }) {
   const [log, setLog] = useState([]);
   const [plan, setPlan] = useState(null); // { title, opener, known, weak, steps, step, sig }
   const [reading, setReading] = useState(null); // what he is reading right now
@@ -153,6 +164,11 @@ export default function TutorStage({ active, subject, context, brief, planKey, o
     if (!['start', 'live_start', 'hint', 'homework_check', 'homework_grade', 'wrapup'].includes(level)) setLog((l) => { const n = [...l, { role: 'user', text: userText }]; logRef.current = n; return n; });
     setQ(''); setThinking(true); thinkingRef.current = true;
     const show = (entry) => { setLog((l) => { const n = [...l, entry]; logRef.current = n; return n; }); setTimeout(() => play(logRef.current.length - 1, 0), 60); };
+    const ck = CACHEABLE.includes(level) && !liveRef.current ? `${planKey}|${level}` : null;
+    if (ck && !opts.fresh) {
+      const hit = readAnswers()[ck];
+      if (hit?.scenes?.length) { show({ role: 'ai', scenes: hit.scenes, chips: [`__fresh__:${level}`, ...(hit.chips || [])], cached: true }); setThinking(false); thinkingRef.current = false; return; }
+    }
     try {
       const p = await ensurePlan();
       const hwFor = ['homework_check', 'homework_grade'].includes(level) ? hwRef.current : null;
@@ -163,7 +179,9 @@ export default function TutorStage({ active, subject, context, brief, planKey, o
       }
       if (level === 'wrapup' && j.homework) { onSetHomework?.(j.homework); setHwSet(j.homework); }
       if (level === 'homework_grade') { onGradeHomework?.(j.grade, !!opts.skipped); setHwVerdict({ ...(j.grade || {}), skipped: !!opts.skipped }); setHwOpen(false); afterRef.current = opts.then || (liveRef.current ? 'live_start' : 'start'); }
-      show({ role: 'ai', scenes: j.scenes || [], chips: j.chips || [] });
+      const entry = { role: 'ai', scenes: j.scenes || [], chips: j.chips || [] };
+      if (ck && entry.scenes.length) saveAnswer(ck, entry);
+      show(entry);
     } catch (e) {
       show({ role: 'ai', error: true, scenes: [{ say: e.message || 'My circuits tangled. Try again?', mood: 'surprised', gesture: 'shrug', board: null }], chips: [] });
     } finally { setThinking(false); thinkingRef.current = false; }
@@ -182,6 +200,7 @@ export default function TutorStage({ active, subject, context, brief, planKey, o
   // Before teaching he reads everything and plans the session. Re-planned when the material changes.
   async function ensurePlan(force = false) {
     if (!brief) return null;
+    if (prepare) await prepare(() => setReading('lesson for the first time (researching it once, then it is saved)'));
     const b = brief();
     const sig = `${b.text.length}:${b.read.notes}:${b.read.cards}`;
     const have = planRef.current;
@@ -346,7 +365,7 @@ export default function TutorStage({ active, subject, context, brief, planKey, o
           <div style={{ display: 'flex', gap: 3, marginTop: 7 }}>{plan.steps.map((_, k) => <span key={k} style={{ flex: 1, height: 4, borderRadius: 2, background: k < plan.step ? '#34D399' : k === plan.step ? '#FBBF24' : 'var(--border)' }} />)}</div>
           {showPlan && (
             <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.45 }}>
-              {plan.read && <div style={{ color: 'var(--text-3)', marginBottom: 6 }}>Byte read: {[plan.read.lessons && `${plan.read.lessons} lessons of notes`, plan.read.notes && `${plan.read.notes} notes`, plan.read.cards && `${plan.read.cards} flashcards`, plan.read.weak && `${plan.read.weak} weak spots`].filter(Boolean).join(' · ') || 'the topic only (no notes yet)'}</div>}
+              {plan.read && <div style={{ color: 'var(--text-3)', marginBottom: 6 }}>Byte read: {[plan.read.kb && 'his saved research on this lesson', plan.read.lessons && `${plan.read.lessons} lessons of notes`, plan.read.notes && `${plan.read.notes} notes`, plan.read.cards && `${plan.read.cards} flashcards`, plan.read.weak && `${plan.read.weak} weak spots`].filter(Boolean).join(' · ') || 'the topic only (no notes yet)'}</div>}
               {plan.steps.map((st, k) => (
                 <button key={k} onClick={() => jumpTo(k)} disabled={thinking} style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', display: 'flex', gap: 7, width: '100%', padding: '5px 2px', opacity: k < plan.step ? 0.6 : 1 }}>
                   <span>{k < plan.step ? '✅' : k === plan.step ? '👉' : '▫️'}</span>
@@ -417,7 +436,7 @@ export default function TutorStage({ active, subject, context, brief, planKey, o
         {BYTE_VOICES.map(([k, l]) => <button key={k} className={`chip ${voice === k ? 'active' : ''}`} style={{ fontSize: 11.5, padding: '3px 9px' }} onClick={() => { setVoice(k); voiceRef.current = k; setByteVoice(k); if (k === 'off') hush(); else if (!talking && !thinking) say(k === 'phone' ? 'This is the phone voice. Bit robotic, right?' : 'Hi. This is my voice now. Better, right?', 'cheeky'); }}>{l}</button>)}
       </div>
       <div className="tab-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', margin: '10px 0 8px' }}>
-        {chips.map((c, k) => <button key={'c' + k} className="chip" style={{ borderColor: 'rgba(52,211,153,.5)' }} disabled={thinking} onClick={() => ask(c)}>{c}</button>)}
+        {chips.map((c, k) => (String(c).startsWith('__fresh__:') ? <button key={'c' + k} className="chip" style={{ borderColor: 'rgba(125,249,255,.6)' }} disabled={thinking} onClick={() => ask('', c.split(':')[1], { fresh: true })}>↻ New take</button> : <button key={'c' + k} className="chip" style={{ borderColor: 'rgba(52,211,153,.5)' }} disabled={thinking} onClick={() => ask(c)}>{c}</button>))}
         {QUICK.map(([k, l]) => <button key={k} className="chip" disabled={thinking} onClick={() => ask('', k)}>{l}</button>)}
         <button className="chip" disabled={thinking} onClick={() => setQ(`Let me explain ${subject} back to you: `)}>🗣 I'll explain it back</button>
       </div>
