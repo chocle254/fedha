@@ -6,7 +6,8 @@ import { getSetting, setSetting } from '../lib/db';
 import { fireConfetti } from '../lib/confetti';
 import { themeKeyFor } from '../lib/themes';
 import { formatCurrency, formatShort } from '../lib/utils';
-import TierMotion from './TierMotion';
+import TierMotion, { MOODS } from './TierMotion';
+import { holidayFor } from '../lib/holidays';
 
 // The wealth tier follows you onto every money screen (Home, Wallets, Transactions, Budgets, Goals, Reports,
 // Utilities…): background, accents, card glow and chart colours. Screens with their own mood (Trading, Music,
@@ -31,7 +32,12 @@ export default function TierSync() {
     }).catch(() => {});
   }, [loading, tier.index]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const motion = money && tier.index > 0 ? <TierMotion tierKey={tier.key} /> : null;
+  // Today's holiday takes over the motion; otherwise the tier's own mood. Only the current one is built.
+  const [holiday, setHoliday] = useState(null);
+  useEffect(() => { const check = () => setHoliday(holidayFor(new Date())); check(); const t = setInterval(check, 30 * 60e3); return () => clearInterval(t); }, []);
+  const mood = holiday ? { glows: holiday.glows, emit: holiday.emit } : MOODS[tier.key];
+  const moodKey = holiday ? `h-${holiday.key}` : tier.key;
+  const motion = money && mood ? <TierMotion moodKey={moodKey} mood={mood} /> : null;
   if (!pop) return motion;
   return (
     <>

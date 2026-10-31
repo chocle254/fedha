@@ -14,6 +14,7 @@ import InterestTicker from '../components/InterestTicker';
 import { getInterest, ziidiBalance, interestEarned, accrualStart } from '../lib/ziidi';
 import { useApp } from '../context/AppContext';
 import { tierFor, TIERS } from '../lib/wealth-tiers';
+import { holidayFor } from '../lib/holidays';
 import { getSetting } from '../lib/db';
 import { formatCurrency, formatShort, formatDate, formatDateRelative, getCategoryById, groupByDay, monthRange } from '../lib/utils';
 import { format } from 'date-fns';
@@ -152,6 +153,7 @@ export default function Dashboard() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <h1 className="lx-h1">{(() => { const h = new Date().getHours(); return h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; })()}</h1>
             <div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 4 }}>{format(new Date(), 'EEEE, d MMMM')}</div>
+            {(() => { const h = holidayFor(new Date()); return h ? <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, padding: '4px 11px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, background: 'rgba(255,255,255,0.07)', border: '1px solid var(--accent-soft, rgba(255,255,255,.15))' }}>{h.icon} {h.greeting}</div> : null; })()}
           </div>
           <LuxeMark size={38} animated />
         </div>
