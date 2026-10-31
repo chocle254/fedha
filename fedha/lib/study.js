@@ -178,3 +178,53 @@ export async function askStudy(body) {
   if (!r.ok) throw new Error(j.error || 'The AI could not answer right now.');
   return j;
 }
+
+// Everything Professor Byte reads before he teaches: the material (lesson or whole course, AI notes and your
+// own notes, every related saved note) plus a brief on you as a learner: where you are in the course, your
+// mastery, weak spots from flashcards you keep missing and quiz misses, and what you studied lately.
+// Returns { text, read } where read counts what went in (shown so you can see he did his homework).
+export function learnerBrief({ course, lesson, topic = '', notes = [], cards = [], log = [] }) {
+  const words = (s) => String(s || '').toLowerCase().split(/[^a-z0-9+#]+/).filter((w) => w.length > 3);
+  const keys = words(topic || lesson?.title || '');
+  const hit = (t) => keys.length > 0 && keys.some((k) => String(t || '').toLowerCase().includes(k));
+  const relNotes = notes.filter((n) => (course && n.course_id === course.id) || hit(n.title) || hit(n.body)).slice(0, 12);
+  const relCards = cards.filter((c) => (course ? c.course_id === course.id : hit(c.topic) || hit(c.q)));
+  const parts = [];
+
+  // The material, lesson first.
+  if (lesson) {
+    parts.push(`CURRENT LESSON: ${lesson.title} (${lesson.section || 'Course content'})${lesson.completed ? ' [already marked done]' : ''}`);
+    if (lesson.aiNotes) parts.push(`Lesson notes:\n${lesson.aiNotes}`);
+    if (lesson.notes) parts.push(`Learner's own notes on this lesson:\n${lesson.notes}`);
+  }
+  if (course) {
+    const mods = course.modules || [];
+    parts.push(`COURSE: ${course.title}${course.provider ? ` by ${course.provider}` : ''}${course.description ? ` - ${course.description}` : ''}`);
+    if (mods.length) parts.push(`Course outline (done = ✓):\n${mods.map((m) => `${m.completed ? '✓' : '·'} ${m.title}${lesson && m.id === lesson.id ? '  <- now' : ''}`).join('\n').slice(0, 2500)}`);
+    if (course.notes) parts.push(`Course notes:\n${course.notes}`);
+    for (const m of mods) if (m !== lesson && (m.aiNotes || m.notes) && (!lesson || m.completed)) parts.push(`Earlier lesson "${m.title}":\n${(m.aiNotes || '').slice(0, 900)}${m.notes ? `\nLearner's notes: ${m.notes.slice(0, 500)}` : ''}`);
+  }
+  for (const n of relNotes) parts.push(`Saved note "${n.title}":\n${String(n.body).slice(0, 1500)}`);
+
+  // The learner.
+  const weak = relCards.filter((c) => (c.lapses || 0) > 0 || (c.ease || 2.5) < 2.2).sort((a, b) => (b.lapses || 0) - (a.lapses || 0)).slice(0, 10);
+  const quizMiss = relCards.filter((c) => c.source === 'quiz').slice(-8);
+  const strong = relCards.filter(isMastered).slice(0, 8);
+  const quizzes = log.filter((e) => e.kind === 'quiz' && e.total > 0 && (course ? e.course_id === course.id : hit(e.topic))).slice(-5);
+  const recent = [...new Set(log.filter((e) => e.kind === 'focus' && e.topic).slice(-12).map((e) => e.topic))].slice(-6);
+  const m = course ? masteryFor({ cards, log }, course.id) : null;
+  const me = ['ABOUT THE LEARNER: self-taught, no degree, learning AI/ML and cybersecurity.'];
+  if (m) me.push(`Mastery in this course: ${m.score == null ? 'no evidence yet' : `${m.score}/100 (${m.label})`}; ${m.cards} flashcards, ${m.mastered} mastered.`);
+  if (quizzes.length) me.push(`Recent quiz scores: ${quizzes.map((e) => `${e.score}/${e.total}`).join(', ')}.`);
+  if (weak.length) me.push(`Weak spots (flashcards they keep missing):\n${weak.map((c) => `- ${c.q}`).join('\n')}`);
+  if (quizMiss.length) me.push(`Questions they got wrong in quizzes:\n${quizMiss.map((c) => `- ${c.q}`).join('\n')}`);
+  if (strong.length) me.push(`Already solid (do not over-teach):\n${strong.map((c) => `- ${c.q}`).join('\n')}`);
+  if (recent.length) me.push(`Recently studied: ${recent.join(', ')}.`);
+  if (!course && !relNotes.length) me.push(`No saved notes on "${topic}" yet: teach it from accurate general knowledge.`);
+
+  const material = parts.join('\n\n').slice(0, 11000);
+  return {
+    text: `${material}\n\n${me.join('\n')}`.slice(0, 14000),
+    read: { lessons: course ? (course.modules || []).filter((x) => x.aiNotes || x.notes).length : 0, notes: relNotes.length, cards: relCards.length, weak: weak.length + quizMiss.length },
+  };
+}

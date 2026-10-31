@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { studyText } from '../../lib/study';
+import { studyText, learnerBrief } from '../../lib/study';
 import { showNotif } from '../../lib/notifications';
 import QuickQuiz from './QuickQuiz';
 import TutorStage from './TutorStage';
@@ -12,7 +12,7 @@ import { useMusic } from '../../context/MusicContext';
 // The timer runs on the clock (end time), so it stays right if the phone sleeps or you switch apps.
 const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
-export default function StudyMode({ courses, notes, cards = [], prefs, start, onClose, onFocusDone, onQuizDone, onLessonDone, onSaveNote, onSaveLessonNotes, onPrefs }) {
+export default function StudyMode({ courses, notes, cards = [], log = [], prefs, start, onClose, onFocusDone, onQuizDone, onLessonDone, onSaveNote, onSaveLessonNotes, onPrefs }) {
   const [courseId, setCourseId] = useState(start?.courseId || courses.find((c) => c.status !== 'completed')?.id || '');
   const course = courses.find((c) => c.id === courseId);
   const lessons = course?.modules || [];
@@ -38,6 +38,9 @@ export default function StudyMode({ courses, notes, cards = [], prefs, start, on
 
   const subject = topic.trim() || lesson?.title || course?.title || 'my studies';
   const context = () => studyText(course, lesson, notes.filter((n) => n.course_id && n.course_id === courseId).slice(0, 4));
+  // Professor Byte reads everything: the material plus a brief on how you're doing (lib/study.js).
+  const brief = () => learnerBrief({ course, lesson, topic: topic.trim() || subject, notes, cards, log });
+  const planKey = `${courseId || 'free'}|${lessonId || ''}|${topic.trim().toLowerCase()}`;
   const total = (phase === 'focus' ? p.focus : phase === 'break' ? ((blocks % p.every === 0 && blocks) ? p.long : p.short) : p.focus) * 60;
 
   // Tick.
@@ -178,7 +181,7 @@ export default function StudyMode({ courses, notes, cards = [], prefs, start, on
         </div>
         <div className="card" style={{ padding: 12, display: panel === 'tutor' ? 'block' : 'none' }}>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 8 }}>🎓 Professor Byte{course ? ` · reading your notes for ${lesson ? 'this lesson' : 'this course'}` : ''} · tap him, he reacts</div>
-          <TutorStage active={panel === 'tutor'} subject={subject} context={context} onSaveNote={onSaveNote} courseId={courseId} request={tutorReq} />
+          <TutorStage active={panel === 'tutor'} subject={subject} context={() => brief().text} brief={brief} planKey={planKey} onSaveNote={onSaveNote} courseId={courseId} request={tutorReq} />
         </div>
       </div>
     </div>

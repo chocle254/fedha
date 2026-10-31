@@ -33,8 +33,23 @@ function tok() {
 }
 const toMd = (a) => a.scenes.map((s) => [s.say, boardToMd(s.board)].filter(Boolean).join('\n\n')).join('\n\n');
 
-export default function TutorStage({ active, subject, context, onSaveNote, courseId, request }) {
+// Lesson plans he made, kept on this phone (last 20) so reopening the same lesson picks up where you left off.
+const PKEY = 'luxe_byte_plans';
+const loadPlans = () => { try { return JSON.parse(localStorage.getItem(PKEY) || '{}'); } catch { return {}; } };
+function savePlan(key, v) {
+  try {
+    const all = loadPlans(); all[key] = { ...v, at: Date.now() };
+    const keep = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, 20);
+    localStorage.setItem(PKEY, JSON.stringify(Object.fromEntries(keep)));
+  } catch { /* storage full or private */ }
+}
+
+export default function TutorStage({ active, subject, context, brief, planKey, onSaveNote, courseId, request }) {
   const [log, setLog] = useState([]);
+  const [plan, setPlan] = useState(null); // { title, opener, known, weak, steps, step, sig }
+  const [reading, setReading] = useState(null); // what he is reading right now
+  const [showPlan, setShowPlan] = useState(false);
+  const planRef = useRef(null); planRef.current = plan;
   const [cur, setCur] = useState(null); // { i, s, done } the scene being played
   const [talking, setTalking] = useState(false);
   const [level, setLevel] = useState(0); // loudness of his voice, for the mouth
@@ -119,13 +134,38 @@ export default function TutorStage({ active, subject, context, onSaveNote, cours
     setQ(''); setThinking(true); thinkingRef.current = true;
     const show = (entry) => { setLog((l) => { const n = [...l, entry]; logRef.current = n; return n; }); setTimeout(() => play(logRef.current.length - 1, 0), 60); };
     try {
-      const j = await askStudy({ type: 'stage', level: level || undefined, question: userText, topic: subject, context: context(), history, live: liveRef.current, interrupted: opts.interrupted || undefined });
+      const p = await ensurePlan();
+      const j = await askStudy({ type: 'stage', level: level || undefined, question: userText, topic: subject, context: context(), history, live: liveRef.current, interrupted: opts.interrupted || undefined, plan: p ? { steps: p.steps } : undefined, step: p ? p.step : undefined });
+      if (j.advance && planRef.current && planRef.current.step < planRef.current.steps.length) {
+        const next = { ...planRef.current, step: planRef.current.step + 1 }; setPlan(next); planRef.current = next; savePlan(planKey, next);
+        setTimeout(knock, 400);
+      }
       show({ role: 'ai', scenes: j.scenes || [], chips: j.chips || [] });
     } catch (e) {
       show({ role: 'ai', error: true, scenes: [{ say: e.message || 'My circuits tangled. Try again?', mood: 'surprised', gesture: 'shrug', board: null }], chips: [] });
     } finally { setThinking(false); thinkingRef.current = false; }
   }, [subject, context, play]);
   const askRef = useRef(ask); askRef.current = ask;
+
+  // Before teaching he reads everything and plans the session. Re-planned when the material changes.
+  async function ensurePlan(force = false) {
+    if (!brief) return null;
+    const b = brief();
+    const sig = `${b.text.length}:${b.read.notes}:${b.read.cards}`;
+    const have = planRef.current;
+    if (!force && have && have.key === planKey && have.sig === sig) return have;
+    const saved = loadPlans()[planKey];
+    if (!force && saved && saved.sig === sig) { setPlan(saved); planRef.current = saved; return saved; }
+    const r = b.read;
+    setReading([r.lessons && `${r.lessons} lesson${r.lessons === 1 ? '' : 's'} of notes`, r.notes && `${r.notes} saved note${r.notes === 1 ? '' : 's'}`, r.cards && `${r.cards} flashcard${r.cards === 1 ? '' : 's'}`, r.weak && `${r.weak} weak spot${r.weak === 1 ? '' : 's'}`].filter(Boolean).join(', ') || 'the topic');
+    try {
+      const j = await askStudy({ type: 'plan', topic: subject, context: b.text });
+      const p = { ...j.plan, step: 0, key: planKey, sig, read: r };
+      setPlan(p); planRef.current = p; savePlan(planKey, p);
+      return p;
+    } catch { return null; } finally { setReading(null); }
+  }
+  const jumpTo = (k) => { const p = planRef.current; if (!p) return; const n = { ...p, step: k }; setPlan(n); planRef.current = n; savePlan(planKey, n); setShowPlan(false); askRef.current(`Let's do step ${k + 1}: ${p.steps[k]?.title || 'the recap'}`); };
 
   // ── Live one-on-one class: he asks, you answer out loud, you can cut him off ──
   const words = (t) => String(t).toLowerCase().match(/[a-z']{3,}/g) || [];
@@ -260,10 +300,38 @@ export default function TutorStage({ active, subject, context, onSaveNote, cours
         <div style={{ position: 'absolute', top: 8, left: 10, fontSize: 10.5, letterSpacing: 1, fontWeight: 800, color: 'rgba(125,249,255,.6)' }}>PROFESSOR BYTE</div>
       </div>
 
+      {plan && (
+        <div className="card-2" style={{ marginTop: 10, padding: '9px 11px' }}>
+          <button onClick={() => setShowPlan(!showPlan)} style={{ all: 'unset', cursor: 'pointer', display: 'flex', width: '100%', gap: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: 16 }}>📋</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{plan.title || 'Today\'s lesson'}</span>
+              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{plan.step >= plan.steps.length ? 'All steps done 🎉' : `Step ${plan.step + 1} of ${plan.steps.length}: ${plan.steps[plan.step].title}`}</span>
+            </span>
+            <span style={{ fontSize: 12 }}>{showPlan ? '⌃' : '⌄'}</span>
+          </button>
+          <div style={{ display: 'flex', gap: 3, marginTop: 7 }}>{plan.steps.map((_, k) => <span key={k} style={{ flex: 1, height: 4, borderRadius: 2, background: k < plan.step ? '#34D399' : k === plan.step ? '#FBBF24' : 'var(--border)' }} />)}</div>
+          {showPlan && (
+            <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.45 }}>
+              {plan.read && <div style={{ color: 'var(--text-3)', marginBottom: 6 }}>Byte read: {[plan.read.lessons && `${plan.read.lessons} lessons of notes`, plan.read.notes && `${plan.read.notes} notes`, plan.read.cards && `${plan.read.cards} flashcards`, plan.read.weak && `${plan.read.weak} weak spots`].filter(Boolean).join(' · ') || 'the topic only (no notes yet)'}</div>}
+              {plan.steps.map((st, k) => (
+                <button key={k} onClick={() => jumpTo(k)} disabled={thinking} style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', display: 'flex', gap: 7, width: '100%', padding: '5px 2px', opacity: k < plan.step ? 0.6 : 1 }}>
+                  <span>{k < plan.step ? '✅' : k === plan.step ? '👉' : '▫️'}</span>
+                  <span style={{ flex: 1 }}><b>{st.title}</b><span style={{ color: 'var(--text-3)' }}> · {st.goal}</span></span>
+                </button>
+              ))}
+              {plan.weak?.length > 0 && <div style={{ marginTop: 6 }}><b>Fixing:</b> {plan.weak.join(' · ')}</div>}
+              {plan.known?.length > 0 && <div style={{ marginTop: 3, color: 'var(--text-3)' }}><b>You already know:</b> {plan.known.join(' · ')}</div>}
+              <button className="btn-ghost" style={{ marginTop: 8 }} disabled={thinking} onClick={async () => { setShowPlan(false); hush(); setThinking(true); thinkingRef.current = true; await ensurePlan(true); setThinking(false); thinkingRef.current = false; askRef.current('', 'start'); }}>↻ Re-read my notes and re-plan</button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* speech bubble */}
       <div style={{ position: 'relative', marginTop: 10, padding: '10px 12px', borderRadius: 14, background: 'var(--card-2)', border: '1px solid var(--border)', minHeight: 46 }}>
         <div style={{ position: 'absolute', top: -7, left: 44, width: 12, height: 12, background: 'var(--card-2)', borderLeft: '1px solid var(--border)', borderTop: '1px solid var(--border)', transform: 'rotate(45deg)' }} />
-        {thinking ? <div style={{ fontSize: 13, color: 'var(--text-3)' }}>Hmm… let me think about that…</div> : <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{bubble}</div>}
+        {thinking ? <div style={{ fontSize: 13, color: 'var(--text-3)' }}>{reading ? `📖 Reading your ${reading} before we start…` : 'Hmm… let me think about that…'}</div> : <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{bubble}</div>}
         {live && <div style={{ marginTop: 8, fontSize: 12.5, color: heard ? 'var(--green)' : 'var(--text-3)', display: 'flex', gap: 6, alignItems: 'center' }}><motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity }} style={{ width: 8, height: 8, borderRadius: 4, background: '#EF4444', display: 'inline-block' }} />{heard ? `You: ${heard}` : talking ? 'Listening. Talk over him to interrupt.' : 'Your turn. Answer out loud.'}</div>}
         {answer && answer.scenes.length > 1 && <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>{answer.scenes.map((_, k) => <span key={k} style={{ flex: 1, height: 3, borderRadius: 2, background: k <= (cur?.s ?? 0) ? '#34D399' : 'var(--border)' }} />)}</div>}
       </div>
