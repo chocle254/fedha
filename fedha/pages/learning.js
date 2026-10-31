@@ -44,7 +44,25 @@ function Field({label,children}){return <div style={{marginBottom:14}}><label st
 function normalizeModules(modules=[]){return modules.map((m,i)=>({id:m.id||genId(),section:m.section||'Course content',title:m.title||`Lesson ${i+1}`,type:m.type||'video',minutes:Number(m.minutes)||10,completed:!!m.completed,notes:m.notes||'',aiNotes:m.aiNotes||'',url:m.url||'',...(m.xp?{xp:true}:{})}));}
 
 export default function LearningPage(){
-  const {courses,addCourse,updateCourse,removeCourse,addCertificate}=useApp();
+  const {courses,addCourse,updateCourse,removeCourse,addCertificate,updateCertificate,certificates=[],loading}=useApp();
+  // Every course certificate lives in the Tech Hub's Certificates Room (one record per course, never a duplicate).
+  // Finishing a course frames it there straight away; a photo of the real certificate can replace the Luxe-made one later.
+  // cert_id on the course remembers it was sent, so a certificate you delete in the Room is not sent again.
+  const certFor=useCallback(async(course,image=null)=>{
+    const existing=certificates.find(c=>c.course_id===course.id)||(course.cert_id&&certificates.find(c=>c.id===course.cert_id));
+    const base={title:course.title,achievement:'Completion',category:'Course',organization:course.provider||'Self study',recipient_name:'Me',description:course.description?.slice(0,300)||'Certificate earned after completing this course.',source:'course',course_id:course.id};
+    if(existing)return updateCertificate({...existing,...base,image:image||existing.image||'',date_earned:existing.date_earned||new Date().toISOString()});
+    return addCertificate({...base,image:image||'',date_earned:course.completed_at?new Date(course.completed_at+'T12:00:00').toISOString():new Date().toISOString()});
+  },[certificates,addCertificate,updateCertificate]);
+  const [certNote,setCertNote]=useState(null);
+  const announceCert=(title)=>{setCertNote(title);setTimeout(()=>setCertNote(null),5000);};
+  // Courses finished before this existed: frame them once.
+  const backfilled=useRef(false);
+  useEffect(()=>{
+    if(loading||backfilled.current)return;backfilled.current=true;
+    (async()=>{for(const c of courses.filter(c=>c.status==='completed'&&!c.cert_id&&!certificates.some(x=>x.course_id===c.id))){const cert=await certFor(c);if(cert?.id)await updateCourse({...c,cert_id:cert.id});}
+      for(const c of courses.filter(c=>!c.cert_id)){const x=certificates.find(x=>x.course_id===c.id);if(x)await updateCourse({...c,cert_id:x.id});}})().catch(e=>console.warn('[fedha] certificate backfill failed:',e?.message));
+  },[loading]);// eslint-disable-line react-hooks/exhaustive-deps
   const [selected,setSelected]=useState(null),[formOpen,setFormOpen]=useState(false),[form,setForm]=useState(EMPTY);
   const [lesson,setLesson]=useState({title:'',type:'video',minutes:'',section:'',url:''}),[savingCert,setSavingCert]=useState(false),[openLesson,setOpenLesson]=useState(null),[aiLesson,setAiLesson]=useState(null),[aiTranscript,setAiTranscript]=useState(''),[aiLoading,setAiLoading]=useState(false),[aiError,setAiError]=useState('');
   const active=courses.filter(c=>c.status!=='completed'),completed=courses.filter(c=>c.status==='completed').sort((a,b)=>String(b.completed_at||'').localeCompare(String(a.completed_at||'')));
@@ -101,6 +119,7 @@ export default function LearningPage(){
     const updated={...course,status:done?'completed':'active',completed_at:done?(course.completed_at||todayISO()):null,manual_complete:done,xp_awarded:course.xp_awarded||done};
     await updateCourse(updated);
     setSelected(s=>s&&s.id===course.id?updated:s);
+    if(done&&!course.cert_id){const cert=await certFor(updated);if(cert?.id){const withCert={...updated,cert_id:cert.id};await updateCourse(withCert);setSelected(s=>s&&s.id===course.id?withCert:s);announceCert(course.title);}}
     if(done&&!course.xp_awarded){await award({kind:'course',course_id:course.id,topic:course.title,xp:50});}
     if(done)setView('completed');
   }
@@ -126,6 +145,7 @@ export default function LearningPage(){
     const minutes=modules.filter(m=>m.completed).reduce((s,m)=>s+Number(m.minutes||0),0),total=modules.reduce((s,m)=>s+Number(m.minutes||0),0);
     const keepDone=course.status==='completed'&&course.manual_complete;
     const updated={...course,modules,completed_minutes:minutes,status:done||keepDone?'completed':'active',completed_at:done||keepDone?(course.completed_at||todayISO()):null,estimated_hours:Number((total/60).toFixed(2))};
+    if(done&&!course.cert_id){const cert=await certFor(updated);if(cert?.id){updated.cert_id=cert.id;announceCert(course.title);}}
     await updateCourse(updated);setSelected(s=>s?updated:s);
     if(firstTime)await award({kind:'lesson',course_id:course.id,lesson_id:id,topic:before.title,xp:XP.lesson,count:{lessons:1}});
   }
@@ -200,7 +220,7 @@ export default function LearningPage(){
     const file=e.target.files?.[0];if(!file)return;setSavingCert(true);
     try{
       const image=await resizeImage(file,1400),cert={title:course.title,achievement:'Course Certificate',organization:course.provider||'Course Provider',date_earned:new Date().toISOString(),recipient_name:'Me',description:course.description||'Certificate earned after completing this course.',image,source:'course',course_id:course.id};
-      await addCertificate(cert);const updated={...course,status:'completed',completed_at:course.completed_at||todayISO(),certificate:{...cert,image}};await updateCourse(updated);setSelected(updated);
+      const saved=await certFor(course,image);const updated={...course,status:'completed',completed_at:course.completed_at||todayISO(),certificate:{...cert,image},cert_id:saved?.id||course.cert_id};announceCert(course.title);await updateCourse(updated);setSelected(updated);
     }finally{setSavingCert(false);}
   }
 
@@ -250,6 +270,7 @@ export default function LearningPage(){
   </div></div></div>}
 
   {studyAt&&study&&<StudyMode courses={courses} notes={study.notes} cards={study.cards} prefs={study.prefs} onSaveLessonNotes={saveStudyNotes} start={studyAt} onClose={()=>setStudyAt(null)} onFocusDone={focusDone} onQuizDone={quizDone} onLessonDone={(c,id)=>toggleLesson(courses.find(x=>x.id===c.id)||c,id)} onSaveNote={saveNote} onPrefs={(p)=>{patch({prefs:p});savePrefs(p);}}/>}
+  {certNote&&<a href="/tech-hub?tab=certificates" className="learn-toast" style={{textDecoration:'none',color:'inherit',bottom:toast?150:undefined}}><b>🖼 Framed in your Certificates Room</b><div style={{fontSize:12,opacity:.8}}>{certNote} · tap to see it</div></a>}
   {toast&&<div className="learn-toast">{toast.medals?toast.medals.map(m=><div key={m.id}><span style={{fontSize:26}}>{m.icon}</span> <b>Medal: {m.name}</b><div style={{fontSize:12,opacity:.8}}>{m.desc}</div></div>):<b>+{toast.xp} XP</b>}</div>}
   {selected&&!formOpen&&<CourseDetail onStudy={(lessonId)=>{setStudyAt({courseId:selected.id,lessonId});setSelected(null);}} course={selected} onClose={()=>setSelected(null)} onEdit={()=>{setFormOpen(true);setForm({...EMPTY,...selected,modules:normalizeModules(selected.modules)});setSelected(null)}} onToggle={toggleLesson} onSaveNotes={saveLessonNotes} onCertificate={uploadCertificate} onSetCompleted={setCompleted} savingCert={savingCert} openLesson={openLesson} setOpenLesson={setOpenLesson} aiLesson={aiLesson} setAiLesson={setAiLesson} aiTranscript={aiTranscript} setAiTranscript={setAiTranscript} aiLoading={aiLoading} aiError={aiError} generateLessonNotes={generateLessonNotes} generateVimeoNotes={generateVimeoNotes}/>}
   </Layout>;
@@ -275,6 +296,7 @@ function CourseDetail({onStudy,course,onClose,onEdit,onToggle,onSaveNotes,onCert
     {course.url&&<a href={course.url} target="_blank" rel="noreferrer" className="btn-ghost" style={{display:'block',textAlign:'center',textDecoration:'none',marginBottom:10}}>🌐 Open Course</a>}
     <label className="btn-ghost" style={{display:'block',textAlign:'center',cursor:'pointer',marginBottom:10}}>{savingCert?'Processing…':course.certificate?'🏆 Certificate Stored':'📜 Add Course Certificate'}<input type="file" accept="image/*" style={{display:'none'}} disabled={savingCert} onChange={e=>onCertificate(e,course)}/></label>
     {course.certificate?.image&&<img src={course.certificate.image} alt="Course certificate" style={{width:'100%',borderRadius:10,border:'1px solid var(--border)'}}/>}
+    {(course.cert_id||course.certificate)&&<a href="/tech-hub?tab=certificates" className="btn-ghost" style={{display:'block',textAlign:'center',textDecoration:'none',marginTop:8}}>🖼 See it in the Certificates Room</a>}
     {course.status==='completed'
       ?<button className="btn-ghost" style={{width:'100%',marginTop:5}} onClick={()=>onSetCompleted(course,false)}>↩ Reopen course</button>
       :<button className="btn-primary" style={{width:'100%',marginTop:5}} onClick={()=>{onSetCompleted(course,true);onClose();}}>🏁 Mark course as completed</button>}
