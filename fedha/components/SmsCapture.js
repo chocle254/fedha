@@ -8,7 +8,7 @@ import { relabelSms } from '../lib/sms-relabel';
 
 // Luxe → Wallets: link the Android app so it reads M-Pesa and Ziidi texts (like Truecaller), pick which SIM is
 // which M-Pesa account, and see how each captured message was read. Server: lib/sms-capture.js.
-// Step 1 (now): capture and show only; nothing is recorded yet. Message text is wiped once recorded or after 7 days.
+// Automatic recording is off by default (you add transactions by hand); it can be switched on below. Message text is wiped once recorded or after 7 days.
 const isAndroid = () => typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
 const when = (iso) => new Date(iso).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -105,7 +105,7 @@ export default function SmsCapture({ wallets }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, padding: '10px 12px', borderRadius: 10, background: d.auto?.on ? 'rgba(34,197,94,0.08)' : 'var(--card-2)' }}>
           <div style={{ flex: 1, fontSize: 12.5, lineHeight: 1.45 }}>
             <b>Automatic recording {d.auto?.on ? 'on' : 'off'}</b>
-            <div style={{ color: 'var(--text-3)', fontSize: 11.5 }}>{d.auto?.on ? `New messages since ${when(d.auto.since)} are recorded when Luxe is open. Older ones never are.` : 'Messages are only read and shown here.'}</div>
+            <div style={{ color: 'var(--text-3)', fontSize: 11.5 }}>{d.auto?.on ? `New messages since ${when(d.auto.since)} are recorded when Luxe is open. Older ones never are.` : 'Nothing is recorded from SMS. Add transactions yourself; these messages are just a reminder of what came in and went out.'}</div>
           </div>
           <button type="button" className={d.auto?.on ? 'btn-ghost' : 'btn-primary'} style={{ width: 'auto', padding: '8px 12px', fontSize: 12.5 }}
             onClick={async () => { const r = await fetch('/api/sms/ready', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: !d.auto?.on }) }); if (r.ok) load(); }}>{d.auto?.on ? 'Turn off' : 'Turn on'}</button>

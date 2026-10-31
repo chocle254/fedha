@@ -88,7 +88,7 @@ async function defaultSims(userId) {
 export async function pairDevice(userId) {
   const token = crypto.randomBytes(24).toString('base64url');
   const old = await getDevice(userId);
-  await putDevice(userId, { hash: sha(token), paired_at: new Date().toISOString(), sims: old?.sims || await defaultSims(userId), last_seen: null });
+  await putDevice(userId, { hash: sha(token), paired_at: new Date().toISOString(), sims: old?.sims || await defaultSims(userId), last_seen: null, auto: old?.auto || { on: false, since: null } });
   return token;
 }
 
@@ -321,18 +321,15 @@ export async function planContext(userId, rows) {
 }
 
 // ── Automatic recording ──────────────────────────────────────────────────────
-// Switched on once (device.auto = { on, since }). Only messages received AFTER `since` are ever recorded; the
+// Off unless you switch it on in Wallets (device.auto = { on, since }); you prefer typing transactions by hand
+// (2026-10-31). When on, only messages received AFTER `since` are ever recorded; the
 // ones before it (including everything caught up at linking) stay as history. The server only decides what each
 // message means (lib/sms-plan.js); the app records it (components/SmsAutoRecorder.js) with the same code as a
 // hand-typed transaction, so its offline copy of your balances stays right.
 export async function autoState(userId) {
   const d = await getDevice(userId);
   if (!d) return null;
-  if (!d.auto) {
-    d.auto = { on: true, since: new Date().toISOString() };
-    await putDevice(userId, d);
-  }
-  return d.auto;
+  return d.auto || { on: false, since: null };
 }
 export async function setAuto(userId, on) {
   const d = (await getDevice(userId)) || {};

@@ -25,6 +25,8 @@ export default function SmsCategoryPrompt() {
       if (!r.ok) return;
       const j = await r.json();
       const now = Date.now();
+      // Only while automatic recording is on: otherwise you record payments yourself.
+      if (!j.device?.auto?.on) { setWaiting([]); return; }
       setWaiting((j.items || []).filter((x) => x.plan?.needsCategory && !x.parsed?.category && ['recorded', 'captured'].includes(x.status)
         && now - new Date(x.received_at).getTime() < RECENT_MS));
     } catch { /* offline */ }
