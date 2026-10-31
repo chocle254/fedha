@@ -1749,3 +1749,41 @@ html[data-tier-level="7"] .lx-ambience::after, html[data-tier-level="8"] .lx-amb
 html[data-tier-level="7"] .lx-ambience::after, html[data-tier-level="8"] .lx-ambience::after, html[data-tier-level="9"] .lx-ambience::after { opacity: .55; animation-duration: 11s; }
 @keyframes lxTierSweep { from { transform: translateX(-34%); } to { transform: translateX(34%); } }
 @media (prefers-reduced-motion: reduce) { html[data-tier] .lx-ambience::after { animation: none; display: none; } }
+
+/* Tier motion (components/TierMotion.js): every tier's own living mood. Transform/opacity only. */
+.tm { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; contain: strict; animation: lxWallIn 1.6s ease both; }
+.tm-glow { position: absolute; left: var(--gx); top: var(--gy); width: 90vmax; height: 90vmax; margin: -45vmax 0 0 -45vmax; border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--rgb), .22) 0, transparent 62%); animation: tmDrift var(--d) ease-in-out infinite alternate; will-change: transform; }
+@keyframes tmDrift { from { transform: translate3d(-8vw, -4vh, 0) scale(1); } to { transform: translate3d(8vw, 6vh, 0) scale(1.15); } }
+.tm-spot { position: absolute; top: 10%; left: 0; width: 70vmax; height: 70vmax; margin-left: -35vmax; border-radius: 50%;
+  background: radial-gradient(circle, rgba(233,196,106,.13) 0, transparent 60%); animation: tmSpot 20s ease-in-out infinite alternate; will-change: transform; }
+@keyframes tmSpot { from { transform: translate3d(5vw, 0, 0); } to { transform: translate3d(95vw, 30vh, 0); } }
+.tm-rays { position: absolute; left: 50%; top: -60vmax; width: 160vmax; height: 160vmax; margin-left: -80vmax; border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(var(--rgb), .07) 0 5deg, transparent 5deg 20deg);
+  -webkit-mask-image: radial-gradient(circle, #000 0, transparent 62%); mask-image: radial-gradient(circle, #000 0, transparent 62%);
+  animation: tmSpin 120s linear infinite; will-change: transform; }
+@keyframes tmSpin { to { transform: rotate(360deg); } }
+
+.tm-p { position: absolute; left: var(--x); width: var(--s); height: var(--s); will-change: transform, opacity;
+  animation-duration: var(--d); animation-delay: var(--delay); animation-iteration-count: infinite; animation-timing-function: linear; }
+.tm-bubble, .tm-orb, .tm-dust, .tm-ember { top: 100%; animation-name: tmRise; }
+@keyframes tmRise { 0% { transform: translate3d(0, 0, 0); opacity: 0; } 10% { opacity: 1; } 85% { opacity: .8; } 100% { transform: translate3d(var(--sway), -118vh, 0); opacity: 0; } }
+.tm-bubble { border-radius: 50%; border: 1px solid rgba(var(--rgb), .5); background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.35), transparent 60%); }
+.tm-orb { border-radius: 50%; background: radial-gradient(circle, rgba(var(--rgb), .6), transparent 70%); }
+.tm-dust { border-radius: 50%; background: rgba(var(--rgb), .95); box-shadow: 0 0 6px rgba(var(--rgb), .9); }
+.tm-ember { border-radius: 50%; background: rgba(var(--rgb), 1); box-shadow: 0 0 8px rgba(251,191,36,.9); animation-name: tmEmber; }
+@keyframes tmEmber { 0% { transform: translate3d(0, 0, 0); opacity: 0; } 8% { opacity: 1; } 30% { opacity: .5; } 45% { opacity: 1; } 70% { opacity: .6; }
+  100% { transform: translate3d(var(--sway), -110vh, 0) scale(.4); opacity: 0; } }
+.tm-petal, .tm-glitter { top: -6%; animation-name: tmFall; }
+@keyframes tmFall { 0% { transform: translate3d(0, 0, 0) rotate(0); opacity: 0; } 8% { opacity: .95; } 90% { opacity: .9; } 100% { transform: translate3d(var(--sway), 112vh, 0) rotate(620deg); opacity: 0; } }
+.tm-petal { height: calc(var(--s) * .7); border-radius: 100% 0 100% 0; background: linear-gradient(135deg, rgba(var(--rgb), .9), rgba(244,114,182,.55)); }
+.tm-glitter { border-radius: 1px; background: rgba(var(--rgb), .95); box-shadow: 0 0 5px rgba(var(--rgb), .8); }
+.tm-sparkle, .tm-speck { top: var(--y); animation-name: tmTwinkle; animation-timing-function: ease-in-out; }
+.tm-sparkle { background: rgba(var(--rgb), 1); clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%); filter: drop-shadow(0 0 4px rgba(var(--rgb), .9)); }
+.tm-speck { border-radius: 50%; background: rgba(var(--rgb), .9); }
+@keyframes tmTwinkle { 0%, 100% { transform: scale(.1) rotate(0); opacity: 0; } 50% { transform: scale(1) rotate(45deg); opacity: 1; } }
+.tm-beam { left: 0; width: 100%; height: 22vh; top: -24vh; background: linear-gradient(180deg, transparent, rgba(var(--rgb), .07), transparent); animation-name: tmBeam; animation-timing-function: ease-in-out; }
+@keyframes tmBeam { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(0, 150vh, 0); } }
+.tm-glint { top: 0; height: 100%; width: 1px; background: linear-gradient(180deg, transparent, rgba(var(--rgb), .75), transparent); animation-name: tmGlint; animation-timing-function: ease-in-out; }
+@keyframes tmGlint { 0%, 70%, 100% { opacity: 0; transform: scaleY(.3); } 80% { opacity: 1; transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) { .tm { display: none; } }

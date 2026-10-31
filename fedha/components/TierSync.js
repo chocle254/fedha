@@ -6,6 +6,7 @@ import { getSetting, setSetting } from '../lib/db';
 import { fireConfetti } from '../lib/confetti';
 import { themeKeyFor } from '../lib/themes';
 import { formatCurrency, formatShort } from '../lib/utils';
+import TierMotion from './TierMotion';
 
 // The wealth tier follows you onto every money screen (Home, Wallets, Transactions, Budgets, Goals, Reports,
 // Utilities…): background, accents, card glow and chart colours. Screens with their own mood (Trading, Music,
@@ -30,8 +31,11 @@ export default function TierSync() {
     }).catch(() => {});
   }, [loading, tier.index]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!pop) return null;
+  const motion = money && tier.index > 0 ? <TierMotion tierKey={tier.key} /> : null;
+  if (!pop) return motion;
   return (
+    <>
+    {motion}
     <div className="lx-tier-pop" onClick={() => setPop(null)} role="dialog" aria-label={`${pop.name} tier unlocked`}>
       <div>
         <div style={{ fontSize: 56 }}>{pop.icon}</div>
@@ -44,5 +48,6 @@ export default function TierSync() {
         <button className="btn-primary" style={{ marginTop: 16, width: '100%' }} onClick={() => setPop(null)}>Let&apos;s go</button>
       </div>
     </div>
+    </>
   );
 }
