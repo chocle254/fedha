@@ -15,18 +15,25 @@ const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 const KINDS = ['bootcamp', 'course', 'scholarship', 'fellowship', 'program'];
 const clip = (v, n) => String(v ?? '').slice(0, n);
 
-function queries(interests, focus) {
+// Searches built around the learner's fields (default AI/ML and cybersecurity) and around being self-taught:
+// every query asks for programmes that need no degree, so university-only offers mostly never show up.
+function queries(fields, focus) {
   const year = new Date().getFullYear();
-  const topic = interests.slice(0, 2).join(' ') || 'software engineering AI';
-  const all = {
-    bootcamp: [`fully sponsored residential tech bootcamp Kenya ${year} accommodation and meals provided`, `fully sponsored tech bootcamp Kenya ${year} apply`, `free ${topic} bootcamp Africa ${year} scholarship`],
-    course: [`free ${topic} course with free certificate ${year}`, `KITI Kenya free training programme ${year}`],
-    scholarship: [`fully funded tech scholarship Kenya ${year} applications open`],
-    fellowship: [`tech fellowship Africa ${year} applications open young developers`],
-    program: [`centre of excellence tech training programme Kenya ${year} free`, `ALX Power Learn Project Moringa sponsored programme ${year} intake`],
-  };
-  if (focus && all[focus]) return [...all[focus], ...(focus === 'course' ? [] : [`free ${topic} ${focus} ${year} Kenya`])];
-  return [all.bootcamp[0], `fully funded tech training Africa ${year} accommodation meals travel covered`, all.bootcamp[1], all.course[0], all.course[1], all.scholarship[0], all.bootcamp[2], all.program[0], all.program[1], all.fellowship[0]];
+  const fs = fields.length ? fields.slice(0, 3) : ['AI and machine learning', 'cybersecurity'];
+  const per = (f) => ({
+    bootcamp: [`fully sponsored ${f} bootcamp Kenya ${year} no degree required`, `free residential ${f} bootcamp Africa ${year} accommodation meals provided`],
+    course: [`free ${f} course with free certificate ${year} self-taught beginners`],
+    scholarship: [`${f} scholarship ${year} open to self-taught non-students Africa`],
+    fellowship: [`${f} fellowship ${year} Africa no degree required applications open`],
+    program: [`${f} training programme Kenya ${year} free open to youth not university`],
+  });
+  if (focus && KINDS.includes(focus)) return fs.flatMap((f) => per(f)[focus]).concat(focus === 'program' ? [`KITI Kenya free ${fs[0]} training ${year}`] : []).slice(0, 8);
+  return [
+    ...fs.flatMap((f) => [per(f).bootcamp[0], per(f).bootcamp[1], per(f).course[0]]),
+    `fully funded ${fs.join(' or ')} programme Africa ${year} self-taught apply`,
+    `KITI Kenya free ${fs[0]} training ${year}`,
+    `${fs[0]} fellowship ${year} Africa no degree required`,
+  ].slice(0, 10);
 }
 
 async function groqJSON(key, system, text) {
@@ -46,16 +53,18 @@ export default async function handler(req, res) {
   if (!(await requireUser(req, res))) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const interests = (Array.isArray(req.body?.interests) ? req.body.interests : []).map((s) => clip(s, 80)).filter(Boolean).slice(0, 6);
+  const fields = (Array.isArray(req.body?.fields) ? req.body.fields : []).map((s) => clip(s, 60)).filter(Boolean).slice(0, 4);
   const focus = KINDS.includes(req.body?.focus) ? req.body.focus : 'all';
 
   let found;
-  try { found = await webSearchMulti(queries(interests, focus), { limitEach: 6 }); }
+  try { found = await webSearchMulti(queries(fields, focus), { limitEach: 6 }); }
   catch (e) { console.warn('[fedha] learn-opps search failed:', e.status, e.message); return res.status(502).json({ error: 'The web search is not answering right now. Try again in a minute.' }); }
 
   const today = new Date().toISOString().slice(0, 10);
   const system = 'You sort real web search results into learning opportunities. Use only facts in the results. Never invent a link, date, price or sponsor. Output only valid JSON.';
-  const text = `Today is ${today}. The learner is in Kenya and studies: ${interests.join(', ') || 'software, AI and tech'}.
-From these search results, pick the real, specific opportunities (one programme, course, bootcamp, scholarship or fellowship each). Skip hackathons and competitions, list articles, ads, paid-only courses, expired ones (deadline before today) and anything not open to someone in Kenya or online.
+  const text = `Today is ${today}. The learner is in Kenya, SELF-TAUGHT, with NO university degree and NOT enrolled at a university. Their fields: ${(fields.length ? fields : ['AI and machine learning', 'cybersecurity']).join(', ')}${interests.length ? ` (current courses: ${interests.join(', ')})` : ''}.
+From these search results, pick the real, specific opportunities (one programme, course, bootcamp, scholarship or fellowship each) in those fields.
+Skip: anything that requires a bachelor's or other degree, current university or college enrolment, being a graduate, or a university nomination; anything outside their fields (general business, teaching, health etc.); hackathons and competitions; list articles, ads, paid-only courses, expired ones (deadline before today) and anything not open to someone in Kenya or online.
 For each give:
 - title: the programme's own name
 - org: who runs or sponsors it
@@ -65,7 +74,10 @@ For each give:
 - where: "Online", a city, or "Kenya"
 - url: copied exactly from the results
 - why: one plain sentence on what you get and who it suits
-- match: 0-100, how well it fits what the learner studies
+- field: which of their fields it fits
+- open: "anyone" if self-taught people with no degree can apply, "degree" if it needs a degree or university enrolment, "unclear" if the results do not say
+- eligibility: who can apply, in a few words from the results (e.g. "Kenyans 18-35, no degree needed")
+- match: 0-100, how well it fits their fields (under 40 if it is only loosely related)
 - stay: true only if the results say accommodation (housing, residential, hostel) is provided free
 - meals: true only if the results say meals or food are provided free
 - stipend: true only if the results mention a stipend, allowance or travel paid
@@ -88,16 +100,18 @@ ${found.text.slice(0, 16000)}`;
   const seen = new Set();
   const items = (obj?.items || [])
     .filter((it) => it?.title && real.has(norm(it.url)))
+    .filter((it) => it.open !== 'degree' && (Number(it.match) || 0) >= 40) // self-taught: no degree-only offers, nothing off-field
     .filter((it) => !it.deadline || !/^\d{4}-\d{2}-\d{2}$/.test(it.deadline) || it.deadline >= today)
     .filter((it) => { const k = norm(it.url); if (seen.has(k)) return false; seen.add(k); return true; })
     .map((it) => ({
       title: clip(it.title, 140), org: clip(it.org, 80), kind: KINDS.includes(it.kind) ? it.kind : 'program',
       cost: clip(it.cost, 40) || 'Free', deadline: /^\d{4}-\d{2}-\d{2}$/.test(it.deadline || '') ? it.deadline : '',
       where: clip(it.where, 40), url: real.get(norm(it.url)), why: clip(it.why, 260), match: Math.max(0, Math.min(100, Number(it.match) || 0)),
+      field: clip(it.field, 50), open: it.open === 'anyone' ? 'anyone' : 'unclear', eligibility: clip(it.eligibility, 120),
       stay: it.stay === true, meals: it.meals === true, stipend: it.stipend === true,
     }))
     // Full accommodation and meals first, then housing or meals alone, then the rest by match.
-    .sort((a, b) => (perk(b) - perk(a)) || (b.match - a.match))
+    .sort((a, b) => (perk(b) - perk(a)) || ((b.open === 'anyone') - (a.open === 'anyone')) || (b.match - a.match))
     .slice(0, 18);
   return res.status(200).json({ items, searched: found.citations.length });
 }

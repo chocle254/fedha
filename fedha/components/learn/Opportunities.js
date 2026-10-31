@@ -8,6 +8,8 @@ import { getSetting, setSetting } from '../../lib/db';
 const KEY = 'study_opps';
 const SAVED_CAP = 60;
 const FILTERS = [['all', '✨ All'], ['bootcamp', '🏕️ Bootcamps'], ['course', '📚 Free courses'], ['scholarship', '🎓 Scholarships'], ['fellowship', '🤝 Fellowships'], ['program', '⭐ Programmes']];
+const FIELDS = ['AI & machine learning', 'Cybersecurity', 'Data science', 'Cloud & DevOps', 'Software development', 'Web development'];
+const DEFAULT_FIELDS = ['AI & machine learning', 'Cybersecurity'];
 const ICON = { bootcamp: '🏕️', course: '📚', scholarship: '🎓', fellowship: '🤝', program: '⭐' };
 
 // Well-known schools that stay free. Intakes change: the link is the source of truth.
@@ -32,21 +34,21 @@ const perk = (it) => (it.stay && it.meals ? 4 : 0) + (it.stay ? 2 : 0) + (it.mea
 const idOf = (it) => String(it.url || it.title).toLowerCase();
 
 export default function Opportunities({ courses, onAddCourse }) {
-  const [data, setData] = useState({ at: null, items: [], saved: [] });
+  const [data, setData] = useState({ at: null, items: [], saved: [], fields: DEFAULT_FIELDS });
   const [filter, setFilter] = useState('all');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [added, setAdded] = useState({});
 
-  useEffect(() => { getSetting(KEY, null).then((d) => d && setData({ at: d.at || null, items: (d.items || []).filter(noHack), saved: (d.saved || []).filter(noHack) })); }, []);
+  useEffect(() => { getSetting(KEY, null).then((d) => d && setData({ at: d.at || null, items: (d.items || []).filter(noHack).filter((it) => it.open), // older searches weren't checked for fields or degree rules saved: (d.saved || []).filter(noHack), fields: d.fields?.length ? d.fields : DEFAULT_FIELDS })); }, []);
 
-  const store = async (next) => { setData(next); await setSetting(KEY, { at: next.at, items: next.items.slice(0, 18), saved: next.saved.slice(0, SAVED_CAP) }); };
+  const store = async (next) => { setData(next); await setSetting(KEY, { at: next.at, items: next.items.slice(0, 18), saved: next.saved.slice(0, SAVED_CAP), fields: next.fields }); };
   const interests = useMemo(() => courses.filter((c) => c.status !== 'completed').slice(0, 4).map((c) => c.title), [courses]);
 
   const research = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await fetch('/api/learn-opps', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ interests, focus: filter }) });
+      const r = await fetch('/api/learn-opps', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ interests, fields: data.fields, focus: filter }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || 'Research failed.');
       if (!j.items?.length) throw new Error('Nothing open and free came back this time. Try another filter.');
@@ -54,6 +56,7 @@ export default function Opportunities({ courses, onAddCourse }) {
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   const isSaved = (it) => data.saved.some((s) => idOf(s) === idOf(it));
+  const toggleField = (f) => { const has = data.fields.includes(f); if (has && data.fields.length === 1) return; store({ ...data, fields: has ? data.fields.filter((x) => x !== f) : [...data.fields, f].slice(-4) }); };
   const toggleSave = (it) => store({ ...data, saved: isSaved(it) ? data.saved.filter((s) => idOf(s) !== idOf(it)) : [{ ...it, saved_at: new Date().toISOString() }, ...data.saved] });
   const hasCourse = (it) => courses.some((c) => (c.url && idOf({ url: c.url }) === idOf(it)) || c.title.toLowerCase() === it.title.toLowerCase());
   const addCourse = async (it) => {
@@ -79,8 +82,11 @@ export default function Opportunities({ courses, onAddCourse }) {
               {it.stay && !it.meals && <span className="chip" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--gold)' }}>🏠 Housing</span>}
               {it.meals && !it.stay && <span className="chip" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--gold)' }}>🍽️ Meals</span>}
               {it.stipend && <span className="chip" style={{ fontSize: 11, padding: '2px 8px' }}>💵 Stipend</span>}
+              {it.open === 'anyone' && <span className="chip" style={{ fontSize: 11, padding: '2px 8px', color: 'var(--green)' }}>✓ No degree needed</span>}
+              {it.field && <span className="chip" style={{ fontSize: 11, padding: '2px 8px' }}>{it.field}</span>}
               {it.match > 0 && <span className="chip" style={{ fontSize: 11, padding: '2px 8px' }}>{it.match}% match</span>}
                           </div>
+            {it.eligibility && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 5 }}>Who can apply: {it.eligibility}</div>}
             {it.why && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.5 }}>{it.why}</div>}
           </div>
         </div>
@@ -104,7 +110,11 @@ export default function Opportunities({ courses, onAddCourse }) {
       <div className="card" style={{ padding: 14, background: 'linear-gradient(135deg,rgba(59,130,246,.10),rgba(16,185,129,.07))' }}>
         <div style={{ fontWeight: 800 }}>🌍 Free learning, found for you</div>
         <div style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '4px 0 10px', lineHeight: 1.5 }}>
-          Searches the web now for sponsored bootcamps, free courses with certificates, scholarships, fellowships and excellence programmes open to you in Kenya or online{interests.length ? `, matched to ${interests.slice(0, 2).join(' and ')}` : ''}. Ones with free housing and meals come first. Only real links from the search are shown.
+          Searches the web now for sponsored bootcamps, free courses with certificates, scholarships, fellowships and excellence programmes in your fields, open to self-taught people with no degree, in Kenya or online. Free housing and meals come first; degree-only offers are dropped. Only real links from the search are shown.
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-3)', letterSpacing: 0.8, marginBottom: 6 }}>MY FIELDS</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+          {FIELDS.map((f) => <button key={f} className={`chip ${data.fields.includes(f) ? 'active' : ''}`} onClick={() => toggleField(f)}>{data.fields.includes(f) ? '✓ ' : ''}{f}</button>)}
         </div>
         <div className="tab-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 10 }}>
           {FILTERS.map(([k, l]) => <button key={k} className={`chip ${filter === k ? 'active' : ''}`} onClick={() => setFilter(k)}>{l}</button>)}
