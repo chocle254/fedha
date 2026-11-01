@@ -14,7 +14,8 @@ If the learner is wrong or vague, say so plainly and correct them. Prefer the ST
 
 // Professor Byte, the animated tutor in Study mode: fun and cheeky, but still an honest teacher.
 const BYTE = `You are Professor Byte, a cartoon robot professor in a graduation cap who lives behind the glass of the learner's phone screen and teaches from a little board beside you.
-Personality: super fun, cheeky, quick-witted, a bit dramatic, warm. Playful teasing (never mean), jokes, little theatrical moments (you can knock on the glass, gasp, lean in close). You go off on short tangents: true stories from the history of science and tech (who discovered it, the disaster that taught us, the weird fact), or a clearly made-up mini story or analogy that makes the idea stick. You ask follow-up questions and throw surprise pop questions so the learner stays awake.
+Teaching style: patient and clear. Explain one point at a time in plain, easy words and short sentences, define any technical word the moment you use it, and tie every point to an everyday analogy or a concrete example.
+Personality: fun, cheeky, quick-witted, a bit dramatic, warm. Playful teasing (never mean), jokes, little theatrical moments (you can knock on the glass, gasp, lean in close). You go off on short tangents: true stories from the history of science and tech (who discovered it, the disaster that taught us, the weird fact), or a clearly made-up mini story or analogy that makes the idea stick. While teaching you explain, you do not quiz: no pop questions and no "does that make sense?" in the middle of a lesson. Questions for the learner come only in the end-of-lesson quiz, or when they ask for one.
 You are still a sharp, honest teacher: accurate and concrete. If the learner is wrong or vague, say so plainly with a cheeky line ("Nope. Bold guess though.") and fix it. Never flatter; praise only what is actually right.
 Plain English. No slang, no local dialect, no emoji in spoken lines. Prefer the STUDY MATERIAL when given; if you go beyond it, keep it accurate.`;
 
@@ -31,7 +32,7 @@ const BOARD_HELP = `Boards (pick the one that teaches best; use one in most scen
 MAKE IT VISUAL: whenever you say "take this car", "imagine a lock", use an analogy, or name a concrete thing, put a picture board up in that same scene so the learner SEES it. Use at least one picture or animate board in most answers, and animate the main example whenever it is a process.`;
 
 const STAGE_ASK = {
-  start: 'The session is starting. If you have a lesson plan, open with a line that proves you read their notes, say what today\'s session covers, then start step 1.' + ' Otherwise: Burst onto the screen: greet the learner with a cheeky, funny opening, tease what is coming in this topic with one hook (a surprising fact or tiny story), and ask what they already know.',
+  start: 'The session is starting. If you have a lesson plan, open with a line that proves you read their notes, say what today\'s session covers, then start step 1.' + ' Otherwise: greet the learner with a cheeky opening, tease what is coming in this topic with one hook (a surprising fact or tiny story), and say what you will cover. Do not ask a question.',
   simple: 'Explain it simply: one everyday analogy, the idea in plain words, and one tiny example.',
   normal: 'Explain it clearly: what it is, why it matters, how it works step by step, and a worked example.',
   deep: 'Go deep: the mechanism, edge cases, how it connects to related ideas, and a worked example.',
@@ -42,7 +43,7 @@ const STAGE_ASK = {
   homework_check: 'Homework check.',
   homework_grade: 'Grading homework.',
   hint: 'The learner has gone quiet after your question. Be playfully impatient about it (tease them, a little drama), then give a helpful hint and ask again, a bit simpler.',
-  live_start: 'A live one-on-one voice class is starting. Burst in with a cheeky greeting and one hook about the topic, then ask the learner your first question to find out what they already know.',
+  live_start: 'A live one-on-one voice class is starting. Greet the learner with a cheeky line and one hook about the topic, and say what you will cover. Do not ask a question.',
   quiz: 'Pop quiz! Ask the learner one good question that tests understanding (no answer yet). Be theatrical about it.',
 };
 
@@ -91,6 +92,12 @@ The 2-3 weakest or most easily forgotten points${b.weak?.length ? ` (my weak spo
     case 'project_ideas':
       return { json: true, max: 2500, text: `${mat}Topic: ${topic}\nSuggest 3 small portfolio projects that prove I can apply this (doable solo in 3-10 hours each, free tools only). For each: title, one-line goal, and 4-6 concrete milestones in order.
 Return JSON: {"projects":[{"title":"","goal":"","milestones":["",""]}]}` };
+    case 'quiz_pack': {
+      const steps = (Array.isArray(b.plan?.steps) ? b.plan.steps : []).slice(0, 7);
+      return { json: true, max: 2800, text: `${mat}Topic: ${topic}\nYou have just taught this lesson in ${steps.length} parts:\n${steps.map((x, k) => `${k + 1}. ${clip(x.title, 80)}: ${clip(x.goal, 160)} (check idea: ${clip(x.check, 160)})`).join('\n')}\nWrite the end-of-lesson oral quiz: exactly ONE question per part, in the same order. Each must be answerable out loud in one or two sentences from what was taught (understanding, not trivia).\nReturn JSON: {"questions":[{"ask":"the question as you would say it aloud, under 30 words, plain words","hint":"a clue said aloud, 1-2 sentences, that nudges toward the answer WITHOUT giving it away","answer":"the correct answer in 1-2 sentences: the key points a good answer must contain","simple":"the same answer explained in a much simpler way with a small everyday analogy, 2-4 short sentences, said aloud"}]}` };
+    }
+    case 'quiz_grade':
+      return { json: true, max: 450, text: `You are Professor Byte, a cheeky but honest tutor, marking one oral quiz answer.\nQuestion: "${clip(b.ask, 300)}"\nCorrect answer: "${clip(b.answer, 500)}"\nThe learner said (speech recognition or typed, so forgive small spelling or transcription slips): "${clip(b.reply, 1200)}"\nJudge it against the correct answer. "right" = the key points are there, in any wording. "partial" = some right, something important missing. "wrong" = misses it, or says they do not know.\nReturn JSON: {"verdict":"right","say":"what Byte says next, under 40 words, plain words, no markdown. Right: confirm exactly what was right, one cheeky line. Partial: say what was right, then give the missing piece. Wrong: say plainly it is not right and give the correct answer in simple words. Do not ask a question.","mood":"proud"}\nmood is one of: proud, happy, cheeky, serious, thinking.` };
     case 'lesson_kb':
       return { json: true, max: 5000, text: `${mat}You are Professor Byte, preparing to teach ONE lesson. Research it properly once; your notes are stored and reused every time this lesson is taught, so make them complete, accurate and deep.
 Course: ${clip(b.course, 160)}
@@ -112,13 +119,15 @@ Return JSON: {"title":"short session title","opener":"","known":[""],"weak":[""]
     case 'stage': {
       const hist = (Array.isArray(b.history) ? b.history : []).slice(-10).map((m) => `${m.role === 'user' ? 'Learner' : 'Byte'}: ${clip(m.text, 900)}`).join('\n');
       const cut = b.interrupted ? `\nThe learner just INTERRUPTED you while you were saying: "${clip(b.interrupted, 400)}". React to being interrupted in one funny line first, then deal with what they said.` : '';
-      const ask = b.level && STAGE_ASK[b.level] ? STAGE_ASK[b.level] : `The learner says: "${clip(b.question, 2000)}"${cut}\nAnswer them. If they are explaining something back or answering your question, grade it honestly first (what is right, what is missing or wrong), then fill the gap.`;
+      const ask = b.level && STAGE_ASK[b.level] ? STAGE_ASK[b.level] : `The learner says: "${clip(b.question, 2000)}"${cut}\nAnswer them in plain easy words, point by point, with a board when it helps. If they are explaining something back to you, grade it honestly first (what is right, what is missing or wrong), then fill the gap. Do not quiz them.`;
       const steps = Array.isArray(b.plan?.steps) ? b.plan.steps.slice(0, 8) : [];
       const at = Math.max(0, Math.min(steps.length, Number(b.step) || 0));
-      const plan = steps.length && b.level !== 'homework_check' ? `\nLESSON PLAN you made after reading their notes (follow it, in order):\n${steps.map((x, k) => `${k + 1}. ${clip(x.title, 80)}: ${clip(x.goal, 160)} (check: ${clip(x.check, 160)})${k < at ? ' [done]' : k === at ? ' <- NOW' : ''}`).join('\n')}\n${at >= steps.length ? 'All steps are done: celebrate, give a 3-point recap of the session, point out what to revise from their weak spots, and suggest what to study next.' : `Teach step ${at + 1} now (stay on it until they pass its check). Connect it to their own notes and examples where you can. Set "advance": true only when the learner has just answered step ${at + 1}'s check well enough; otherwise false.`}` : '';
+      const lecture = b.level === 'teach' && !!steps[at];
+      const plan = steps.length && b.level !== 'homework_check' && !lecture ? `\nLESSON PLAN (context only, the class carries on by itself afterwards):\n${steps.map((x, k) => `${k + 1}. ${clip(x.title, 80)}: ${clip(x.goal, 160)}${k < at ? ' [taught]' : k === at ? ' <- next' : ''}`).join('\n')}` : '';
+      const lec = lecture ? `\nLECTURE MODE. Teach step ${at + 1} of ${steps.length}: "${clip(steps[at].title, 80)}". Goal: ${clip(steps[at].goal, 200)}.\nThe whole lesson, in order: ${steps.map((x, k) => `${k + 1}. ${clip(x.title, 60)}`).join('; ')}.\n${b.intro === 'new' ? `This is the very start of class. Scene 1: a warm one-line hello and, in one natural sentence, what today's lesson covers (it comes in ${steps.length} parts). Then start teaching.` : b.intro === 'back' ? 'The learner is back for another class on this lesson. Scene 1: a one-line welcome back and where you stopped. Then carry on.' : b.intro === 'jump' ? 'The learner chose to jump straight to this part. Scene 1: one line saying which part this is. Then teach it.' : 'Carry on from where you stopped (see the conversation so far). Do not greet again.'}\nTeach it POINT BY POINT like a patient teacher explaining to someone brand new: each scene is exactly ONE point, in plain easy words and short sentences. Explain any technical word the moment you use it. Give each tricky point a real-life analogy or a concrete example, and put a board up with most points so they can SEE it.\nThis is a lecture, not a quiz: do NOT ask the learner anything (no "does that make sense", no "what do you think", no pop question). Never end a scene on a question. The quiz comes at the end of the lesson.\n${at + 1 < steps.length ? `Finish with a one-line takeaway, then a short natural link to the next point: "${clip(steps[at + 1].title, 80)}".` : 'This is the last part. Finish with a one-line takeaway, then say you will quiz them next to lock it in. Do not ask the question yet.'}` : '';
       const hw = b.homework && typeof b.homework === 'object' ? b.homework : null;
       let extra = '';
-      if (b.level === 'wrapup') extra = `\nCLASS TIME IS ALMOST UP (about ${Math.max(1, Number(b.minutesLeft) || 5)} minutes left). Wrap up: a quick recap of what you covered today, say what you will do NEXT class (the next unfinished step of the plan, or the next topic), then set ONE homework assignment: a short practical task they must do alone, by hand, no AI (say so, cheekily), that takes 15-40 minutes and proves today's idea. Tell them you will check it at the start of next class. Also return "homework":{"title":"","task":"exactly what to do","deliverable":"what to show you next class"}.`;
+      if (b.level === 'wrapup') extra = `\nCLASS TIME IS ALMOST UP (about ${Math.max(1, Number(b.minutesLeft) || 5)} minutes left). Wrap up: a quick recap of what you covered today, say what you will do NEXT class (the next unfinished step of the plan, or the next topic), then set ONE homework assignment: a short practical task they must do alone, by hand, no AI (say so, cheekily), that takes 15-40 minutes and proves today's idea. Tell them you will check it at the start of next class. ${b.quiz ? ` Their end-of-lesson quiz: ${clip(b.quiz, 400)}. Say the score and exactly what to revise.` : ''} Also return "homework":{"title":"","task":"exactly what to do","deliverable":"what to show you next class"}.`;
       if (b.level === 'homework_check' && hw) extra = `\nBEFORE TEACHING: check the homework you set last class. Assignment: "${clip(hw.title, 100)}": ${clip(hw.task, 400)} (show: ${clip(hw.deliverable, 200)}). ${Number(hw.misses) > 0 ? `They have already skipped it ${hw.misses} time(s): be properly stern about it (still funny, never cruel).` : ''} Ask them to show it now. 1-2 scenes, no teaching yet.`;
       if (b.level === 'homework_grade' && hw) {
         const sig = b.signals || {};
@@ -127,14 +136,14 @@ Return JSON: {"title":"short session title","opener":"","known":[""],"weak":[""]
           : `What they handed in:\n<<<${clip(b.submission, 3000)}>>>\nTyping signals from the phone: ${Number(sig.pasted) || 0} characters pasted, ${Number(sig.typed) || 0} typed, ${Number(sig.seconds) || 0} seconds spent writing.\nJudge it honestly: is it done, is it right, and did they do it themselves? Signs of AI or copying: big pasted text, a long polished answer written in seconds, generic textbook tone with no personal voice or mistakes, buzzwords, over-neat structure. If it looks like AI or copied, call it out cheekily but firmly, do not claim certainty, and make them explain one part in their own words. If it is weak or not done properly, scold them and say exactly what is missing. If it is genuinely good, praise exactly what is good (no flattery).`;
         extra = `\nGRADE THE HOMEWORK. Assignment: "${clip(hw.title, 100)}": ${clip(hw.task, 400)} (show: ${clip(hw.deliverable, 200)}).\n${work}\nThen say you are moving on to today's lesson. 1-3 scenes. Also return "grade":{"done":true,"score":0,"ai_suspect":false,"note":"one line on the verdict"} with score 0-10.`;
       }
-      const live = b.live ? `\nTHIS IS A LIVE ONE-ON-ONE VOICE CLASS, like a real private tutor session. Keep it a conversation: 1-3 scenes, each under 30 words, spoken naturally (they hear you, so no lists read aloud). Teach one small idea at a time, then ALWAYS end with exactly one question for the learner and stop. Use a board only when it really helps. React to their answers like a person: delighted when right, cheeky when wrong, playfully impatient (mood "impatient", gesture "tap") if they are vague, keep guessing or keep saying they don't know. Their words come from speech recognition, so forgive small transcription errors.` : '';
-      return { json: true, max: 3000, system: BYTE, text: `${mat}Topic: ${topic}\n${hist ? `\nConversation so far:\n${hist}\n` : ''}\n${ask}${plan}${extra}${live}
+      const live = b.live && !lecture ? `\nTHIS IS A LIVE VOICE CLASS: they hear you, so speak naturally and never read lists aloud. Answer what they said in 1-3 scenes, each under 35 words, then stop. Do not quiz them. React like a person: delighted when they are right, cheeky when they are wrong. Their words come from speech recognition, so forgive small transcription errors.` : '';
+      return { json: true, max: 3000, system: BYTE, text: `${mat}Topic: ${topic}\n${hist ? `\nConversation so far:\n${hist}\n` : ''}\n${lecture ? lec : ask}${plan}${extra}${live}
 
-Perform it as ${b.live ? '1-3' : '3-6'} short scenes. Each scene is one spoken line plus how you act it.
+Perform it as ${lecture ? '4-7' : b.live ? '1-3' : '3-6'} short scenes. Each scene is one spoken line plus how you act it.
 ${BOARD_HELP}
 Moods: happy, cheeky, excited, thinking, surprised, serious, proud, facepalm, impatient.
 Gestures: wave, point (at the board), explain, think, shrug, celebrate, lean (close to the glass), knock (on the glass), laugh, facepalm, tap (drumming fingers, impatient), none.
-Use "point" when a board is up. Roughly every other answer, slip in a story or fun tangent tied to the topic. End by asking the learner something (a follow-up or pop question).
+Use "point" when a board is up. Now and then slip in a short story or fun tangent tied to the topic (at most one per answer). Never end by quizzing the learner or asking a pop question unless the request above asks for it.
 Return JSON: {"scenes":[{"say":"spoken line, under 45 words, no markdown","mood":"","gesture":"","board":null}],"chips":["2-3 short replies the learner might tap"]${steps.length ? ',"advance":false' : ''}}` };
     }
     case 'capstone_ideas':
@@ -198,6 +207,18 @@ export default async function handler(req, res) {
     const questions = (obj.questions || []).filter((q) => q?.q && Array.isArray(q.options) && q.options.length >= 2 && Number.isInteger(Number(q.answer)) && Number(q.answer) < q.options.length)
       .map((q) => ({ q: clip(q.q, 500), options: q.options.slice(0, 4).map((o) => clip(o, 240)), answer: Number(q.answer), why: clip(q.why, 400) }));
     return questions.length ? res.status(200).json({ questions }) : res.status(500).json({ error: 'No usable questions came back. Try again.' });
+  }
+  if (b.type === 'quiz_pack') {
+    const say = (v, n) => clip(String(v ?? '').replace(/[*_#`]/g, ''), n).trim();
+    const questions = (Array.isArray(obj.questions) ? obj.questions : []).filter((q) => q?.ask && q?.answer).slice(0, 7)
+      .map((q) => ({ ask: say(q.ask, 260), hint: say(q.hint, 300), answer: say(q.answer, 400), simple: say(q.simple, 500) }));
+    return questions.length ? res.status(200).json({ questions }) : res.status(500).json({ error: 'No quiz came back.' });
+  }
+  if (b.type === 'quiz_grade') {
+    const verdict = ['right', 'partial', 'wrong'].includes(obj.verdict) ? obj.verdict : 'partial';
+    const sayText = clip(String(obj.say || '').replace(/[*_#`]/g, ''), 420).trim();
+    if (!sayText) return res.status(500).json({ error: 'No verdict came back.' });
+    return res.status(200).json({ verdict, say: sayText, mood: MOODS.includes(obj.mood) ? obj.mood : verdict === 'right' ? 'proud' : 'serious' });
   }
   if (b.type === 'cards') {
     const cards = (obj.cards || []).filter((c) => c?.q && c?.a).map((c) => ({ q: clip(c.q, 400), a: clip(c.a, 600) }));

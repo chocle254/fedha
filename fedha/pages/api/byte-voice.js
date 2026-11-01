@@ -1,42 +1,91 @@
-// pages/api/byte-voice.js — Professor Byte's real voice: Canopy Labs' Orpheus neural text-to-speech on Groq
-// (same GROQ_API_KEY as the rest of Luxe). Male voices troy, austin, daniel. A one-word tone in brackets
-// ([cheerful], [excited], [dramatic]…) sets how he says it. Nothing is stored; the phone keeps a short memory.
+// pages/api/byte-voice.js — Professor Byte's real voice, with a fall-back chain so he rarely drops to the phone voice:
+//   1. ElevenLabs (your free key: ELEVENLABS_API_KEY, optional ELEVENLABS_VOICE_ID / ELEVENLABS_MODEL)
+//   2. Groq Orpheus: Troy, then Austin, then Daniel (same GROQ_API_KEY as the rest of Luxe)
+//   3. the phone's own voice, which the app itself switches to when this route answers 502
+// A voice that is out of credits or rate-limited is left alone for a while, so a line does not flip between voices.
+// Nothing is stored; the phone keeps a short memory of what it already fetched.
 //
-// POST { text, voice, tone } → audio/wav. Text over 190 characters is cut: the client sends sentence chunks.
+// POST { text, voice, tone } → audio (mp3 from ElevenLabs, wav from Groq) + header X-Byte-Voice: eleven | troy | austin | daniel
+// voice: 'auto' (ElevenLabs first), or 'troy' | 'austin' | 'daniel' to start with that Groq voice. Text over 190 characters is cut.
 import { requireUser } from '../../lib/require-user';
 
 export const config = { maxDuration: 30 };
-const VOICES = ['troy', 'austin', 'daniel'];
+const GROQ_VOICES = ['troy', 'austin', 'daniel'];
 const TONES = ['cheerful', 'friendly', 'warm', 'professional', 'calm', 'excited', 'whisper', 'dramatic'];
-const MODEL = process.env.GROQ_TTS_MODEL || 'canopylabs/orpheus-v1-english';
+const GROQ_MODEL = process.env.GROQ_TTS_MODEL || 'canopylabs/orpheus-v1-english';
+const EL_VOICE = process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB'; // "Adam", a deep male voice every free account can use
+const EL_MODEL = process.env.ELEVENLABS_MODEL || 'eleven_flash_v2_5'; // half the credits per character of the older models
+
+// Best-effort memory of what is out of action (lasts as long as this server instance stays warm).
+const down = { eleven: 0, groq: 0 };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function viaEleven(text, tone) {
+  const key = process.env.ELEVENLABS_API_KEY;
+  if (!key || Date.now() < down.eleven) return null;
+  const stability = tone === 'excited' || tone === 'dramatic' ? 0.35 : tone === 'calm' || tone === 'professional' ? 0.65 : 0.5;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${EL_VOICE}?output_format=mp3_44100_64`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'audio/mpeg', 'xi-api-key': key },
+        body: JSON.stringify({ text, model_id: EL_MODEL, voice_settings: { stability, similarity_boost: 0.75, use_speaker_boost: true } }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (r.ok) return { buf: Buffer.from(await r.arrayBuffer()), type: 'audio/mpeg', who: 'eleven' };
+      const d = await r.json().catch(() => ({}));
+      const why = d?.detail?.status || d?.detail?.message || '';
+      if (r.status === 429 && attempt === 0) { await sleep(700); continue; } // the free plan only allows 2 requests at once
+      // Out of credits, blocked (ElevenLabs sometimes refuses free keys used from a server) or a bad key: rest it for a while.
+      if (r.status === 401 || r.status === 402 || r.status === 403) down.eleven = Date.now() + (/quota/i.test(why) ? 60 : 10) * 60000;
+      else down.eleven = Date.now() + (r.status === 429 ? 15000 : 30000);
+      console.warn('[fedha] byte-voice elevenlabs failed:', r.status, why);
+      return null;
+    } catch (e) {
+      down.eleven = Date.now() + 30000;
+      console.warn('[fedha] byte-voice elevenlabs error:', e.message);
+      return null;
+    }
+  }
+  return null;
+}
+
+async function viaGroq(text, tone, order) {
+  const key = process.env.GROQ_API_KEY;
+  if (!key || Date.now() < down.groq) return null;
+  for (const voice of order) {
+    try {
+      const r = await fetch('https://api.groq.com/openai/v1/audio/speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+        body: JSON.stringify({ model: GROQ_MODEL, voice, input: tone ? `[${tone}] ${text}` : text, response_format: 'wav' }),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (r.ok) return { buf: Buffer.from(await r.arrayBuffer()), type: r.headers.get('content-type') || 'audio/wav', who: voice };
+      const d = await r.json().catch(() => ({}));
+      console.warn('[fedha] byte-voice groq failed:', voice, r.status, d.error?.message);
+      if (r.status === 429) { down.groq = Date.now() + 20000; return null; } // the limit is shared by all three voices
+    } catch (e) {
+      console.warn('[fedha] byte-voice groq error:', voice, e.message);
+    }
+  }
+  return null;
+}
 
 export default async function handler(req, res) {
   if (!(await requireUser(req, res))) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  const key = process.env.GROQ_API_KEY;
-  if (!key) return res.status(500).json({ error: 'GROQ_API_KEY not set' });
+  if (!process.env.ELEVENLABS_API_KEY && !process.env.GROQ_API_KEY) return res.status(500).json({ error: 'No voice key set (ELEVENLABS_API_KEY or GROQ_API_KEY)' });
   const text = String(req.body?.text || '').replace(/[*_#`[\]<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 190);
   if (!text) return res.status(400).json({ error: 'Nothing to say' });
-  const voice = VOICES.includes(req.body?.voice) ? req.body.voice : 'troy';
+  const pick = GROQ_VOICES.includes(req.body?.voice) ? req.body.voice : null; // null = auto
   const tone = TONES.includes(req.body?.tone) ? req.body.tone : '';
-  try {
-    const r = await fetch('https://api.groq.com/openai/v1/audio/speech', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model: MODEL, voice, input: tone ? `[${tone}] ${text}` : text, response_format: 'wav' }),
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}));
-      console.warn('[fedha] byte-voice groq failed:', r.status, d.error?.message);
-      return res.status(r.status === 429 ? 429 : 502).json({ error: r.status === 429 ? 'Voice is busy' : (d.error?.message || 'Voice failed') });
-    }
-    const buf = Buffer.from(await r.arrayBuffer());
-    res.setHeader('Content-Type', r.headers.get('content-type') || 'audio/wav');
-    res.setHeader('Cache-Control', 'private, max-age=3600');
-    return res.status(200).send(buf);
-  } catch (e) {
-    console.warn('[fedha] byte-voice error:', e.message);
-    return res.status(502).json({ error: 'Voice failed' });
-  }
+  const order = pick ? [pick, ...GROQ_VOICES.filter((v) => v !== pick)] : GROQ_VOICES;
+
+  const got = (!pick && (await viaEleven(text, tone))) || (await viaGroq(text, tone, order));
+  if (!got) return res.status(502).json({ error: 'Voice failed' });
+  res.setHeader('Content-Type', got.type);
+  res.setHeader('X-Byte-Voice', got.who);
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  return res.status(200).send(got.buf);
 }

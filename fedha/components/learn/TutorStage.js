@@ -5,18 +5,21 @@ import TutorBoard, { boardToMd } from './TutorBoard';
 import Md from './Md';
 import { askStudy } from '../../lib/study';
 import { stopSpeaking } from '../../lib/voice';
-import { speakByte, getByteVoice, setByteVoice, BYTE_VOICES } from '../../lib/byte-voice';
+import { speakByte, warmByte, byteVoiceInfo, getByteVoice, setByteVoice, BYTE_VOICES } from '../../lib/byte-voice';
 
-// The tutor stage in Study mode. Professor Byte stands behind the glass and acts each answer out as scenes:
+// The tutor stage in Study mode. Professor Byte runs a class: he teaches the lesson point by point (the next part is
+// prepared while he talks, and the words stay off screen unless captions are on), then quizzes you at the end. He only
+// waits for you when he asks a question: a clue after 20 s, then the answer explained simply 20 s later.
+// He stands behind the glass and acts each answer out as scenes:
 // he says a line (out loud if voice is on), with a mood and a gesture, and puts a chart, steps, code, a story
 // and so on up on his board. Between answers he idles like he's alive: looks around, knocks on the glass,
 // reacts when you poke him. Every answer can be saved as a note (spoken lines plus boards, as Markdown).
 const QUICK = [
   ['simple', '🧒 Simply'], ['normal', '💡 Explain'], ['deep', '🔬 Go deep'], ['example', '🧪 Examples'],
-  ['mistakes', '⚠️ Mistakes'], ['story', '📜 Story time'], ['quiz', '❓ Pop quiz'],
+  ['mistakes', '⚠️ Mistakes'], ['story', '📜 Story time'], ['quiz', '❓ Quiz me'],
 ];
 const POKES = ['Hey! That tickles.', 'Careful, this glass is not cheap.', 'Yes, I am real. Mostly.', 'Poke me again and I give you homework.', 'I felt that in my circuits.', 'Ooh, attention. I like it.'];
-const IDLE = ['Still with me?', 'I live here, you know. I can wait.', 'Psst. Ask me something. I get bored.', 'Fun fact: I never sleep. Do you?', 'Tap Pop quiz. I dare you.'];
+const IDLE = ['Still with me?', 'I live here, you know. I can wait.', 'Psst. Ask me something. I get bored.', 'Fun fact: I never sleep. Do you?', 'Tap Quiz me when you feel ready.'];
 // Quick-button answers are kept (last 60) so the same lesson + button replays instantly; "↻ New take" refreshes.
 const AKEY = 'luxe_byte_answers';
 const CACHEABLE = ['simple', 'normal', 'deep', 'example', 'mistakes', 'story'];
@@ -29,7 +32,13 @@ function saveAnswer(k, entry) {
   } catch { /* storage full */ }
 }
 const CUTS = ['Oh, interrupting the professor? Bold. Go on.', 'Whoa, okay, you talk. I am listening.', 'Rude. But I like the energy. Go.', 'Mid-sentence? Fine. Your turn.'];
-const NUDGES = ['Tick tock. My circuits are getting old here.', 'Any day now. I live in here, I have time. You do not.', 'Hello? Is this thing on?', 'Take your time. Actually, no. Hurry up.', 'I can hear you thinking. Say it out loud.'];
+const HINT_LEADS = ['Tick tock. Here is a clue.', 'Take your time. Actually, hurry. Clue incoming.', 'Hello? Okay, a little help.', 'Still thinking? Here, a clue.'];
+const TIMEUP = ['Time is up, my friend. Here is the answer.', 'Okay, I will rescue you. Listen closely.', 'No answer? No problem. Here it is.'];
+const QUIZ_INTRO = ['That is the whole lesson. Now a short quiz to lock it in. Answer out loud or type it.', 'Lesson done. Quiz time, nothing scary. Answer out loud or type it.', 'And that is everything. Let us see what stuck. Answer out loud or type it.'];
+const HINT_AT = 20000; // silence after his question before he gives a clue
+const REVEAL_GAP = 20000; // more silence after the clue before he answers and explains it simply
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+const WHO = { eleven: 'ElevenLabs', troy: 'Troy', austin: 'Austin', daniel: 'Daniel', phone: 'the phone voice' };
 
 // A short "tok" for knocks on the glass.
 function tok() {
@@ -76,7 +85,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const [typed, setTyped] = useState('');
   const [thinking, setThinking] = useState(false);
   const [q, setQ] = useState('');
-  const [voice, setVoice] = useState('troy');
+  const [voice, setVoice] = useState('auto');
   const [idle, setIdle] = useState(null); // { gesture, mood, line }
   const [ripples, setRipples] = useState([]);
   const [showLog, setShowLog] = useState(false);
@@ -89,7 +98,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const playId = useRef(0);
   const speaker = useRef(null);
   const logRef = useRef(log); logRef.current = log;
-  const voiceRef = useRef('troy'); voiceRef.current = voice;
+  const voiceRef = useRef('auto'); voiceRef.current = voice;
   const liveRef = useRef(false); liveRef.current = live;
   const talkingRef = useRef(false); talkingRef.current = talking;
   const thinkingRef = useRef(false); thinkingRef.current = thinking;
@@ -99,15 +108,30 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const said = useRef(''); // your words so far this turn
   const endT = useRef(null);
   const cutOff = useRef(''); // what he was saying when you interrupted
-  const hints = useRef(0);
   const started = useRef(false);
 
-  useEffect(() => { setVoice(getByteVoice()); }, []);
+  const [captions, setCaptions] = useState(false); // his words on screen (off by default: he talks, you listen)
+  const [classOn, setClassOn] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [quizUi, setQuizUi] = useState(null); // { i, n, waiting }
+  const captionsRef = useRef(false); captionsRef.current = captions;
+  const curRef = useRef(null); curRef.current = cur;
+  const planKeyRef = useRef(planKey); planKeyRef.current = planKey;
+  // The class: on, paused, what to do when carried on (pending), where to pick up after a question (resumeFn), the quiz in progress.
+  const cls = useRef({ on: false, paused: false, pending: null, resumeFn: null, quiz: null, step: 0 });
+  const pre = useRef({}); // parts of the lesson fetched ahead of time (promises)
+  const preVal = useRef({}); // the same parts once they have arrived
+  const lectureSaid = useRef({}); // what he said in each part (per lesson), so the next part carries on from it
+  const quizPack = useRef(null);
+  const lastQuiz = useRef('');
+  const rearm = useRef(null);
+  const K = useRef({}); // latest versions of the class functions, for timers and the stable play()
+  useEffect(() => { setVoice(getByteVoice()); try { setCaptions(localStorage.getItem('luxe_byte_cc') === '1'); } catch { /* private mode */ } }, []);
   const clearTimers = () => { timers.current.forEach(clearTimeout); timers.current = []; };
   const clearWait = () => { waitTimers.current.forEach(clearTimeout); waitTimers.current = []; };
   const later = (fn, ms) => { const t = setTimeout(fn, ms); timers.current.push(t); return t; };
   const hush = () => { speaker.current?.stop(); speaker.current = null; stopSpeaking(); setLevel(0); };
-  useEffect(() => () => { clearTimers(); clearWait(); hush(); stopLive(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { cls.current.on = false; clearTimers(); clearWait(); clearTimeout(rearm.current); hush(); stopLive(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const knock = useCallback(() => {
     tok();
@@ -128,25 +152,294 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     later(fin, words * 650 + 9000); // safety net if audio never reports the end
   };
 
-  // Plays scene s of answer i, then moves on by itself. After the last scene in a live class, he waits for you.
+  // Plays scene s of answer i, then moves on by itself. When the answer ends, the class decides what comes next.
   const play = useCallback((i, s) => {
     const a = logRef.current[i];
     clearTimers(); hush();
     if (!a?.scenes?.[s]) {
       setCur((c) => (c ? { ...c, done: true } : c)); setTalking(false); saying.current = '';
       if (afterRef.current) { const next = afterRef.current; afterRef.current = null; later(() => askRef.current('', next), 900); return; }
-      if (liveRef.current && !hwOpenRef.current) startWaiting();
+      K.current.entryEnded?.(a, i);
       return;
     }
     const id = ++playId.current;
     const scene = a.scenes[s];
     setIdle(null); setCur({ i, s, done: false }); setTalking(true); setTyped('');
+    // Get the next line's voice ready while this one plays, so there is no gap between lines.
+    const nxt = a.scenes[s + 1] || (a.kind === 'lecture' ? preVal.current[K.current.stepKey(planRef.current, a.step + 1)]?.scenes?.[0] : null);
+    if (nxt) warmByte(nxt.say, { mood: nxt.mood, voice: voiceRef.current });
     const text = scene.say;
-    let k = 0;
-    const type = () => { if (playId.current !== id) return; k = Math.min(text.length, k + 2); setTyped(text.slice(0, k)); if (k < text.length) later(type, 30); };
-    type();
-    say(text, scene.mood, () => { if (playId.current !== id) return; setTalking(false); later(() => { if (playId.current === id) play(i, s + 1); }, 550); });
+    // The words only appear on screen when captions are on (or his voice is off): he talks, you listen.
+    if (captionsRef.current || voiceRef.current === 'off') {
+      let k = 0;
+      const type = () => { if (playId.current !== id) return; k = Math.min(text.length, k + 2); setTyped(text.slice(0, k)); if (k < text.length) later(type, 30); };
+      type();
+    }
+    const goNext = () => {
+      if (playId.current !== id) return;
+      const c = cls.current;
+      if (c.on && c.paused) { c.pending = () => play(i, s + 1); return; }
+      play(i, s + 1);
+    };
+    say(text, scene.mood, () => { if (playId.current !== id) return; setTalking(false); later(goNext, 550); });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const showEntry = (entry) => { setLog((l) => { const n = [...l, entry]; logRef.current = n; return n; }); setTimeout(() => play(logRef.current.length - 1, 0), 60); };
+  const gate = (fn) => { const c = cls.current; if (c.on && c.paused) c.pending = fn; else fn(); };
+  const proceed = (fn) => later(() => gate(fn), 700);
+  const oneScene = (say, mood = 'happy', gesture = 'none', board = null) => [{ say, mood, gesture, board }];
+
+  // ── The class: he lectures point by point, then quizzes you at the end ──
+  // Each part of the lesson is fetched while the part before it is still being taught, so there is no waiting between parts.
+  const fetchStep = (p, k, intro) => {
+    const key = K.current.stepKey(p, k);
+    if (pre.current[key]) return pre.current[key];
+    const history = [k - 2, k - 1].filter((x) => x >= 0 && lectureSaid.current[K.current.stepKey(p, x)]).map((x) => ({ role: 'ai', text: lectureSaid.current[K.current.stepKey(p, x)] }));
+    const job = askStudy({ type: 'stage', level: 'teach', intro, topic: subject, context: context(), plan: { steps: p.steps }, step: k, history })
+      .then((j) => {
+        const scenes = j.scenes || [];
+        if (!scenes.length) throw new Error('empty');
+        lectureSaid.current[key] = scenes.map((x) => x.say).join(' ');
+        preVal.current[key] = { scenes };
+        return { scenes };
+      })
+      .catch((e) => { delete pre.current[key]; throw e; });
+    pre.current[key] = job;
+    return job;
+  };
+  // The end-of-lesson quiz is written in one go (question, clue, answer and a simpler answer), also while he teaches.
+  const fetchQuiz = (p) => {
+    const key = K.current.stepKey(p, 'quiz');
+    if (quizPack.current?.key !== key) {
+      const job = askStudy({ type: 'quiz_pack', topic: subject, context: context(), plan: { steps: p.steps } })
+        .then((j) => j.questions).catch(() => { if (quizPack.current?.job === job) quizPack.current = null; return null; });
+      quizPack.current = { key, job };
+    }
+    return quizPack.current.job;
+  };
+  const fallbackQuiz = (p) => p.steps.map((st) => ({ ask: st.check || `In your own words, what is ${st.title}?`, hint: `Think about this: ${st.goal}.`, answer: st.goal, simple: `In simple words: ${st.goal}.` }));
+
+  const beginClass = async (opts = {}) => {
+    const c = cls.current;
+    clearTimers(); clearWait(); hush(); playId.current++; setTalking(false); setIdle(null);
+    c.on = true; c.paused = false; c.pending = null; c.resumeFn = null; c.quiz = null; c.step = 0;
+    setClassOn(true); setPaused(false); setQuizUi(null);
+    setThinking(true); thinkingRef.current = true;
+    let p = null;
+    try { p = await ensurePlan(); } catch { p = null; }
+    setThinking(false); thinkingRef.current = false;
+    if (!c.on) return;
+    if (!p) {
+      c.on = false; setClassOn(false);
+      showEntry({ role: 'ai', kind: 'misc', error: true, scenes: oneScene('I could not get your lesson ready, the free AI is busy. Give it a minute, then tap Start class.', 'surprised', 'shrug'), chips: [] });
+      return;
+    }
+    const k = opts.from != null ? opts.from : p.step >= p.steps.length ? -1 : p.step;
+    if (k < 0) { startQuiz({ revision: true }); return; }
+    teachStep(k, k === 0 ? 'new' : opts.from != null ? 'jump' : 'back');
+  };
+
+  const teachStep = async (k, intro) => {
+    const c = cls.current; const p = planRef.current;
+    if (!c.on || !p || !p.steps[k]) return;
+    c.step = k;
+    if (!preVal.current[K.current.stepKey(p, k)]) { setThinking(true); thinkingRef.current = true; }
+    let entry;
+    try { entry = await fetchStep(p, k, intro); }
+    catch {
+      setThinking(false); thinkingRef.current = false;
+      if (!c.on) return;
+      c.paused = true; setPaused(true); c.pending = () => teachStep(k, intro);
+      showEntry({ role: 'ai', kind: 'misc', error: true, scenes: oneScene('The free AI is busy and my notes got stuck. Tap Carry on and I will try again.', 'surprised', 'shrug'), chips: [] });
+      return;
+    }
+    setThinking(false); thinkingRef.current = false;
+    if (!c.on || c.step !== k) return;
+    gate(() => {
+      showEntry({ role: 'ai', kind: 'lecture', step: k, scenes: entry.scenes, chips: [] });
+      if (k + 1 < p.steps.length) fetchStep(p, k + 1).catch(() => {});
+      fetchQuiz(p);
+    });
+  };
+
+  const lectureDone = (k) => {
+    const c = cls.current; const p = planRef.current;
+    if (!c.on || !p) return;
+    const next = { ...p, step: Math.max(p.step, k + 1) }; setPlan(next); planRef.current = next; savePlan(planKey, next);
+    proceed(k + 1 < p.steps.length ? () => teachStep(k + 1) : () => startQuiz());
+  };
+
+  // ── The quiz: he asks, you answer. Slow? A clue. Slower still? He answers and explains it simply. ──
+  const startQuiz = async (opts = {}) => {
+    const c = cls.current; const p = planRef.current;
+    if (!p) return;
+    clearTimers(); clearWait(); hush(); playId.current++; setTalking(false); setIdle(null);
+    c.on = true; c.paused = false; c.pending = null; c.resumeFn = null; setClassOn(true); setPaused(false);
+    const q = { i: -1, right: 0, partial: 0, wrong: 0, missed: [], waiting: false, hinted: false, list: [], early: !!opts.early };
+    c.quiz = q;
+    setThinking(true); thinkingRef.current = true;
+    let list = null;
+    try { list = await fetchQuiz(p); } catch { list = null; }
+    setThinking(false); thinkingRef.current = false;
+    if (!c.on || c.quiz !== q) return;
+    const taught = opts.revision ? p.steps.length : Math.max(1, Math.min(p.steps.length, p.step));
+    q.list = (list && list.length ? list : fallbackQuiz(p)).slice(0, taught);
+    const intro = opts.early ? 'Quiz time, as you asked. Answer out loud or type it.'
+      : opts.revision ? 'You finished this lesson last time, so let us see what stuck. Quick quiz. Answer out loud or type it.'
+      : pick(QUIZ_INTRO);
+    gate(() => showEntry({ role: 'ai', kind: 'quizin', scenes: oneScene(intro, 'excited', 'celebrate', { type: 'big', text: 'Quiz time', sub: `${q.list.length} question${q.list.length === 1 ? '' : 's'}` }), chips: [] }));
+  };
+
+  const nextQuestion = () => {
+    const c = cls.current; const q = c.quiz;
+    if (!c.on || !q) return;
+    q.i += 1;
+    if (q.i >= q.list.length) { finishQuiz(); return; }
+    const item = q.list[q.i];
+    q.hinted = false; q.waiting = true; q.timeup = '';
+    q.board = { type: 'big', text: `Question ${q.i + 1} of ${q.list.length}`, sub: item.ask };
+    setQuizUi({ i: q.i, n: q.list.length, waiting: true });
+    gate(() => showEntry({ role: 'ai', kind: 'quizq', scenes: oneScene(`Question ${q.i + 1}. ${item.ask}`, 'thinking', 'lean', q.board), chips: [] }));
+    const after = q.list[q.i + 1];
+    if (after) warmByte(`Question ${q.i + 2}. ${after.ask}`, { mood: 'thinking', voice: voiceRef.current });
+  };
+
+  const giveHint = () => {
+    const c = cls.current; const q = c.quiz;
+    if (!c.on || !q?.waiting || q.hinted) return;
+    q.hinted = true;
+    const item = q.list[q.i];
+    showEntry({ role: 'ai', kind: 'quizhint', scenes: oneScene(`${pick(HINT_LEADS)} ${item.hint || 'Think back to what we covered a minute ago.'}`, 'impatient', 'tap', q.board), chips: [] });
+  };
+
+  // Out of time or "I don't know": the answer, then the same thing in simpler words.
+  const reveal = () => {
+    const c = cls.current; const q = c.quiz;
+    if (!c.on || !q?.waiting) return;
+    q.waiting = false; clearWait(); setQuizUi((u) => u && { ...u, waiting: false });
+    q.wrong += 1;
+    const item = q.list[q.i];
+    q.missed.push(item.ask);
+    playId.current++; hush(); setTalking(false);
+    showEntry({ role: 'ai', kind: 'quizfb', chips: [], scenes: [
+      { say: q.timeup || pick(TIMEUP), mood: 'serious', gesture: 'explain', board: null },
+      { say: item.answer, mood: 'thinking', gesture: 'point', board: { type: 'big', text: 'The answer', sub: item.answer } },
+      { say: `Now the simple version. ${item.simple || item.answer}`, mood: 'happy', gesture: 'explain', board: null },
+    ] });
+  };
+
+  const answerQuiz = async (reply) => {
+    const c = cls.current; const q = c.quiz;
+    if (!q?.waiting) return;
+    q.waiting = false; clearWait(); setQuizUi((u) => u && { ...u, waiting: false });
+    playId.current++; clearTimers(); hush(); setTalking(false); setHeard('');
+    setLog((l) => { const n = [...l, { role: 'user', text: reply }]; logRef.current = n; return n; });
+    setThinking(true); thinkingRef.current = true;
+    const item = q.list[q.i];
+    let g = null;
+    try { g = await askStudy({ type: 'quiz_grade', ask: item.ask, answer: item.answer, reply }); } catch { g = null; }
+    setThinking(false); thinkingRef.current = false;
+    if (!c.on || c.quiz !== q) return;
+    if (!g) g = { verdict: 'partial', say: `I could not mark that one, the free AI is busy. Here is the answer: ${item.answer}`, mood: 'serious' };
+    if (g.verdict === 'right') q.right += 1; else if (g.verdict === 'partial') q.partial += 1; else q.wrong += 1;
+    if (g.verdict !== 'right') q.missed.push(item.ask);
+    const scenes = [{ say: g.say, mood: g.mood, gesture: g.verdict === 'right' ? 'celebrate' : 'explain', board: g.verdict === 'right' ? null : { type: 'big', text: 'The answer', sub: item.answer } }];
+    if (g.verdict === 'wrong') scenes.push({ say: `Simply put: ${item.simple || item.answer}`, mood: 'happy', gesture: 'explain', board: null });
+    gate(() => showEntry({ role: 'ai', kind: 'quizfb', scenes, chips: [] }));
+  };
+
+  const finishQuiz = () => {
+    const c = cls.current; const q = c.quiz; const p = planRef.current;
+    if (!q) return;
+    const total = q.list.length;
+    lastQuiz.current = `${q.right} of ${total} right${q.partial ? `, ${q.partial} partly right` : ''}${q.missed.length ? `. Missed: ${q.missed.slice(0, 3).join(' | ')}` : ''}`;
+    const early = q.early && p && p.step < p.steps.length;
+    c.quiz = null; setQuizUi(null);
+    gate(() => showEntry({ role: 'ai', kind: early ? 'quizback' : 'quizdone', scenes: oneScene(early ? 'Quiz done for now. Back to the lesson.' : `${pick(['And that is the quiz.', 'Quiz done.', 'That was the last one.'])} Let me add it up.`, 'happy', 'explain', { type: 'big', text: `${q.right} / ${total}`, sub: 'quiz score' }), chips: [] }));
+  };
+
+  // Silence after a question: a clue after 20 s, then, 20 s later, the answer. Any typing or talking restarts the clock.
+  const waitFor = (ms, fn) => waitTimers.current.push(setTimeout(() => { const c = cls.current; if (!c.quiz?.waiting || c.paused || thinkingRef.current) return; fn(); }, ms));
+  const armQuizTimers = () => {
+    const c = cls.current; const q = c.quiz;
+    if (!c.on || !q?.waiting) return;
+    if (c.paused) { c.pending = armQuizTimers; return; }
+    clearWait();
+    const item = q.list[q.i];
+    if (!q.hinted) {
+      waitFor(HINT_AT - 4000, () => warmByte(item.hint, { mood: 'impatient', voice: voiceRef.current }));
+      waitFor(HINT_AT, giveHint);
+    } else {
+      q.timeup = q.timeup || pick(TIMEUP);
+      waitFor(REVEAL_GAP - 4000, () => { warmByte(q.timeup, { mood: 'serious', voice: voiceRef.current }); warmByte(item.answer, { mood: 'thinking', voice: voiceRef.current }); });
+      waitFor(REVEAL_GAP, reveal);
+    }
+  };
+  const onActivity = () => {
+    clearWait(); clearTimeout(rearm.current);
+    rearm.current = setTimeout(() => { if (cls.current.quiz?.waiting && !thinkingRef.current) armQuizTimers(); }, 6000);
+  };
+
+  const pauseClass = () => {
+    const c = cls.current;
+    if (!c.on || c.paused) return;
+    c.paused = true; setPaused(true); clearWait();
+    const cu = curRef.current;
+    if (cu && !cu.done && talkingRef.current) { playId.current++; clearTimers(); hush(); setTalking(false); c.pending = () => play(cu.i, cu.s); }
+  };
+  const carryOn = () => {
+    const c = cls.current;
+    c.paused = false; setPaused(false);
+    const f = c.pending; c.pending = null;
+    if (f) f();
+    else if (c.resumeFn) { const r = c.resumeFn; c.resumeFn = null; r(); }
+    else if (c.quiz?.waiting) armQuizTimers();
+  };
+
+  const quizNow = () => {
+    const c = cls.current; const p = planRef.current;
+    if (thinkingRef.current || c.quiz) return;
+    if (!p || !c.on) { if (!c.on) ask('', 'start'); return; }
+    if (p.step < 1) {
+      keepPlace(); clearTimers(); hush(); setTalking(false);
+      showEntry({ role: 'ai', kind: 'qa', scenes: oneScene('Nothing to quiz you on yet. Let me teach it first, then I will quiz you properly.', 'cheeky', 'shrug'), chips: [] });
+      return;
+    }
+    startQuiz({ early: p.step < p.steps.length });
+  };
+
+  // When you step in with a question mid-class, remember where he was so the class can pick up afterwards.
+  const resumeFor = (e, cu) => {
+    if (!e) return null;
+    if (e.kind === 'lecture') return () => (cu.done ? lectureDone(e.step) : play(cu.i, cu.s));
+    if (e.kind === 'quizfb' || e.kind === 'quizin') return () => nextQuestion();
+    if (e.kind === 'quizhint') return () => armQuizTimers();
+    return null;
+  };
+  const keepPlace = () => {
+    const c = cls.current;
+    if (c.resumeFn) return;
+    const cu = curRef.current; const e = cu ? logRef.current[cu.i] : null;
+    if (e && cu && !cu.cut) c.resumeFn = resumeFor(e, cu);
+    if (!c.resumeFn && c.quiz?.waiting) c.resumeFn = () => armQuizTimers();
+  };
+
+  // What happens when an answer has finished playing.
+  const entryEnded = (a) => {
+    const c = cls.current;
+    if (!a || a.handled) return;
+    a.handled = true;
+    if (!c.on || hwOpenRef.current) return;
+    switch (a.kind) {
+      case 'lecture': lectureDone(a.step); break;
+      case 'qa': if (c.resumeFn) { const f = c.resumeFn; c.resumeFn = null; proceed(f); } break;
+      case 'quizin': case 'quizfb': proceed(nextQuestion); break;
+      case 'quizq': case 'quizhint': gate(armQuizTimers); break;
+      case 'quizdone': askRef.current('', 'wrapup', { minutesLeft: 3, quiz: lastQuiz.current }); break;
+      case 'quizback': proceed(() => teachStep(planRef.current.step)); break;
+      default: break;
+    }
+  };
 
   const ask = useCallback(async (question, level, opts = {}) => {
     if (thinkingRef.current) return;
@@ -156,37 +449,41 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       setHwOpen(true); setHwText(''); sig.current = { pasted: 0, typed: 0, first: 0 };
       nextAfterHw.current = liveRef.current ? 'live_start' : 'start';
     }
+    const c = cls.current;
+    // The class is run by the class itself: lecture first, quiz at the end.
+    if (level === 'start' || level === 'live_start') { if (!c.on) beginClass(); return; }
     const userText = level ? QUICK.find(([k]) => k === level)?.[1].replace(/^\S+\s/, '') || '' : String(question || '').trim();
     if (!level && !userText) return;
+    // An answer to the quiz question he just asked.
+    if (!level && c.quiz?.waiting) { setQ(''); answerQuiz(userText); return; }
+    if (level === 'wrapup') {
+      c.on = false; c.quiz = null; c.pending = null; c.resumeFn = null; setClassOn(false); setQuizUi(null); setPaused(false); c.paused = false;
+    } else if (c.on && level !== 'homework_check' && level !== 'homework_grade') keepPlace();
+    const kind = c.on && level !== 'homework_check' && level !== 'homework_grade' ? 'qa' : 'misc';
     clearTimers(); clearWait(); hush(); setTalking(false); setIdle(null); setHeard('');
-    if (!level) hints.current = 0;
     const history = logRef.current.map((m) => ({ role: m.role, text: m.role === 'ai' ? m.scenes.map((x) => x.say).join(' ') : m.text }));
-    if (!['start', 'live_start', 'hint', 'homework_check', 'homework_grade', 'wrapup'].includes(level)) setLog((l) => { const n = [...l, { role: 'user', text: userText }]; logRef.current = n; return n; });
+    if (!['homework_check', 'homework_grade', 'wrapup'].includes(level)) setLog((l) => { const n = [...l, { role: 'user', text: userText }]; logRef.current = n; return n; });
     setQ(''); setThinking(true); thinkingRef.current = true;
-    const show = (entry) => { setLog((l) => { const n = [...l, entry]; logRef.current = n; return n; }); setTimeout(() => play(logRef.current.length - 1, 0), 60); };
     const ck = CACHEABLE.includes(level) && !liveRef.current ? `${planKey}|${level}` : null;
     if (ck && !opts.fresh) {
       const hit = readAnswers()[ck];
-      if (hit?.scenes?.length) { show({ role: 'ai', scenes: hit.scenes, chips: [`__fresh__:${level}`, ...(hit.chips || [])], cached: true }); setThinking(false); thinkingRef.current = false; return; }
+      if (hit?.scenes?.length) { showEntry({ role: 'ai', kind, scenes: hit.scenes, chips: [`__fresh__:${level}`, ...(hit.chips || [])], cached: true }); setThinking(false); thinkingRef.current = false; return; }
     }
     try {
       const p = await ensurePlan();
       const hwFor = ['homework_check', 'homework_grade'].includes(level) ? hwRef.current : null;
-      const j = await askStudy({ type: 'stage', level: level || undefined, homework: hwFor ? { title: hwFor.title, task: hwFor.task, deliverable: hwFor.deliverable, misses: hwFor.misses || 0 } : undefined, submission: opts.submission, signals: opts.signals, skipped: opts.skipped || undefined, minutesLeft: opts.minutesLeft, question: userText, topic: subject, context: context(), history, live: liveRef.current, interrupted: opts.interrupted || undefined, plan: p ? { steps: p.steps } : undefined, step: p ? p.step : undefined });
-      if (j.advance && planRef.current && planRef.current.step < planRef.current.steps.length) {
-        const next = { ...planRef.current, step: planRef.current.step + 1 }; setPlan(next); planRef.current = next; savePlan(planKey, next);
-        setTimeout(knock, 400);
-      }
+      const j = await askStudy({ type: 'stage', level: level || undefined, homework: hwFor ? { title: hwFor.title, task: hwFor.task, deliverable: hwFor.deliverable, misses: hwFor.misses || 0 } : undefined, submission: opts.submission, signals: opts.signals, skipped: opts.skipped || undefined, minutesLeft: opts.minutesLeft, quiz: level === 'wrapup' ? (opts.quiz || lastQuiz.current || undefined) : undefined, question: userText, topic: subject, context: context(), history, live: liveRef.current, interrupted: opts.interrupted || undefined, plan: p ? { steps: p.steps } : undefined, step: p ? p.step : undefined });
       if (level === 'wrapup' && j.homework) { onSetHomework?.(j.homework); setHwSet(j.homework); }
       if (level === 'homework_grade') { onGradeHomework?.(j.grade, !!opts.skipped); setHwVerdict({ ...(j.grade || {}), skipped: !!opts.skipped }); setHwOpen(false); afterRef.current = opts.then || (liveRef.current ? 'live_start' : 'start'); }
-      const entry = { role: 'ai', scenes: j.scenes || [], chips: j.chips || [] };
+      const entry = { role: 'ai', kind, scenes: j.scenes || [], chips: j.chips || [] };
       if (ck && entry.scenes.length) saveAnswer(ck, entry);
-      show(entry);
+      showEntry(entry);
     } catch (e) {
-      show({ role: 'ai', error: true, scenes: [{ say: e.message || 'My circuits tangled. Try again?', mood: 'surprised', gesture: 'shrug', board: null }], chips: [] });
+      showEntry({ role: 'ai', kind, error: true, scenes: [{ say: e.message || 'My circuits tangled. Try again?', mood: 'surprised', gesture: 'shrug', board: null }], chips: [] });
     } finally { setThinking(false); thinkingRef.current = false; }
-  }, [subject, context, play]);
+  }, [subject, context, play]); // eslint-disable-line react-hooks/exhaustive-deps
   const askRef = useRef(ask); askRef.current = ask;
+  K.current = { entryEnded, stepKey: (p, k) => `${planKeyRef.current}|${p?.sig}|${k}` };
   const nextAfterHw = useRef('start');
   const handIn = (skipped) => {
     const s0 = sig.current;
@@ -216,7 +513,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       return p;
     } catch { return null; } finally { setReading(null); }
   }
-  const jumpTo = (k) => { const p = planRef.current; if (!p) return; const n = { ...p, step: k }; setPlan(n); planRef.current = n; savePlan(planKey, n); setShowPlan(false); askRef.current(`Let's do step ${k + 1}: ${p.steps[k]?.title || 'the recap'}`); };
+  const jumpTo = (k) => { const p = planRef.current; if (!p) return; const n = { ...p, step: k }; setPlan(n); planRef.current = n; savePlan(planKey, n); setShowPlan(false); cls.current.on = false; beginClass({ from: k }); };
 
   // ── Live one-on-one class: he asks, you answer out loud, you can cut him off ──
   const words = (t) => String(t).toLowerCase().match(/[a-z']{3,}/g) || [];
@@ -229,8 +526,11 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const interrupt = (because = '') => {
     if (!talkingRef.current && !speaker.current) return;
     cutOff.current = saying.current;
+    // Remember where he was, so the class carries on after he has dealt with you.
+    const cu = curRef.current;
+    if (cls.current.on && !cls.current.resumeFn && cu && logRef.current[cu.i]?.kind === 'lecture') cls.current.resumeFn = () => play(cu.i, cu.s);
     clearTimers(); hush(); playId.current++; setTalking(false); saying.current = '';
-    setCur((c) => (c ? { ...c, done: true } : c));
+    setCur((c) => (c ? { ...c, done: true, cut: true } : c));
     setIdle({ mood: 'surprised', gesture: 'shrug', line: CUTS[Math.floor(Math.random() * CUTS.length)] });
     said.current = because;
   };
@@ -241,21 +541,6 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     const interrupted = cutOff.current; cutOff.current = '';
     askRef.current(t, null, { interrupted });
   };
-  // After his question: a playful nudge at ~14 s of silence, a hint at ~32 s, then he lets you be.
-  function startWaiting() {
-    clearWait();
-    if (hints.current >= 2) return;
-    waitTimers.current.push(setTimeout(() => {
-      if (!liveRef.current || said.current || thinkingRef.current) return;
-      const line = NUDGES[Math.floor(Math.random() * NUDGES.length)];
-      setIdle({ mood: 'impatient', gesture: 'tap', line });
-      say(line, 'impatient', () => setIdle((x) => (x ? { ...x, gesture: 'tap' } : x)));
-    }, 14000));
-    waitTimers.current.push(setTimeout(() => {
-      if (!liveRef.current || said.current || thinkingRef.current) return;
-      hints.current += 1; askRef.current('', 'hint');
-    }, 32000));
-  }
   function stopLive() {
     liveRef.current = false; setLive(false); setHeard(''); clearWait();
     try { rec.current?.abort(); } catch { /* none */ } rec.current = null;
@@ -276,7 +561,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
         if (Date.now() - sayStart.current < 700 || isEcho(now) || words(now).length < 2) return;
         interrupt(fin);
       } else if (fin) said.current += fin;
-      clearWait();
+      onActivity();
       setHeard((said.current + interim).trim());
       clearTimeout(endT.current);
       endT.current = setTimeout(() => { if (!talkingRef.current && !thinkingRef.current && said.current.trim()) submitHeard(); }, 1500);
@@ -284,7 +569,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     r.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { setLiveErr('Microphone blocked. Allow it for Luxe, then try again.'); stopLive(); } };
     r.onend = () => { if (liveRef.current) setTimeout(() => { try { if (liveRef.current) r.start(); } catch { /* already running */ } }, 250); };
     try { r.start(); } catch { /* already started */ }
-    rec.current = r; liveRef.current = true; setLive(true); hints.current = 0;
+    rec.current = r; liveRef.current = true; setLive(true);
     ask('', 'live_start');
   };
 
@@ -293,10 +578,10 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const handled = useRef(null);
   useEffect(() => {
     if (!active) return;
-    if (request && request.n !== handled.current) { handled.current = request.n; started.current = true; ask('', request.level, { minutesLeft: request.minutesLeft }); return; }
+    if (request && request.n !== handled.current) { handled.current = request.n; started.current = true; ask('', request.level === 'normal' ? 'start' : request.level, { minutesLeft: request.minutesLeft }); return; }
     if (!started.current) { started.current = true; ask('', 'start'); }
   }, [active, request?.n]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (!active) { clearTimers(); hush(); stopLive(); setTalking(false); setCur((c) => (c ? { ...c, done: true } : c)); } }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!active) { pauseClass(); clearTimers(); hush(); stopLive(); setTalking(false); setCur((c) => (c ? { ...c, done: true } : c)); } }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Idle antics while you read or think (not in a live class: there he nudges you instead).
   useEffect(() => {
@@ -323,7 +608,12 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const boardKey = answer ? `${cur.i}-${answer.scenes.findIndex((x) => x.board === board)}` : 'none';
   const mood = idle?.mood || (heard ? 'thinking' : listening ? 'happy' : scene?.mood) || 'happy';
   const gesture = idle?.gesture || (talking ? (scene?.gesture === 'none' && board ? 'point' : scene?.gesture) : 'none') || 'none';
-  const bubble = idle?.line || (cur && !cur.done ? typed : scene?.say) || (thinking ? '' : 'Ask me anything. I bite only wrong answers.');
+  const showText = captions || voice === 'off';
+  const partNo = cls.current.step;
+  const status = paused ? '⏸ Paused. Tap Carry on when you are ready.'
+    : quizUi?.waiting ? `❓ Question ${quizUi.i + 1} of ${quizUi.n}. Your turn: answer out loud or type it.`
+    : talking ? (quizUi ? `❓ Quiz: question ${quizUi.i + 1} of ${quizUi.n}` : plan?.steps?.[partNo] ? `🎙 Part ${partNo + 1} of ${plan.steps.length}: ${plan.steps[partNo].title}` : '🎙 Byte is talking…') : null;
+  const bubble = idle?.line || (showText ? (cur && !cur.done ? typed : scene?.say) : status) || (thinking ? '' : classOn ? 'Ready when you are.' : 'Ask me anything. I bite only wrong answers.');
   const lastAi = [...log].reverse().find((m) => m.role === 'ai' && !m.error);
   const chips = lastAi?.chips || [];
 
@@ -374,7 +664,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
               ))}
               {plan.weak?.length > 0 && <div style={{ marginTop: 6 }}><b>Fixing:</b> {plan.weak.join(' · ')}</div>}
               {plan.known?.length > 0 && <div style={{ marginTop: 3, color: 'var(--text-3)' }}><b>You already know:</b> {plan.known.join(' · ')}</div>}
-              <button className="btn-ghost" style={{ marginTop: 8 }} disabled={thinking} onClick={async () => { setShowPlan(false); hush(); setThinking(true); thinkingRef.current = true; await ensurePlan(true); setThinking(false); thinkingRef.current = false; askRef.current('', 'start'); }}>↻ Re-read my notes and re-plan</button>
+              <button className="btn-ghost" style={{ marginTop: 8 }} disabled={thinking} onClick={async () => { setShowPlan(false); hush(); setThinking(true); thinkingRef.current = true; await ensurePlan(true); setThinking(false); thinkingRef.current = false; cls.current.on = false; cls.current.quiz = null; setQuizUi(null); askRef.current('', 'start'); }}>↻ Re-read my notes and re-plan</button>
             </div>
           )}
         </div>
@@ -415,7 +705,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       {/* speech bubble */}
       <div style={{ position: 'relative', marginTop: 10, padding: '10px 12px', borderRadius: 14, background: 'var(--card-2)', border: '1px solid var(--border)', minHeight: 46 }}>
         <div style={{ position: 'absolute', top: -7, left: 44, width: 12, height: 12, background: 'var(--card-2)', borderLeft: '1px solid var(--border)', borderTop: '1px solid var(--border)', transform: 'rotate(45deg)' }} />
-        {thinking ? <div style={{ fontSize: 13, color: 'var(--text-3)' }}>{reading ? `📖 Reading your ${reading} before we start…` : 'Hmm… let me think about that…'}</div> : <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{bubble}</div>}
+        {thinking ? <div style={{ fontSize: 13, color: 'var(--text-3)' }}>{reading ? `📖 Reading your ${reading} before we start…` : quizUi ? 'Marking your answer…' : classOn ? 'Getting the next part ready…' : 'Hmm… let me think about that…'}</div> : <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{bubble}</div>}
         {live && <div style={{ marginTop: 8, fontSize: 12.5, color: heard ? 'var(--green)' : 'var(--text-3)', display: 'flex', gap: 6, alignItems: 'center' }}><motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity }} style={{ width: 8, height: 8, borderRadius: 4, background: '#EF4444', display: 'inline-block' }} />{heard ? `You: ${heard}` : talking ? 'Listening. Talk over him to interrupt.' : 'Your turn. Answer out loud.'}</div>}
         {answer && answer.scenes.length > 1 && <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>{answer.scenes.map((_, k) => <span key={k} style={{ flex: 1, height: 3, borderRadius: 2, background: k <= (cur?.s ?? 0) ? '#34D399' : 'var(--border)' }} />)}</div>}
       </div>
@@ -423,10 +713,14 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
         {cur && !cur.done && <button className="btn-ghost" onClick={() => play(cur.i, cur.s + 1)}>⏭ Skip</button>}
         {answer && <button className="btn-ghost" onClick={() => play(cur.i, 0)}>↺ Replay</button>}
+        {classOn && <button className="btn-ghost" onClick={paused ? carryOn : pauseClass}>{paused ? '▶ Carry on' : '⏸ Pause'}</button>}
+        {!classOn && !thinking && <button className="btn-primary" onClick={() => beginClass()}>▶ Start class</button>}
+        {quizUi?.waiting && !thinking && <button className="btn-ghost" onClick={reveal}>🤷 I don't know</button>}
+        <button className="btn-ghost" aria-pressed={captions} onClick={() => { const v = !captions; setCaptions(v); try { localStorage.setItem('luxe_byte_cc', v ? '1' : '0'); } catch { /* private mode */ } }}>{captions ? '💬 Captions on' : '💬 Captions off'}</button>
         {live && talking && <button className="btn-primary" onClick={() => interrupt()}>✋ Interrupt</button>}
         {live && heard && !talking && <button className="btn-primary" onClick={submitHeard}>➤ Send answer</button>}
         {log.length > 1 && !thinking && <button className="btn-ghost" onClick={() => ask('', 'wrapup', { minutesLeft: 3 })}>🏁 End class + homework</button>}
-        {lastAi && <button className="btn-ghost" onClick={() => { onSaveNote({ title: `Byte on ${subject}`.slice(0, 80), body: toMd(lastAi), course_id: courseId || null }); lastAi.saved = true; setLog((l) => [...l]); }}>{lastAi.saved ? '✓ Saved' : '📝 Save lesson'}</button>}
+        {lastAi && <button className="btn-ghost" onClick={() => { const lec = log.filter((m) => m.kind === 'lecture'); onSaveNote({ title: `Byte on ${subject}`.slice(0, 80), body: (lec.length ? lec : [lastAi]).map(toMd).join('\n\n'), course_id: courseId || null }); lastAi.saved = true; setLog((l) => [...l]); }}>{lastAi.saved ? '✓ Saved' : '📝 Save lesson'}</button>}
       </div>
 
       <button className={live ? 'btn-ghost' : 'btn-primary'} style={{ width: '100%', marginTop: 10, padding: 12 }} onClick={() => (live ? stopLive() : startLive())}>{live ? '⏹ End live class' : '🎙 Start a live class (talk to him)'}</button>
@@ -434,14 +728,15 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>His voice:</span>
         {BYTE_VOICES.map(([k, l]) => <button key={k} className={`chip ${voice === k ? 'active' : ''}`} style={{ fontSize: 11.5, padding: '3px 9px' }} onClick={() => { setVoice(k); voiceRef.current = k; setByteVoice(k); if (k === 'off') hush(); else if (!talking && !thinking) say(k === 'phone' ? 'This is the phone voice. Bit robotic, right?' : 'Hi. This is my voice now. Better, right?', 'cheeky'); }}>{l}</button>)}
+        {voice !== 'off' && voice !== 'phone' && WHO[byteVoiceInfo()] && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>now: {WHO[byteVoiceInfo()]}</span>}
       </div>
       <div className="tab-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', margin: '10px 0 8px' }}>
         {chips.map((c, k) => (String(c).startsWith('__fresh__:') ? <button key={'c' + k} className="chip" style={{ borderColor: 'rgba(125,249,255,.6)' }} disabled={thinking} onClick={() => ask('', c.split(':')[1], { fresh: true })}>↻ New take</button> : <button key={'c' + k} className="chip" style={{ borderColor: 'rgba(52,211,153,.5)' }} disabled={thinking} onClick={() => ask(c)}>{c}</button>))}
-        {QUICK.map(([k, l]) => <button key={k} className="chip" disabled={thinking} onClick={() => ask('', k)}>{l}</button>)}
+        {QUICK.map(([k, l]) => <button key={k} className="chip" disabled={thinking} onClick={() => (k === 'quiz' ? quizNow() : ask('', k))}>{l}</button>)}
         <button className="chip" disabled={thinking} onClick={() => setQ(`Let me explain ${subject} back to you: `)}>🗣 I'll explain it back</button>
       </div>
       <div style={{ display: 'flex', gap: 6 }}>
-        <textarea className="input" rows={2} value={q} onFocus={() => setListening(true)} onBlur={() => setListening(false)} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(q); } }} placeholder={`Ask Byte about ${subject}…`} />
+        <textarea className="input" rows={2} value={q} onFocus={() => setListening(true)} onBlur={() => setListening(false)} onChange={(e) => { setQ(e.target.value); if (cls.current.quiz?.waiting) onActivity(); }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(q); } }} placeholder={`Ask Byte about ${subject}…`} />
         <button className="btn-primary" disabled={thinking || !q.trim()} onClick={() => ask(q)}>Ask</button>
       </div>
 

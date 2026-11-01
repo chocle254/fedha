@@ -1,22 +1,27 @@
-// lib/byte-voice.js — plays Professor Byte's voice. Neural voice from /api/byte-voice (Orpheus on Groq), sent in
-// sentence-sized chunks with the next one fetched while the current one plays, and a live loudness level so his
-// mouth moves with the real sound. If the neural voice is busy or down, the phone's own voice takes over
-// (a male one where the phone has it, pitched down otherwise) and Luxe retries neural after two minutes.
+// lib/byte-voice.js — plays Professor Byte's voice. The neural voice comes from /api/byte-voice, which tries
+// ElevenLabs first, then Groq Orpheus (Troy, Austin, Daniel). The text is sent in sentence-sized chunks with the next
+// one fetched while the current one plays, plus a live loudness level so his mouth moves with the real sound.
+// Only when every neural voice fails for a chunk does the phone's own voice say that one chunk, and the next chunk tries
+// neural again. Two failures in a row rest the neural voice for 45 seconds.
 import { speak, stopSpeaking, pickByteVoice } from './voice';
 
-export const BYTE_VOICES = [['troy', 'Troy'], ['austin', 'Austin'], ['daniel', 'Daniel'], ['phone', 'Phone voice'], ['off', 'Silent']];
-const KEY = 'luxe_byte_voice';
+export const BYTE_VOICES = [['auto', 'Auto'], ['troy', 'Troy'], ['austin', 'Austin'], ['daniel', 'Daniel'], ['phone', 'Phone voice'], ['off', 'Silent']];
+const KEY = 'luxe_byte_voice_v2';
 export function getByteVoice() {
-  try { const v = localStorage.getItem(KEY); if (v === 'on' || !v) return 'troy'; return BYTE_VOICES.some(([k]) => k === v) ? v : 'troy'; } catch { return 'troy'; }
+  try { const v = localStorage.getItem(KEY); return BYTE_VOICES.some(([k]) => k === v) ? v : 'auto'; } catch { return 'auto'; }
 }
 export function setByteVoice(v) { try { localStorage.setItem(KEY, v); } catch { /* private mode */ } }
+
+// Which voice actually answered last: 'eleven', 'troy', 'austin', 'daniel', or 'phone'.
+let lastWho = '';
+export const byteVoiceInfo = () => lastWho;
 
 // Mood → how he says it (Orpheus vocal directions).
 const TONE = { happy: 'cheerful', cheeky: 'cheerful', excited: 'excited', surprised: 'excited', proud: 'excited', thinking: 'calm', serious: 'professional', facepalm: 'dramatic', impatient: 'dramatic' };
 
 let neuralDownUntil = 0;
-const cache = new Map(); // text|voice|tone → Blob, last 40
-function remember(k, blob) { cache.set(k, blob); if (cache.size > 40) cache.delete(cache.keys().next().value); }
+const cache = new Map(); // text|voice|tone → Blob, last 60
+function remember(k, blob) { cache.set(k, blob); if (cache.size > 60) cache.delete(cache.keys().next().value); }
 
 // Splits into chunks of at most ~180 characters at sentence, then comma, then word breaks.
 export function chunks(text, max = 180) {
@@ -39,14 +44,36 @@ export function chunks(text, max = 180) {
   return out;
 }
 
-async function fetchChunk(text, voice, tone, signal) {
+// ElevenLabs' free plan allows 2 requests at once, so never run more than 2 voice fetches together.
+let running = 0;
+const waiting = [];
+const gate = (fn) => new Promise((resolve, reject) => {
+  const go = () => { running += 1; fn().then(resolve, reject).finally(() => { running -= 1; waiting.shift()?.(); }); };
+  if (running < 2) go(); else waiting.push(go);
+});
+const inflight = new Map(); // the same chunk asked for twice (warm-up + playback) is fetched once
+
+function fetchChunk(text, voice, tone, signal) {
   const k = `${voice}|${tone}|${text}`;
-  if (cache.has(k)) return cache.get(k);
-  const r = await fetch('/api/byte-voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice, tone }), signal });
-  if (!r.ok) throw Object.assign(new Error('voice ' + r.status), { status: r.status });
-  const blob = await r.blob();
-  remember(k, blob);
-  return blob;
+  if (cache.has(k)) return Promise.resolve(cache.get(k));
+  if (inflight.has(k)) return inflight.get(k);
+  const job = gate(async () => {
+    const r = await fetch('/api/byte-voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice, tone }), signal });
+    if (!r.ok) throw Object.assign(new Error('voice ' + r.status), { status: r.status });
+    lastWho = r.headers.get('x-byte-voice') || lastWho;
+    const blob = await r.blob();
+    remember(k, blob);
+    return blob;
+  }).finally(() => inflight.delete(k));
+  inflight.set(k, job);
+  return job;
+}
+
+// Gets the first two chunks of a line ready while the one before it is still playing, so there is no gap between lines.
+export function warmByte(text, { mood = 'happy', voice = getByteVoice() } = {}) {
+  if (typeof window === 'undefined' || !text || voice === 'off' || voice === 'phone' || Date.now() < neuralDownUntil) return;
+  const tone = TONE[mood] || 'cheerful';
+  chunks(text).slice(0, 2).forEach((c) => { fetchChunk(c, voice, tone).catch(() => {}); });
 }
 
 let ac = null;
@@ -56,38 +83,49 @@ function audioCtx() {
 
 // Speaks a line. Returns { stop }. onLevel(0..1) gives mouth movement; onStart fires when sound begins.
 export function speakByte(text, { mood = 'happy', voice = getByteVoice(), onStart, onEnd, onLevel } = {}) {
-  let stopped = false, ended = false, audio = null, raf = 0;
+  let stopped = false, ended = false, audio = null, raf = 0, started = false, fails = 0;
   const ctrl = new AbortController();
+  const begin = () => { if (!started) { started = true; onStart?.(); } };
   const finish = () => { if (ended) return; ended = true; cancelAnimationFrame(raf); onLevel?.(0); onEnd?.(); };
   const stop = () => { stopped = true; ctrl.abort(); try { audio?.pause(); } catch { /* none */ } stopSpeaking(); cancelAnimationFrame(raf); onLevel?.(0); };
 
-  const phone = () => {
+  // The phone's own voice, for a piece of the line (or all of it). Calls then() when that piece is done.
+  const phone = (t, then) => {
     if (stopped) return;
+    lastWho = 'phone';
     const v = pickByteVoice();
     const male = v && /\bmale\b|daniel|david|george|guy|ryan|thomas|fred|alex\b|rishi|aaron|arthur|oliver|gbb|gbd|iom|tpd|rjs/i.test(`${v.name} ${v.voiceURI || ''}`);
-    let t = 0;
-    speak(text, { voice: v, rate: 1.06, pitch: male ? 1.0 : 0.72, onStart: () => { onStart?.(); const tick = () => { if (stopped || ended) return; t += 1; onLevel?.(t % 6 < 1 ? 0 : 0.3 + Math.random() * 0.7); raf = requestAnimationFrame(() => setTimeout(tick, 80)); }; tick(); }, onEnd: () => { if (!stopped) finish(); } });
+    let busy = true;
+    const tick = () => { if (stopped || ended || !busy) return; onLevel?.(Math.random() < 0.15 ? 0 : 0.3 + Math.random() * 0.7); raf = requestAnimationFrame(() => setTimeout(tick, 80)); };
+    speak(t, { voice: v, rate: 1.06, pitch: male ? 1.0 : 0.72, onStart: () => { begin(); tick(); }, onEnd: () => { busy = false; cancelAnimationFrame(raf); if (!stopped) then(); } });
   };
   if (voice === 'off') { setTimeout(() => { if (!stopped) { onStart?.(); finish(); } }, 10); return { stop }; }
-  if (voice === 'phone' || Date.now() < neuralDownUntil || typeof window === 'undefined') { phone(); return { stop }; }
+  if (voice === 'phone' || Date.now() < neuralDownUntil || typeof window === 'undefined') { phone(text, finish); return { stop }; }
 
   const tone = TONE[mood] || 'cheerful';
   const parts = chunks(text);
   const jobs = [];
   const get = (i) => { if (i < parts.length && !jobs[i]) jobs[i] = fetchChunk(parts[i], voice, tone, ctrl.signal); return jobs[i]; };
-  let first = true;
   const playPart = async (i) => {
     if (stopped) return;
     if (i >= parts.length) { finish(); return; }
+    // Every neural voice failed for this chunk: the phone says just this chunk, then neural gets another go.
+    const rescue = () => {
+      fails += 1;
+      if (fails >= 2) neuralDownUntil = Date.now() + 45000;
+      phone(parts[i], () => playPart(i + 1));
+    };
+    if (Date.now() < neuralDownUntil) { rescue(); return; }
     let blob;
     try { blob = await get(i); get(i + 1); }
     catch (e) {
       if (stopped || e.name === 'AbortError') return;
-      neuralDownUntil = Date.now() + 120000;
-      // Say the rest with the phone voice.
-      text = parts.slice(i).join(' '); phone(); return;
+      jobs[i] = null; // one retry before giving up on this chunk
+      try { await new Promise((r) => setTimeout(r, 600)); if (stopped) return; blob = await get(i); get(i + 1); }
+      catch (e2) { if (stopped || e2.name === 'AbortError') return; rescue(); return; }
     }
     if (stopped) return;
+    fails = 0;
     const url = URL.createObjectURL(blob);
     audio = new Audio(url);
     const ctx = audioCtx();
@@ -102,10 +140,10 @@ export function speakByte(text, { mood = 'happy', voice = getByteVoice(), onStar
       onLevel(Math.min(1, Math.sqrt(sum / data.length) * 5));
       raf = requestAnimationFrame(meter);
     };
-    audio.onplay = () => { if (first) { first = false; onStart?.(); } meter(); };
+    audio.onplay = () => { begin(); meter(); };
     audio.onended = () => { URL.revokeObjectURL(url); cancelAnimationFrame(raf); playPart(i + 1); };
-    audio.onerror = () => { URL.revokeObjectURL(url); playPart(i + 1); };
-    audio.play().catch(() => { if (!stopped) { text = parts.slice(i).join(' '); phone(); } });
+    audio.onerror = () => { URL.revokeObjectURL(url); cancelAnimationFrame(raf); rescue(); };
+    audio.play().catch(() => { if (!stopped) rescue(); });
   };
   playPart(0);
   return { stop };
