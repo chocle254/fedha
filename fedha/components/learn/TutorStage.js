@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ProfessorByte from './ProfessorByte';
 import TutorBoard, { boardToMd } from './TutorBoard';
+import QuickQuiz from './QuickQuiz';
 import Md from './Md';
 import { askStudy } from '../../lib/study';
 import { stopSpeaking } from '../../lib/voice';
@@ -84,6 +85,12 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const [live, setLive] = useState(false);
   const [heard, setHeard] = useState('');
   const [liveErr, setLiveErr] = useState('');
+  const [catDue, setCatDue] = useState(false);
+  const [catScore, setCatScore] = useState(null);
+  const topicsSinceCat = useRef(0);
+  const catDueRef = useRef(false); catDueRef.current = catDue;
+  const recognitionActive = useRef(false);
+  const speechPaused = useRef(false);
   const timers = useRef([]);
   const waitTimers = useRef([]);
   const playId = useRef(0);
@@ -118,6 +125,10 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
 
   // Says one line in his voice; calls done() when finished (or after a safety timeout).
   const say = (text, mood, done) => {
+    if (liveRef.current) {
+      speechPaused.current = true;
+      try { rec.current?.stop(); } catch { /* recognition may already be stopped */ }
+    }
     hush();
     saying.current = text; sayStart.current = Date.now();
     let finished = false;
@@ -158,6 +169,10 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     }
     const userText = level ? QUICK.find(([k]) => k === level)?.[1].replace(/^\S+\s/, '') || '' : String(question || '').trim();
     if (!level && !userText) return;
+    if (liveRef.current) {
+      speechPaused.current = true;
+      try { rec.current?.stop(); } catch { /* recognition may already be stopped */ }
+    }
     clearTimers(); clearWait(); hush(); setTalking(false); setIdle(null); setHeard('');
     if (!level) hints.current = 0;
     const history = logRef.current.map((m) => ({ role: m.role, text: m.role === 'ai' ? m.scenes.map((x) => x.say).join(' ') : m.text }));
@@ -172,12 +187,20 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     try {
       const p = await ensurePlan();
       const hwFor = ['homework_check', 'homework_grade'].includes(level) ? hwRef.current : null;
-      const j = await askStudy({ type: 'stage', level: level || undefined, homework: hwFor ? { title: hwFor.title, task: hwFor.task, deliverable: hwFor.deliverable, misses: hwFor.misses || 0 } : undefined, submission: opts.submission, signals: opts.signals, skipped: opts.skipped || undefined, minutesLeft: opts.minutesLeft, question: userText, topic: subject, context: context(), history, live: liveRef.current, interrupted: opts.interrupted || undefined, plan: p ? { steps: p.steps } : undefined, step: p ? p.step : undefined });
+      const j = await askStudy({ type: 'stage', level: level || undefined, homework: hwFor ? { title: hwFor.title, task: hwFor.task, deliverable: hwFor.deliverable, misses: hwFor.misses || 0 } : undefined, submission: opts.submission, signals: opts.signals, skipped: opts.skipped || undefined, minutesLeft: opts.minutesLeft, catScore: opts.catScore, catTotal: opts.catTotal, question: userText, topic: subject, context: context(), history, live: liveRef.current, interrupted: opts.interrupted || undefined, plan: p ? { steps: p.steps } : undefined, step: p ? p.step : undefined });
       if (j.advance && planRef.current && planRef.current.step < planRef.current.steps.length) {
         const next = { ...planRef.current, step: planRef.current.step + 1 }; setPlan(next); planRef.current = next; savePlan(planKey, next);
+        topicsSinceCat.current += 1;
         setTimeout(knock, 400);
+        if (topicsSinceCat.current >= 3) {
+          topicsSinceCat.current = 0;
+          catDueRef.current = true;
+          setCatDue(true);
+          speechPaused.current = true;
+          try { rec.current?.stop(); } catch { /* recognition may already be stopped */ }
+        }
       }
-      if (level === 'wrapup' && j.homework) { onSetHomework?.(j.homework); setHwSet(j.homework); }
+      if (['wrapup', 'cat_assignment'].includes(level) && j.homework) { onSetHomework?.(j.homework); setHwSet(j.homework); }
       if (level === 'homework_grade') { onGradeHomework?.(j.grade, !!opts.skipped); setHwVerdict({ ...(j.grade || {}), skipped: !!opts.skipped }); setHwOpen(false); afterRef.current = opts.then || (liveRef.current ? 'live_start' : 'start'); }
       const entry = { role: 'ai', scenes: j.scenes || [], chips: j.chips || [] };
       if (ck && entry.scenes.length) saveAnswer(ck, entry);
@@ -244,6 +267,14 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   // After his question: a playful nudge at ~14 s of silence, a hint at ~32 s, then he lets you be.
   function startWaiting() {
     clearWait();
+    if (catDueRef.current) return;
+    speechPaused.current = false;
+    if (rec.current && !recognitionActive.current) {
+      setTimeout(() => {
+        if (!liveRef.current || speechPaused.current || talkingRef.current || thinkingRef.current || recognitionActive.current) return;
+        try { rec.current.start(); } catch { /* already starting */ }
+      }, 300);
+    }
     if (hints.current >= 2) return;
     waitTimers.current.push(setTimeout(() => {
       if (!liveRef.current || said.current || thinkingRef.current) return;
@@ -257,7 +288,8 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     }, 32000));
   }
   function stopLive() {
-    liveRef.current = false; setLive(false); setHeard(''); clearWait();
+    liveRef.current = false; speechPaused.current = true; recognitionActive.current = false;
+    setLive(false); setListening(false); setHeard(''); clearWait();
     try { rec.current?.abort(); } catch { /* none */ } rec.current = null;
   }
   const startLive = () => {
@@ -282,9 +314,16 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       endT.current = setTimeout(() => { if (!talkingRef.current && !thinkingRef.current && said.current.trim()) submitHeard(); }, 1500);
     };
     r.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { setLiveErr('Microphone blocked. Allow it for Luxe, then try again.'); stopLive(); } };
-    r.onend = () => { if (liveRef.current) setTimeout(() => { try { if (liveRef.current) r.start(); } catch { /* already running */ } }, 250); };
+    r.onstart = () => { recognitionActive.current = true; setListening(true); };
+    r.onend = () => {
+      recognitionActive.current = false; setListening(false);
+      // Do not keep reopening the microphone while Byte speaks or the AI is thinking.
+      if (liveRef.current && !speechPaused.current && !talkingRef.current && !thinkingRef.current) {
+        setTimeout(() => { if (liveRef.current && !speechPaused.current && !talkingRef.current && !thinkingRef.current) { try { r.start(); } catch { /* already starting */ } } }, 650);
+      }
+    };
+    rec.current = r; liveRef.current = true; speechPaused.current = false; setLive(true); hints.current = 0;
     try { r.start(); } catch { /* already started */ }
-    rec.current = r; liveRef.current = true; setLive(true); hints.current = 0;
     ask('', 'live_start');
   };
 
@@ -402,6 +441,15 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
           <span style={{ fontSize: 18 }}>{hwVerdict.skipped || !hwVerdict.done ? '😤' : hwVerdict.ai_suspect ? '🤖' : hwVerdict.score >= 8 ? '🌟' : '✅'}</span>
           <span style={{ flex: 1 }}><b>Homework: {hwVerdict.skipped ? 'not done, carried over' : !hwVerdict.done ? 'not done properly, carried over' : `${hwVerdict.score}/10${hwVerdict.ai_suspect ? ' · looks AI-written' : ''}`}</b>{hwVerdict.note ? <span style={{ color: 'var(--text-3)' }}> · {hwVerdict.note}</span> : null}</span>
           <button className="btn-icon" aria-label="Dismiss" onClick={() => setHwVerdict(null)}>✕</button>
+        </div>
+      )}
+      {catDue && (
+        <div className="card" style={{ marginTop: 10, padding: 12, borderColor: 'rgba(125,249,255,.45)' }}>
+          <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>📝 Professor Byte's CAT</div>
+          <div style={{ color: 'var(--text-2)', fontSize: 12.5, marginBottom: 9 }}>Three topics completed. Time to prove you understand them. No hints this time.</div>
+          <QuickQuiz context={context()} topic={`${subject} — the last three completed topics`} count={5} difficulty="medium" seconds={0} compact
+            onDone={(r) => { setCatScore(r); setCatDue(false); catDueRef.current = false; askRef.current('', 'cat_assignment', { catScore: r.score, catTotal: r.total }); }}
+            onCancel={() => { setCatDue(false); catDueRef.current = false; }} />
         </div>
       )}
       {hwSet && (
