@@ -52,10 +52,24 @@ export function summarize(transactions, now = Date.now(), extra = 0, tz = null) 
   const past = [...byDay.entries()].filter(([d]) => d !== localDay(now));
   const bestBefore = past.reduce((b, [, v]) => Math.max(b, v), 0);
   const days14 = Array.from({ length: 14 }, (_, i) => { const d = localDay(now - (13 - i) * DAY); return { day: d, amount: byDay.get(d) || 0 }; });
+  // Monthly (last 12 months, ending this month) and yearly (last 5 years, ending this year) totals.
+  const nk = localDay(now);
+  const ny = Number(nk.slice(0, 4));
+  const nm = Number(nk.slice(5, 7));
+  const sumPrefix = (prefix) => [...byDay.entries()].filter(([d]) => d.startsWith(prefix)).reduce((a, [, v]) => a + v, 0);
+  const months12 = Array.from({ length: 12 }, (_, i) => {
+    const idx = ny * 12 + (nm - 1) - (11 - i);
+    const key = `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`;
+    return { day: `${key}-01`, amount: sumPrefix(key) };
+  });
+  const years5 = Array.from({ length: 5 }, (_, i) => {
+    const y = ny - (4 - i);
+    return { day: `${y}-01-01`, amount: sumPrefix(String(y)) };
+  });
   // The exact moment it arrived when we know it (created that same day), so "3 hours ago" is right; otherwise just the day.
   const when = (t) => { const c = t.created_at ? new Date(t.created_at).getTime() : NaN; return Number.isFinite(c) && localDay(c) === t.date ? c : null; };
   const recent = earned.map((t) => ({ ...t, when: when(t) })).sort((a, b) => (b.when || b.at) - (a.when || a.at)).slice(0, 6);
-  return { weekOf: localDay(ws), today, week, month, lastWeek, streak, bestBefore, isBestDay: today > 0 && today > bestBefore && past.length >= 3, days14, recent };
+  return { weekOf: localDay(ws), today, week, month, lastWeek, streak, bestBefore, isBestDay: today > 0 && today > bestBefore && past.length >= 3, days14, months12, years5, recent };
 }
 
 // Weekly milestones (KES) worth their own notification.

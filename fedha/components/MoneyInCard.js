@@ -3,14 +3,30 @@ import { summarize, kes } from '../lib/earnings';
 import { formatDistanceToNow, format } from 'date-fns';
 
 // Dashboard "Money in": today, this week (vs last week), this month, the streak of days with money coming in,
-// a 14-day bar chart and the latest payments. Fires confetti when money has arrived since you last opened Luxe.
+// a bar chart (daily / monthly / yearly toggle) and the latest payments. Fires confetti when money has arrived since you last opened Luxe.
 // Loans, Fuliza, reversals and moves between your own wallets don't count (lib/earnings.js).
 const SEEN = 'luxe_money_seen';
+
+const tickFor = (view, d) => {
+  const dt = new Date(`${d.day}T12:00:00`);
+  return view === 'daily' ? format(dt, 'EEEEE') : view === 'monthly' ? format(dt, 'MMMMM') : format(dt, 'yyyy');
+};
+const labelFor = (view, d, i, last) => {
+  const dt = new Date(`${d.day}T12:00:00`);
+  if (view === 'daily') return i === last ? 'Today' : i === last - 1 ? 'Yesterday' : format(dt, 'EEE d MMM');
+  if (view === 'monthly') return i === last ? `This month · ${format(dt, 'MMM yyyy')}` : format(dt, 'MMMM yyyy');
+  return i === last ? `This year · ${format(dt, 'yyyy')}` : format(dt, 'yyyy');
+};
 
 export default function MoneyInCard({ transactions }) {
   const s = useMemo(() => summarize(transactions || []), [transactions]);
   const [fresh, setFresh] = useState(0);
-  const [sel, setSel] = useState(13); // the bar being read (today by default)
+  const [view, setView] = useState('daily'); // daily | monthly | yearly
+  const [selByView, setSelByView] = useState({ daily: 13, monthly: 11, yearly: 4 }); // bar being read (latest by default)
+  const bars = view === 'daily' ? s.days14 : view === 'monthly' ? s.months12 : s.years5;
+  const last = bars.length - 1;
+  const sel = Math.min(selByView[view], last);
+  const setSel = (i) => setSelByView((p) => ({ ...p, [view]: i }));
 
   useEffect(() => {
     const newest = s.recent[0]?.at || 0;
@@ -26,7 +42,7 @@ export default function MoneyInCard({ transactions }) {
     }
   }, [s.recent]);
 
-  const max = Math.max(1, ...s.days14.map((d) => d.amount));
+  const max = Math.max(1, ...bars.map((d) => d.amount));
   const vs = s.lastWeek > 0 ? Math.round(((s.week - s.lastWeek) / s.lastWeek) * 100) : null;
   if (!s.month && !s.recent.length) return null;
 
@@ -47,15 +63,22 @@ export default function MoneyInCard({ transactions }) {
           </div>
         ))}
       </div>
-      {/* Last 14 days: tap a bar to read that day */}
-      {(() => { const d = s.days14[sel]; return d && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 14, fontSize: 12.5 }}>
-          <span style={{ color: 'var(--text-2)' }}>{sel === 13 ? 'Today' : sel === 12 ? 'Yesterday' : format(new Date(`${d.day}T12:00:00`), 'EEE d MMM')}</span>
+      {/* Bar chart: daily (14 days), monthly (12 months) or yearly (5 years). Tap a bar to read it. */}
+      <div role="tablist" aria-label="Chart period" style={{ display: 'flex', gap: 4, marginTop: 14, padding: 3, borderRadius: 10, background: 'rgba(255,246,232,0.08)' }}>
+        {[['daily', 'Daily'], ['monthly', 'Monthly'], ['yearly', 'Yearly']].map(([k, l]) => (
+          <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setView(k)}
+            style={{ flex: 1, padding: '5px 0', border: 0, borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+              background: view === k ? 'var(--chart-line, var(--green))' : 'transparent', color: view === k ? '#04120C' : 'var(--text-2)' }}>{l}</button>
+        ))}
+      </div>
+      {(() => { const d = bars[sel]; return d && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 12, fontSize: 12.5 }}>
+          <span style={{ color: 'var(--text-2)' }}>{labelFor(view, d, sel, last)}</span>
           <b className="font-num" style={{ color: d.amount ? 'var(--green)' : 'var(--text-3)' }}>{d.amount ? `+${kes(d.amount)}` : 'Nothing came in'}</b>
         </div>
       ); })()}
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 56, marginTop: 6 }} role="group" aria-label="Money in, last 14 days">
-        {s.days14.map((d, i) => (
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: view === 'yearly' ? 8 : 3, height: 56, marginTop: 6 }} role="group" aria-label={`Money in, ${view}`}>
+        {bars.map((d, i) => (
           <button key={d.day} type="button" onClick={() => setSel(i)} aria-label={`${d.day}: ${kes(d.amount)}`} aria-pressed={sel === i}
             style={{ flex: 1, height: '100%', padding: 0, border: 0, background: 'transparent', display: 'flex', alignItems: 'flex-end', cursor: 'pointer' }}>
             <span style={{ width: '100%', height: `${Math.max(5, (d.amount / max) * 100)}%`, borderRadius: 4,
@@ -64,10 +87,10 @@ export default function MoneyInCard({ transactions }) {
           </button>
         ))}
       </div>
-      <div style={{ display: 'flex', gap: 3, marginTop: 4 }} aria-hidden="true">
-        {s.days14.map((d, i) => (
-          <span key={d.day} className="font-num" style={{ flex: 1, textAlign: 'center', fontSize: 10, color: sel === i ? 'var(--text)' : 'var(--text-3)', fontWeight: sel === i || i === 13 ? 700 : 400 }}>
-            {format(new Date(`${d.day}T12:00:00`), 'EEEEE')}
+      <div style={{ display: 'flex', gap: view === 'yearly' ? 8 : 3, marginTop: 4 }} aria-hidden="true">
+        {bars.map((d, i) => (
+          <span key={d.day} className="font-num" style={{ flex: 1, textAlign: 'center', fontSize: 10, color: sel === i ? 'var(--text)' : 'var(--text-3)', fontWeight: sel === i || i === last ? 700 : 400 }}>
+            {tickFor(view, d)}
           </span>
         ))}
       </div>

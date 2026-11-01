@@ -103,12 +103,27 @@ export default function BalanceHistoryChart({ transactions, currentBalance, curr
   const change = last - first;
   const spansYears = data.length > 300;
 
-  // ~6 evenly spaced date labels, always including the first and last day.
+  // Spans of up to ~13 months (6M, 1Y, a short All): one label per month, on the 1st, so no month is skipped.
+  // Anything else: ~6 evenly spaced date labels, always including the first and last day.
+  const monthly = useMemo(() => data.length > 120 && new Set(data.map((d) => d.date.slice(0, 7))).size <= 13, [data]);
   const ticks = useMemo(() => {
+    if (monthly) return data.filter((d) => d.date.endsWith('-01')).map((d) => d.date);
     if (data.length <= 1) return data.map((d) => d.date);
     const n = Math.min(6, data.length);
     return [...new Set([...Array(n)].map((_, i) => data[Math.round((i * (data.length - 1)) / (n - 1))].date))];
-  }, [data]);
+  }, [data, monthly]);
+
+  // Month name, with the year underneath on January and on the first label so a 1Y view reads unambiguously.
+  const MonthTick = ({ x, y, payload }) => {
+    const d = parse(payload.value);
+    const showYear = d.getMonth() === 0 || payload.value === ticks[0];
+    return (
+      <text x={x} y={y + 10} textAnchor="middle" fill="#8496B8" fontSize={10}>
+        <tspan x={x}>{MONTHS[d.getMonth()]}</tspan>
+        {showYear && <tspan x={x} dy={12} fontSize={9} opacity={0.75}>{d.getFullYear()}</tspan>}
+      </text>
+    );
+  };
 
   // Table rows: daily for 1M, yearly for All when it spans years, else monthly.
   const rows = useMemo(() => {
@@ -156,8 +171,10 @@ export default function BalanceHistoryChart({ transactions, currentBalance, curr
                 </linearGradient>
               </defs>
               <CartesianGrid stroke="rgba(255,244,228,0.07)" strokeDasharray="4 4" vertical={false} />
-              <XAxis dataKey="date" ticks={ticks} interval={0} tickFormatter={(iso) => (spansYears ? `${MONTHS[parse(iso).getMonth()]} '${String(parse(iso).getFullYear()).slice(2)}` : dayLabel(iso))}
-                tick={{ fill: '#8496B8', fontSize: 10 }} axisLine={false} tickLine={false} minTickGap={4} />
+              <XAxis dataKey="date" ticks={ticks} interval={0} height={monthly ? 30 : 20}
+                tick={monthly ? <MonthTick /> : { fill: '#8496B8', fontSize: 10 }}
+                tickFormatter={(iso) => (spansYears ? `${MONTHS[parse(iso).getMonth()]} '${String(parse(iso).getFullYear()).slice(2)}` : dayLabel(iso))}
+                axisLine={false} tickLine={false} minTickGap={4} />
               <YAxis width={44} tick={{ fill: '#8496B8', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => axisNum(v, currency)} />
               {data.some((d) => d.balance < 0) && <ReferenceLine y={0} stroke="rgba(246,240,230,0.5)" />}
               <Tooltip content={<ChartTooltip currency={currency} />} cursor={{ stroke: 'rgba(246,240,230,0.35)', strokeWidth: 1, strokeDasharray: '3 3' }} />
