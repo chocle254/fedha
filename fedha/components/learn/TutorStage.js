@@ -268,6 +268,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     setCur((c) => (c ? { ...c, done: true } : c));
     setIdle({ mood: 'surprised', gesture: 'shrug', line: CUTS[Math.floor(Math.random() * CUTS.length)] });
     said.current = because;
+    resumeRecognition();
   };
   const submitHeard = () => {
     const t = said.current.trim(); said.current = ''; setHeard('');
