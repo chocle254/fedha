@@ -466,7 +466,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
           <div style={{ color: 'var(--text-2)', fontSize: 12.5, marginBottom: 9 }}>Three topics completed. Time to prove you understand them. No hints this time.</div>
           <QuickQuiz context={`${context()}\n\nTHREE TOPICS JUST COMPLETED: ${recentCompletedTopics.current.join('; ')}`} topic={`${subject} — CAT on ${recentCompletedTopics.current.join(', ') || 'the last three topics'}`} count={5} difficulty="medium" seconds={0} compact
             onDone={(r) => { setCatScore(r); onQuizDone?.({ ...r, course_id: courseId || null, topic: `${subject} — CAT` }); setCatDue(false); catDueRef.current = false; recentCompletedTopics.current = []; try { localStorage.removeItem(`luxe_byte_assessment:${planKey}`); } catch { /* optional */ } askRef.current('', 'cat_assignment', { catScore: r.score, catTotal: r.total }); }}
-            onCancel={() => { setCatDue(false); catDueRef.current = false; }} />
+            onCancel={() => { setCatDue(false); catDueRef.current = false; try { localStorage.removeItem(`luxe_byte_assessment:${planKey}`); } catch { /* optional */ } resumeRecognition(); }} />
         </div>
       )}
       {hwSet && (
