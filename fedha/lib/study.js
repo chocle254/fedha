@@ -213,7 +213,7 @@ export function learnerBrief({ course, lesson, topic = '', notes = [], cards = [
   const quizzes = log.filter((e) => e.kind === 'quiz' && e.total > 0 && (course ? e.course_id === course.id : hit(e.topic))).slice(-5);
   const recent = [...new Set(log.filter((e) => e.kind === 'focus' && e.topic).slice(-12).map((e) => e.topic))].slice(-6);
   const m = course ? masteryFor({ cards, log }, course.id) : null;
-  const me = ['ABOUT THE LEARNER: self-taught, no degree, learning AI/ML and cybersecurity.'];
+  const me = ['ABOUT THE LEARNER: use the current course, their own notes, completed topics, quiz results and repeated mistakes as evidence of their level. Do not assume prior knowledge or invent interests; explain unfamiliar terms plainly and build difficulty gradually.'];
   if (m) me.push(`Mastery in this course: ${m.score == null ? 'no evidence yet' : `${m.score}/100 (${m.label})`}; ${m.cards} flashcards, ${m.mastered} mastered.`);
   if (quizzes.length) me.push(`Recent quiz scores: ${quizzes.map((e) => `${e.score}/${e.total}`).join(', ')}.`);
   if (weak.length) me.push(`Weak spots (flashcards they keep missing):\n${weak.map((c) => `- ${c.q}`).join('\n')}`);

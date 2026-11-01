@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ProfessorByte from './ProfessorByte';
 import TutorBoard, { boardToMd } from './TutorBoard';
+import QuickQuiz from './QuickQuiz';
 import Md from './Md';
 import { askStudy } from '../../lib/study';
 import { stopSpeaking } from '../../lib/voice';
@@ -55,7 +56,7 @@ function savePlan(key, v) {
   } catch { /* storage full or private */ }
 }
 
-export default function TutorStage({ prepare, active, subject, context, brief, planKey, onSaveNote, courseId, request, homework, onSetHomework, onGradeHomework }) {
+export default function TutorStage({ prepare, active, subject, context, brief, planKey, onSaveNote, onQuizDone, courseId, request, homework, onSetHomework, onGradeHomework }) {
   const [log, setLog] = useState([]);
   const [plan, setPlan] = useState(null); // { title, opener, known, weak, steps, step, sig }
   const [reading, setReading] = useState(null); // what he is reading right now
@@ -84,6 +85,13 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const [live, setLive] = useState(false);
   const [heard, setHeard] = useState('');
   const [liveErr, setLiveErr] = useState('');
+  const [catDue, setCatDue] = useState(false);
+  const [catScore, setCatScore] = useState(null);
+  const topicsSinceCat = useRef(0);
+  const recentCompletedTopics = useRef([]);
+  const catDueRef = useRef(false); catDueRef.current = catDue;
+  const recognitionActive = useRef(false);
+  const speechPaused = useRef(false);
   const timers = useRef([]);
   const waitTimers = useRef([]);
   const playId = useRef(0);
@@ -103,6 +111,15 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const started = useRef(false);
 
   useEffect(() => { setVoice(getByteVoice()); }, []);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`luxe_byte_assessment:${planKey}`) || '{}');
+      topicsSinceCat.current = Math.max(0, Number(saved.count) || 0);
+      recentCompletedTopics.current = Array.isArray(saved.topics) ? saved.topics.slice(-3) : [];
+      catDueRef.current = !!saved.due;
+      setCatDue(!!saved.due);
+    } catch { /* local progress is optional */ }
+  }, [planKey]);
   const clearTimers = () => { timers.current.forEach(clearTimeout); timers.current = []; };
   const clearWait = () => { waitTimers.current.forEach(clearTimeout); waitTimers.current = []; };
   const later = (fn, ms) => { const t = setTimeout(fn, ms); timers.current.push(t); return t; };
@@ -118,6 +135,10 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
 
   // Says one line in his voice; calls done() when finished (or after a safety timeout).
   const say = (text, mood, done) => {
+    if (liveRef.current) {
+      speechPaused.current = true;
+      try { rec.current?.stop(); } catch { /* recognition may already be stopped */ }
+    }
     hush();
     saying.current = text; sayStart.current = Date.now();
     let finished = false;
@@ -158,6 +179,10 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     }
     const userText = level ? QUICK.find(([k]) => k === level)?.[1].replace(/^\S+\s/, '') || '' : String(question || '').trim();
     if (!level && !userText) return;
+    if (liveRef.current) {
+      speechPaused.current = true;
+      try { rec.current?.stop(); } catch { /* recognition may already be stopped */ }
+    }
     clearTimers(); clearWait(); hush(); setTalking(false); setIdle(null); setHeard('');
     if (!level) hints.current = 0;
     const history = logRef.current.map((m) => ({ role: m.role, text: m.role === 'ai' ? m.scenes.map((x) => x.say).join(' ') : m.text }));
@@ -172,12 +197,23 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     try {
       const p = await ensurePlan();
       const hwFor = ['homework_check', 'homework_grade'].includes(level) ? hwRef.current : null;
-      const j = await askStudy({ type: 'stage', level: level || undefined, homework: hwFor ? { title: hwFor.title, task: hwFor.task, deliverable: hwFor.deliverable, misses: hwFor.misses || 0 } : undefined, submission: opts.submission, signals: opts.signals, skipped: opts.skipped || undefined, minutesLeft: opts.minutesLeft, question: userText, topic: subject, context: context(), history, live: liveRef.current, interrupted: opts.interrupted || undefined, plan: p ? { steps: p.steps } : undefined, step: p ? p.step : undefined });
+      const j = await askStudy({ type: 'stage', level: level || undefined, homework: hwFor ? { title: hwFor.title, task: hwFor.task, deliverable: hwFor.deliverable, misses: hwFor.misses || 0 } : undefined, submission: opts.submission, signals: opts.signals, skipped: opts.skipped || undefined, minutesLeft: opts.minutesLeft, catScore: opts.catScore, catTotal: opts.catTotal, question: userText, topic: subject, context: context(), history, live: liveRef.current, interrupted: opts.interrupted || undefined, plan: p ? { steps: p.steps } : undefined, step: p ? p.step : undefined });
       if (j.advance && planRef.current && planRef.current.step < planRef.current.steps.length) {
         const next = { ...planRef.current, step: planRef.current.step + 1 }; setPlan(next); planRef.current = next; savePlan(planKey, next);
+        topicsSinceCat.current += 1;
+        recentCompletedTopics.current = [...recentCompletedTopics.current, planRef.current.steps[planRef.current.step - 1]?.title || subject].slice(-3);
+        try { localStorage.setItem(`luxe_byte_assessment:${planKey}`, JSON.stringify({ count: topicsSinceCat.current, topics: recentCompletedTopics.current, due: topicsSinceCat.current >= 3 })); } catch { /* local progress is optional */ }
         setTimeout(knock, 400);
+        if (topicsSinceCat.current >= 3) {
+          topicsSinceCat.current = 0;
+          try { localStorage.setItem(`luxe_byte_assessment:${planKey}`, JSON.stringify({ count: 0, topics: recentCompletedTopics.current, due: true })); } catch { /* local progress is optional */ }
+          catDueRef.current = true;
+          setCatDue(true);
+          speechPaused.current = true;
+          try { rec.current?.stop(); } catch { /* recognition may already be stopped */ }
+        }
       }
-      if (level === 'wrapup' && j.homework) { onSetHomework?.(j.homework); setHwSet(j.homework); }
+      if (['wrapup', 'cat_assignment'].includes(level) && j.homework) { onSetHomework?.(j.homework); setHwSet(j.homework); }
       if (level === 'homework_grade') { onGradeHomework?.(j.grade, !!opts.skipped); setHwVerdict({ ...(j.grade || {}), skipped: !!opts.skipped }); setHwOpen(false); afterRef.current = opts.then || (liveRef.current ? 'live_start' : 'start'); }
       const entry = { role: 'ai', scenes: j.scenes || [], chips: j.chips || [] };
       if (ck && entry.scenes.length) saveAnswer(ck, entry);
@@ -233,6 +269,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     setCur((c) => (c ? { ...c, done: true } : c));
     setIdle({ mood: 'surprised', gesture: 'shrug', line: CUTS[Math.floor(Math.random() * CUTS.length)] });
     said.current = because;
+    resumeRecognition();
   };
   const submitHeard = () => {
     const t = said.current.trim(); said.current = ''; setHeard('');
@@ -242,14 +279,26 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     askRef.current(t, null, { interrupted });
   };
   // After his question: a playful nudge at ~14 s of silence, a hint at ~32 s, then he lets you be.
+  function resumeRecognition() {
+    if (!liveRef.current) return;
+    speechPaused.current = false;
+    if (rec.current && !recognitionActive.current) {
+      setTimeout(() => {
+        if (!liveRef.current || speechPaused.current || talkingRef.current || thinkingRef.current || recognitionActive.current) return;
+        try { rec.current.start(); } catch { /* already starting */ }
+      }, 300);
+    }
+  }
   function startWaiting() {
     clearWait();
+    if (catDueRef.current) return;
+    resumeRecognition();
     if (hints.current >= 2) return;
     waitTimers.current.push(setTimeout(() => {
       if (!liveRef.current || said.current || thinkingRef.current) return;
       const line = NUDGES[Math.floor(Math.random() * NUDGES.length)];
       setIdle({ mood: 'impatient', gesture: 'tap', line });
-      say(line, 'impatient', () => setIdle((x) => (x ? { ...x, gesture: 'tap' } : x)));
+      say(line, 'impatient', () => { setIdle((x) => (x ? { ...x, gesture: 'tap' } : x)); resumeRecognition(); });
     }, 14000));
     waitTimers.current.push(setTimeout(() => {
       if (!liveRef.current || said.current || thinkingRef.current) return;
@@ -257,7 +306,8 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     }, 32000));
   }
   function stopLive() {
-    liveRef.current = false; setLive(false); setHeard(''); clearWait();
+    liveRef.current = false; speechPaused.current = true; recognitionActive.current = false;
+    setLive(false); setListening(false); setHeard(''); clearWait();
     try { rec.current?.abort(); } catch { /* none */ } rec.current = null;
   }
   const startLive = () => {
@@ -282,9 +332,16 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       endT.current = setTimeout(() => { if (!talkingRef.current && !thinkingRef.current && said.current.trim()) submitHeard(); }, 1500);
     };
     r.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { setLiveErr('Microphone blocked. Allow it for Luxe, then try again.'); stopLive(); } };
-    r.onend = () => { if (liveRef.current) setTimeout(() => { try { if (liveRef.current) r.start(); } catch { /* already running */ } }, 250); };
-    try { r.start(); } catch { /* already started */ }
-    rec.current = r; liveRef.current = true; setLive(true); hints.current = 0;
+    r.onstart = () => { recognitionActive.current = true; setListening(true); };
+    r.onend = () => {
+      recognitionActive.current = false; setListening(false);
+      // Do not keep reopening the microphone while Byte speaks or the AI is thinking.
+      if (liveRef.current && !speechPaused.current && !talkingRef.current && !thinkingRef.current) {
+        setTimeout(() => { if (liveRef.current && !speechPaused.current && !talkingRef.current && !thinkingRef.current) { try { r.start(); } catch { /* already starting */ } } }, 650);
+      }
+    };
+    rec.current = r; liveRef.current = true; speechPaused.current = false; setLive(true); hints.current = 0;
+    // Start with the professor speaking; the microphone opens only after his explanation finishes.
     ask('', 'live_start');
   };
 
@@ -404,11 +461,21 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
           <button className="btn-icon" aria-label="Dismiss" onClick={() => setHwVerdict(null)}>✕</button>
         </div>
       )}
+      {catDue && (
+        <div className="card" style={{ marginTop: 10, padding: 12, borderColor: 'rgba(125,249,255,.45)' }}>
+          <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>📝 Professor Byte's CAT</div>
+          <div style={{ color: 'var(--text-2)', fontSize: 12.5, marginBottom: 9 }}>Three topics completed. Time to prove you understand them. No hints this time.</div>
+          <QuickQuiz context={`${context()}\n\nTHREE TOPICS JUST COMPLETED: ${recentCompletedTopics.current.join('; ')}`} topic={`${subject} — CAT on ${recentCompletedTopics.current.join(', ') || 'the last three topics'}`} count={5} difficulty="medium" seconds={0} compact
+            onDone={(r) => { setCatScore(r); onQuizDone?.({ ...r, course_id: courseId || null, topic: `${subject} — CAT` }); setCatDue(false); catDueRef.current = false; recentCompletedTopics.current = []; try { localStorage.removeItem(`luxe_byte_assessment:${planKey}`); } catch { /* optional */ } askRef.current('', 'cat_assignment', { catScore: r.score, catTotal: r.total }); }}
+            onCancel={() => { setCatDue(false); catDueRef.current = false; try { localStorage.removeItem(`luxe_byte_assessment:${planKey}`); } catch { /* optional */ } resumeRecognition(); }} />
+        </div>
+      )}
       {hwSet && (
         <div className="card" style={{ marginTop: 10, padding: 12, borderColor: 'rgba(251,191,36,.45)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ fontSize: 18 }}>📌</span><b style={{ flex: 1, fontSize: 13.5 }}>Homework: {hwSet.title}</b><button className="btn-icon" aria-label="Dismiss" onClick={() => setHwSet(null)}>✕</button></div>
           <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.5 }}>{hwSet.task}</div>
           {hwSet.deliverable && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>Bring: {hwSet.deliverable} · checked at the start of next class. By hand, no AI.</div>}
+          {catScore && <div style={{ fontSize: 11.5, color: 'var(--green)', marginTop: 5 }}>Latest CAT: {catScore.score}/{catScore.total}</div>}
         </div>
       )}
 
@@ -416,7 +483,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       <div style={{ position: 'relative', marginTop: 10, padding: '10px 12px', borderRadius: 14, background: 'var(--card-2)', border: '1px solid var(--border)', minHeight: 46 }}>
         <div style={{ position: 'absolute', top: -7, left: 44, width: 12, height: 12, background: 'var(--card-2)', borderLeft: '1px solid var(--border)', borderTop: '1px solid var(--border)', transform: 'rotate(45deg)' }} />
         {thinking ? <div style={{ fontSize: 13, color: 'var(--text-3)' }}>{reading ? `📖 Reading your ${reading} before we start…` : 'Hmm… let me think about that…'}</div> : <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{bubble}</div>}
-        {live && <div style={{ marginTop: 8, fontSize: 12.5, color: heard ? 'var(--green)' : 'var(--text-3)', display: 'flex', gap: 6, alignItems: 'center' }}><motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity }} style={{ width: 8, height: 8, borderRadius: 4, background: '#EF4444', display: 'inline-block' }} />{heard ? `You: ${heard}` : talking ? 'Listening. Talk over him to interrupt.' : 'Your turn. Answer out loud.'}</div>}
+        {live && <div style={{ marginTop: 8, fontSize: 12.5, color: heard ? 'var(--green)' : 'var(--text-3)', display: 'flex', gap: 6, alignItems: 'center' }}><motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity }} style={{ width: 8, height: 8, borderRadius: 4, background: '#EF4444', display: 'inline-block' }} />{heard ? `You: ${heard}` : catDue ? 'CAT in progress. Microphone paused.' : talking ? 'Byte is teaching. Mic paused to prevent echo.' : 'Your turn. Mic is listening.'}</div>}
         {answer && answer.scenes.length > 1 && <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>{answer.scenes.map((_, k) => <span key={k} style={{ flex: 1, height: 3, borderRadius: 2, background: k <= (cur?.s ?? 0) ? '#34D399' : 'var(--border)' }} />)}</div>}
       </div>
 

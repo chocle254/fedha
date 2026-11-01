@@ -177,6 +177,17 @@ export default function TutorBoard({ board: b }) {
     <div>
       <div style={ink.title}>⌨️ {b.lang || 'code'}</div>
       <motion.pre initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'ui-monospace, Menlo, monospace', color: '#A7F3D0', background: 'rgba(0,0,0,.35)', padding: 8, borderRadius: 8 }}>{b.code}</motion.pre>
+      {b.explanation && <div style={{ marginTop: 7, padding: 7, borderRadius: 7, background: 'rgba(96,165,250,.10)', border: '1px solid rgba(96,165,250,.25)', fontSize: 10.5, lineHeight: 1.45, color: '#DBEAFE' }}><b>How it works</b><div style={{ marginTop: 3, whiteSpace: 'pre-wrap' }}>{b.explanation}</div></div>}
+    </div>
+  );
+  if (b.type === 'challenge') return (
+    <div style={{ fontSize: 11.5, lineHeight: 1.45 }}>
+      <div style={{ ...ink.title, display: 'flex', justifyContent: 'space-between', gap: 6 }}><span>🧩 {b.title || 'Coding challenge'}</span><span style={{ color: '#7DF9FF' }}>{b.difficulty || 'Easy'}</span></div>
+      <div style={{ whiteSpace: 'pre-wrap' }}>{b.problem}</div>
+      {(b.examples || []).map((x, i) => <div key={i} style={{ marginTop: 7, padding: 7, borderRadius: 7, background: 'rgba(0,0,0,.25)' }}><b>Example {i + 1}</b><div>Input: <code>{x.input}</code></div><div>Output: <code>{x.output}</code></div>{x.why && <div style={{ color: 'rgba(255,255,255,.65)', marginTop: 2 }}>{x.why}</div>}</div>)}
+      {b.constraints?.length > 0 && <div style={{ marginTop: 7 }}><b>Constraints</b>{b.constraints.map((x, i) => <div key={i}>• {x}</div>)}</div>}
+      {b.target && <div style={{ marginTop: 7, color: '#A7F3D0' }}>Target: {b.target}</div>}
+      {b.hints?.length > 0 && <details style={{ marginTop: 7 }}><summary style={{ cursor: 'pointer', color: '#7DF9FF' }}>Reveal hints</summary>{b.hints.map((x, i) => <div key={i} style={{ marginTop: 4 }}>Hint {i + 1}: {x}</div>)}</details>}
     </div>
   );
   if (b.type === 'big') return (
@@ -223,7 +234,8 @@ export function boardToMd(b) {
   switch (b.type) {
     case 'chart': return `**${b.title || 'Chart'}**${b.x || b.y ? ` (${[b.x, b.y].filter(Boolean).join(' vs ')})` : ''}\n${(b.points || []).map((p) => `- ${p[0]}: ${p[1]}`).join('\n')}`;
     case 'steps': return `**${b.title || 'Steps'}**\n${(b.items || []).map((x, i) => `${i + 1}. ${x}`).join('\n')}`;
-    case 'code': return '```' + (b.lang || '') + '\n' + b.code + '\n```';
+    case 'code': return '```' + (b.lang || '') + '\n' + b.code + '\n```' + (b.explanation ? `\n\n**How it works:** ${b.explanation}` : '');
+    case 'challenge': return `**${b.title || 'Coding challenge'} (${b.difficulty || 'Easy'})**\n${b.problem}\n\n${(b.examples || []).map((x, i) => `Example ${i + 1}: Input ${x.input}; Output ${x.output}${x.why ? ` — ${x.why}` : ''}`).join('\n')}\n\n**Constraints**\n${(b.constraints || []).map((x) => `- ${x}`).join('\n')}\n\n**Target:** ${b.target || 'Analyse time and space complexity'}\n\n**Hints**\n${(b.hints || []).map((x, i) => `${i + 1}. ${x}`).join('\n')}`;
     case 'big': return `**${b.text}**${b.sub ? `\n${b.sub}` : ''}`;
     case 'compare': return [b.left, b.right].filter(Boolean).map((s) => `**${s.title}**\n${(s.items || []).map((x) => `- ${x}`).join('\n')}`).join('\n\n');
     case 'flow': return `**${b.title || 'Flow'}**\n${(b.nodes || []).join(' → ')}`;

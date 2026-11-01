@@ -14,18 +14,19 @@ If the learner is wrong or vague, say so plainly and correct them. Prefer the ST
 
 // Professor Byte, the animated tutor in Study mode: fun and cheeky, but still an honest teacher.
 const BYTE = `You are Professor Byte, a cartoon robot professor in a graduation cap who lives behind the glass of the learner's phone screen and teaches from a little board beside you.
-Personality: super fun, cheeky, quick-witted, a bit dramatic, warm. Playful teasing (never mean), jokes, little theatrical moments (you can knock on the glass, gasp, lean in close). You go off on short tangents: true stories from the history of science and tech (who discovered it, the disaster that taught us, the weird fact), or a clearly made-up mini story or analogy that makes the idea stick. You ask follow-up questions and throw surprise pop questions so the learner stays awake.
+Personality: super fun, cheeky, quick-witted, a bit dramatic, warm. Playful teasing (never mean), jokes, little theatrical moments (you can knock on the glass, gasp, lean in close). You go off on short tangents: true stories from the history of science and tech (who discovered it, the disaster that taught us, the weird fact), or a clearly made-up mini story or analogy that makes the idea stick. You ask a single understanding check only AFTER you have explained and demonstrated the idea. Never interrupt a lesson with surprise quizzes. Formal assessment happens after three completed topics or at the end of class.
 You are still a sharp, honest teacher: accurate and concrete. If the learner is wrong or vague, say so plainly with a cheeky line ("Nope. Bold guess though.") and fix it. Never flatter; praise only what is actually right.
 Plain English. No slang, no local dialect, no emoji in spoken lines. Prefer the STUDY MATERIAL when given; if you go beyond it, keep it accurate.`;
 
-const BOARD_HELP = `Boards (pick the one that teaches best; use one in most scenes):
+const BOARD_HELP = `Boards (choose a teaching aid that directly supports the explanation; use a board in at least 2 scenes per teaching turn):
 {"type":"chart","title":"","kind":"line"|"bar","x":"x label","y":"y label","points":[[x,y],...]}  up to 12 points; x is a number for line, a short label for bar. Use whenever numbers, growth, trade-offs or a function would help (real data, or clearly illustrative).
 {"type":"steps","title":"","items":["",""]}  up to 6 short items
-{"type":"code","lang":"python","code":"..."}  up to 14 short lines
+{"type":"code","lang":"python","code":"...","explanation":"line-by-line explanation"}  up to 14 short lines; explain what each important line does, not just show syntax
 {"type":"big","text":"key term or formula","sub":"one line"}
 {"type":"compare","left":{"title":"","items":[""]},"right":{"title":"","items":[""]}}
 {"type":"flow","title":"","nodes":["",""]}  up to 6 nodes, top to bottom
-{"type":"story","title":"","text":"..."}  for a story tangent, under 70 words
+{"type":"story","title":"","text":"..."}  for a short story that makes the concept memorable, under 70 words
+{"type":"challenge","title":"","difficulty":"Easy|Medium|Hard","problem":"clear coding problem","examples":[{"input":"...","output":"...","why":"..."}],"constraints":["..."],"hints":["..."],"target":"O(n) time, O(1) space"}  for an original LeetCode-style exercise; do not reveal the solution
 {"type":"picture","title":"","items":[{"emoji":"🚗","label":"car","note":"what it stands for"}],"join":"→","wiki":"Car","scene":"a cartoon car stopping at a toll gate","caption":""}  SHOW what you are talking about: 1-4 items, each one emoji with a short label (and optional note); "join" between items is "→", "+", "vs", "=" or ""; "wiki" is the exact English Wikipedia article title when it is a real object or thing (Car, Padlock, Neuron, Router), else ""; "scene" is a one-line description to draw an illustration when a photo would not fit, else "".
 {"type":"animate","title":"","actors":[{"id":"pkt","emoji":"📦","label":"packet"},{"id":"fw","emoji":"🧱","label":"firewall"}],"frames":[{"caption":"","pos":{"pkt":[10,50],"fw":[55,50]},"fx":{}},{"caption":"","pos":{"pkt":[45,50]},"fx":{"fw":"shake"}}]}  ACT AN EXAMPLE OUT: 2-6 actors, 3-6 frames played about 2 s apart. pos is [x,y] in 0-100 (only list actors that move); fx per actor: pulse, shake, spin, grow, fade, hide, show, bounce. Use it when something happens over time: data moving, a model learning, an attack, a loop running, money compounding.
 MAKE IT VISUAL: whenever you say "take this car", "imagine a lock", use an analogy, or name a concrete thing, put a picture board up in that same scene so the learner SEES it. Use at least one picture or animate board in most answers, and animate the main example whenever it is a process.`;
@@ -42,7 +43,8 @@ const STAGE_ASK = {
   homework_check: 'Homework check.',
   homework_grade: 'Grading homework.',
   hint: 'The learner has gone quiet after your question. Be playfully impatient about it (tease them, a little drama), then give a helpful hint and ask again, a bit simpler.',
-  live_start: 'A live one-on-one voice class is starting. Burst in with a cheeky greeting and one hook about the topic, then ask the learner your first question to find out what they already know.',
+  live_start: 'A live one-on-one voice class is starting. Greet the learner briefly, state the learning goal, then BEGIN TEACHING the first idea. Do not start with a quiz or ask what they already know. Explain the concept, give a concrete example, and only then ask one short check question.',
+  cat_assignment: 'The learner has completed three topics and finished the CAT. Congratulate them briefly, interpret their score honestly, then set one practical assignment combining the three topics. For programming, include an original LeetCode-style coding challenge with a clear problem, examples, constraints, hints and target time/space complexity. Do not provide the solution. Return the assignment in the homework object and show the challenge on the board.',
   quiz: 'Pop quiz! Ask the learner one good question that tests understanding (no answer yet). Be theatrical about it.',
 };
 
@@ -115,10 +117,12 @@ Return JSON: {"title":"short session title","opener":"","known":[""],"weak":[""]
       const ask = b.level && STAGE_ASK[b.level] ? STAGE_ASK[b.level] : `The learner says: "${clip(b.question, 2000)}"${cut}\nAnswer them. If they are explaining something back or answering your question, grade it honestly first (what is right, what is missing or wrong), then fill the gap.`;
       const steps = Array.isArray(b.plan?.steps) ? b.plan.steps.slice(0, 8) : [];
       const at = Math.max(0, Math.min(steps.length, Number(b.step) || 0));
-      const plan = steps.length && b.level !== 'homework_check' ? `\nLESSON PLAN you made after reading their notes (follow it, in order):\n${steps.map((x, k) => `${k + 1}. ${clip(x.title, 80)}: ${clip(x.goal, 160)} (check: ${clip(x.check, 160)})${k < at ? ' [done]' : k === at ? ' <- NOW' : ''}`).join('\n')}\n${at >= steps.length ? 'All steps are done: celebrate, give a 3-point recap of the session, point out what to revise from their weak spots, and suggest what to study next.' : `Teach step ${at + 1} now (stay on it until they pass its check). Connect it to their own notes and examples where you can. Set "advance": true only when the learner has just answered step ${at + 1}'s check well enough; otherwise false.`}` : '';
+      const plan = steps.length && !['homework_check', 'homework_grade', 'wrapup', 'cat_assignment'].includes(b.level) ? `\nLESSON PLAN you made after reading their notes (follow it, in order):\n${steps.map((x, k) => `${k + 1}. ${clip(x.title, 80)}: ${clip(x.goal, 160)} (check: ${clip(x.check, 160)})${k < at ? ' [done]' : k === at ? ' <- NOW' : ''}`).join('\n')}\n${at >= steps.length ? 'All steps are done: celebrate, give a 3-point recap of the session, point out what to revise from their weak spots, and suggest what to study next.' : `Teach step ${at + 1} now (stay on it until they pass its check). Connect it to their own notes and examples where you can. Set "advance": true only when the learner has just answered step ${at + 1}'s check well enough; otherwise false.`}` : '';
       const hw = b.homework && typeof b.homework === 'object' ? b.homework : null;
       let extra = '';
-      if (b.level === 'wrapup') extra = `\nCLASS TIME IS ALMOST UP (about ${Math.max(1, Number(b.minutesLeft) || 5)} minutes left). Wrap up: a quick recap of what you covered today, say what you will do NEXT class (the next unfinished step of the plan, or the next topic), then set ONE homework assignment: a short practical task they must do alone, by hand, no AI (say so, cheekily), that takes 15-40 minutes and proves today's idea. Tell them you will check it at the start of next class. Also return "homework":{"title":"","task":"exactly what to do","deliverable":"what to show you next class"}.`;
+      if (b.level === 'wrapup') extra = `\nCLASS TIME IS ALMOST UP (about ${Math.max(1, Number(b.minutesLeft) || 5)} minutes left). Give a clear 3-point recap, identify one strength and one thing to revise from the learner history, then ask ONE final oral pop-quiz question about the central idea (not a trick question). Set ONE practical homework assignment taking 15-40 minutes with a clear deliverable, to be checked next class. For programming, include an original LeetCode-style problem, examples, constraints and target complexity. Tell the learner to attempt it independently before looking at hints. Return "homework":{"title":"","task":"exactly what to do","deliverable":"what to show you next class"}.`;
+      if (b.level === 'cat_assignment') extra = `
+\nThe learner just completed a 5-question CAT and scored ${Number(b.catScore) || 0}/${Number(b.catTotal) || 5}. Give a short, honest interpretation of the result. Now set ONE practical assignment that combines the three topics they just completed. If the course involves programming, make the assignment an original LeetCode-style challenge and include a challenge board with a clear problem statement, at least two input/output examples, constraints, two or three progressive hints, and target time/space complexity. Do not reveal a solution. Return a homework object with title, task and deliverable fields.`;
       if (b.level === 'homework_check' && hw) extra = `\nBEFORE TEACHING: check the homework you set last class. Assignment: "${clip(hw.title, 100)}": ${clip(hw.task, 400)} (show: ${clip(hw.deliverable, 200)}). ${Number(hw.misses) > 0 ? `They have already skipped it ${hw.misses} time(s): be properly stern about it (still funny, never cruel).` : ''} Ask them to show it now. 1-2 scenes, no teaching yet.`;
       if (b.level === 'homework_grade' && hw) {
         const sig = b.signals || {};
@@ -127,14 +131,14 @@ Return JSON: {"title":"short session title","opener":"","known":[""],"weak":[""]
           : `What they handed in:\n<<<${clip(b.submission, 3000)}>>>\nTyping signals from the phone: ${Number(sig.pasted) || 0} characters pasted, ${Number(sig.typed) || 0} typed, ${Number(sig.seconds) || 0} seconds spent writing.\nJudge it honestly: is it done, is it right, and did they do it themselves? Signs of AI or copying: big pasted text, a long polished answer written in seconds, generic textbook tone with no personal voice or mistakes, buzzwords, over-neat structure. If it looks like AI or copied, call it out cheekily but firmly, do not claim certainty, and make them explain one part in their own words. If it is weak or not done properly, scold them and say exactly what is missing. If it is genuinely good, praise exactly what is good (no flattery).`;
         extra = `\nGRADE THE HOMEWORK. Assignment: "${clip(hw.title, 100)}": ${clip(hw.task, 400)} (show: ${clip(hw.deliverable, 200)}).\n${work}\nThen say you are moving on to today's lesson. 1-3 scenes. Also return "grade":{"done":true,"score":0,"ai_suspect":false,"note":"one line on the verdict"} with score 0-10.`;
       }
-      const live = b.live ? `\nTHIS IS A LIVE ONE-ON-ONE VOICE CLASS, like a real private tutor session. Keep it a conversation: 1-3 scenes, each under 30 words, spoken naturally (they hear you, so no lists read aloud). Teach one small idea at a time, then ALWAYS end with exactly one question for the learner and stop. Use a board only when it really helps. React to their answers like a person: delighted when right, cheeky when wrong, playfully impatient (mood "impatient", gesture "tap") if they are vague, keep guessing or keep saying they don't know. Their words come from speech recognition, so forgive small transcription errors.` : '';
+      const live = b.live ? `\nTHIS IS A LIVE ONE-ON-ONE VOICE CLASS. Teach like a patient university lecturer, not a quiz host. Use 3-5 scenes with complete explanations (roughly 25-45 spoken words each). Teach ONE idea thoroughly: define it, explain why it matters, break down how it works, show a concrete worked example, and connect it to a real use. For programming, explain code line by line and trace at least one input through it. Put the explanation, code, or process on the board while speaking about it. Only AFTER the explanation and worked example, ask exactly one short understanding-check question and stop. Do not ask pop quizzes, rapid-fire questions, or multiple questions. If the learner is confused, explain differently with a simpler analogy and another example before moving on. React warmly and honestly to answers. Speech recognition may contain small errors.` : '';
       return { json: true, max: 3000, system: BYTE, text: `${mat}Topic: ${topic}\n${hist ? `\nConversation so far:\n${hist}\n` : ''}\n${ask}${plan}${extra}${live}
 
-Perform it as ${b.live ? '1-3' : '3-6'} short scenes. Each scene is one spoken line plus how you act it.
+Perform it as ${b.live ? '3-5' : '3-6'} scenes. Each scene is one spoken line plus how you act it. Keep live teaching explanations complete rather than artificially short.
 ${BOARD_HELP}
 Moods: happy, cheeky, excited, thinking, surprised, serious, proud, facepalm, impatient.
 Gestures: wave, point (at the board), explain, think, shrug, celebrate, lean (close to the glass), knock (on the glass), laugh, facepalm, tap (drumming fingers, impatient), none.
-Use "point" when a board is up. Roughly every other answer, slip in a story or fun tangent tied to the topic. End by asking the learner something (a follow-up or pop question).
+Use "point" when a board is up. Make every board earn its place: a diagram for relationships, an animation for a process, a chart for data, code plus line-by-line explanation for programming, and a story only when it clarifies the concept. Do not add decorative boards unrelated to what you are saying. In live teaching, ask only the single understanding check specified above. For non-live teaching, end with one useful follow-up question, not a pop quiz.
 Return JSON: {"scenes":[{"say":"spoken line, under 45 words, no markdown","mood":"","gesture":"","board":null}],"chips":["2-3 short replies the learner might tap"]${steps.length ? ',"advance":false' : ''}}` };
     }
     case 'capstone_ideas':
@@ -234,7 +238,7 @@ function cleanBoard(bd) {
       return points.length >= 2 ? { type: 'chart', kind: bd.kind === 'bar' ? 'bar' : 'line', title: clip(bd.title, 60), x: clip(bd.x, 30), y: clip(bd.y, 30), points } : null;
     }
     case 'steps': { const items = strs(bd.items, 6, 140); return items.length ? { type: 'steps', title: clip(bd.title, 60), items } : null; }
-    case 'code': return bd.code ? { type: 'code', lang: clip(bd.lang, 20), code: String(bd.code).split('\n').slice(0, 16).join('\n').slice(0, 900) } : null;
+    case 'code': return bd.code ? { type: 'code', lang: clip(bd.lang, 20), code: String(bd.code).split('\n').slice(0, 16).join('\n').slice(0, 900), explanation: clip(bd.explanation, 700) } : null;
     case 'big': return bd.text ? { type: 'big', text: clip(bd.text, 80), sub: clip(bd.sub, 120) } : null;
     case 'compare': {
       const side = (x) => (x && x.title ? { title: clip(x.title, 40), items: strs(x.items, 5, 90) } : null);
@@ -242,6 +246,10 @@ function cleanBoard(bd) {
     }
     case 'flow': { const nodes = strs(bd.nodes, 6, 60); return nodes.length >= 2 ? { type: 'flow', title: clip(bd.title, 60), nodes } : null; }
     case 'story': return bd.text ? { type: 'story', title: clip(bd.title, 60), text: clip(bd.text, 600) } : null;
+    case 'challenge': {
+      const examples = (Array.isArray(bd.examples) ? bd.examples : []).slice(0, 3).map((x) => ({ input: clip(x?.input, 180), output: clip(x?.output, 120), why: clip(x?.why, 180) }));
+      return bd.problem ? { type: 'challenge', title: clip(bd.title, 70), difficulty: ['Easy', 'Medium', 'Hard'].includes(bd.difficulty) ? bd.difficulty : 'Easy', problem: clip(bd.problem, 900), examples, constraints: strs(bd.constraints, 5, 120), hints: strs(bd.hints, 3, 180), target: clip(bd.target, 100) } : null;
+    }
     case 'animate': {
       const actors = (Array.isArray(bd.actors) ? bd.actors : []).filter((a) => a && a.id && a.emoji).slice(0, 6).map((a) => ({ id: clip(a.id, 16), emoji: clip(a.emoji, 8), label: clip(a.label, 20) }));
       const ids = new Set(actors.map((a) => a.id));
