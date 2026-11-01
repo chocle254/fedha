@@ -56,7 +56,7 @@ function savePlan(key, v) {
   } catch { /* storage full or private */ }
 }
 
-export default function TutorStage({ prepare, active, subject, context, brief, planKey, onSaveNote, courseId, request, homework, onSetHomework, onGradeHomework }) {
+export default function TutorStage({ prepare, active, subject, context, brief, planKey, onSaveNote, onQuizDone, courseId, request, homework, onSetHomework, onGradeHomework }) {
   const [log, setLog] = useState([]);
   const [plan, setPlan] = useState(null); // { title, opener, known, weak, steps, step, sig }
   const [reading, setReading] = useState(null); // what he is reading right now
@@ -464,7 +464,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
           <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>📝 Professor Byte's CAT</div>
           <div style={{ color: 'var(--text-2)', fontSize: 12.5, marginBottom: 9 }}>Three topics completed. Time to prove you understand them. No hints this time.</div>
           <QuickQuiz context={`${context()}\n\nTHREE TOPICS JUST COMPLETED: ${recentCompletedTopics.current.join('; ')}`} topic={`${subject} — CAT on ${recentCompletedTopics.current.join(', ') || 'the last three topics'}`} count={5} difficulty="medium" seconds={0} compact
-            onDone={(r) => { setCatScore(r); setCatDue(false); catDueRef.current = false; recentCompletedTopics.current = []; try { localStorage.removeItem(`luxe_byte_assessment:${planKey}`); } catch { /* optional */ } askRef.current('', 'cat_assignment', { catScore: r.score, catTotal: r.total }); }}
+            onDone={(r) => { setCatScore(r); onQuizDone?.({ ...r, course_id: courseId || null, topic: `${subject} — CAT` }); setCatDue(false); catDueRef.current = false; recentCompletedTopics.current = []; try { localStorage.removeItem(`luxe_byte_assessment:${planKey}`); } catch { /* optional */ } askRef.current('', 'cat_assignment', { catScore: r.score, catTotal: r.total }); }}
             onCancel={() => { setCatDue(false); catDueRef.current = false; }} />
         </div>
       )}
@@ -473,6 +473,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ fontSize: 18 }}>📌</span><b style={{ flex: 1, fontSize: 13.5 }}>Homework: {hwSet.title}</b><button className="btn-icon" aria-label="Dismiss" onClick={() => setHwSet(null)}>✕</button></div>
           <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.5 }}>{hwSet.task}</div>
           {hwSet.deliverable && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>Bring: {hwSet.deliverable} · checked at the start of next class. By hand, no AI.</div>}
+          {catScore && <div style={{ fontSize: 11.5, color: 'var(--green)', marginTop: 5 }}>Latest CAT: {catScore.score}/{catScore.total}</div>}
         </div>
       )}
 
@@ -480,7 +481,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       <div style={{ position: 'relative', marginTop: 10, padding: '10px 12px', borderRadius: 14, background: 'var(--card-2)', border: '1px solid var(--border)', minHeight: 46 }}>
         <div style={{ position: 'absolute', top: -7, left: 44, width: 12, height: 12, background: 'var(--card-2)', borderLeft: '1px solid var(--border)', borderTop: '1px solid var(--border)', transform: 'rotate(45deg)' }} />
         {thinking ? <div style={{ fontSize: 13, color: 'var(--text-3)' }}>{reading ? `📖 Reading your ${reading} before we start…` : 'Hmm… let me think about that…'}</div> : <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{bubble}</div>}
-        {live && <div style={{ marginTop: 8, fontSize: 12.5, color: heard ? 'var(--green)' : 'var(--text-3)', display: 'flex', gap: 6, alignItems: 'center' }}><motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity }} style={{ width: 8, height: 8, borderRadius: 4, background: '#EF4444', display: 'inline-block' }} />{heard ? `You: ${heard}` : talking ? 'Byte is teaching. Mic paused to prevent echo.' : 'Your turn. Mic is listening.'}</div>}
+        {live && <div style={{ marginTop: 8, fontSize: 12.5, color: heard ? 'var(--green)' : 'var(--text-3)', display: 'flex', gap: 6, alignItems: 'center' }}><motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity }} style={{ width: 8, height: 8, borderRadius: 4, background: '#EF4444', display: 'inline-block' }} />{heard ? `You: ${heard}` : catDue ? 'CAT in progress. Microphone paused.' : talking ? 'Byte is teaching. Mic paused to prevent echo.' : 'Your turn. Mic is listening.'}</div>}
         {answer && answer.scenes.length > 1 && <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>{answer.scenes.map((_, k) => <span key={k} style={{ flex: 1, height: 3, borderRadius: 2, background: k <= (cur?.s ?? 0) ? '#34D399' : 'var(--border)' }} />)}</div>}
       </div>
 
