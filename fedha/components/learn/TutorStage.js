@@ -116,7 +116,8 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       const saved = JSON.parse(localStorage.getItem(`luxe_byte_assessment:${planKey}`) || '{}');
       topicsSinceCat.current = Math.max(0, Number(saved.count) || 0);
       recentCompletedTopics.current = Array.isArray(saved.topics) ? saved.topics.slice(-3) : [];
-      if (saved.due) { catDueRef.current = true; setCatDue(true); }
+      catDueRef.current = !!saved.due;
+      setCatDue(!!saved.due);
     } catch { /* local progress is optional */ }
   }, [planKey]);
   const clearTimers = () => { timers.current.forEach(clearTimeout); timers.current = []; };
