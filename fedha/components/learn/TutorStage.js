@@ -88,6 +88,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const [catDue, setCatDue] = useState(false);
   const [catScore, setCatScore] = useState(null);
   const topicsSinceCat = useRef(0);
+  const recentCompletedTopics = useRef([]);
   const catDueRef = useRef(false); catDueRef.current = catDue;
   const recognitionActive = useRef(false);
   const speechPaused = useRef(false);
@@ -110,6 +111,14 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const started = useRef(false);
 
   useEffect(() => { setVoice(getByteVoice()); }, []);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`luxe_byte_assessment:${planKey}`) || '{}');
+      topicsSinceCat.current = Math.max(0, Number(saved.count) || 0);
+      recentCompletedTopics.current = Array.isArray(saved.topics) ? saved.topics.slice(-3) : [];
+      if (saved.due) { catDueRef.current = true; setCatDue(true); }
+    } catch { /* local progress is optional */ }
+  }, [planKey]);
   const clearTimers = () => { timers.current.forEach(clearTimeout); timers.current = []; };
   const clearWait = () => { waitTimers.current.forEach(clearTimeout); waitTimers.current = []; };
   const later = (fn, ms) => { const t = setTimeout(fn, ms); timers.current.push(t); return t; };
@@ -191,9 +200,12 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       if (j.advance && planRef.current && planRef.current.step < planRef.current.steps.length) {
         const next = { ...planRef.current, step: planRef.current.step + 1 }; setPlan(next); planRef.current = next; savePlan(planKey, next);
         topicsSinceCat.current += 1;
+        recentCompletedTopics.current = [...recentCompletedTopics.current, planRef.current.steps[planRef.current.step - 1]?.title || subject].slice(-3);
+        try { localStorage.setItem(`luxe_byte_assessment:${planKey}`, JSON.stringify({ count: topicsSinceCat.current, topics: recentCompletedTopics.current, due: topicsSinceCat.current >= 3 })); } catch { /* local progress is optional */ }
         setTimeout(knock, 400);
         if (topicsSinceCat.current >= 3) {
           topicsSinceCat.current = 0;
+          try { localStorage.setItem(`luxe_byte_assessment:${planKey}`, JSON.stringify({ count: 0, topics: recentCompletedTopics.current, due: true })); } catch { /* local progress is optional */ }
           catDueRef.current = true;
           setCatDue(true);
           speechPaused.current = true;
@@ -265,9 +277,8 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     askRef.current(t, null, { interrupted });
   };
   // After his question: a playful nudge at ~14 s of silence, a hint at ~32 s, then he lets you be.
-  function startWaiting() {
-    clearWait();
-    if (catDueRef.current) return;
+  function resumeRecognition() {
+    if (!liveRef.current) return;
     speechPaused.current = false;
     if (rec.current && !recognitionActive.current) {
       setTimeout(() => {
@@ -275,12 +286,17 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
         try { rec.current.start(); } catch { /* already starting */ }
       }, 300);
     }
+  }
+  function startWaiting() {
+    clearWait();
+    if (catDueRef.current) return;
+    resumeRecognition();
     if (hints.current >= 2) return;
     waitTimers.current.push(setTimeout(() => {
       if (!liveRef.current || said.current || thinkingRef.current) return;
       const line = NUDGES[Math.floor(Math.random() * NUDGES.length)];
       setIdle({ mood: 'impatient', gesture: 'tap', line });
-      say(line, 'impatient', () => setIdle((x) => (x ? { ...x, gesture: 'tap' } : x)));
+      say(line, 'impatient', () => { setIdle((x) => (x ? { ...x, gesture: 'tap' } : x)); resumeRecognition(); });
     }, 14000));
     waitTimers.current.push(setTimeout(() => {
       if (!liveRef.current || said.current || thinkingRef.current) return;
@@ -323,7 +339,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       }
     };
     rec.current = r; liveRef.current = true; speechPaused.current = false; setLive(true); hints.current = 0;
-    try { r.start(); } catch { /* already started */ }
+    // Start with the professor speaking; the microphone opens only after his explanation finishes.
     ask('', 'live_start');
   };
 
@@ -447,8 +463,8 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
         <div className="card" style={{ marginTop: 10, padding: 12, borderColor: 'rgba(125,249,255,.45)' }}>
           <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>📝 Professor Byte's CAT</div>
           <div style={{ color: 'var(--text-2)', fontSize: 12.5, marginBottom: 9 }}>Three topics completed. Time to prove you understand them. No hints this time.</div>
-          <QuickQuiz context={context()} topic={`${subject} — the last three completed topics`} count={5} difficulty="medium" seconds={0} compact
-            onDone={(r) => { setCatScore(r); setCatDue(false); catDueRef.current = false; askRef.current('', 'cat_assignment', { catScore: r.score, catTotal: r.total }); }}
+          <QuickQuiz context={`${context()}\n\nTHREE TOPICS JUST COMPLETED: ${recentCompletedTopics.current.join('; ')}`} topic={`${subject} — CAT on ${recentCompletedTopics.current.join(', ') || 'the last three topics'}`} count={5} difficulty="medium" seconds={0} compact
+            onDone={(r) => { setCatScore(r); setCatDue(false); catDueRef.current = false; recentCompletedTopics.current = []; try { localStorage.removeItem(`luxe_byte_assessment:${planKey}`); } catch { /* optional */ } askRef.current('', 'cat_assignment', { catScore: r.score, catTotal: r.total }); }}
             onCancel={() => { setCatDue(false); catDueRef.current = false; }} />
         </div>
       )}
@@ -464,7 +480,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       <div style={{ position: 'relative', marginTop: 10, padding: '10px 12px', borderRadius: 14, background: 'var(--card-2)', border: '1px solid var(--border)', minHeight: 46 }}>
         <div style={{ position: 'absolute', top: -7, left: 44, width: 12, height: 12, background: 'var(--card-2)', borderLeft: '1px solid var(--border)', borderTop: '1px solid var(--border)', transform: 'rotate(45deg)' }} />
         {thinking ? <div style={{ fontSize: 13, color: 'var(--text-3)' }}>{reading ? `📖 Reading your ${reading} before we start…` : 'Hmm… let me think about that…'}</div> : <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{bubble}</div>}
-        {live && <div style={{ marginTop: 8, fontSize: 12.5, color: heard ? 'var(--green)' : 'var(--text-3)', display: 'flex', gap: 6, alignItems: 'center' }}><motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity }} style={{ width: 8, height: 8, borderRadius: 4, background: '#EF4444', display: 'inline-block' }} />{heard ? `You: ${heard}` : talking ? 'Listening. Talk over him to interrupt.' : 'Your turn. Answer out loud.'}</div>}
+        {live && <div style={{ marginTop: 8, fontSize: 12.5, color: heard ? 'var(--green)' : 'var(--text-3)', display: 'flex', gap: 6, alignItems: 'center' }}><motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity }} style={{ width: 8, height: 8, borderRadius: 4, background: '#EF4444', display: 'inline-block' }} />{heard ? `You: ${heard}` : talking ? 'Byte is teaching. Mic paused to prevent echo.' : 'Your turn. Mic is listening.'}</div>}
         {answer && answer.scenes.length > 1 && <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>{answer.scenes.map((_, k) => <span key={k} style={{ flex: 1, height: 3, borderRadius: 2, background: k <= (cur?.s ?? 0) ? '#34D399' : 'var(--border)' }} />)}</div>}
       </div>
 
