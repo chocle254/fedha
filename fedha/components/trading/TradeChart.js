@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { REST, C, openStream, fmtPrice, fmtCompact, priceDecimals, isMt5 } from './util';
+import { instrument } from '../../lib/instruments';
 
 export const INTERVALS = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d', '1w'];
 const LABEL = { '1d': '1D', '1w': '1W' };
@@ -30,6 +31,7 @@ export default function TradeChart({ symbol, interval, onInterval, lines = [], m
   const volRef = useRef(null);
   const rawRef = useRef([]);
   const lineRefs = useRef([]);
+  const spreadRefs = useRef([]);
   const pickRef = useRef(onPickPrice);
   const [legend, setLegend] = useState(null);
   const [state, setState] = useState('loading');
@@ -59,6 +61,16 @@ export default function TradeChart({ symbol, interval, onInterval, lines = [], m
         const [{ createChart, CrosshairMode, LineStyle }, rows] = await Promise.all([import('lightweight-charts'), loadKlines(symbol, interval)]);
         if (disposed || !boxRef.current) return;
         const dec = priceDecimals(rows.length ? +rows[rows.length - 1][4] : 1);
+        const market = instrument(symbol);
+        const halfSpread = market ? Number(market.spread) / 2 : 0;
+        const updateSpreadLines = (price) => {
+          if (!market || !(price > 0) || !candles) return;
+          spreadRefs.current.forEach((line) => { try { candles.removePriceLine(line); } catch { /* chart rebuilt */ } });
+          spreadRefs.current = [
+            candles.createPriceLine({ price: price - halfSpread, color: '#F0B90B', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'BID' }),
+            candles.createPriceLine({ price: price + halfSpread, color: '#29B6F6', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'ASK' })
+          ];
+        };
         chart = createChart(boxRef.current, {
           autoSize: true,
           layout: { background: { color: '#0B0E11' }, textColor: '#848E9C', fontSize: 11, fontFamily: "'DM Mono', ui-monospace, monospace" },
@@ -78,6 +90,7 @@ export default function TradeChart({ symbol, interval, onInterval, lines = [], m
         rawRef.current = rows;
         candles.setData(rows.map(toBar));
         vol.setData(rows.map(toVol));
+        if (rows.length) updateSpreadLines(+rows[rows.length - 1][4]);
         chart.timeScale().scrollToRealTime();
         chartRef.current = chart;
         candleRef.current = candles;
@@ -117,6 +130,7 @@ export default function TradeChart({ symbol, interval, onInterval, lines = [], m
           else return;
           candles.update(toBar(row));
           vol.update(toVol(row));
+          if (market) updateSpreadLines(+row[4]);
         };
         // If the live socket goes quiet (blocked network, sleeping phone), poll every 3 s instead.
         let lastMsg = Date.now();
@@ -150,6 +164,7 @@ export default function TradeChart({ symbol, interval, onInterval, lines = [], m
       if (stop) stop();
       clearInterval(poll);
       lineRefs.current = [];
+      spreadRefs.current = [];
       candleRef.current = null;
       volRef.current = null;
       chartRef.current = null;
@@ -192,6 +207,7 @@ export default function TradeChart({ symbol, interval, onInterval, lines = [], m
           <button key={i} className={`tx-iv ${i === interval ? 'on' : ''}`} onClick={() => onInterval(i)}>{LABEL[i] || i}</button>
         ))}
         <span style={{ flex: 1 }} />
+        {instrument(symbol) && <span className="tx-iv" title="Configured paper-trading spread">Spread <b>{(instrument(symbol).spread / instrument(symbol).pip).toFixed(1)} pips</b></span>}
         <button className={`tx-iv ${showVol ? 'on' : ''}`} onClick={() => setShowVol((v) => !v)} title="Volume">Vol</button>
         <span className={`tx-dot ${state === 'live' || state === 'polling' ? 'live' : state === 'loading' ? '' : 'warn'}`} title={state} />
       </div>
