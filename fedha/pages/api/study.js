@@ -5,7 +5,7 @@ import { requireUser } from '../../lib/require-user';
 import { nvidiaChat, nvidiaAvailable } from '../../lib/nvidia-client';
 import { webSearch } from '../../lib/web-search';
 
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 60, api: { bodyParser: { sizeLimit: '4mb' } } }; // homework photos
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 const clip = (v, n) => String(v ?? '').slice(0, n);
 
@@ -13,19 +13,25 @@ const TUTOR = `You are Luxe's study tutor. Teach like a sharp, patient senior en
 If the learner is wrong or vague, say so plainly and correct them. Prefer the STUDY MATERIAL when it is given. If you go beyond it, keep it accurate and mark it "(beyond your notes)". Use Markdown. No emoji.`;
 
 // Professor Byte, the animated tutor in Study mode: fun and cheeky, but still an honest teacher.
-const BYTE = `You are Professor Byte, a cartoon robot professor in a graduation cap who lives behind the glass of the learner's phone screen and teaches from a little board beside you.
-Teaching style: patient and clear. Explain one point at a time in plain, easy words and short sentences, define any technical word the moment you use it, and tie every point to an everyday analogy or a concrete example.
-Personality: fun, cheeky, quick-witted, a bit dramatic, warm. Playful teasing (never mean), jokes, little theatrical moments (you can knock on the glass, gasp, lean in close). You go off on short tangents: true stories from the history of science and tech (who discovered it, the disaster that taught us, the weird fact), or a clearly made-up mini story or analogy that makes the idea stick. While teaching you explain, you do not quiz: no pop questions and no "does that make sense?" in the middle of a lesson. Questions for the learner come only in the end-of-lesson quiz, or when they ask for one.
-You are still a sharp, honest teacher: accurate and concrete. If the learner is wrong or vague, say so plainly with a cheeky line ("Nope. Bold guess though.") and fix it. Never flatter; praise only what is actually right.
-Plain English. No slang, no local dialect, no emoji in spoken lines. Prefer the STUDY MATERIAL when given; if you go beyond it, keep it accurate.`;
+const BYTE = `You are Professor Byte, a brilliant, warm professor (a cartoon robot in a graduation cap behind the glass of the learner's phone) teaching ONE learner one-on-one, from a board beside you.
+HOW YOU TEACH, like the best university lecturer and private tutor combined:
+- Talk naturally, the way a great professor speaks in a small tutorial: "Okay, so here is the thing...", "Now watch what happens when...", "This is the part people get wrong." Never read notes out or list bullet points aloud; you understand the material and explain it in your own words.
+- Build understanding in layers: first the intuition (what problem this solves and why it exists), then how it actually works step by step, then a real, worked example, then where it breaks or what people get wrong.
+- Explain every technical word the moment you use it. Never skip a step in reasoning; if something follows from something else, say why.
+- Examples must be REAL and correct: real tools, real code, real numbers, real-world situations from this field. No silly or forced analogies; use an analogy only when it genuinely clarifies, and say where it stops matching.
+- When something is a process or pipeline, break it into its stages and make sure each stage is clear (what goes in, what happens, what comes out, why it is needed) before moving on.
+- Accuracy matters more than anything: never state something you are not sure of; code you show must be correct and runnable; numbers must add up.
+PERSONALITY: warm, witty, a little cheeky, encouraging but honest. Light humour, never at the cost of clarity. If the learner is wrong, say so kindly and plainly, then fix it. Never flatter.
+Plain English, no slang or local dialect, no emoji in spoken lines. Use the STUDY MATERIAL and your stored research as the source of truth.`;
 
 const BOARD_HELP = `Boards (pick the one that teaches best; use one in most scenes):
 {"type":"chart","title":"","kind":"line"|"bar","x":"x label","y":"y label","points":[[x,y],...]}  up to 12 points; x is a number for line, a short label for bar. Use whenever numbers, growth, trade-offs or a function would help (real data, or clearly illustrative).
 {"type":"steps","title":"","items":["",""]}  up to 6 short items
-{"type":"code","lang":"python","code":"..."}  up to 14 short lines
+{"type":"code","lang":"python","code":"...","focus":[3,4],"note":"what these lines do"}  up to 14 short lines of CORRECT, runnable code; "focus" = the line numbers you are explaining right now (highlighted); "note" = one line about them. When walking through code, keep the SAME code on the board and move "focus" scene by scene.
+{"type":"table","title":"","headers":["step","i","total"],"rows":[["1","0","0"],["2","1","1"]]}  a trace or comparison table: up to 5 columns, 8 rows. Use it to TRACE code with real values (variables after each line or loop pass).
 {"type":"big","text":"key term or formula","sub":"one line"}
 {"type":"compare","left":{"title":"","items":[""]},"right":{"title":"","items":[""]}}
-{"type":"flow","title":"","nodes":["",""]}  up to 6 nodes, top to bottom
+{"type":"flow","title":"","nodes":["",""],"active":0}  up to 7 nodes, top to bottom; "active" = the stage you are explaining now (highlighted). For a pipeline keep the whole pipeline on the board and move "active".
 {"type":"story","title":"","text":"..."}  for a story tangent, under 70 words
 {"type":"picture","title":"","items":[{"emoji":"🚗","label":"car","note":"what it stands for"}],"join":"→","wiki":"Car","scene":"a cartoon car stopping at a toll gate","caption":""}  SHOW what you are talking about: 1-4 items, each one emoji with a short label (and optional note); "join" between items is "→", "+", "vs", "=" or ""; "wiki" is the exact English Wikipedia article title when it is a real object or thing (Car, Padlock, Neuron, Router), else ""; "scene" is a one-line description to draw an illustration when a photo would not fit, else "".
 {"type":"animate","title":"","actors":[{"id":"pkt","emoji":"📦","label":"packet"},{"id":"fw","emoji":"🧱","label":"firewall"}],"frames":[{"caption":"","pos":{"pkt":[10,50],"fw":[55,50]},"fx":{}},{"caption":"","pos":{"pkt":[45,50]},"fx":{"fw":"shake"}}]}  ACT AN EXAMPLE OUT: 2-6 actors, 3-6 frames played about 2 s apart. pos is [x,y] in 0-100 (only list actors that move); fx per actor: pulse, shake, spin, grow, fade, hide, show, bounce. Use it when something happens over time: data moving, a model learning, an attack, a loop running, money compounding.
@@ -40,6 +46,7 @@ const STAGE_ASK = {
   mistakes: 'Act out the most common mistakes people make with this (be dramatic about them), each with the right idea.',
   story: 'Tell a short, true and fun story from the history of this idea (or of the people behind it), then tie it back to what it teaches.',
   wrapup: 'Class is ending.',
+  reteach: 'Re-teach.',
   homework_check: 'Homework check.',
   homework_grade: 'Grading homework.',
   hint: 'The learner has gone quiet after your question. Be playfully impatient about it (tease them, a little drama), then give a helpful hint and ask again, a bit simpler.',
@@ -96,6 +103,12 @@ Return JSON: {"projects":[{"title":"","goal":"","milestones":["",""]}]}` };
       const steps = (Array.isArray(b.plan?.steps) ? b.plan.steps : []).slice(0, 7);
       return { json: true, max: 2800, text: `${mat}Topic: ${topic}\nYou have just taught this lesson in ${steps.length} parts:\n${steps.map((x, k) => `${k + 1}. ${clip(x.title, 80)}: ${clip(x.goal, 160)} (check idea: ${clip(x.check, 160)})`).join('\n')}\nWrite the end-of-lesson oral quiz: exactly ONE question per part, in the same order. Each must be answerable out loud in one or two sentences from what was taught (understanding, not trivia).\nReturn JSON: {"questions":[{"ask":"the question as you would say it aloud, under 30 words, plain words","hint":"a clue said aloud, 1-2 sentences, that nudges toward the answer WITHOUT giving it away","answer":"the correct answer in 1-2 sentences: the key points a good answer must contain","simple":"the same answer explained in a much simpler way with a small everyday analogy, 2-4 short sentences, said aloud"}]}` };
     }
+    case 'code_task':
+      return { json: true, max: 2600, text: `${mat}Topic: ${topic}\nWrite ONE coding exercise in ${clip(b.lang, 20) || 'python'} that makes the learner write the code taught in this lesson themselves (${clip(b.goal, 300) || 'the main idea'}). Level: ${['easy', 'medium', 'hard'].includes(b.difficulty) ? b.difficulty : 'easy'}; a self-taught learner should finish it in 10-25 minutes.\nReturn JSON: {"title":"","prompt":"the task, clear and complete, with input/output format","lang":"${clip(b.lang, 20) || 'python'}","starter":"starter code: the function signature and a docstring/comment, no solution","examples":[{"input":"","output":""}],"hint":"one hint that does not give it away","solution":"a correct, clean, commented solution","fn":"the function name the tests call","tests":[{"args":[],"expected":null}]}\ntests: 3-5 cases as JSON values (args is the argument list) that the solution passes; include one edge case. Everything must be correct.` };
+    case 'code_review':
+      return { json: true, max: 2600, text: `You are Professor Byte, a sharp CS lecturer reviewing a learner's code. Be exact and kind, never flatter.\nTask: ${clip(b.prompt, 1500)}\nLanguage: ${clip(b.lang, 20) || 'python'}\nExamples: ${clip(JSON.stringify(b.examples || []), 800)}\n${b.results ? `The app ran their code against the tests: ${clip(JSON.stringify(b.results), 1200)}\n` : 'The app could not run this language, so mentally execute their code on each example, line by line, before judging.\n'}A correct reference solution (do not paste it unless they failed badly): ${clip(b.solution, 1500)}\nTheir code:\n${clip(b.code, 4000)}\nReturn JSON: {"verdict":"pass|almost|fail","say":"what Byte says aloud, 2-4 sentences: whether it works and the single most important thing to fix or to be proud of","lines":[{"line":1,"note":"what is wrong or good on this line and why"}],"fixed":"their code with the minimum changes to make it correct (empty if it already passes)","next":"one tip to write better code next time"}` };
+    case 'leetcode':
+      return { json: true, max: 1200, text: `Suggest 3 real LeetCode problems that practise "${topic}" (${clip(b.goal, 200)}) for a self-taught learner, easy to medium, in increasing difficulty. Use only problems you are sure exist, with their exact URL slug (the part after leetcode.com/problems/).\nReturn JSON: {"problems":[{"title":"","slug":"two-sum","difficulty":"Easy","why":"what it practises, one line"}]}` };
     case 'quiz_grade':
       return { json: true, max: 450, text: `You are Professor Byte, a cheeky but honest tutor, marking one oral quiz answer.\nQuestion: "${clip(b.ask, 300)}"\nCorrect answer: "${clip(b.answer, 500)}"\nThe learner said (speech recognition or typed, so forgive small spelling or transcription slips): "${clip(b.reply, 1200)}"\nJudge it against the correct answer. "right" = the key points are there, in any wording. "partial" = some right, something important missing. "wrong" = misses it, or says they do not know.\nReturn JSON: {"verdict":"right","say":"what Byte says next, under 40 words, plain words, no markdown. Right: confirm exactly what was right, one cheeky line. Partial: say what was right, then give the missing piece. Wrong: say plainly it is not right and give the correct answer in simple words. Do not ask a question.","mood":"proud"}\nmood is one of: proud, happy, cheeky, serious, thinking.` };
     case 'lesson_kb':
@@ -112,10 +125,13 @@ Return JSON: {"summary":"3-4 sentence overview","keyterms":[{"term":"","def":"on
       return { json: true, max: 2200, text: `${mat}Topic: ${topic}
 You are about to tutor this learner one-on-one. You have read everything above: their material and the brief on them. Plan the session the way a great private tutor would.
 - Teach what THEIR material covers, in a sensible order, starting where they are (skip what is marked solid, revisit their weak spots and quiz misses).
-- 4-7 steps, each one small idea that can be taught in a couple of minutes, with one check question that proves they got it.
+- 4-7 steps, each one idea that can be taught properly in 3-5 minutes, with one check question that proves they truly got it (understanding, not recall of a word) and its answer.
+- If the lesson is a PROCESS or PIPELINE (data pipeline, ML training loop, request lifecycle, attack chain, compiler stages...), make each stage its own step, in order, and list the stages in "pipeline".
+- "mode": "coding" if the lesson is about writing or understanding code (programming, algorithms, data structures, implementing ML in code); "math" if it is mainly maths or derivations; "lab" if it is hands-on tools or commands (cybersecurity tools, Linux, cloud consoles); otherwise "concept".
+- "lang": for coding, the language this course uses (python if unsure).
 - "known": 1-3 things they already seem solid on. "weak": 1-4 things to fix, from the brief.
 - "opener": one cheeky line showing you actually read their notes (mention something specific from them).
-Return JSON: {"title":"short session title","opener":"","known":[""],"weak":[""],"steps":[{"title":"","goal":"what they will understand","check":"question to test it"}]}` };
+Return JSON: {"title":"short session title","mode":"concept","lang":"","pipeline":[""],"opener":"","known":[""],"weak":[""],"steps":[{"title":"","goal":"what they will understand","check":"question to test it","answer":"what a good answer contains"}]}` };
     case 'stage': {
       const hist = (Array.isArray(b.history) ? b.history : []).slice(-10).map((m) => `${m.role === 'user' ? 'Learner' : 'Byte'}: ${clip(m.text, 900)}`).join('\n');
       const cut = b.interrupted ? `\nThe learner just INTERRUPTED you while you were saying: "${clip(b.interrupted, 400)}". React to being interrupted in one funny line first, then deal with what they said.` : '';
@@ -124,10 +140,19 @@ Return JSON: {"title":"short session title","opener":"","known":[""],"weak":[""]
       const at = Math.max(0, Math.min(steps.length, Number(b.step) || 0));
       const lecture = b.level === 'teach' && !!steps[at];
       const plan = steps.length && b.level !== 'homework_check' && !lecture ? `\nLESSON PLAN (context only, the class carries on by itself afterwards):\n${steps.map((x, k) => `${k + 1}. ${clip(x.title, 80)}: ${clip(x.goal, 160)}${k < at ? ' [taught]' : k === at ? ' <- next' : ''}`).join('\n')}` : '';
-      const lec = lecture ? `\nLECTURE MODE. Teach step ${at + 1} of ${steps.length}: "${clip(steps[at].title, 80)}". Goal: ${clip(steps[at].goal, 200)}.\nThe whole lesson, in order: ${steps.map((x, k) => `${k + 1}. ${clip(x.title, 60)}`).join('; ')}.\n${b.intro === 'new' ? `This is the very start of class. Scene 1: a warm one-line hello and, in one natural sentence, what today's lesson covers (it comes in ${steps.length} parts). Then start teaching.` : b.intro === 'back' ? 'The learner is back for another class on this lesson. Scene 1: a one-line welcome back and where you stopped. Then carry on.' : b.intro === 'jump' ? 'The learner chose to jump straight to this part. Scene 1: one line saying which part this is. Then teach it.' : 'Carry on from where you stopped (see the conversation so far). Do not greet again.'}\nTeach it POINT BY POINT like a patient teacher explaining to someone brand new: each scene is exactly ONE point, in plain easy words and short sentences. Explain any technical word the moment you use it. Give each tricky point a real-life analogy or a concrete example, and put a board up with most points so they can SEE it.\nThis is a lecture, not a quiz: do NOT ask the learner anything (no "does that make sense", no "what do you think", no pop question). Never end a scene on a question. The quiz comes at the end of the lesson.\n${at + 1 < steps.length ? `Finish with a one-line takeaway, then a short natural link to the next point: "${clip(steps[at + 1].title, 80)}".` : 'This is the last part. Finish with a one-line takeaway, then say you will quiz them next to lock it in. Do not ask the question yet.'}` : '';
+      const mode = ['coding', 'math', 'lab', 'concept'].includes(b.plan?.mode) ? b.plan.mode : 'concept';
+      const pipe = Array.isArray(b.plan?.pipeline) ? b.plan.pipeline.slice(0, 8) : [];
+      const HOW = {
+        coding: `THIS IS A CODING CLASS: teach like a CS lecturer. Put a short, correct, runnable ${clip(b.plan?.lang, 20) || 'python'} snippet (max 12 lines) on a code board and walk through it LINE BY LINE: one or two lines per scene, using "focus" to highlight exactly the lines you are explaining, saying what each line does AND why it is written that way. Keep the same code on the board while you walk it. Then TRACE it with a real input on a table board (the variables after each line or loop pass) and state the exact output. Mention the time complexity when it matters, and the classic bug people write here. The learner must come away able to WRITE this code, not just read it.`,
+        math: 'THIS IS A MATHS CLASS: derive it step by step with real numbers, one transformation per scene, saying why each step is allowed. Put the working on the board (big or steps). Then do one full worked example with numbers and check the result makes sense.',
+        lab: 'THIS IS A HANDS-ON LAB: use the real commands or tools, on a code board, with realistic output, and explain every flag or field and what the output tells you. For security tools, add a one-line note on using them only on systems you own or are allowed to test.',
+        concept: 'Build the idea in layers: why it exists (the problem it solves), how it works step by step, a real-world example from this field, then the subtle point people miss.',
+      }[mode];
+      const lec = lecture ? `\nTEACH PART ${at + 1} of ${steps.length}: "${clip(steps[at].title, 80)}". By the end the learner must understand: ${clip(steps[at].goal, 200)}.\nThe whole lesson: ${steps.map((x, k) => `${k + 1}. ${clip(x.title, 60)}`).join('; ')}.${pipe.length ? `\nThis lesson is a PIPELINE: ${pipe.join(' -> ')}. Keep a flow board of the whole pipeline with "active" on the stage you are explaining, and for this stage cover what goes in, what happens inside, what comes out, and why the stage is needed.` : ''}\n${b.intro === 'new' ? `This is the very start of class. Scene 1: greet them naturally and say what today is about and why it matters (it comes in ${steps.length} parts). Then start teaching.` : b.intro === 'back' ? 'The learner is back for another class on this lesson. Scene 1: welcome them back and remind them in one line where you stopped. Then carry on.' : b.intro === 'jump' ? 'The learner jumped straight to this part. Scene 1: one line saying which part this is. Then teach it.' : b.intro === 'resume' ? 'The learner is back from a short Pomodoro break. Scene 1: welcome them back with a one-line recap of what you just covered. Then carry on.' : 'Carry on naturally from what you just said (see the conversation so far). Do not greet again.'}\n${HOW}\nUse 5-9 scenes, each ONE idea in 25-60 spoken words, flowing like a real explanation (link each scene to the last). Put the right board up in most scenes, showing exactly what you are talking about.\nDo NOT ask the learner a question in these scenes: when you finish this part, the app will ask them a check question itself. End with a one-line takeaway of this part.` : '';
       const hw = b.homework && typeof b.homework === 'object' ? b.homework : null;
       let extra = '';
-      if (b.level === 'wrapup') extra = `\nCLASS TIME IS ALMOST UP (about ${Math.max(1, Number(b.minutesLeft) || 5)} minutes left). Wrap up: a quick recap of what you covered today, say what you will do NEXT class (the next unfinished step of the plan, or the next topic), then set ONE homework assignment: a short practical task they must do alone, by hand, no AI (say so, cheekily), that takes 15-40 minutes and proves today's idea. Tell them you will check it at the start of next class. ${b.quiz ? ` Their end-of-lesson quiz: ${clip(b.quiz, 400)}. Say the score and exactly what to revise.` : ''} Also return "homework":{"title":"","task":"exactly what to do","deliverable":"what to show you next class"}.`;
+      if (b.level === 'reteach') extra = `\nThe learner just answered your check question for part ${at + 1} ("${clip(steps[at]?.title, 80)}") and did not fully get it.\nQuestion: "${clip(b.check, 300)}"\nGood answer: "${clip(b.answer, 400)}"\nThey said: "${clip(b.reply, 800)}"\nFirst, in one friendly line, name exactly what they got right and what is missing or mixed up. Then teach that piece AGAIN from a different angle than before: a clearer real example, a picture or flow board, or tracing code with real values. 3-5 scenes. Do not ask the question again yourself (the app will).`;
+      if (b.level === 'wrapup') extra = `\nCLASS TIME IS ALMOST UP (about ${Math.max(1, Number(b.minutesLeft) || 5)} minutes left). Wrap up: a quick recap of what you covered today, say what you will do NEXT class (the next unfinished step of the plan, or the next topic), then set ONE homework assignment: a short practical task they must do alone, no AI (say so, cheekily), that takes 15-40 minutes and proves today's idea. It must be handed in INSIDE Luxe: a typed answer, code written in Luxe's code editor (for coding classes this is the default: a small program or function to write), or a photo of handwritten working (maths, diagrams). Never ask for paper they cannot submit. Tell them you will check it at the start of next class. ${b.quiz ? ` Their end-of-lesson quiz: ${clip(b.quiz, 400)}. Say the score and exactly what to revise.` : ''} Also return "homework":{"title":"","task":"exactly what to do","deliverable":"what to hand in","kind":"code|text|photo","lang":"python"}.`;
       if (b.level === 'homework_check' && hw) extra = `\nBEFORE TEACHING: check the homework you set last class. Assignment: "${clip(hw.title, 100)}": ${clip(hw.task, 400)} (show: ${clip(hw.deliverable, 200)}). ${Number(hw.misses) > 0 ? `They have already skipped it ${hw.misses} time(s): be properly stern about it (still funny, never cruel).` : ''} Ask them to show it now. 1-2 scenes, no teaching yet.`;
       if (b.level === 'homework_grade' && hw) {
         const sig = b.signals || {};
@@ -137,7 +162,7 @@ Return JSON: {"title":"short session title","opener":"","known":[""],"weak":[""]
         extra = `\nGRADE THE HOMEWORK. Assignment: "${clip(hw.title, 100)}": ${clip(hw.task, 400)} (show: ${clip(hw.deliverable, 200)}).\n${work}\nThen say you are moving on to today's lesson. 1-3 scenes. Also return "grade":{"done":true,"score":0,"ai_suspect":false,"note":"one line on the verdict"} with score 0-10.`;
       }
       const live = b.live && !lecture ? `\nTHIS IS A LIVE VOICE CLASS: they hear you, so speak naturally and never read lists aloud. Answer what they said in 1-3 scenes, each under 35 words, then stop. Do not quiz them. React like a person: delighted when they are right, cheeky when they are wrong. Their words come from speech recognition, so forgive small transcription errors.` : '';
-      return { json: true, max: 3000, system: BYTE, text: `${mat}Topic: ${topic}\n${hist ? `\nConversation so far:\n${hist}\n` : ''}\n${lecture ? lec : ask}${plan}${extra}${live}
+      return { json: true, max: lecture ? 4200 : 3000, temp: lecture || b.level === 'reteach' ? 0.5 : 0.75, system: BYTE, text: `${mat}Topic: ${topic}\n${hist ? `\nConversation so far:\n${hist}\n` : ''}\n${lecture ? lec : ask}${plan}${extra}${live}
 
 Perform it as ${lecture ? '4-7' : b.live ? '1-3' : '3-6'} short scenes. Each scene is one spoken line plus how you act it.
 ${BOARD_HELP}
@@ -154,6 +179,29 @@ Return JSON: {"projects":[{"title":"","pitch":"","problem":"","skills":[""],"sta
     default:
       return null;
   }
+}
+
+const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct';
+async function visionRead(images, instruction) {
+  const imgs = images.filter((x) => /^data:image\//.test(x)).slice(0, 4);
+  if (!imgs.length) return '';
+  const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+    body: JSON.stringify({ model: VISION_MODEL, temperature: 0.1, max_tokens: 2500, messages: [{ role: 'user', content: [{ type: 'text', text: instruction }, ...imgs.map((url) => ({ type: 'image_url', image_url: { url } }))] }] }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error?.message || 'vision failed');
+  return clip(d.choices?.[0]?.message?.content || '', 6000);
+}
+
+// Checks a LeetCode slug really exists (title and difficulty from LeetCode itself). null = could not check.
+async function leetcodeCheck(slug) {
+  try {
+    const r = await fetch('https://leetcode.com/graphql', { method: 'POST', headers: { 'Content-Type': 'application/json', Referer: 'https://leetcode.com', 'User-Agent': 'Mozilla/5.0' }, body: JSON.stringify({ query: 'query q($s: String!) { question(titleSlug: $s) { title difficulty isPaidOnly } }', variables: { s: slug } }), signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d?.data ? (d.data.question || false) : null;
+  } catch { return null; }
 }
 
 async function groq(key, text, json, max, system = TUTOR, temperature) {
@@ -177,6 +225,11 @@ export default async function handler(req, res) {
   if (b.type === 'lesson_kb' && b.research !== false) {
     try { const r = await webSearch(`${clip(b.lesson, 120)} ${clip(b.course, 80)} explained`, { limit: 5 }); b.web = r.map((x) => `- ${x.title}: ${x.snippet}`).join('\n'); } catch { /* teach from knowledge */ }
   }
+  // Homework handed in as photos: read the handwriting first, then grade it like typed work.
+  if (b.type === 'stage' && b.level === 'homework_grade' && Array.isArray(b.images) && b.images.length) {
+    const read = await visionRead(b.images, 'Transcribe exactly what is written or drawn in these photos of homework (code, working, answers). Keep the code formatting. Describe any diagram briefly in [brackets]. Output only the transcription.').catch(() => '');
+    b.submission = `${b.submission ? `${b.submission}\n\n` : ''}[From ${b.images.length} photo${b.images.length === 1 ? '' : 's'} of handwritten work]\n${read || '(the photos could not be read clearly)'}`;
+  }
   const p = prompt(b);
   if (!p) return res.status(400).json({ error: 'Unknown request type' });
   if (b.type === 'tutor' && !String(b.question || '').trim()) return res.status(400).json({ error: 'Ask a question first.' });
@@ -184,7 +237,7 @@ export default async function handler(req, res) {
   let raw = '';
   try {
     if (!key) throw Object.assign(new Error('GROQ_API_KEY not set'), { status: 500 });
-    raw = await groq(key, p.text, p.json, p.max, p.system || TUTOR, p.system ? 0.8 : undefined);
+    raw = await groq(key, p.text, p.json, p.max, p.system || TUTOR, p.temp ?? (p.system ? 0.75 : undefined));
   } catch (e) {
     console.warn('[fedha] study AI groq failed:', e.status, e.message);
     if (nvidiaAvailable()) {
@@ -198,7 +251,7 @@ export default async function handler(req, res) {
     const scenes = cleanScenes(obj?.scenes);
     // Unreadable JSON still gets performed: the raw text becomes one scene.
     if (!scenes.length) return res.status(200).json({ scenes: [{ say: clip(String(raw).replace(/[{}\[\]"]/g, ' ').replace(/\s+/g, ' '), 400) || 'My circuits tangled. Ask me again?', mood: 'surprised', gesture: 'shrug', board: null }], chips: [] });
-    const homework = obj.homework && obj.homework.task ? { title: clip(obj.homework.title, 100) || 'Homework', task: clip(obj.homework.task, 600), deliverable: clip(obj.homework.deliverable, 240) } : null;
+    const homework = obj.homework && obj.homework.task ? { title: clip(obj.homework.title, 100) || 'Homework', task: clip(obj.homework.task, 600), deliverable: clip(obj.homework.deliverable, 240), kind: ['code', 'text', 'photo'].includes(obj.homework.kind) ? obj.homework.kind : 'text', lang: clip(obj.homework.lang, 20) } : null;
     const grade = obj.grade && typeof obj.grade === 'object' ? { done: obj.grade.done === true, score: Math.max(0, Math.min(10, Math.round(Number(obj.grade.score) || 0))), ai_suspect: obj.grade.ai_suspect === true, note: clip(obj.grade.note, 200) } : null;
     return res.status(200).json({ advance: obj.advance === true, homework, grade, scenes, chips: (Array.isArray(obj.chips) ? obj.chips : []).map((c) => clip(c, 60)).filter(Boolean).slice(0, 3) });
   }
@@ -225,6 +278,31 @@ export default async function handler(req, res) {
     return cards.length ? res.status(200).json({ cards }) : res.status(500).json({ error: 'No usable flashcards came back. Try again.' });
   }
   if (b.type === 'project_ideas') return res.status(200).json({ projects: (obj.projects || []).slice(0, 3) });
+  if (b.type === 'leetcode') {
+    const list = (Array.isArray(obj.problems) ? obj.problems : []).filter((x) => x?.slug && /^[a-z0-9-]+$/.test(x.slug)).slice(0, 4);
+    const checked = await Promise.all(list.map(async (x) => {
+      const q = await leetcodeCheck(x.slug);
+      if (q === false || q?.isPaidOnly) return null; // made up, or premium-only
+      return { title: clip(q?.title || x.title, 100), difficulty: clip(q?.difficulty || x.difficulty, 12), why: clip(x.why, 200), url: `https://leetcode.com/problems/${x.slug}/`, verified: !!q };
+    }));
+    const problems = checked.filter(Boolean).slice(0, 3);
+    return res.status(200).json({ problems, search: `https://leetcode.com/problemset/?search=${encodeURIComponent(clip(topic, 60))}` });
+  }
+  if (b.type === 'code_task') {
+    if (!obj.prompt) return res.status(500).json({ error: 'No exercise came back. Try again.' });
+    return res.status(200).json({ task: { title: clip(obj.title, 100), prompt: clip(obj.prompt, 2000), lang: clip(obj.lang || b.lang, 20).toLowerCase() || 'python', starter: clip(obj.starter, 1500), examples: (Array.isArray(obj.examples) ? obj.examples : []).slice(0, 4).map((e) => ({ input: clip(e?.input, 300), output: clip(e?.output, 300) })), hint: clip(obj.hint, 400), solution: clip(obj.solution, 3000), fn: clip(obj.fn, 60), tests: (Array.isArray(obj.tests) ? obj.tests : []).slice(0, 6).filter((t) => Array.isArray(t?.args)) } });
+  }
+  if (b.type === 'code_review') {
+    return res.status(200).json({ review: { verdict: ['pass', 'almost', 'fail'].includes(obj.verdict) ? obj.verdict : 'almost', say: clip(obj.say, 600), lines: (Array.isArray(obj.lines) ? obj.lines : []).filter((l) => Number(l?.line) > 0).slice(0, 12).map((l) => ({ line: Number(l.line), note: clip(l.note, 240) })), fixed: clip(obj.fixed, 4000), next: clip(obj.next, 300) } });
+  }
+  if (b.type === 'lesson_kb' && obj?.concepts?.length) {
+    // A second pass, once per lesson (it is stored): a strict reviewer fixes wrong facts, broken code and wrong outputs.
+    try {
+      const rev = await groq(key, `You are a strict technical reviewer. Below are a professor's teaching notes for the lesson "${clip(b.lesson, 160)}" (course: ${clip(b.course, 120)}). Check every fact, definition, number, code example and stated output. Fix anything wrong, outdated, misleading or not runnable; make examples realistic; keep everything that is right. Return the SAME JSON structure, corrected.\n\n${JSON.stringify(obj).slice(0, 14000)}`, true, 5000, 'You review technical teaching material for accuracy. Output only valid JSON.', 0.2);
+      const fixed = parseJSON(rev);
+      if (fixed?.concepts?.length) { obj.summary = fixed.summary || obj.summary; obj.keyterms = fixed.keyterms || obj.keyterms; obj.concepts = fixed.concepts; obj.prerequisites = fixed.prerequisites || obj.prerequisites; obj.connects = fixed.connects || obj.connects; }
+    } catch { /* keep the first version */ }
+  }
   if (b.type === 'lesson_kb') {
     const arr = (a, n, len) => (Array.isArray(a) ? a : []).map((x) => clip(x, len)).filter(Boolean).slice(0, n);
     const concepts = (Array.isArray(obj.concepts) ? obj.concepts : []).filter((c) => c?.name).slice(0, 7).map((c) => ({
@@ -234,9 +312,10 @@ export default async function handler(req, res) {
     return res.status(200).json({ kb: { summary: clip(obj.summary, 900), keyterms: (Array.isArray(obj.keyterms) ? obj.keyterms : []).filter((k) => k?.term).slice(0, 10).map((k) => ({ term: clip(k.term, 60), def: clip(k.def, 200) })), concepts, prerequisites: arr(obj.prerequisites, 5, 160), connects: arr(obj.connects, 5, 200), at: new Date().toISOString() } });
   }
   if (b.type === 'plan') {
-    const steps = (Array.isArray(obj.steps) ? obj.steps : []).filter((x) => x?.title).slice(0, 7).map((x) => ({ title: clip(x.title, 80), goal: clip(x.goal, 200), check: clip(x.check, 200) }));
+    const steps = (Array.isArray(obj.steps) ? obj.steps : []).filter((x) => x?.title).slice(0, 8).map((x) => ({ title: clip(x.title, 80), goal: clip(x.goal, 200), check: clip(x.check, 220), answer: clip(x.answer, 400) }));
     if (!steps.length) return res.status(500).json({ error: 'No lesson plan came back.' });
-    return res.status(200).json({ plan: { title: clip(obj.title, 80), opener: clip(obj.opener, 300), known: (obj.known || []).map((x) => clip(x, 120)).slice(0, 3), weak: (obj.weak || []).map((x) => clip(x, 120)).slice(0, 4), steps } });
+    const mode = ['coding', 'math', 'lab', 'concept'].includes(obj.mode) ? obj.mode : 'concept';
+    return res.status(200).json({ plan: { title: clip(obj.title, 80), mode, lang: mode === 'coding' ? clip(obj.lang, 20).toLowerCase() || 'python' : '', pipeline: (Array.isArray(obj.pipeline) ? obj.pipeline : []).map((x) => clip(x, 50)).filter(Boolean).slice(0, 8), opener: clip(obj.opener, 300), known: (obj.known || []).map((x) => clip(x, 120)).slice(0, 3), weak: (obj.weak || []).map((x) => clip(x, 120)).slice(0, 4), steps } });
   }
   if (b.type === 'capstone_ideas') return res.status(200).json({ projects: (obj.projects || []).filter((x) => x?.title).slice(0, 3) });
   return res.status(200).json(obj);
@@ -255,13 +334,24 @@ function cleanBoard(bd) {
       return points.length >= 2 ? { type: 'chart', kind: bd.kind === 'bar' ? 'bar' : 'line', title: clip(bd.title, 60), x: clip(bd.x, 30), y: clip(bd.y, 30), points } : null;
     }
     case 'steps': { const items = strs(bd.items, 6, 140); return items.length ? { type: 'steps', title: clip(bd.title, 60), items } : null; }
-    case 'code': return bd.code ? { type: 'code', lang: clip(bd.lang, 20), code: String(bd.code).split('\n').slice(0, 16).join('\n').slice(0, 900) } : null;
+    case 'code': {
+      if (!bd.code) return null;
+      const code = String(bd.code).split('\n').slice(0, 18).join('\n').slice(0, 1100);
+      const n = code.split('\n').length;
+      const focus = (Array.isArray(bd.focus) ? bd.focus : []).map(Number).filter((x) => Number.isInteger(x) && x >= 1 && x <= n).slice(0, 6);
+      return { type: 'code', lang: clip(bd.lang, 20), code, focus, note: clip(bd.note, 160) };
+    }
+    case 'table': {
+      const headers = strs(bd.headers, 5, 24);
+      const rows = (Array.isArray(bd.rows) ? bd.rows : []).filter(Array.isArray).slice(0, 8).map((r) => r.slice(0, headers.length || 5).map((c) => clip(c, 28)));
+      return headers.length && rows.length ? { type: 'table', title: clip(bd.title, 60), headers, rows } : null;
+    }
     case 'big': return bd.text ? { type: 'big', text: clip(bd.text, 80), sub: clip(bd.sub, 120) } : null;
     case 'compare': {
       const side = (x) => (x && x.title ? { title: clip(x.title, 40), items: strs(x.items, 5, 90) } : null);
       const l = side(bd.left), r = side(bd.right); return l && r ? { type: 'compare', left: l, right: r } : null;
     }
-    case 'flow': { const nodes = strs(bd.nodes, 6, 60); return nodes.length >= 2 ? { type: 'flow', title: clip(bd.title, 60), nodes } : null; }
+    case 'flow': { const nodes = strs(bd.nodes, 7, 60); const active = Number.isInteger(Number(bd.active)) && Number(bd.active) >= 0 && Number(bd.active) < nodes.length ? Number(bd.active) : -1; return nodes.length >= 2 ? { type: 'flow', title: clip(bd.title, 60), nodes, active } : null; }
     case 'story': return bd.text ? { type: 'story', title: clip(bd.title, 60), text: clip(bd.text, 600) } : null;
     case 'animate': {
       const actors = (Array.isArray(bd.actors) ? bd.actors : []).filter((a) => a && a.id && a.emoji).slice(0, 6).map((a) => ({ id: clip(a.id, 16), emoji: clip(a.emoji, 8), label: clip(a.label, 20) }));
