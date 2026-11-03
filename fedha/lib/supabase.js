@@ -21,15 +21,37 @@ export async function signOut() {
   if (!supabase) return;
   return supabase.auth.signOut();
 }
+// The saved login on this phone, read straight from storage (supabase-js keeps it as sb-<project>-auth-token).
+function storedSession() {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (/^sb-.+-auth-token$/.test(k)) { const v = JSON.parse(localStorage.getItem(k) || 'null'); if (v?.user && v?.refresh_token) return v; }
+    }
+  } catch { /* storage blocked */ }
+  return null;
+}
+
+// Offline with an expired token, supabase-js cannot refresh it and answers "no session" (while keeping the login
+// saved). That used to send you to the login page, which cannot load offline. So: when the refresh failed because
+// there is no network, carry on with the saved login; the token refreshes by itself once you're back online.
 export async function getSession() {
   if (!supabase) return null;
-  const { data } = await supabase.auth.getSession();
-  return data?.session ?? null;
+  const { data, error } = await supabase.auth.getSession();
+  if (data?.session) return data.session;
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  const network = error && (error.name === 'AuthRetryableFetchError' || /fetch|network|failed to fetch|load failed/i.test(error.message || ''));
+  if (offline || network) return storedSession();
+  return null;
 }
 // Returns an unsubscribe function.
 export function onAuthChange(cb) {
   if (!supabase) return () => {};
-  const { data } = supabase.auth.onAuthStateChange((_event, session) => cb(session));
+  const { data } = supabase.auth.onAuthStateChange((event, session) => {
+    // Offline, a failed token refresh can report no session; keep the saved login unless you really signed out.
+    if (!session && event !== 'SIGNED_OUT' && typeof navigator !== 'undefined' && navigator.onLine === false) { cb(storedSession()); return; }
+    cb(session);
+  });
   return () => data.subscription.unsubscribe();
 }
 
