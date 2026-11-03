@@ -129,14 +129,20 @@ self.addEventListener('push', (event) => {
       // planner_live~… is the pinned live planner card: the Android app draws it itself; anywhere else it is a
       // quiet duplicate of the block reminder, so never let it buzz.
       const already = (tag ? (await self.registration.getNotifications({ tag })).length > 0 : false) || String(tag || '').startsWith('planner_live~');
+      // Luxe is open and in front: it shows its own in-app banner (with sound), and the system copy goes quietly
+      // to the shade ("~quiet" tells the Android app not to draw its pop-up as well).
+      const live = String(tag || '').startsWith('planner_live~');
+      const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const front = live ? null : wins.find((c) => c.visibilityState === 'visible' && c.focused);
+      if (front) front.postMessage({ type: 'LUXE_PUSH', payload: { title, body, tag, url } });
       await self.registration.showNotification(title, {
         body,
         icon,
         badge,
-        tag,
+        tag: front ? `${tag || 'luxe'}~quiet` : tag,
         requireInteraction,
-        vibrate: already ? undefined : vibrate,
-        silent: already,
+        vibrate: already || front ? undefined : vibrate,
+        silent: already || !!front,
         actions,
         data: { url },
       });

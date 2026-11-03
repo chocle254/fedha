@@ -68,6 +68,28 @@ function ViceCountdown() {
   );
 }
 
+// Android: invite to turn on Luxe's own pop-up banners (drawn by the app over other apps, no phone styling).
+// Opens luxe://overlay (OverlaySetupActivity), which goes to Android's "Display over other apps" switch.
+function OverlayInvite() {
+  const [show, setShow] = useState(false);
+  useEffect(() => { try { setShow(/Android/i.test(navigator.userAgent) && localStorage.getItem('luxe_overlay_invite') !== 'done'); } catch { /* private */ } }, []);
+  if (!show) return null;
+  const done = () => { try { localStorage.setItem('luxe_overlay_invite', 'done'); } catch { /* private */ } setShow(false); };
+  return (
+    <div className="card" style={{ padding: 14, marginTop: 14, display: 'flex', gap: 12, alignItems: 'center', borderColor: 'var(--accent-glow)' }}>
+      <div style={{ width: 42, height: 42, borderRadius: 21, display: 'grid', placeItems: 'center', fontSize: 20, flexShrink: 0, background: 'radial-gradient(circle at 35% 30%, var(--accent-2), var(--accent))' }}>🔔</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 800, fontSize: 13.5 }}>Luxe's own pop-ups</div>
+        <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2, lineHeight: 1.45 }}>Notifications in Luxe's style instead of the phone's: allow "Display over other apps" once.</div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+          <a className="btn-primary" href="intent://overlay#Intent;scheme=luxe;package=com.chocle254.fedha;end" onClick={() => setTimeout(done, 800)} style={{ textDecoration: 'none' }}>Turn on</a>
+          <button className="btn-ghost" onClick={done}>Not now</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StatCard({ label, value, currency, sub, color = 'var(--green)' }) {
   return (
     <div className="card-2" style={{ padding: '14px 16px', flex: '1 1 0' }}>
@@ -214,6 +236,7 @@ export default function Dashboard() {
           <button onClick={tapMark} aria-label="Luxe" style={{ all: 'unset', cursor: 'pointer' }}><LuxeMark size={38} animated /></button>
         </div>
 
+        <OverlayInvite />
         {/* Net worth hero */}
         <div className="section" style={{ marginTop: 14 }}>
           <div className="hero-card" style={{ padding: '22px 20px 18px' }}>

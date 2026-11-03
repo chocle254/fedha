@@ -2,6 +2,7 @@ package com.chocle254.fedha;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
+import android.app.KeyguardManager;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -12,6 +13,7 @@ import android.graphics.Typeface;
 import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.text.format.DateFormat;
 import java.util.Calendar;
@@ -81,6 +83,10 @@ public class LuxeDelegationService extends DelegationService {
     // Sent by supabase/functions/send-reminders at each block start: planner_live~<startMs>~<endMs>~<n>~<total>.
     private static final Pattern LIVE = Pattern.compile("planner_live~(\\d+)~(\\d+)~(\\d+)~(\\d+)");
 
+    // When Luxe draws its own pop-up (LuxeOverlay), the shade copy goes here: quiet, so the phone's pop-up doesn't
+    // appear on top of Luxe's. Luxe plays the sound and buzz itself.
+    private static final String SHADE_CHANNEL = "luxe_shade_v1";
+
     // Every earlier channel (sounds and buzzes are fixed per channel, so changes get new ids).
     private static final String OLD_PREFIX = "fedha_";
 
@@ -124,6 +130,13 @@ public class LuxeDelegationService extends DelegationService {
             // By name, not resource number, so a rebuilt APK with new sound files keeps pointing at the right one.
             if (k.sound != null) ch.setSound(Uri.parse("android.resource://" + getPackageName() + "/raw/" + k.sound), audio);
             nm.createNotificationChannel(ch);
+        }
+        if (nm.getNotificationChannel(SHADE_CHANNEL) == null) {
+            NotificationChannel shade = new NotificationChannel(SHADE_CHANNEL, "Luxe (shown as Luxe's own pop-up)", NotificationManager.IMPORTANCE_LOW);
+            shade.setSound(null, null);
+            shade.enableVibration(false);
+            shade.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            nm.createNotificationChannel(shade);
         }
         if (nm.getNotificationChannel("luxe_planner_live_v1") != null) nm.deleteNotificationChannel("luxe_planner_live_v1");
         if (nm.getNotificationChannel(LIVE_CHANNEL) == null) {
@@ -204,6 +217,13 @@ public class LuxeDelegationService extends DelegationService {
         return System.currentTimeMillis() - at < 3 * 60_000L;
     }
 
+
+    // The phone is on and unlocked (someone is looking at it), so a pop-up over the open app makes sense.
+    private boolean inUse() {
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+        return pm != null && pm.isInteractive() && (km == null || !km.isKeyguardLocked());
+    }
 
     // A round badge in the kind's colour with its emoji, shown as the notification's large icon.
     private Bitmap badge(Kind k) {
@@ -311,11 +331,22 @@ public class LuxeDelegationService extends DelegationService {
         // Block reminders clear themselves after 10 minutes: the pinned live card carries the plan from there.
         if (base == PLANNER && platformTag != null && platformTag.contains("block_")) b.setTimeoutAfter(10 * 60_000L);
 
+        // Luxe's own pop-up when the phone is in use and "Display over other apps" is on; the system's otherwise
+        // (locked screen, or permission off). "~quiet" pushes arrive while Luxe is open and already showed its banner.
+        boolean quiet = platformTag != null && platformTag.contains("~quiet");
+        boolean overlay = !quiet && LuxeOverlay.allowed(this) && inUse();
+        String channel = overlay || quiet ? SHADE_CHANNEL : kind.id;
+        b.setChannelId(channel);
+
         try {
             nm.notify(platformTag, platformId, b.build());
         } catch (RuntimeException e) {
             // Anything odd in the restyle: fall back to Chrome's original notification on our channel.
-            nm.notify(platformTag, platformId, Notification.Builder.recoverBuilder(this, notification).setChannelId(kind.id).build());
+            nm.notify(platformTag, platformId, Notification.Builder.recoverBuilder(this, notification).setChannelId(channel).build());
+        }
+        if (overlay) {
+            Uri sound = kind.sound == null ? null : Uri.parse("android.resource://" + getPackageName() + "/raw/" + kind.sound);
+            LuxeOverlay.show(this, kind.color, label, t, body, icon, sound, kind.pattern, notification.contentIntent, base == PLANNER ? 6000 : 6500);
         }
         return true;
     }

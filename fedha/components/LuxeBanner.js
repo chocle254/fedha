@@ -61,7 +61,10 @@ export default function LuxeBanner() {
       setTimeout(() => close(id), d.requireInteraction ? 12000 : 5500);
     };
     window.addEventListener('luxe-notify', on);
-    return () => window.removeEventListener('luxe-notify', on);
+    // Server pushes that arrive while Luxe is open (worker/sw-src.js) show here instead of the phone's pop-up.
+    const fromSw = (e) => { if (e.data?.type === 'LUXE_PUSH') on({ detail: e.data.payload || {} }); };
+    navigator.serviceWorker?.addEventListener('message', fromSw);
+    return () => { window.removeEventListener('luxe-notify', on); navigator.serviceWorker?.removeEventListener('message', fromSw); };
   }, [close]);
 
   if (!list.length) return null;
