@@ -108,17 +108,33 @@ export function seasonsOf(a) {
 // { played: { "<show>|S04E08": ts, "movie:<title>": ts }, last: { show, code, at },
 //   feedback: { "<title>": 'want' | 'seen' | 'no' } (your reactions to For You picks; the AI learns from them) }
 const ROOM = 'chill_room';
-// What you played from the page, plus what Luxe's player reported as watched ('chill_watched').
+// Watched = what Luxe's player reported as finished ('chill_watched': you reached the credits by watching), plus
+// your own ticks (marks: { key: true | false } — false un-watches something the player got wrong).
+// Tapping ▶ does NOT count as watched; it only remembers what you are watching now ('last').
+// progress: { "<show>|S04E11" | "movie:<title>": { pos, dur, at } } from the player, for Continue Watching.
 export async function getProgress() {
-  const [room, watched, progress] = await Promise.all([getSetting(ROOM, { played: {}, last: null }), getSetting('chill_watched', {}), getSetting('chill_progress', {})]);
-  const p = room || { played: {}, last: null };
-  // progress: { "<show>|S04E11" | "movie:<title>": { pos, dur, at } } from Luxe's player (Continue Watching).
-  return { ...p, played: { ...(watched || {}), ...(p.played || {}) }, progress: progress || {} };
+  const [room, watched, progress] = await Promise.all([getSetting(ROOM, { last: null }), getSetting('chill_watched', {}), getSetting('chill_progress', {})]);
+  const { played: _old, progress: _p, ...p } = room || { last: null }; // older copies kept page taps as "played"
+  const marks = p.marks || {};
+  const played = { ...(watched || {}) };
+  for (const [k, v] of Object.entries(marks)) { if (v) played[k] = played[k] || 1; else delete played[k]; }
+  return { ...p, marks, played, progress: progress || {} };
 }
+const roomOnly = ({ played, progress, ...rest }) => rest; // never store the merged lists back
 export async function markPlayed(prog, item) {
-  const key = item.kind === 'episode' ? `${item.show}|${epCode(item.season, item.episode)}` : `movie:${item.title}`;
-  const next = { ...prog, played: { ...prog.played, [key]: Date.now() }, last: item.kind === 'episode' ? { show: item.show, code: epCode(item.season, item.episode), at: Date.now() } : { movie: item.title, at: Date.now() } };
-  await setSetting(ROOM, next);
+  const last = item.kind === 'episode' ? { show: item.show, code: epCode(item.season, item.episode), at: Date.now() } : { movie: item.title, at: Date.now() };
+  const next = { ...prog, last };
+  await setSetting(ROOM, roomOnly(next));
+  return next;
+}
+// Tick / untick watched by hand.
+export async function setWatched(prog, item, on) {
+  const key = progressKey(item);
+  const marks = { ...(prog.marks || {}), [key]: !!on };
+  const played = { ...prog.played };
+  if (on) played[key] = Date.now(); else delete played[key];
+  const next = { ...prog, marks, played };
+  await setSetting(ROOM, roomOnly(next));
   return next;
 }
 // item (optional): { type, year } so Want to Watch knows a movie from a series and can show its poster.
@@ -128,7 +144,7 @@ export async function setFeedback(prog, title, value, item = null) {
   if (value) fb[title] = value; else delete fb[title];
   if (value && item?.type) meta[title] = { type: item.type === 'movie' ? 'movie' : 'series', year: item.year || null }; else if (!value) delete meta[title];
   const next = { ...prog, feedback: fb, meta };
-  await setSetting(ROOM, next);
+  await setSetting(ROOM, roomOnly(next));
   return next;
 }
 
@@ -144,8 +160,11 @@ export const isPlayed = (prog, item) => !!prog.played?.[item.kind === 'episode' 
 // episode is not on the phone, its code so the page can say "S05E01 not downloaded".
 export function upNext(show, prog, art) {
   const played = show.episodes.filter((e) => isPlayed(prog, e));
-  const lastIdx = played.length ? show.episodes.indexOf(played[played.length - 1]) : -1;
-  const next = show.episodes[lastIdx + 1] || null;
+  let lastIdx = played.length ? show.episodes.indexOf(played[played.length - 1]) : -1;
+  // Part-way through a later episode (you skipped ahead)? That's where you are.
+  const going = show.episodes.map((e, i) => ({ i, v: prog.progress?.[progressKey(e)] })).filter((x) => x.v && x.i > lastIdx && !isPlayed(prog, show.episodes[x.i])).sort((a, b) => b.v.at - a.v.at)[0];
+  const next = going ? show.episodes[going.i] : show.episodes[lastIdx + 1] || null;
+  if (going) lastIdx = Math.max(lastIdx, going.i - 1);
   let missing = null;
   if (lastIdx >= 0 && art?.order) {
     const lastCode = epCode(show.episodes[lastIdx].season, show.episodes[lastIdx].episode);

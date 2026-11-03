@@ -54,7 +54,9 @@ import java.nio.charset.StandardCharsets;
 //   Sound:   bass boost + a low-end equaliser curve + virtualiser + loudness lift on the player's audio session.
 //   Netflix: resumes where you stopped; skips the intro at the exact second (IntroDB, TheIntroDB as backup, by the
 //            show's IMDb id + season + episode); when the credits start, "Next episode in 8" (tap to stay).
-//   Watched: an episode counts as watched at 85% or at the credits, reported to Luxe (/api/chill/watched).
+//   Watched: only when you WATCH your way to the end credits (or 92%): a minute of real play before it, so dragging
+//   the seek bar to the end doesn't count. Credits times must sit in the last quarter (TheIntroDB sometimes lists
+//   the opening credits as "credits"). Reported to Luxe (/api/chill/watched).
 // The queue is the episode you tapped plus the next downloaded ones: [{ id, t, k, imdb, s, e }] (MediaStore ids).
 public class PlayerActivity extends Activity {
     private static final String PREFS = "luxe_player";
@@ -70,6 +72,7 @@ public class PlayerActivity extends Activity {
 
     private long introStart = -1, introEnd = -1, outroStart = -1;
     private boolean introDone, watchedSent, nextArmed;
+    private long lastTickPos = -1, runMs = 0; // continuous play since the last seek
     private int nextCountdown = -1;
     private long lastSave = 0;
     private long lastCount = 0;
@@ -130,7 +133,7 @@ public class PlayerActivity extends Activity {
         view.setPlayer(player);
         player.addListener(new Player.Listener() {
             @Override public void onAudioSessionIdChanged(int sessionId) { attachSound(sessionId); }
-            @Override public void onPlaybackStateChanged(int s) { if (s == Player.STATE_ENDED) { markWatched(); if (hasNext()) playAt(idx + 1); else finish(); } }
+            @Override public void onPlaybackStateChanged(int s) { if (s == Player.STATE_ENDED) { if (runMs >= 60_000) markWatched(); if (hasNext()) playAt(idx + 1); else finish(); } }
             @Override public void onPlayerError(PlaybackException e) { openElsewhere(); }
         });
         view.setResizeMode(getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("fill", false) ? AspectRatioFrameLayout.RESIZE_MODE_ZOOM : AspectRatioFrameLayout.RESIZE_MODE_FIT);
@@ -245,6 +248,7 @@ public class PlayerActivity extends Activity {
         idx = i;
         introStart = introEnd = outroStart = -1;
         introDone = watchedSent = nextArmed = false;
+        lastTickPos = -1; runMs = 0;
         nextCountdown = -1;
         hidePill();
         Uri uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, it.optLong("id"));
@@ -276,7 +280,7 @@ public class PlayerActivity extends Activity {
                     JSONObject j = new JSONObject(get("https://api.theintrodb.org/v4/media?imdb_id=" + imdb + "&season=" + s + "&episode=" + e));
                     JSONArray in = j.optJSONArray("intro"), cr = j.optJSONArray("credits");
                     if (is < 0 && in != null && in.length() > 0) { is = in.getJSONObject(0).optLong("start_ms", -1); ie = in.getJSONObject(0).optLong("end_ms", -1); }
-                    if (os < 0 && cr != null && cr.length() > 0) os = cr.getJSONObject(0).optLong("start_ms", -1);
+                    if (os < 0 && cr != null && cr.length() > 0) os = cr.getJSONObject(cr.length() - 1).optLong("start_ms", -1); // the END credits are the last entry
                 } catch (Exception ignored) { }
             }
             final long fis = is, fie = ie, fos = os;
@@ -304,10 +308,15 @@ public class PlayerActivity extends Activity {
                     player.seekTo(introEnd);
                     showPill("Intro skipped", 1500);
                 }
-                boolean credits = (outroStart > 0 && pos >= outroStart) || (outroStart <= 0 && dur > 0 && dur - pos < 20_000);
-                if (credits) markWatched();
+                // A jump of more than 2.5 s between ticks is a seek: start counting real play again.
+                if (player.isPlaying()) { if (lastTickPos >= 0 && Math.abs(pos - lastTickPos) > 2500) runMs = 0; else runMs += 500; }
+                lastTickPos = pos;
+                boolean outroOk = outroStart > 0 && dur > 0 && outroStart > dur * 0.75;
+                boolean credits = (outroOk && pos >= outroStart) || (!outroOk && dur > 0 && dur - pos < 20_000);
+                boolean reallyWatched = runMs >= 60_000;
+                if (credits && reallyWatched) markWatched();
                 if (credits && hasNext() && !nextArmed && player.isPlaying()) { nextArmed = true; nextCountdown = 8; lastCount = System.currentTimeMillis(); }
-                if (dur > 0 && pos > dur * 0.85) markWatched();
+                if (dur > 0 && pos > dur * 0.92 && reallyWatched) markWatched();
                 if (System.currentTimeMillis() - lastSave > 5000) saveSpot();
             }
             if (nextCountdown >= 0 && player != null && player.isPlaying()) {

@@ -3,7 +3,7 @@ import Head from 'next/head';
 import Layout from '../components/Layout';
 import Link from 'next/link';
 import { prefetchReels } from '../lib/reels';
-import { fetchLibrary, organise, loadArt, getProgress, markPlayed, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback, sameTitle, loadParts, seasonsOf, connection, trailerFor, trailerSrc } from '../lib/chill';
+import { fetchLibrary, organise, loadArt, getProgress, markPlayed, setWatched, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback, sameTitle, loadParts, seasonsOf, connection, trailerFor, trailerSrc } from '../lib/chill';
 
 // Chill Room: your downloaded movies and series (Download / Telegram on the phone), laid out like Apple TV.
 //   hero      the series you're in the middle of (backdrop, ▶ next episode)
@@ -176,19 +176,26 @@ export default function Chill() {
   // Unfinished episodes / movies that are still on the phone, most recent first.
   const resumable = Object.entries(prog.progress || {}).map(([k, v]) => {
     const file = k.startsWith('movie:') ? movies.find((mv) => `movie:${mv.title}` === k) : shows.flatMap((sh) => sh.episodes).find((e) => `${e.show}|${epCode(e.season, e.episode)}` === k);
-    return file ? { k, v, file } : null;
+    return file && !prog.played?.[k] ? { k, v, file } : null;
   }).filter(Boolean).sort((a, b) => b.v.at - a.v.at);
   const minsLeft = (v) => `${Math.max(1, Math.round((v.dur - v.pos) / 60))} min left`;
   const continuing = shows.map((s) => ({ s, u: upNext(s, prog, showArt(s)) })).filter((x) => x.u.next);
   const started = continuing.filter((x) => x.u.started);
   const lastShow = prog.last?.show && continuing.find((x) => x.s.title === prog.last.show);
-  const resumeTop = resumable[0] || null;
+  // What you were watching most recently: the last thing the player saw you in, or the last thing you opened.
+  const lastMovie = prog.last?.movie && movies.find((mv) => mv.title === prog.last.movie);
+  const lastOpenedAt = prog.last?.at || 0;
+  const resumeTop = resumable[0] && (resumable[0].v.at >= lastOpenedAt - 120000 || !(lastShow || lastMovie)) ? resumable[0]
+    : lastMovie ? (resumable.find((r) => r.file === lastMovie) || { k: `movie:${lastMovie.title}`, v: null, file: lastMovie })
+    : lastShow ? (resumable.find((r) => r.file === lastShow.u.next) || null) : resumable[0] || null;
   const heroResume = resumeTop?.file.kind === 'episode' ? { s: shows.find((sh) => sh.title === resumeTop.file.show), u: { next: resumeTop.file, started: true } } : null;
   const hero = heroResume?.s ? heroResume : lastShow || started[0] || continuing[0] || null;
-  const heroMovie = !hero && (resumeTop?.file.kind === 'movie' ? resumeTop.file : movies[0]);
-  const heroProgress = resumeTop && ((hero && resumeTop.file === hero.u.next) || (heroMovie && resumeTop.file === heroMovie)) ? resumeTop.v : null;
-  const ha = hero ? showArt(hero.s) : heroMovie ? movieArt(heroMovie) : {};
-  const heroNext = hero?.u.next;
+  const movieFirst = resumeTop?.file.kind === 'movie' && (!lastShow || resumeTop.file === lastMovie || (resumeTop.v?.at || 0) > lastOpenedAt);
+  const heroMovie = movieFirst ? resumeTop.file : !hero ? movies[0] : null;
+  const heroProgress = resumeTop?.v && ((!movieFirst && hero && resumeTop.file === hero.u.next) || (heroMovie && resumeTop.file === heroMovie)) ? resumeTop.v : null;
+  const heroShow = movieFirst ? null : hero;
+  const ha = heroShow ? showArt(heroShow.s) : heroMovie ? movieArt(heroMovie) : {};
+  const heroNext = heroShow?.u.next;
   // Anything already downloaded drops out of For You and Want to Watch (it's in Series / Movies now).
   const owned = new Set([...shows.map((x) => sameTitle(x.title)), ...movies.map((x) => sameTitle(x.title))]);
   const notOwned = (x) => !owned.has(sameTitle(x.title));
@@ -235,16 +242,16 @@ export default function Chill() {
           </div>
         )}
 
-        {(hero || heroMovie) && (
+        {(heroShow || heroMovie) && (
           <section className="cr-hero" style={bg(ha.backdrop || ha.poster)}>
             <div className="cr-shade" />
             <div className="cr-heroIn">
-              <div className="cr-kick">{heroProgress ? 'CONTINUE WATCHING' : hero ? (hero.u.started ? 'UP NEXT' : 'IN YOUR LIBRARY') : 'MOVIE'}</div>
-              <h2>{hero ? hero.s.title : heroMovie.title}</h2>
+              <div className="cr-kick">{heroProgress ? 'CONTINUE WATCHING' : heroShow ? (heroShow.u.started ? 'UP NEXT' : 'IN YOUR LIBRARY') : 'MOVIE'}</div>
+              <h2>{heroShow ? heroShow.s.title : heroMovie.title}</h2>
               <div className="cr-meta">{[ha.year || heroMovie?.year, (ha.genres || []).slice(0, 2).join(' · '), typeof ha.rating === 'number' ? `★ ${ha.rating}` : ha.rating].filter(Boolean).join('  ·  ')}</div>
               <div className="cr-btns">
                 <button type="button" className="cr-btnW" onClick={() => play(heroNext || heroMovie)}>▶ {heroProgress ? 'Resume' : 'Play'}{heroNext ? ` ${epCode(heroNext.season, heroNext.episode)}` : ''}</button>
-                {hero && <button type="button" className="cr-btnG" onClick={() => { setSeason(null); setOpen({ type: 'show', item: hero.s }); }}>📁 Episodes</button>}
+                {heroShow && <button type="button" className="cr-btnG" onClick={() => { setSeason(null); setOpen({ type: 'show', item: heroShow.s }); }}>📁 Episodes</button>}
               </div>
               {heroProgress && <div className="cr-heroBar"><div className="cr-bar"><i style={{ width: `${Math.round((heroProgress.pos / heroProgress.dur) * 100)}%` }} /></div><span>{minsLeft(heroProgress)}</span></div>}
             </div>
@@ -323,7 +330,7 @@ export default function Chill() {
         {movies.length > 0 && (
           <section className="cr-row">
             <h3>Movies</h3>
-            <div className="cr-scroll">{movies.map((m) => <Poster key={m.key} img={movieArt(m).poster} title={m.title} onClick={() => setOpen({ type: 'movie', item: m })} badge={isPlayed(prog, m) ? '✓' : null} />)}</div>
+            <div className="cr-scroll">{movies.map((m) => <Poster key={m.key} img={movieArt(m).poster} title={m.title} onClick={() => setOpen({ type: 'movie', item: m })} badge={isPlayed(prog, m) ? '✓' : prog.progress?.[`movie:${m.title}`] ? '▶' : null} />)}</div>
           </section>
         )}
 
@@ -352,11 +359,17 @@ export default function Chill() {
                 <div className="cr-eps">
                   {detail.episodes.filter((e) => e.season === dSeason).map((e) => {
                     const c = epCode(e.season, e.episode); const done = isPlayed(prog, e);
+                    const pv = !done && prog.progress?.[progressKey(e)];
+                    const now = !done && prog.last?.show === e.show && prog.last?.code === c;
                     return (
-                      <button type="button" key={e.key} className="cr-epRow" onClick={() => play(e)}>
-                        <div className="cr-thumb" style={bg(dArt.stills?.[c] || dArt.backdrop)}>{done ? <em>✓</em> : <em>▶</em>}</div>
-                        <div className="cr-epT"><b>{e.episode}. {dArt.names?.[c] || `Episode ${e.episode}`}</b><small>{[mins(e.duration), gb(e.size)].filter(Boolean).join(' · ')}</small></div>
-                      </button>
+                      <div key={e.key} style={{ display: 'flex', alignItems: 'center' }}>
+                        <button type="button" className="cr-epRow" style={{ flex: 1 }} onClick={() => play(e)}>
+                          <div className="cr-thumb" style={bg(dArt.stills?.[c] || dArt.backdrop)}>{done ? <em>✓</em> : <em>▶</em>}{pv?.dur ? <div className="cr-bar"><i style={{ width: `${Math.round((pv.pos / pv.dur) * 100)}%` }} /></div> : null}</div>
+                          <div className="cr-epT"><b>{e.episode}. {dArt.names?.[c] || `Episode ${e.episode}`}</b><small>{[now || pv ? (pv?.dur ? `Watching · ${minsLeft(pv)}` : 'Watching') : done ? 'Watched' : null, mins(e.duration), gb(e.size)].filter(Boolean).join(' · ')}</small></div>
+                        </button>
+                        <button type="button" onClick={async () => setProg(await setWatched(prog, e, !done))} aria-label={done ? 'Mark as not watched' : 'Mark as watched'}
+                          style={{ all: 'unset', cursor: 'pointer', width: 30, height: 30, borderRadius: 15, display: 'grid', placeItems: 'center', fontSize: 14, flexShrink: 0, border: '1.5px solid rgba(255,255,255,.35)', background: done ? '#e50914' : 'transparent', color: '#fff' }}>{done ? '✓' : ''}</button>
+                      </div>
                     );
                   })}
                 </div>
