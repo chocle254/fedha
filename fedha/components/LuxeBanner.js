@@ -45,7 +45,27 @@ export default function LuxeBanner() {
   const drag = useRef({});
 
   useEffect(() => { try { setMuted(localStorage.getItem(MUTE) === '1'); } catch { /* private */ } }, []);
-  const close = useCallback((id) => setList((l) => l.filter((x) => x.id !== id)), []);
+  // One banner at a time: the rest wait their turn (a small "+N more" shows how many).
+  const queue = useRef([]);
+  const seen = useRef(new Map());
+  const showing = useRef(null);
+  const [waiting, setWaiting] = useState(0);
+  const pump = useCallback(() => {
+    if (showing.current || !queue.current.length) { setWaiting(queue.current.length); return; }
+    const n = queue.current.shift();
+    showing.current = n.id;
+    setWaiting(queue.current.length);
+    setList([n]);
+    // Holiday sound for everyday news; trades and alerts keep theirs (same rule as the Android app).
+    playSound(n.hol && HOLIDAY_SOUND[n.hol] && !['alert', 'trade'].includes(n.kind) ? HOLIDAY_SOUND[n.hol] : n.k.sound);
+    try { navigator.vibrate?.(n.vibrate || [120, 60, 120]); } catch { /* not supported */ }
+    setTimeout(() => closeRef.current(n.id), n.requireInteraction ? 10000 : 4500);
+  }, []);
+  const close = useCallback((id) => {
+    setList((l) => l.filter((x) => x.id !== id));
+    if (showing.current === id) { showing.current = null; setTimeout(() => pump(), 350); }
+  }, [pump]);
+  const closeRef = useRef(close); closeRef.current = close;
 
   useEffect(() => {
     const on = (e) => {
@@ -53,12 +73,15 @@ export default function LuxeBanner() {
       const kind = d.kind || kindOf(d.tag, d.title);
       const k = KINDS[kind] || KINDS.other;
       const hol = holidayFor(new Date());
-      const id = `${Date.now()}${Math.random()}`;
-      setList((l) => [{ id, ...d, kind, k, hol: hol?.key || null }, ...l.filter((x) => !d.tag || x.tag !== d.tag)].slice(0, 3));
-      // Holiday sound for everyday news; trades and alerts keep theirs (same rule as the Android app).
-      playSound(hol && HOLIDAY_SOUND[hol.key] && !['alert', 'trade'].includes(kind) ? HOLIDAY_SOUND[hol.key] : k.sound);
-      try { navigator.vibrate?.(d.vibrate || [120, 60, 120]); } catch { /* not supported */ }
-      setTimeout(() => close(id), d.requireInteraction ? 12000 : 5500);
+      // The same reminder often arrives twice (the phone's own timer and the server): show it once.
+      const sig = `${String(d.tag || '').replace(/~quiet$/, '')}|${d.title}`;
+      const now = Date.now();
+      for (const [k0, t] of seen.current) if (now - t > 120000) seen.current.delete(k0);
+      if (seen.current.has(sig)) return;
+      seen.current.set(sig, now);
+      const id = `${now}${Math.random()}`;
+      queue.current.push({ id, ...d, kind, k, hol: hol?.key || null });
+      pump();
     };
     window.addEventListener('luxe-notify', on);
     // Server pushes that arrive while Luxe is open (worker/sw-src.js) show here instead of the phone's pop-up.
@@ -83,6 +106,7 @@ export default function LuxeBanner() {
               <div className="lb-label">{hol ? `${{ halloween: 'HALLOWEEN', christmas: 'CHRISTMAS', birthday: 'BIRTHDAY', newyear: 'NEW YEAR', vice: 'VICE NIGHTS' }[hol]} · ` : ''}{n.k.label}</div>
               <div className="lb-title">{n.title}</div>
               {n.body && <div className="lb-body">{n.body}</div>}
+              {waiting > 0 && <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 3 }}>+{waiting} more after this</div>}
             </div>
             <button className="lb-mute" aria-label={muted ? 'Turn banner sounds on' : 'Mute banner sounds'} onPointerUp={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); const m = !muted; setMuted(m); try { localStorage.setItem(MUTE, m ? '1' : '0'); } catch { /* private */ } }}>{muted ? '🔕' : '🔔'}</button>
