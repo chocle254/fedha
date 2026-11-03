@@ -7,7 +7,7 @@ import { todayISO, computeJobProgress } from '../lib/utils';
 import { hackStatus, isUrgent, projectStatus } from './tech-hub';
 import { blockLink } from '../lib/block-links';
 import { weekdayPlanIndex, estimateWorkoutMinutes, exerciseSummary, planForDay, microMinutes } from './workout';
-import { planAnchors, getDayPrefs, getHomeLocation, askDeviceLocation, getTodayWeather, searchPlace, saveHomeLocation, setSoapBatches, weatherLabel } from '../lib/day-anchors';
+import { t2m as dayT2m, planAnchors, getDayPrefs, getHomeLocation, askDeviceLocation, getTodayWeather, searchPlace, saveHomeLocation, setSoapBatches, weatherLabel } from '../lib/day-anchors';
 import { showNotif, VIBRATE } from '../lib/notifications';
 import { pruneEndedEvents, todaysEventBlocks, eventWindow } from '../lib/events';
 import { format } from 'date-fns';
@@ -250,7 +250,9 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
 
   // The normal wake time is still what the NEXT morning's sleep is measured to;
   // `startAt` only moves where today's clock begins.
-  const defaultWake = isWeekend ? WEEKEND_WAKE : WEEKDAY_WAKE;
+  // Your own wake time (Planner settings) when set; otherwise the old defaults.
+  const defaultWake = ctx.dayWake ? dayT2m(ctx.dayWake) : isWeekend ? WEEKEND_WAKE : WEEKDAY_WAKE;
+  const dayStartAt = ctx.dayStart ? dayT2m(ctx.dayStart) : null;
   const wake = anchored ? startAt : defaultWake;
 
   // Late-start rules (only when anchored). Waking at 12:40 should not produce a
@@ -290,6 +292,12 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
     want('am', 'breakfast', 'Eat Breakfast', 'meal', '🍽️', 'Sit down and eat. No phone while eating.', PRIORITY.essential, 15, isWeekend ? 30 : 20);
     want('am', 'dishes1', 'Clean Dishes', 'routine', '🧹', '10 mins now saves stress later.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
   }
+  // Wake-up to "start my day": the rest of that gap is getting ready, so plans begin at your start time.
+  if (dayStartAt != null && !anchored) {
+    const morning = 20 + (pastBreakfast ? 0 : (isWeekend ? 25 + 30 + 15 : 20 + 20 + 10));
+    const gap = dayStartAt - wake - morning;
+    if (gap >= 10) want('am', 'getready', 'Get Ready & Settle In', 'routine', '🪥', `Your day starts at ${m2t(dayStartAt)}: wash up, dress, sort your space, no rush.`, PRIORITY.essential, gap, gap);
+  }
   if (isWeekend && !pastBreakfast) want('am', 'laundry_sort', 'Sort & Start Laundry', 'chores', '👕', 'Sort clothes, start soaking or machine wash — do this first so clothes dry by afternoon.', PRIORITY.chores, 15, 30);
   work('am', 'work1', pickWork(workItems, 0), 150);
   if (!isWeekend && !pastSnack) want('am', 'snack', 'Mid-Morning Snack', 'meal', '🍌', 'Banana + groundnuts. Drink water, then back to focus.', PRIORITY.essential, 10, 15);
@@ -315,6 +323,13 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
   } else {
     want('pm', 'break1', 'Break — Walk & Water', 'personal', '☕', 'Step away from the screen. Walk, stretch, drink water.', PRIORITY.chores, 5, 10);
     work('pm', 'work4', pickWork(workItems, 2), 90);
+  }
+  // Fun is part of the plan, not whatever work leaves over: a protected free-time block (unless you already
+  // picked something from Fun ideas for today, which is pinned on the clock).
+  if (!ctx.funToday) {
+    want('pm', 'fun', isWeekend ? 'Out & About — Fun Time 🎈' : 'Free Time — Fun & Activities 🎈', 'personal', '🎈',
+      isWeekend ? 'Go somewhere: a place, a walk, a meetup, a game. Pick one from Fun ideas at the top, or just wander.' : 'Your time: a walk, a hobby, music, a place from Fun ideas, anything that is not work.',
+      PRIORITY.essential, isWeekend ? 90 : 45, isWeekend ? 150 : 75);
   }
   if (morningWorkoutMin > 0 && lateMorning) {
     want('pm', 'workout1', `Workout — ${dayPlan.focus} (morning session)`, 'workout', '🏋️', `Moved to the afternoon because the day started late. ${dayPlan.morning.title}: ${exerciseSummary(dayPlan.morning.exercises)}`, PRIORITY.essential, morningWorkoutMin, morningWorkoutMin);
@@ -677,7 +692,7 @@ export default function PlannerPage() {
     setFunBlocks(next);
     await setSetting(`planner_fun_${todayISO()}`, next);
   }
-  const planCtx = { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, lowCash, workoutMode: prefs?.workoutMode, workoutStreak: prefs?.workoutStreak, anchorBath: true };
+  const planCtx = { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, lowCash, workoutMode: prefs?.workoutMode, workoutStreak: prefs?.workoutStreak, anchorBath: true, dayWake: prefs?.dayWake, dayStart: prefs?.dayStart, funToday: funBlocks.length > 0 };
   const [allDayEvents, setAllDayEvents] = useState([]);
   const isWeekend = [0,6].includes(new Date().getDay());
   const [blocks, setBlocks] = useState([]);
@@ -712,7 +727,7 @@ export default function PlannerPage() {
     onlineJobs?.map((j) => [j.id, j.status]) || [],
     research?.map((r) => [r.id, r.status, (r.entries || []).length]) || [],
     courses?.map((c) => [c.id, c.status, c.priority, c.deadline, c.estimated_hours, c.weekly_hours, c.completed_minutes]) || [],
-    prefs ? [prefs.soapCount, prefs.soapStart, prefs.bathMinTemp, prefs.walk, prefs.workoutMode, prefs.workoutStreak] : null,
+    prefs ? [prefs.soapCount, prefs.soapStart, prefs.bathMinTemp, prefs.walk, prefs.workoutMode, prefs.workoutStreak, prefs.dayWake, prefs.dayStart, (prefs.bathDays || []).join(''), prefs.bathFrom, prefs.bathTo] : null,
     weather ? [weather.date, weather.fetchedAt] : null,
     funBlocks.map((b) => [b.id, b.time, b.duration]),
   ]);
@@ -1115,6 +1130,41 @@ export default function PlannerPage() {
                 <div style={{ fontSize:11, color:'var(--text-3)', marginTop:6 }}>Saved once and reused. Used for weather only.</div>
               </div>
             )}
+
+            {/* When your day starts: wake up, then the time plans begin */}
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:12, paddingTop:12, borderTop:'1px solid var(--border)' }}>
+              <span style={{ fontSize:20 }}>🌅</span>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:13, fontWeight:600 }}>My day</div>
+                <div style={{ fontSize:11, color:'var(--text-3)' }}>Plans start at your start time; before it is your morning.</div>
+              </div>
+            </div>
+            <div style={{ display:'flex', gap:'8px 14px', marginTop:8, flexWrap:'wrap', alignItems:'center', fontSize:12, color:'var(--text-3)' }}>
+              <label style={{ display:'flex', alignItems:'center', gap:6 }}>Wake up
+                <input type="time" className="input" style={{ width:'auto', padding:'4px 8px', fontSize:12 }} value={prefs?.dayWake || '08:00'} onChange={(e) => changePref('dayWake', 'day_wake', e.target.value)} />
+              </label>
+              <label style={{ display:'flex', alignItems:'center', gap:6 }}>Start my day
+                <input type="time" className="input" style={{ width:'auto', padding:'4px 8px', fontSize:12 }} value={prefs?.dayStart || ''} onChange={(e) => changePref('dayStart', 'day_start', e.target.value)} />
+              </label>
+            </div>
+            {/* Bath: which days and when */}
+            <div style={{ marginTop:12, fontSize:12, color:'var(--text-3)' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}><span style={{ fontSize:16 }}>🛁</span> Bath days</div>
+              <div style={{ display:'flex', gap:4 }}>
+                {['S','M','T','W','T','F','S'].map((d, i) => { const on = (prefs?.bathDays || [0,1,3,5]).includes(i); return (
+                  <button key={i} className={`chip ${on ? 'active' : ''}`} style={{ flex:1, justifyContent:'center', padding:'5px 0' }} aria-pressed={on} aria-label={['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][i]}
+                    onClick={() => { const cur = prefs?.bathDays || [0,1,3,5]; changePref('bathDays', 'bath_days', on ? cur.filter((x) => x !== i) : [...cur, i].sort()); }}>{d}</button>
+                ); })}
+              </div>
+              <div style={{ display:'flex', gap:'8px 14px', marginTop:8, flexWrap:'wrap', alignItems:'center' }}>
+                <label style={{ display:'flex', alignItems:'center', gap:6 }}>Between
+                  <input type="time" className="input" style={{ width:'auto', padding:'4px 8px', fontSize:12 }} value={prefs?.bathFrom || '13:00'} onChange={(e) => changePref('bathFrom', 'bath_from', e.target.value)} />
+                </label>
+                <label style={{ display:'flex', alignItems:'center', gap:6 }}>and
+                  <input type="time" className="input" style={{ width:'auto', padding:'4px 8px', fontSize:12 }} value={prefs?.bathTo || '17:00'} onChange={(e) => changePref('bathTo', 'bath_to', e.target.value)} />
+                </label>
+              </div>
+            </div>
 
             <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:12, paddingTop:12, borderTop:'1px solid var(--border)' }}>
               <span style={{ fontSize:20 }}>🧴</span>

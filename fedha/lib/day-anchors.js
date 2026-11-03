@@ -95,6 +95,13 @@ export async function getDayPrefs() {
     workoutMode: (await getSetting('workout_mode', 'small')) || 'small',
     workoutStreak: Number(await getSetting('workout_streak', 0)) || 0,
     walkIdeas: (await getSetting('activities_last', [])) || [],
+    // When your day starts: wake up, then the time plans begin (the gap is your morning routine).
+    dayWake: (await getSetting('day_wake', '08:00')) || '08:00',
+    dayStart: (await getSetting('day_start', '')) || '',
+    // Bath: which days (0 = Sunday … 6 = Saturday; not every day) and the window you like (the afternoon).
+    bathDays: (await getSetting('bath_days', [0, 1, 3, 5])) || [0, 1, 3, 5],
+    bathFrom: (await getSetting('bath_from', '13:00')) || '13:00',
+    bathTo: (await getSetting('bath_to', '17:00')) || '17:00',
   };
 }
 export async function setSoapBatches(n) { await setSetting(`soap_batches_${today()}`, Math.max(0, Math.min(6, n))); }
@@ -157,17 +164,31 @@ export function planAnchors({ blocks, weather, prefs, wake, workoutMinutes = 0, 
   // 2. Bath: earliest time it's warm enough (feels-like ≥ your minimum) and not likely raining,
   //    with the small-space workout right before it. No weather → mid-morning default.
   const pre = workoutMinutes;
+  const bathToday = !Array.isArray(prefs.bathDays) || prefs.bathDays.includes(new Date().getDay());
+  const winFrom = t2m(prefs.bathFrom || '13:00'), winTo = t2m(prefs.bathTo || '17:00');
   const candidates = [];
-  for (let s = Math.max(dayStart + 30, 7 * 60); s <= 17 * 60; s += 30) {
+  for (let s = Math.max(dayStart + 30, 7 * 60); s <= 19 * 60; s += 30) {
     const from = s - pre;
     if (from < dayStart) continue;
     if (overlaps(from, s + BATH_MIN, [...busy, ...soft])) continue;
     const h = hourAt(weather, s);
     candidates.push({ s, feels: h?.feels ?? null, rain: h?.rain ?? 0 });
   }
+  // Your window first (the afternoon); only if nothing fits there, the rest of the day.
+  const inWin = candidates.filter((c) => c.s >= winFrom && c.s <= winTo);
+  if (inWin.length) candidates.splice(0, candidates.length, ...inWin);
   let bath = null;
   let why = '';
-  if (candidates.length) {
+  if (!bathToday) {
+    // Not a bath day: the small-space workout still happens, in the same comfortable window, with a quick wash.
+    if (pre > 0) {
+      const slot = candidates.find((c) => c.s >= winFrom) || candidates[0];
+      if (slot) {
+        out.push({ id: 'anchor_workout', pinned: true, type: 'workout', emoji: '🏠', time: m2t(slot.s - pre), duration: pre + 10, label: 'Small-space workout + quick wash', note: `${workoutNote} No bath today, just a quick wash after.` });
+        busy.push([slot.s - pre, slot.s + 10]);
+      }
+    }
+  } else if (candidates.length) {
     if (weather?.hours?.length) {
       const warm = candidates.find((c) => c.feels >= prefs.bathMinTemp && c.rain < 60);
       const warmest = [...candidates].sort((a, b) => b.feels - a.feels)[0];
