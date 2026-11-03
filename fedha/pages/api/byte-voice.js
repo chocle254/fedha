@@ -72,7 +72,26 @@ async function viaGroq(text, tone, order) {
   return null;
 }
 
+// GET /api/byte-voice?check=1 — voice health, without secrets: is the ElevenLabs key set, and what does ElevenLabs answer
+// for one word? Cached 10 minutes so it can't burn credits.
+let checked = null;
+async function health() {
+  if (checked && Date.now() - checked.at < 600000) return checked;
+  const key = process.env.ELEVENLABS_API_KEY;
+  const out = { at: Date.now(), elevenKey: !!key, keyLength: key ? key.length : 0, voice: EL_VOICE, model: EL_MODEL, groqKey: !!process.env.GROQ_API_KEY };
+  if (key) {
+    try {
+      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${EL_VOICE}?output_format=mp3_22050_32`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'xi-api-key': key }, body: JSON.stringify({ text: 'Hi.', model_id: EL_MODEL }), signal: AbortSignal.timeout(12000) });
+      out.elevenStatus = r.status;
+      if (!r.ok) { const d = await r.json().catch(() => ({})); out.elevenError = String(d?.detail?.status || '') + ' ' + String(d?.detail?.message || JSON.stringify(d).slice(0, 200)); }
+    } catch (e) { out.elevenError = e.message; }
+  }
+  checked = out;
+  return out;
+}
+
 export default async function handler(req, res) {
+  if (req.method === 'GET' && req.query?.check) { const h = await health(); res.setHeader('Cache-Control', 'no-store'); return res.status(200).json({ ...h, at: undefined }); }
   if (!(await requireUser(req, res))) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!process.env.ELEVENLABS_API_KEY && !process.env.GROQ_API_KEY) return res.status(500).json({ error: 'No voice key set (ELEVENLABS_API_KEY or GROQ_API_KEY)' });
