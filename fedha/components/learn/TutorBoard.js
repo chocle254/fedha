@@ -173,10 +173,38 @@ export default function TutorBoard({ board: b }) {
       ))}
     </div>
   );
-  if (b.type === 'code') return (
+  if (b.type === 'code') {
+    // Line numbers, and the lines he is explaining right now lit up (the rest dimmed), with his note under them.
+    const lines = String(b.code || '').split('\n');
+    const focus = new Set(b.focus || []);
+    const lit = focus.size > 0;
+    return (
+      <div>
+        <div style={ink.title}>⌨️ {b.lang || 'code'}</div>
+        <div style={{ background: 'rgba(0,0,0,.4)', borderRadius: 8, padding: '6px 0', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 10.5, lineHeight: 1.55, overflowX: 'auto' }}>
+          {lines.map((ln, i) => {
+            const on = focus.has(i + 1);
+            return (
+              <motion.div key={i} animate={{ opacity: lit && !on ? 0.38 : 1, backgroundColor: on ? 'rgba(52,211,153,.16)' : 'rgba(0,0,0,0)' }} transition={{ duration: 0.35 }} style={{ display: 'flex', whiteSpace: 'pre', borderLeft: `2px solid ${on ? '#34D399' : 'transparent'}` }}>
+                <span style={{ width: 22, flexShrink: 0, textAlign: 'right', paddingRight: 6, color: 'rgba(255,255,255,.3)', userSelect: 'none' }}>{i + 1}</span>
+                <span style={{ color: on ? '#ECFDF5' : '#A7F3D0' }}>{ln || ' '}</span>
+              </motion.div>
+            );
+          })}
+        </div>
+        {b.note && <motion.div {...rise(1)} style={{ fontSize: 11, color: '#E9D8A6', marginTop: 5, lineHeight: 1.4 }}>↳ {b.note}</motion.div>}
+      </div>
+    );
+  }
+  if (b.type === 'table') return (
     <div>
-      <div style={ink.title}>⌨️ {b.lang || 'code'}</div>
-      <motion.pre initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'ui-monospace, Menlo, monospace', color: '#A7F3D0', background: 'rgba(0,0,0,.35)', padding: 8, borderRadius: 8 }}>{b.code}</motion.pre>
+      {b.title && <div style={ink.title}>🧮 {b.title}</div>}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 10.5, width: '100%', fontFamily: 'ui-monospace, Menlo, monospace' }}>
+          <thead><tr>{b.headers.map((h, i) => <th key={i} style={{ textAlign: 'left', padding: '3px 6px', color: '#E9D8A6', borderBottom: '1px solid rgba(255,255,255,.2)' }}>{h}</th>)}</tr></thead>
+          <tbody>{b.rows.map((r, i) => <motion.tr key={i} {...rise(i)}>{r.map((c, j) => <td key={j} style={{ padding: '3px 6px', borderBottom: '1px solid rgba(255,255,255,.06)' }}>{c}</td>)}</motion.tr>)}</tbody>
+        </table>
+      </div>
     </div>
   );
   if (b.type === 'big') return (
@@ -202,7 +230,7 @@ export default function TutorBoard({ board: b }) {
         {(b.nodes || []).map((n, i) => (
           <motion.div key={i} {...rise(i)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             {i > 0 && <div style={{ color: '#34D399', fontSize: 12, lineHeight: 1 }}>▼</div>}
-            <div style={{ fontSize: 11.5, fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(52,211,153,.5)', background: 'rgba(52,211,153,.08)', textAlign: 'center' }}>{n}</div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, padding: '5px 10px', borderRadius: 8, textAlign: 'center', transition: 'all .4s', border: `1px solid ${b.active === i ? '#FBBF24' : 'rgba(52,211,153,.5)'}`, background: b.active === i ? 'rgba(251,191,36,.18)' : 'rgba(52,211,153,.08)', boxShadow: b.active === i ? '0 0 12px rgba(251,191,36,.45)' : 'none', opacity: b.active >= 0 && b.active !== i ? 0.6 : 1 }}>{b.active === i ? '▶ ' : ''}{n}</div>
           </motion.div>
         ))}
       </div>
@@ -223,7 +251,8 @@ export function boardToMd(b) {
   switch (b.type) {
     case 'chart': return `**${b.title || 'Chart'}**${b.x || b.y ? ` (${[b.x, b.y].filter(Boolean).join(' vs ')})` : ''}\n${(b.points || []).map((p) => `- ${p[0]}: ${p[1]}`).join('\n')}`;
     case 'steps': return `**${b.title || 'Steps'}**\n${(b.items || []).map((x, i) => `${i + 1}. ${x}`).join('\n')}`;
-    case 'code': return '```' + (b.lang || '') + '\n' + b.code + '\n```';
+    case 'code': return '```' + (b.lang || '') + '\n' + b.code + '\n```' + (b.note ? `\n${b.note}` : '');
+    case 'table': return `**${b.title || 'Table'}**\n| ${b.headers.join(' | ')} |\n| ${b.headers.map(() => '---').join(' | ')} |\n${b.rows.map((r) => `| ${r.join(' | ')} |`).join('\n')}`;
     case 'big': return `**${b.text}**${b.sub ? `\n${b.sub}` : ''}`;
     case 'compare': return [b.left, b.right].filter(Boolean).map((s) => `**${s.title}**\n${(s.items || []).map((x) => `- ${x}`).join('\n')}`).join('\n\n');
     case 'flow': return `**${b.title || 'Flow'}**\n${(b.nodes || []).join(' → ')}`;

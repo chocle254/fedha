@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import ProfessorByte from './ProfessorByte';
 import TutorBoard, { boardToMd } from './TutorBoard';
 import Md from './Md';
+import CodePad from './CodePad';
+import { resizeImage } from '../../lib/utils';
 import { askStudy } from '../../lib/study';
 import { stopSpeaking } from '../../lib/voice';
 import { speakByte, warmByte, byteVoiceInfo, byteVoiceWhy, getByteVoice, setByteVoice, BYTE_VOICES } from '../../lib/byte-voice';
@@ -64,7 +66,7 @@ function savePlan(key, v) {
   } catch { /* storage full or private */ }
 }
 
-export default function TutorStage({ prepare, active, subject, context, brief, planKey, onSaveNote, courseId, request, homework, onSetHomework, onGradeHomework }) {
+export default function TutorStage({ pomo, prepare, active, subject, context, brief, planKey, onSaveNote, courseId, request, homework, onSetHomework, onGradeHomework }) {
   const [log, setLog] = useState([]);
   const [plan, setPlan] = useState(null); // { title, opener, known, weak, steps, step, sig }
   const [reading, setReading] = useState(null); // what he is reading right now
@@ -117,10 +119,13 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const [classOn, setClassOn] = useState(false);
   const [paused, setPaused] = useState(false);
   const [quizUi, setQuizUi] = useState(null); // { i, n, waiting }
+  const [codeOpen, setCodeOpen] = useState(false); // the code editor (coding classes)
+  const [hwImgs, setHwImgs] = useState([]); // homework photos
   const captionsRef = useRef(false); captionsRef.current = captions;
   const curRef = useRef(null); curRef.current = cur;
   const planKeyRef = useRef(planKey); planKeyRef.current = planKey;
   // The class: on, paused, what to do when carried on (pending), where to pick up after a question (resumeFn), the quiz in progress.
+  const pomoRef = useRef(pomo); pomoRef.current = pomo;
   const cls = useRef({ on: false, paused: false, pending: null, resumeFn: null, quiz: null, step: 0 });
   const pre = useRef({}); // parts of the lesson fetched ahead of time (promises)
   const preVal = useRef({}); // the same parts once they have arrived
@@ -182,7 +187,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     const goNext = () => {
       if (playId.current !== id) return;
       const c = cls.current;
-      if (c.on && c.paused) { c.pending = () => play(i, s + 1); return; }
+      if (c.on && c.paused && !a.free) { c.pending = () => play(i, s + 1); return; }
       play(i, s + 1);
     };
     say(text, scene.mood, () => { if (playId.current !== id) return; setTalking(false); later(goNext, 550); });
@@ -199,7 +204,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     const key = K.current.stepKey(p, k);
     if (pre.current[key]) return pre.current[key];
     const history = [k - 2, k - 1].filter((x) => x >= 0 && lectureSaid.current[K.current.stepKey(p, x)]).map((x) => ({ role: 'ai', text: lectureSaid.current[K.current.stepKey(p, x)] }));
-    const job = askStudy({ type: 'stage', level: 'teach', intro, topic: subject, context: context(), plan: { steps: p.steps }, step: k, history })
+    const job = askStudy({ type: 'stage', level: 'teach', intro, topic: subject, context: context(), plan: { steps: p.steps, mode: p.mode, lang: p.lang, pipeline: p.pipeline }, step: k, history })
       .then((j) => {
         const scenes = j.scenes || [];
         if (!scenes.length) throw new Error('empty');
@@ -269,8 +274,41 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const lectureDone = (k) => {
     const c = cls.current; const p = planRef.current;
     if (!c.on || !p) return;
+    proceed(() => startCheck(k));
+  };
+  // After the check: the next part, or (coding classes) your turn to code, then the quiz.
+  const afterCheck = (k) => {
+    const c = cls.current; const p = planRef.current;
+    if (!c.on || !p) return;
     const next = { ...p, step: Math.max(p.step, k + 1) }; setPlan(next); planRef.current = next; savePlan(planKey, next);
-    proceed(k + 1 < p.steps.length ? () => teachStep(k + 1) : () => startQuiz());
+    if (k + 1 < p.steps.length) { holdForBreak(() => teachStep(k + 1), p.steps[k + 1].title); return; }
+    if (p.mode === 'coding' && !c.coded) {
+      c.coded = true;
+      showEntry({ role: 'ai', kind: 'misc', free: true, scenes: oneScene('Now the real test of a coder: you write it yourself. I put an exercise in the editor below. Run it, then hand it to me and I will review it line by line. When you are done, close the editor and we do the quiz.', 'excited', 'point'), chips: [] });
+      setCodeOpen(true); c.pending = () => startQuiz(); c.paused = true; setPaused(true);
+      return;
+    }
+    holdForBreak(() => startQuiz(), 'the quiz');
+  };
+  // A check question after every part: he only moves on once you have got it (or he has explained it twice).
+  const startCheck = (k) => {
+    const c = cls.current; const p = planRef.current;
+    if (!c.on || !p?.steps[k]) return;
+    const st = p.steps[k];
+    if (!st.check) { afterCheck(k); return; }
+    const q = { i: -1, right: 0, partial: 0, wrong: 0, missed: [], waiting: false, hinted: false, check: true, step: k, tries: 0, list: [{ ask: st.check, answer: st.answer || st.goal, hint: `Think about what we just said: ${st.goal}.`, simple: st.answer || st.goal }] };
+    c.quiz = q;
+    nextQuestion();
+  };
+  // Pomodoro: if the focus block is about to end, stop at this natural break instead of starting the next part.
+  const holdForBreak = (fn, what) => {
+    const c = cls.current; const f = pomoRef.current;
+    if (f?.phase === 'focus' && f.endAt && f.endAt - Date.now() < 100000) {
+      c.paused = true; setPaused(true); c.pending = fn;
+      showEntry({ role: 'ai', kind: 'misc', free: true, scenes: oneScene(`That is a perfect place to stop. Your break starts in a moment. When you are back, we carry on with ${what}.`, 'happy', 'wave'), chips: [] });
+      return;
+    }
+    proceed(fn);
   };
 
   // ── The quiz: he asks, you answer. Slow? A clue. Slower still? He answers and explains it simply. ──
@@ -302,8 +340,10 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     const item = q.list[q.i];
     q.hinted = false; q.waiting = true; q.timeup = '';
     q.board = { type: 'big', text: `Question ${q.i + 1} of ${q.list.length}`, sub: item.ask };
-    setQuizUi({ i: q.i, n: q.list.length, waiting: true });
-    gate(() => showEntry({ role: 'ai', kind: 'quizq', scenes: oneScene(`Question ${q.i + 1}. ${item.ask}`, 'thinking', 'lean', q.board), chips: [] }));
+    setQuizUi({ i: q.i, n: q.list.length, waiting: true, check: q.check, part: q.step });
+    if (q.check) q.board = { type: 'big', text: q.tries ? 'Try again' : 'Quick check', sub: item.ask };
+    const line = q.check ? (q.tries ? `Let us try that again. ${item.ask}` : `Quick check before we move on. ${item.ask}`) : `Question ${q.i + 1}. ${item.ask}`;
+    gate(() => showEntry({ role: 'ai', kind: 'quizq', scenes: oneScene(line, 'thinking', 'lean', q.board), chips: [] }));
     const after = q.list[q.i + 1];
     if (after) warmByte(`Question ${q.i + 2}. ${after.ask}`, { mood: 'thinking', voice: voiceRef.current });
   };
@@ -347,6 +387,19 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     if (!g) g = { verdict: 'partial', say: `I could not mark that one, the free AI is busy. Here is the answer: ${item.answer}`, mood: 'serious' };
     if (g.verdict === 'right') q.right += 1; else if (g.verdict === 'partial') q.partial += 1; else q.wrong += 1;
     if (g.verdict !== 'right') q.missed.push(item.ask);
+    if (q.check && g.verdict !== 'right' && q.tries === 0) {
+      // Missed the check: he says what was right and what wasn't, re-teaches that piece another way, then asks again.
+      q.tries = 1; q.i -= 1;
+      const p = planRef.current;
+      let re = null;
+      setThinking(true); thinkingRef.current = true;
+      try { re = await askStudy({ type: 'stage', level: 'reteach', topic: subject, context: context(), plan: { steps: p.steps, mode: p.mode, lang: p.lang, pipeline: p.pipeline }, step: q.step, check: item.ask, answer: item.answer, reply }); } catch { re = null; }
+      setThinking(false); thinkingRef.current = false;
+      if (!c.on || c.quiz !== q) return;
+      const scenes0 = re?.scenes?.length ? re.scenes : [{ say: g.say, mood: g.mood, gesture: 'explain', board: { type: 'big', text: 'Not quite', sub: item.answer } }];
+      gate(() => showEntry({ role: 'ai', kind: 'quizfb', scenes: scenes0, chips: [] }));
+      return;
+    }
     const scenes = [{ say: g.say, mood: g.mood, gesture: g.verdict === 'right' ? 'celebrate' : 'explain', board: g.verdict === 'right' ? null : { type: 'big', text: 'The answer', sub: item.answer } }];
     if (g.verdict === 'wrong') scenes.push({ say: `Simply put: ${item.simple || item.answer}`, mood: 'happy', gesture: 'explain', board: null });
     gate(() => showEntry({ role: 'ai', kind: 'quizfb', scenes, chips: [] }));
@@ -355,6 +408,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const finishQuiz = () => {
     const c = cls.current; const q = c.quiz; const p = planRef.current;
     if (!q) return;
+    if (q.check) { c.quiz = null; setQuizUi(null); if (q.wrong || q.partial) c.weak = [...(c.weak || []), q.list[0].ask].slice(-6); afterCheck(q.step); return; }
     const total = q.list.length;
     lastQuiz.current = `${q.right} of ${total} right${q.partial ? `, ${q.partial} partly right` : ''}${q.missed.length ? `. Missed: ${q.missed.slice(0, 3).join(' | ')}` : ''}`;
     const early = q.early && p && p.step < p.steps.length;
@@ -401,6 +455,30 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     else if (c.quiz?.waiting) armQuizTimers();
   };
 
+  // ── Pomodoro: he follows your focus timer ──
+  const lastPhase = useRef(pomo?.phase);
+  useEffect(() => {
+    const ph = pomo?.phase; const prev = lastPhase.current; lastPhase.current = ph;
+    const c = cls.current;
+    if (!c.on || ph === prev) return;
+    if ((ph === 'break' || ph === 'recall') && prev === 'focus') {
+      pauseClass();
+      showEntry({ role: 'ai', kind: 'misc', free: true, scenes: oneScene(ph === 'recall' ? 'Focus block done, well worked. Do the quick recall, then take your break. I will wait right here.' : 'Break time. Stand up, stretch, drink some water. I will be right here when the timer calls you back.', 'happy', 'wave'), chips: [] });
+    } else if (ph === 'focus' && prev && prev !== 'focus' && prev !== 'setup' && c.paused) {
+      const p = planRef.current;
+      const at = p?.steps?.[Math.min(p.step, p.steps.length - 1)]?.title;
+      showEntry({ role: 'ai', kind: 'resume', free: true, scenes: oneScene(`Welcome back. Fresh brain, good. ${at ? `We carry on with ${at}.` : 'Let us carry on.'}`, 'excited', 'wave'), chips: [] });
+    }
+  }, [pomo?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Pausing the timer pauses him; carrying on with the timer carries him on.
+  const lastPaused = useRef(false);
+  useEffect(() => {
+    const was = lastPaused.current; lastPaused.current = !!pomo?.paused;
+    if (!cls.current.on || pomo?.phase !== 'focus') return;
+    if (pomo?.paused && !was) pauseClass();
+    else if (!pomo?.paused && was && cls.current.paused) carryOn();
+  }, [pomo?.paused]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const quizNow = () => {
     const c = cls.current; const p = planRef.current;
     if (thinkingRef.current || c.quiz) return;
@@ -442,6 +520,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       case 'quizq': case 'quizhint': gate(armQuizTimers); break;
       case 'quizdone': askRef.current('', 'wrapup', { minutesLeft: 3, quiz: lastQuiz.current }); break;
       case 'quizback': proceed(() => teachStep(planRef.current.step)); break;
+      case 'resume': carryOn(); break;
       default: break;
     }
   };
@@ -477,7 +556,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     try {
       const p = await ensurePlan();
       const hwFor = ['homework_check', 'homework_grade'].includes(level) ? hwRef.current : null;
-      const j = await askStudy({ type: 'stage', level: level || undefined, homework: hwFor ? { title: hwFor.title, task: hwFor.task, deliverable: hwFor.deliverable, misses: hwFor.misses || 0 } : undefined, submission: opts.submission, signals: opts.signals, skipped: opts.skipped || undefined, minutesLeft: opts.minutesLeft, quiz: level === 'wrapup' ? (opts.quiz || lastQuiz.current || undefined) : undefined, question: userText, topic: subject, context: context(), history, live: liveRef.current, interrupted: opts.interrupted || undefined, plan: p ? { steps: p.steps } : undefined, step: p ? p.step : undefined });
+      const j = await askStudy({ type: 'stage', level: level || undefined, homework: hwFor ? { title: hwFor.title, task: hwFor.task, deliverable: hwFor.deliverable, misses: hwFor.misses || 0 } : undefined, submission: opts.submission, images: opts.images, signals: opts.signals, skipped: opts.skipped || undefined, minutesLeft: opts.minutesLeft, quiz: level === 'wrapup' ? (opts.quiz || lastQuiz.current || undefined) : undefined, question: userText, topic: subject, context: context(), history, live: liveRef.current, interrupted: opts.interrupted || undefined, plan: p ? { steps: p.steps } : undefined, step: p ? p.step : undefined });
       if (level === 'wrapup' && j.homework) { onSetHomework?.(j.homework); setHwSet(j.homework); }
       if (level === 'homework_grade') { onGradeHomework?.(j.grade, !!opts.skipped); setHwVerdict({ ...(j.grade || {}), skipped: !!opts.skipped }); setHwOpen(false); afterRef.current = opts.then || (liveRef.current ? 'live_start' : 'start'); }
       const entry = { role: 'ai', kind, scenes: j.scenes || [], chips: j.chips || [] };
@@ -493,10 +572,10 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const handIn = (skipped) => {
     const s0 = sig.current;
     const signals = { pasted: s0.pasted, typed: s0.typed, seconds: s0.first ? Math.round((Date.now() - s0.first) / 1000) : 0 };
-    if (!skipped && hwText.trim().length < 3) return;
+    if (!skipped && hwText.trim().length < 3 && !hwImgs.length) return;
     setLog((l) => { const n = [...l, { role: 'user', text: skipped ? "I didn't do the homework." : `Homework:\n${hwText.trim()}` }]; logRef.current = n; return n; });
     // bypass the "user turn" path: grade directly
-    askRef.current('', 'homework_grade', { submission: skipped ? '' : hwText.trim(), signals, skipped, then: nextAfterHw.current });
+    askRef.current('', 'homework_grade', { submission: skipped ? '' : hwText.trim(), images: skipped ? undefined : hwImgs, signals, skipped, then: nextAfterHw.current }); setHwImgs([]);
   };
 
   // Before teaching he reads everything and plans the session. Re-planned when the material changes.
@@ -506,9 +585,9 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     const b = brief();
     const sig = `${b.text.length}:${b.read.notes}:${b.read.cards}`;
     const have = planRef.current;
-    if (!force && have && have.key === planKey && have.sig === sig) return have;
+    if (!force && have && have.key === planKey && have.sig === sig && have.mode) return have; // plans without a class type are from before: re-plan
     const saved = loadPlans()[planKey];
-    if (!force && saved && saved.sig === sig) { setPlan(saved); planRef.current = saved; return saved; }
+    if (!force && saved && saved.sig === sig && saved.mode) { setPlan(saved); planRef.current = saved; return saved; }
     const r = b.read;
     setReading([r.lessons && `${r.lessons} lesson${r.lessons === 1 ? '' : 's'} of notes`, r.notes && `${r.notes} saved note${r.notes === 1 ? '' : 's'}`, r.cards && `${r.cards} flashcard${r.cards === 1 ? '' : 's'}`, r.weak && `${r.weak} weak spot${r.weak === 1 ? '' : 's'}`].filter(Boolean).join(', ') || 'the topic');
     try {
@@ -632,8 +711,8 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const showText = captions || voice === 'off';
   const partNo = cls.current.step;
   const status = paused ? '⏸ Paused. Tap Carry on when you are ready.'
-    : quizUi?.waiting ? `❓ Question ${quizUi.i + 1} of ${quizUi.n}. Your turn: answer out loud or type it.`
-    : talking ? (quizUi ? `❓ Quiz: question ${quizUi.i + 1} of ${quizUi.n}` : plan?.steps?.[partNo] ? `🎙 Part ${partNo + 1} of ${plan.steps.length}: ${plan.steps[partNo].title}` : '🎙 Byte is talking…') : null;
+    : quizUi?.waiting ? (quizUi.check ? `✋ Check on part ${quizUi.part + 1}. Your turn: answer out loud or type it.` : `❓ Question ${quizUi.i + 1} of ${quizUi.n}. Your turn: answer out loud or type it.`)
+    : talking ? (quizUi?.check ? `✋ Checking part ${quizUi.part + 1}` : quizUi ? `❓ Quiz: question ${quizUi.i + 1} of ${quizUi.n}` : plan?.steps?.[partNo] ? `🎙 Part ${partNo + 1} of ${plan.steps.length}: ${plan.steps[partNo].title}` : '🎙 Byte is talking…') : null;
   const bubble = idle?.line || (showText ? (cur && !cur.done ? typed : scene?.say) : status) || (thinking ? '' : classOn ? 'Ready when you are.' : 'Ask me anything. I bite only wrong answers.');
   const lastAi = [...log].reverse().find((m) => m.role === 'ai' && !m.error);
   const chips = lastAi?.chips || [];
@@ -691,19 +770,26 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
         </div>
       )}
 
+      {codeOpen && <CodePad lang={planRef.current?.lang || 'python'} topic={subject} goal={planRef.current?.steps?.map((x) => x.goal).join('; ')} context={context()} onSay={(t, m) => { if (!talkingRef.current) showEntry({ role: 'ai', kind: 'misc', free: true, scenes: oneScene(t, m || 'happy', 'explain'), chips: [] }); }} onClose={() => { setCodeOpen(false); if (cls.current.on && cls.current.paused) carryOn(); }} />}
+      {!codeOpen && planRef.current?.mode === 'coding' && !thinking && <button className="btn-ghost" style={{ width: '100%', marginTop: 10 }} onClick={() => setCodeOpen(true)}>💻 Code it yourself (exercise + LeetCode)</button>}
       {hwOpen && homework && (
         <div className="card" style={{ marginTop: 10, padding: 12, borderColor: 'rgba(251,146,60,.5)', background: 'linear-gradient(135deg,rgba(251,146,60,.10),transparent)' }}>
           <div style={{ fontWeight: 800, fontSize: 13.5 }}>📌 Homework check: {homework.title}</div>
           <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.5 }}>{homework.task}</div>
           {homework.deliverable && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>Show: {homework.deliverable}</div>}
           {homework.misses > 0 && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 4 }}>Skipped {homework.misses} time{homework.misses === 1 ? '' : 's'} already.</div>}
-          <textarea className="input" rows={5} style={{ marginTop: 8 }} value={hwText} placeholder="Your work, in your own words (or a link to it)…"
+          <textarea className="input" rows={homework.kind === 'code' ? 10 : 5} spellCheck={homework.kind !== 'code'} style={{ marginTop: 8, ...(homework.kind === 'code' ? { fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12.5, background: '#0A0D12', color: '#D1FAE5', whiteSpace: 'pre' } : {}) }} value={hwText} placeholder={homework.kind === 'code' ? `Write your ${homework.lang || 'code'} here…` : 'Your work, in your own words (or a link to it)…'}
+            onKeyDown={(e) => { if (homework.kind === 'code' && e.key === 'Tab') { e.preventDefault(); const el = e.target, a = el.selectionStart; setHwText((t) => `${t.slice(0, a)}    ${t.slice(el.selectionEnd)}`); requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = a + 4; }); } }}
             onPaste={(e) => { sig.current.pasted += (e.clipboardData?.getData('text') || '').length; if (!sig.current.first) sig.current.first = Date.now(); }}
             onInput={(e) => { const t = e.nativeEvent?.inputType || ''; if (!t.includes('Paste')) sig.current.typed += (e.nativeEvent?.data || '').length || 1; if (!sig.current.first) sig.current.first = Date.now(); }}
             onChange={(e) => setHwText(e.target.value)} />
-          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>He can tell pasted and AI-written work. Write it yourself.</div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 6 }}>
+            {hwImgs.map((src, i) => <div key={i} style={{ position: 'relative' }}><img src={src} alt={`Homework photo ${i + 1}`} style={{ width: 48, height: 64, objectFit: 'cover', borderRadius: 6 }} /><button aria-label="Remove photo" onClick={() => setHwImgs((x) => x.filter((_, k) => k !== i))} style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: 9, border: 0, background: '#000', color: '#fff', fontSize: 10 }}>✕</button></div>)}
+            {hwImgs.length < 4 && <label className="btn-ghost" style={{ cursor: 'pointer', fontSize: 12 }}>📷 {hwImgs.length ? 'Add photo' : 'Photo of handwritten work'}<input type="file" accept="image/*" capture="environment" multiple style={{ display: 'none' }} onChange={async (e) => { const out = []; for (const f of Array.from(e.target.files || []).slice(0, 4 - hwImgs.length)) { try { out.push(await resizeImage(f, 1400, 0.8)); } catch { /* skip */ } } setHwImgs((x) => [...x, ...out].slice(0, 4)); if (!sig.current.first) sig.current.first = Date.now(); }} /></label>}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>He reads photos of your handwriting too. He can tell pasted and AI-written work, so write it yourself.</div>
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-            <button className="btn-primary" style={{ flex: 1 }} disabled={thinking || hwText.trim().length < 3} onClick={() => handIn(false)}>✋ Hand it in</button>
+            <button className="btn-primary" style={{ flex: 1 }} disabled={thinking || (hwText.trim().length < 3 && !hwImgs.length)} onClick={() => handIn(false)}>✋ Hand it in</button>
             <button className="btn-ghost" disabled={thinking} onClick={() => handIn(true)}>😬 I didn't do it</button>
           </div>
         </div>
