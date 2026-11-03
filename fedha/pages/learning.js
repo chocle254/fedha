@@ -14,6 +14,7 @@ import Opportunities from '../components/learn/Opportunities';
 import CurriculumBuilder from '../components/learn/CurriculumBuilder';
 import BytePrep from '../components/learn/BytePrep';
 import CourseMaterials from '../components/learn/CourseMaterials';
+import { Medal } from '../components/learn/Medal';
 import { getMaterials } from '../lib/materials';
 import { FOLDERS, folderOf, folderInfo } from '../lib/course-folders';
 
@@ -283,7 +284,7 @@ export default function LearningPage(){
 
   {studyAt&&study&&<StudyMode courses={courses} notes={study.notes} cards={study.cards} log={study.log} prefs={study.prefs} onSaveLessonNotes={saveStudyNotes} onSaveAiNotes={saveStudyAiNotes} start={studyAt} onClose={()=>setStudyAt(null)} onFocusDone={focusDone} onQuizDone={quizDone} onLessonDone={(c,id)=>toggleLesson(courses.find(x=>x.id===c.id)||c,id)} onSaveNote={saveNote} onPrefs={(p)=>{patch({prefs:p});savePrefs(p);}}/>}
   {certNote&&<a href="/tech-hub?tab=certificates" className="learn-toast" style={{textDecoration:'none',color:'inherit',bottom:toast?150:undefined}}><b>🖼 Framed in your Certificates Room</b><div style={{fontSize:12,opacity:.8}}>{certNote} · tap to see it</div></a>}
-  {toast&&<div className="learn-toast">{toast.medals?toast.medals.map(m=><div key={m.id}><span style={{fontSize:26}}>{m.icon}</span> <b>Medal: {m.name}</b><div style={{fontSize:12,opacity:.8}}>{m.desc}</div></div>):<b>+{toast.xp} XP</b>}</div>}
+  {toast&&<div className="learn-toast">{toast.medals?toast.medals.map(m=><div key={m.id} style={{display:'flex',alignItems:'center',gap:10,textAlign:'left'}}><Medal id={m.id} earned size={54}/><div><b>New medal: {m.name}</b><div style={{fontSize:12,opacity:.8}}>{m.desc}</div></div></div>):<b>+{toast.xp} XP</b>}</div>}
   {selected&&!formOpen&&<CourseDetail onPrepSave={async(c)=>{await updateCourse(c);setSelected(s=>s&&s.id===c.id?{...c}:s);}} onStudy={(lessonId)=>{setStudyAt({courseId:selected.id,lessonId});setSelected(null);}} course={selected} onClose={()=>setSelected(null)} onEdit={()=>{setFormOpen(true);setForm({...EMPTY,...selected,modules:normalizeModules(selected.modules)});setSelected(null)}} onToggle={toggleLesson} onSaveNotes={saveLessonNotes} onCertificate={uploadCertificate} onSetCompleted={setCompleted} savingCert={savingCert} openLesson={openLesson} setOpenLesson={setOpenLesson} aiLesson={aiLesson} setAiLesson={setAiLesson} aiTranscript={aiTranscript} setAiTranscript={setAiTranscript} aiLoading={aiLoading} aiError={aiError} generateLessonNotes={generateLessonNotes} generateVimeoNotes={generateVimeoNotes}/>}
   </Layout>;
 }

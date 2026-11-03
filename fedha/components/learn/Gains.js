@@ -1,4 +1,6 @@
 import { levelOf, rankOf, liveStreak, focusByDay, masteryFor, MEDALS, isMastered } from '../../lib/study';
+import { todayISO } from '../../lib/utils';
+import { Medal, StreakFlame, ART } from './Medal';
 
 // Gains: level and XP, streak, focus over the last 14 days, mastery per course (evidence only) and medals.
 export default function Gains({ study, courses }) {
@@ -9,6 +11,9 @@ export default function Gains({ study, courses }) {
   const week = days.slice(-7).reduce((s, d) => s + d.min, 0), lastWeek = days.slice(0, 7).reduce((s, d) => s + d.min, 0);
   const earned = MEDALS.filter((m) => stats.medals[m.id]);
   const overall = masteryFor(study, null);
+  // What the medals measure, for the progress rings on locked ones.
+  const ctx = { mastered: cards.filter(isMastered).length, coursesDone: courses.filter((c) => c.status === 'completed').length, bestMastery: Math.max(0, ...courses.map((c) => masteryFor(study, c.id).score || 0)), level: lv.level };
+  const streakNow = liveStreak(stats);
 
   return (
     <div>
@@ -22,7 +27,7 @@ export default function Gains({ study, courses }) {
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginTop: 14, textAlign: 'center' }}>
-          {[[`🔥 ${liveStreak(stats)}`, 'day streak'], [`${stats.best_streak}`, 'best streak'], [`${Math.round(stats.counts.focus_min / 60)}h`, 'focused'], [`${cards.filter(isMastered).length}`, 'cards mastered']].map(([v, l]) => (
+          {[[<span key="f" style={{ display: 'inline-flex', alignItems: 'flex-end', gap: 2 }}><StreakFlame days={streakNow} lit={stats.last_day === todayISO()} size={18} />{streakNow}</span>, 'day streak'], [`${stats.best_streak}`, 'best streak'], [`${Math.round(stats.counts.focus_min / 60)}h`, 'focused'], [`${cards.filter(isMastered).length}`, 'cards mastered']].map(([v, l]) => (
             <div key={l}><div style={{ fontWeight: 800, fontSize: 17 }} className="font-num">{v}</div><div style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{l}</div></div>
           ))}
         </div>
@@ -67,11 +72,12 @@ export default function Gains({ study, courses }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(96px,1fr))', gap: 8, marginTop: 10 }}>
           {MEDALS.map((m) => {
             const got = stats.medals[m.id];
+            const [have, need] = ART[m.id]?.of(stats, ctx) || [0, 1];
             return (
-              <div key={m.id} className="medal" style={{ opacity: got ? 1 : 0.4, filter: got ? 'none' : 'grayscale(1)', borderColor: got ? 'rgba(233,216,166,.45)' : 'var(--border)' }} title={m.desc}>
-                <div style={{ fontSize: 26 }}>{m.icon}</div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, marginTop: 3 }}>{m.name}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2, lineHeight: 1.3 }}>{got ? `Earned ${new Date(got + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : m.desc}</div>
+              <div key={m.id} className={`medal ${got ? 'medal-got' : ''}`} title={m.desc}>
+                <Medal id={m.id} earned={!!got} size={58} progress={got ? 1 : (Number(have) || 0) / need} />
+                <div style={{ fontSize: 11.5, fontWeight: 800, marginTop: 2, color: got ? 'var(--text)' : 'var(--text-3)' }}>{m.name}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2, lineHeight: 1.3 }}>{got ? `Earned ${new Date(got + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : `${m.desc} · ${Math.min(Number(have) || 0, need)}/${need}`}</div>
               </div>
             );
           })}

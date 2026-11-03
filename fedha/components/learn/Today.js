@@ -3,6 +3,7 @@ import { levelOf, rankOf, liveStreak, isDue, MEDALS, askStudy, studyText, addDay
 import { todayISO } from '../../lib/utils';
 import QuickQuiz from './QuickQuiz';
 import Md from './Md';
+import { Medal, StreakFlame } from './Medal';
 
 // The Learning home: where you stand (level, streak, today), what to do next (study, review, quiz, continue the
 // next lesson), and a recap of what you studied this week.
@@ -60,7 +61,7 @@ export default function Today({ study, courses, onStudy, onTab, onRecap, onSaveN
             <div style={{ height: 6, background: 'var(--card-2)', borderRadius: 6, overflow: 'hidden', marginTop: 5 }}><div style={{ height: '100%', width: `${lv.pct}%`, background: 'linear-gradient(90deg,var(--green),var(--gold))' }} /></div>
             <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }} className="font-num">{lv.need - lv.into} XP to level {lv.level + 1}</div>
           </div>
-          <div style={{ textAlign: 'center' }}><div style={{ fontSize: 24, filter: studiedToday ? 'none' : 'grayscale(1)' }}>🔥</div><div className="font-num" style={{ fontWeight: 800 }}>{streak}</div></div>
+          <div style={{ textAlign: 'center' }}><StreakFlame days={streak} lit={studiedToday} size={26} /><div className="font-num" style={{ fontWeight: 800 }}>{streak}</div></div>
         </div>
         <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 10 }}>
           {studiedToday ? <>Today: <b className="font-num">{todayMin} min</b> focused · <b className="font-num">+{todayXp} XP</b></> : streak ? `Study today to keep your ${streak}-day streak.` : 'One focus block today starts a streak.'}
@@ -95,7 +96,7 @@ export default function Today({ study, courses, onStudy, onTab, onRecap, onSaveN
       {recent.length > 0 && (
         <button className="card" onClick={() => onTab('gains')} style={{ padding: 12, width: '100%', textAlign: 'left', cursor: 'pointer', color: 'var(--text)' }}>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 6 }}>Latest medals · {Object.keys(stats.medals).length}/{MEDALS.length}</div>
-          <div style={{ display: 'flex', gap: 12 }}>{recent.map((m) => <span key={m.id} title={m.name} style={{ fontSize: 26 }}>{m.icon}</span>)}</div>
+          <div style={{ display: 'flex', gap: 10 }}>{recent.map((m) => <span key={m.id} title={m.name}><Medal id={m.id} earned size={44} /></span>)}</div>
         </button>
       )}
     </div>
