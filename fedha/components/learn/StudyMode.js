@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { studyText, learnerBrief, loadHomework, saveHomework, pendingHomework, homeworkKey } from '../../lib/study';
 import { getSetting } from '../../lib/db';
 import { getKb, buildKb, kbToMarkdown, kbForPrompt } from '../../lib/byte-kb';
+import { getMaterials, relevantMaterial } from '../../lib/materials';
 import { genId, todayISO } from '../../lib/utils';
 import { showNotif } from '../../lib/notifications';
 import QuickQuiz from './QuickQuiz';
@@ -47,11 +48,14 @@ export default function StudyMode({ onSaveAiNotes, courses, notes, cards = [], l
   // Professor Byte reads everything: the material plus a brief on how you're doing (lib/study.js).
   // Byte's stored research on this lesson (lib/byte-kb.js) goes first in everything he reads.
   const kbRef = useRef(null);
+  const matRef = useRef([]);
+  useEffect(() => { matRef.current = []; if (courseId) getMaterials(courseId).then((l) => { matRef.current = l; }); }, [courseId]);
   useEffect(() => { kbRef.current = null; if (course && lesson) getKb(course.id, lesson.id).then((k) => { kbRef.current = k; }); }, [courseId, lessonId]); // eslint-disable-line react-hooks/exhaustive-deps
   const brief = () => {
     const b = learnerBrief({ course, lesson, topic: topic.trim() || subject, notes, cards, log });
     const k = kbForPrompt(kbRef.current);
-    return { text: `${k ? `${k}\n\n` : ''}${b.text}`.slice(0, 14000), read: { ...b.read, kb: !!kbRef.current } };
+    const m = relevantMaterial(matRef.current, `${lesson?.title || ''} ${topic} ${subject}`, 3500);
+    return { text: `${k ? `${k}\n\n` : ''}${m ? `FROM THE COURSE'S OWN MATERIALS (prefer these examples and code):\n${m}\n\n` : ''}${b.text}`.slice(0, 15000), read: { ...b.read, kb: !!kbRef.current, materials: matRef.current.length } };
   };
   // First time on a lesson: Byte researches it once and keeps it (and it becomes the lesson's notes if it has none).
   const prepare = async (onBuild) => {

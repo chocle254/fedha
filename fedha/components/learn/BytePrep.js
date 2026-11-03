@@ -4,7 +4,7 @@ import { buildKb, kbStatus, kbToMarkdown, getKb } from '../../lib/byte-kb';
 // "🧠 Byte, prepare this course": Byte researches every lesson of the curriculum once (lib/byte-kb.js), one after
 // another, and stores it. Lessons without notes get his research as their AI notes. Stops if you close it;
 // pressing again carries on from where it stopped (finished lessons are skipped).
-export default function BytePrep({ course, onSaveCourse }) {
+export default function BytePrep({ course, onSaveCourse, hasMaterials }) {
   const [st, setSt] = useState({ ready: 0, total: (course.modules || []).length });
   const [running, setRunning] = useState(false);
   const [now, setNow] = useState('');
@@ -16,13 +16,13 @@ export default function BytePrep({ course, onSaveCourse }) {
   useEffect(() => { kbStatus(course).then(setSt); }, [course.id, (course.modules || []).length]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { stop.current = true; }, []);
 
-  const run = async () => {
+  const run = async (force = false) => {
     stop.current = false; setRunning(true); setErr('');
     let c = { ...course, modules: [...(course.modules || [])] };
     work.current = c;
     for (const m of c.modules) {
       if (stop.current) break;
-      if (await getKb(c.id, m.id)) continue;
+      if (!force && await getKb(c.id, m.id)) continue;
       setNow(m.title);
       try {
         const kb = await buildKb(c, m);
@@ -54,7 +54,8 @@ export default function BytePrep({ course, onSaveCourse }) {
         </div>
         {!done && (running
           ? <button className="btn-ghost" onClick={() => { stop.current = true; }}>Pause</button>
-          : <button className="btn-primary" onClick={run}>{st.ready ? 'Carry on' : 'Start'}</button>)}
+          : <button className="btn-primary" onClick={() => run()}>{st.ready ? 'Carry on' : 'Start'}</button>)}
+        {done && hasMaterials && !running && <button className="btn-ghost" onClick={() => run(true)}>Re-study with materials</button>}
       </div>
       <div style={{ height: 4, borderRadius: 3, background: 'var(--border)', overflow: 'hidden', marginTop: 8 }}><div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg,#7DF9FF,#34D399)', transition: 'width .6s' }} /></div>
       {!done && !running && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 6 }}>He researches each lesson once (concepts, the deep version, examples, mistakes, checks) and keeps it, so he never starts from scratch again. Lessons with no notes get his as notes.</div>}

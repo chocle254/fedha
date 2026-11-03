@@ -4,6 +4,7 @@
 // capped at 150 lessons (oldest dropped) to keep the database small.
 import { getSetting, setSetting } from './db';
 import { askStudy } from './study';
+import { getMaterials, relevantMaterial } from './materials';
 
 const KEY = 'byte_kb';
 const CAP = 150;
@@ -30,7 +31,8 @@ export async function buildKb(course, lesson) {
   const mods = course?.modules || [];
   const i = mods.findIndex((m) => m.id === lesson.id);
   const outline = mods.slice(Math.max(0, i - 3), i + 4).map((m) => (m.id === lesson.id ? `[${m.title}]` : m.title)).join(' -> ');
-  const context = [lesson.aiNotes, lesson.notes && `Learner's notes: ${lesson.notes}`, course.description && `Course: ${course.description}`].filter(Boolean).join('\n\n').slice(0, 6000);
+  const mats = relevantMaterial(await getMaterials(course.id), `${lesson.title} ${lesson.section || ''} ${lesson.aiNotes?.slice(0, 300) || ''}`, 6000);
+  const context = [mats && `THE COURSE'S OWN MATERIALS (slides, PDFs, repo code; prefer these):\n${mats}`, lesson.aiNotes, lesson.notes && `Learner's notes: ${lesson.notes}`, course.description && `Course: ${course.description}`].filter(Boolean).join('\n\n').slice(0, 12000);
   const j = await askStudy({ type: 'lesson_kb', course: `${course.title}${course.provider ? ` (${course.provider})` : ''}`, section: lesson.section, lesson: lesson.title, outline, context });
   await put(kbKey(course.id, lesson.id), j.kb);
   return j.kb;
