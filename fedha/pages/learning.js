@@ -15,6 +15,7 @@ import CurriculumBuilder from '../components/learn/CurriculumBuilder';
 import BytePrep from '../components/learn/BytePrep';
 import CourseMaterials from '../components/learn/CourseMaterials';
 import { getMaterials } from '../lib/materials';
+import { FOLDERS, folderOf, folderInfo } from '../lib/course-folders';
 
 const TABS = [['today', '🏠 Today'], ['courses', '📚 Courses'], ['review', '🃏 Review'], ['quiz', '⚡ Quiz'], ['notes', '📝 Notes'], ['projects', '🛠️ Projects'], ['opps', '🌍 Opportunities'], ['gains', '🏅 Gains']];
 
@@ -256,9 +257,9 @@ export default function LearningPage(){
       <button role="tab" aria-selected={view==='completed'} className={`chip ${view==='completed'?'active':''}`} onClick={()=>setView('completed')}>🏁 Completed ({completed.length})</button>
     </div>}
     {view==='active'&&active.length===0&&completed.length>0&&<div className="card-2" style={{padding:16,fontSize:13,color:'var(--text-2)',textAlign:'center'}}>Nothing in progress — every course is finished. 🎉 Add a new one when you're ready.</div>}
-    {view==='active'&&active.map(c=><CourseCard key={c.id} course={c} onOpen={()=>setSelected(c)} onEdit={()=>openEdit(c)} onDelete={()=>{if(confirm(`Delete "${c.title}"?`))removeCourse(c.id)}} onComplete={()=>setCompleted(c,true)}/>)}
+    {view==='active'&&<Folders list={active} render={c=><CourseCard key={c.id} course={c} onOpen={()=>setSelected(c)} onEdit={()=>openEdit(c)} onDelete={()=>{if(confirm(`Delete "${c.title}"?`))removeCourse(c.id)}} onComplete={()=>setCompleted(c,true)}/>}/>}
     {view==='completed'&&completed.length===0&&<div className="card-2" style={{padding:16,fontSize:13,color:'var(--text-2)',textAlign:'center'}}>No finished courses yet. Mark one complete and it moves here.</div>}
-    {view==='completed'&&completed.map(c=><CourseCard key={c.id} course={c} onOpen={()=>setSelected(c)} onEdit={()=>openEdit(c)} onDelete={()=>{if(confirm(`Delete "${c.title}"?`))removeCourse(c.id)}} onReopen={()=>setCompleted(c,false)}/>)}
+    {view==='completed'&&<Folders list={completed} render={c=><CourseCard key={c.id} course={c} onOpen={()=>setSelected(c)} onEdit={()=>openEdit(c)} onDelete={()=>{if(confirm(`Delete "${c.title}"?`))removeCourse(c.id)}} onReopen={()=>setCompleted(c,false)}/>}/>}
     </>}
   </div></div>
 
@@ -267,6 +268,7 @@ export default function LearningPage(){
     <Field label="Provider"><input className="input" value={form.provider} onChange={e=>setForm({...form,provider:e.target.value})} placeholder="Google, NVIDIA, Coursera, Udemy..."/></Field>
     <Field label="Course link"><input className="input" value={form.url} onChange={e=>setForm({...form,url:e.target.value})} placeholder="https://..."/></Field>
     <Field label="What will you learn?"><textarea className="input" rows={3} value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></Field>
+    <Field label="Folder"><select className="input" value={form.folder||''} onChange={e=>setForm({...form,folder:e.target.value})}><option value="">Auto: {folderInfo(folderOf({...form,folder:''})).icon} {folderInfo(folderOf({...form,folder:''})).name}</option>{FOLDERS.map(f=><option key={f.id} value={f.id}>{f.icon} {f.name}</option>)}</select></Field>
     <Field label="Seriousness / priority"><select className="input" value={form.priority} onChange={e=>setForm({...form,priority:Number(e.target.value)})}>{PRIORITIES.map(p=><option key={p.value} value={p.value}>{p.value} — {p.label}</option>)}</select></Field>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}><Field label="Estimated hours (fallback)"><input className="input" type="number" min=".5" step=".5" value={form.estimated_hours} onChange={e=>setForm({...form,estimated_hours:e.target.value})}/></Field><Field label="Study hours / week"><input className="input" type="number" min=".25" step=".25" value={form.weekly_hours} onChange={e=>setForm({...form,weekly_hours:e.target.value})}/></Field></div>
     <Field label="Target completion date"><input className="input" type="date" value={form.deadline} onChange={e=>setForm({...form,deadline:e.target.value})}/></Field>
@@ -284,6 +286,24 @@ export default function LearningPage(){
   {toast&&<div className="learn-toast">{toast.medals?toast.medals.map(m=><div key={m.id}><span style={{fontSize:26}}>{m.icon}</span> <b>Medal: {m.name}</b><div style={{fontSize:12,opacity:.8}}>{m.desc}</div></div>):<b>+{toast.xp} XP</b>}</div>}
   {selected&&!formOpen&&<CourseDetail onPrepSave={async(c)=>{await updateCourse(c);setSelected(s=>s&&s.id===c.id?{...c}:s);}} onStudy={(lessonId)=>{setStudyAt({courseId:selected.id,lessonId});setSelected(null);}} course={selected} onClose={()=>setSelected(null)} onEdit={()=>{setFormOpen(true);setForm({...EMPTY,...selected,modules:normalizeModules(selected.modules)});setSelected(null)}} onToggle={toggleLesson} onSaveNotes={saveLessonNotes} onCertificate={uploadCertificate} onSetCompleted={setCompleted} savingCert={savingCert} openLesson={openLesson} setOpenLesson={setOpenLesson} aiLesson={aiLesson} setAiLesson={setAiLesson} aiTranscript={aiTranscript} setAiTranscript={setAiTranscript} aiLoading={aiLoading} aiError={aiError} generateLessonNotes={generateLessonNotes} generateVimeoNotes={generateVimeoNotes}/>}
   </Layout>;
+}
+
+// Courses in folders by subject (lib/course-folders.js): a header per folder with its count and overall progress,
+// tap to fold it away. Remembered on the phone.
+function Folders({list,render}){
+  const [shut,setShut]=useState(()=>{try{return JSON.parse(localStorage.getItem('luxe_course_folders_shut')||'{}');}catch{return {};}});
+  const toggle=(id)=>{const n={...shut,[id]:!shut[id]};setShut(n);try{localStorage.setItem('luxe_course_folders_shut',JSON.stringify(n));}catch{}};
+  const groups=FOLDERS.map(f=>({f,items:list.filter(c=>folderOf(c)===f.id)})).filter(g=>g.items.length);
+  if(groups.length<=1&&list.length<3)return list.map(render);
+  return groups.map(({f,items})=>{const pct=Math.round(items.reduce((s,c)=>s+progress(c),0)/items.length);return <div key={f.id} style={{marginBottom:14}}>
+    <button onClick={()=>toggle(f.id)} style={{all:'unset',boxSizing:'border-box',cursor:'pointer',width:'100%',display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:14,marginBottom:8,background:`linear-gradient(90deg,${f.color}22,transparent)`,border:`1px solid ${f.color}44`}}>
+      <span style={{fontSize:20}}>{f.icon}</span>
+      <span style={{flex:1,minWidth:0}}><span style={{display:'block',fontWeight:800,fontSize:13.5}}>{f.name}</span><span style={{fontSize:11,color:'var(--text-3)'}}>{items.length} course{items.length===1?'':'s'} · {pct}% overall</span></span>
+      <span style={{width:46,height:5,borderRadius:3,background:'rgba(255,255,255,.1)',overflow:'hidden'}}><span style={{display:'block',height:'100%',width:pct+'%',background:f.color}}/></span>
+      <span style={{fontSize:12,color:'var(--text-3)'}}>{shut[f.id]?'⌄':'⌃'}</span>
+    </button>
+    {!shut[f.id]&&items.map(render)}
+  </div>;});
 }
 
 function CourseCard({course,onOpen,onEdit,onDelete,onComplete,onReopen}){
