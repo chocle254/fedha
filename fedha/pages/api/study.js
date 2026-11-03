@@ -113,6 +113,36 @@ Return JSON: {"projects":[{"title":"","goal":"","milestones":["",""]}]}` };
       const steps = (Array.isArray(b.plan?.steps) ? b.plan.steps : []).slice(0, 7);
       return { json: true, max: 2800, text: `${mat}Topic: ${topic}\nYou have just taught this lesson in ${steps.length} parts:\n${steps.map((x, k) => `${k + 1}. ${clip(x.title, 80)}: ${clip(x.goal, 160)} (check idea: ${clip(x.check, 160)})`).join('\n')}\nWrite the end-of-lesson oral quiz: exactly ONE question per part, in the same order. Each must be answerable out loud in one or two sentences from what was taught (understanding, not trivia).\nReturn JSON: {"questions":[{"ask":"the question as you would say it aloud, under 30 words, plain words","hint":"a clue said aloud, 1-2 sentences, that nudges toward the answer WITHOUT giving it away","answer":"the correct answer in 1-2 sentences: the key points a good answer must contain","simple":"the same answer explained in a much simpler way with a small everyday analogy, 2-4 short sentences, said aloud"}]}` };
     }
+    case 'lab_project': {
+      const DOM = {
+        ai: 'Build something real with AI: a small model, an agent, a classifier, a RAG search, a prompt pipeline, using free tools and small data that ships with the lab.',
+        cyber: 'A hands-on cybersecurity lab, legal and safe: everything runs on the learner\'s own machine on SYNTHETIC data shipped in the lab files (log files to investigate, a vulnerable snippet to find and fix, a hash to analyse with a given wordlist, a scanner pointed only at localhost). Never target real systems or third parties.',
+        data: 'A data project: clean, analyse and visualise a small dataset shipped in the lab files.',
+        cloud: 'A DevOps / cloud lab that can run locally: config files, scripts, a small service with health checks, automation.',
+        software: 'Build a working program or app feature with real structure: functions, tests, edge cases.',
+        math: 'Implement the maths in code and verify it numerically.',
+        business: 'A practical tool or analysis for the business idea in the unit, as code or a structured model.',
+        other: 'A practical project that makes the learner apply the unit.',
+      };
+      return { json: true, max: 6000, temp: 0.55, text: `${mat}You are Professor Byte designing the PROJECT LAB that follows a finished unit. The learner just completed: course "${clip(b.course, 160)}", unit ${Number(b.unit) || 1}: "${clip(b.section, 120)}" (lessons: ${clip((b.lessons || []).join('; '), 1200)}).
+${DOM[b.domain] || DOM.other}
+${b.previous?.length ? `Labs they already built (make this one build on them, a step harder): ${clip(b.previous.join('; '), 600)}\n` : ''}${b.weak?.length ? `Their weak spots to work on: ${clip(b.weak.join('; '), 400)}\n` : ''}It must use exactly what this unit taught, take 1-3 hours in total, run on a phone (Python with only the standard library plus numpy/pandas if needed, or plain JavaScript), and feel like a real project with a mission.
+Return JSON: {"title":"","brief":"the mission in 2-3 sentences, exciting and concrete","why":"what real skill this proves","domain":"${clip(b.domain, 20) || 'other'}","lang":"python","files":[{"name":"main.py","content":"starter code with TODO comments, runnable"},{"name":"data.csv","content":"small synthetic data if needed"}],"milestones":[{"title":"","goal":"what must work","criteria":["a checkable requirement"],"hint":"a nudge, not the answer"}],"stretch":["a harder extra for later"]}
+4-6 milestones in build order; 1-4 files, each under 6000 characters; all starter code must run.` };
+    }
+    case 'lab_review':
+      return { json: true, max: 3000, text: `You are Professor Byte reviewing a learner's project lab like a sharp senior engineer and CS lecturer. ${sassLine(b.sass)}
+Lab: "${clip(b.title, 120)}": ${clip(b.brief, 600)}
+Milestone ${Number(b.n) || 1}: "${clip(b.milestone?.title, 120)}": ${clip(b.milestone?.goal, 400)}
+It counts as done only if ALL of these hold: ${clip((b.milestone?.criteria || []).join(' | '), 800)}
+${b.run ? `The app ran it. Output:\n${clip(b.run, 2500)}\n` : 'It was not run; mentally execute it.\n'}Their earlier review scores (oldest first): ${clip((b.history || []).join(', '), 200) || 'none yet'}.
+Their files:
+${clip((b.files || []).map((f) => `--- ${f.name}\n${f.content}`).join('\n'), 12000)}
+Judge honestly. Return JSON: {"done":false,"score":7,"say":"what Byte says aloud, 2-4 sentences, in your tone: did this milestone work, and the one thing that matters most","good":["what is genuinely good"],"fixes":[{"file":"main.py","line":12,"note":"what is wrong and how to fix it"}],"growth":"one honest line comparing this with their earlier scores (sharper, same, or slipping, and why)","next":"what to do next"}
+score: 0-10 for correctness, code quality and understanding together.` };
+    case 'missed_check':
+      return { json: true, max: 1500, text: `${mat}The learner skipped the lesson "${clip(b.lesson, 160)}" in "${clip(b.course, 120)}" and now has some explaining to do. Write 2 short questions they can only answer if they really know that lesson's key idea (understanding, answerable in 1-2 sentences).
+Return JSON: {"questions":[{"ask":"","answer":"the key points a good answer must contain"}]}` };
     case 'code_task':
       return { json: true, max: 2600, text: `${mat}Topic: ${topic}\nWrite ONE coding exercise in ${clip(b.lang, 20) || 'python'} that makes the learner write the code taught in this lesson themselves (${clip(b.goal, 300) || 'the main idea'}). Level: ${['easy', 'medium', 'hard'].includes(b.difficulty) ? b.difficulty : 'easy'}; a self-taught learner should finish it in 10-25 minutes.\nReturn JSON: {"title":"","prompt":"the task, clear and complete, with input/output format","lang":"${clip(b.lang, 20) || 'python'}","starter":"starter code: the function signature and a docstring/comment, no solution","examples":[{"input":"","output":""}],"hint":"one hint that does not give it away","solution":"a correct, clean, commented solution","fn":"the function name the tests call","tests":[{"args":[],"expected":null}]}\ntests: 3-5 cases as JSON values (args is the argument list) that the solution passes; include one edge case. Everything must be correct.` };
     case 'code_review':
@@ -288,6 +318,18 @@ export default async function handler(req, res) {
     return cards.length ? res.status(200).json({ cards }) : res.status(500).json({ error: 'No usable flashcards came back. Try again.' });
   }
   if (b.type === 'project_ideas') return res.status(200).json({ projects: (obj.projects || []).slice(0, 3) });
+  if (b.type === 'lab_project') {
+    const ms = (Array.isArray(obj.milestones) ? obj.milestones : []).filter((m) => m?.title).slice(0, 6).map((m) => ({ title: clip(m.title, 100), goal: clip(m.goal, 400), criteria: (Array.isArray(m.criteria) ? m.criteria : []).map((c) => clip(c, 200)).slice(0, 5), hint: clip(m.hint, 300) }));
+    if (!ms.length) return res.status(500).json({ error: 'Byte could not design the lab. Try again.' });
+    return res.status(200).json({ title: clip(obj.title, 100), brief: clip(obj.brief, 800), why: clip(obj.why, 300), domain: clip(obj.domain, 20), lang: clip(obj.lang, 20).toLowerCase() || 'python', files: (Array.isArray(obj.files) ? obj.files : []).filter((f) => f?.name).slice(0, 4).map((f) => ({ name: clip(f.name, 60), content: clip(f.content, 7000) })), milestones: ms, stretch: (obj.stretch || []).map((x) => clip(x, 200)).slice(0, 3) });
+  }
+  if (b.type === 'lab_review') {
+    return res.status(200).json({ review: { done: obj.done === true, score: Math.max(0, Math.min(10, Math.round(Number(obj.score) || 0))), say: clip(obj.say, 700), good: (obj.good || []).map((x) => clip(x, 200)).slice(0, 4), fixes: (Array.isArray(obj.fixes) ? obj.fixes : []).slice(0, 8).map((f) => ({ file: clip(f?.file, 60), line: Number(f?.line) || null, note: clip(f?.note, 300) })), growth: clip(obj.growth, 300), next: clip(obj.next, 300) } });
+  }
+  if (b.type === 'missed_check') {
+    const qs = (obj.questions || []).filter((q) => q?.ask).slice(0, 2).map((q) => ({ ask: clip(q.ask, 300), answer: clip(q.answer, 400) }));
+    return qs.length ? res.status(200).json({ questions: qs }) : res.status(500).json({ error: 'No questions came back.' });
+  }
   if (b.type === 'leetcode') {
     const list = (Array.isArray(obj.problems) ? obj.problems : []).filter((x) => x?.slug && /^[a-z0-9-]+$/.test(x.slug)).slice(0, 4);
     const checked = await Promise.all(list.map(async (x) => {

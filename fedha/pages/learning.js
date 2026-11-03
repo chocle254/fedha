@@ -14,6 +14,8 @@ import Opportunities from '../components/learn/Opportunities';
 import CurriculumBuilder from '../components/learn/CurriculumBuilder';
 import BytePrep from '../components/learn/BytePrep';
 import CourseMaterials from '../components/learn/CourseMaterials';
+import LabMode from '../components/learn/LabMode';
+import LabsPanel from '../components/learn/LabsPanel';
 import { Medal } from '../components/learn/Medal';
 import { getMaterials } from '../lib/materials';
 import { FOLDERS, folderOf, folderInfo } from '../lib/course-folders';
@@ -75,6 +77,7 @@ export default function LearningPage(){
   const [view,setView]=useState('active');
 
   // ── Study hub state (lib/study.js) ──
+  const [labAt,setLabAt]=useState(null); // { courseId, section } the Project Lab open
   const [tab,setTab]=useState('today'),[study,setStudy]=useState(null),[studyAt,setStudyAt]=useState(null),[toast,setToast]=useState(null);
   const studyRef=useRef(null);studyRef.current=study;
   useEffect(()=>{loadAll().then(setStudy);},[]);
@@ -243,12 +246,14 @@ export default function LearningPage(){
     <div className="tab-scroll" role="tablist" style={{display:'flex',gap:6,overflowX:'auto',marginBottom:16,paddingBottom:2}}>
       {TABS.map(([k,l])=><button key={k} role="tab" aria-selected={tab===k} className={`chip ${tab===k?'active':''}`} onClick={()=>setTab(k)}>{l}{k==='review'&&study?` (${study.cards.filter(c=>!c.due||c.due<=todayISO()).length})`:''}</button>)}
     </div>
+    {study&&(()=>{const p=study.projects.find(x=>x.lab&&x.status!=='shipped'&&courses.some(c=>c.id===x.lab.course_id));if(!p)return null;const d=p.lab.milestones.filter(m=>m.done).length;return <button className="card" onClick={()=>setLabAt({courseId:p.lab.course_id,section:p.lab.section})} style={{width:'100%',textAlign:'left',padding:12,marginBottom:12,cursor:'pointer',color:'var(--text)',borderColor:'rgba(52,211,153,.4)',background:'linear-gradient(135deg,rgba(16,185,129,.14),rgba(5,10,8,.3))',display:'flex',gap:10,alignItems:'center'}}><span style={{fontSize:22}}>🧪</span><span style={{flex:1}}><b style={{display:'block',fontSize:13.5}}>Continue the lab: {p.title}</b><span style={{fontSize:12,color:'var(--text-3)'}}>{d}/{p.lab.milestones.length} milestones · Byte is at the bench</span></span><span>→</span></button>;})()}
     {!study&&tab!=='courses'&&<div className="card-2" style={{padding:18,textAlign:'center',color:'var(--text-3)',fontSize:13}}>Loading…</div>}
     {study&&tab==='today'&&<Today study={study} courses={courses} onStudy={setStudyAt} onTab={setTab} onRecap={()=>award({kind:'recap',xp:XP.recap,count:{recaps:1}})} onSaveNote={saveNote} onQuizDone={quizDone}/>}
     {study&&tab==='review'&&<Review cards={study.cards} courses={courses} onGrade={gradeCard} onSaveCards={addCards} onDelete={deleteCard}/>}
     {study&&tab==='quiz'&&<><div style={{fontSize:13,color:'var(--text-2)',marginBottom:10,lineHeight:1.5}}>Quick questions from your notes (or any topic). Misses turn into flashcards so they come back until you know them.</div><QuizPicker courses={courses} notes={study.notes} onDone={quizDone}/></>}
     {study&&tab==='notes'&&<NotesHub courses={courses} notes={study.notes} cards={study.cards} onSaveNote={saveNote} onDeleteNote={deleteNote} onSaveCards={addCards} onQuizDone={quizDone} onStudy={setStudyAt}/>}
-    {study&&tab==='projects'&&<Projects courses={courses} projects={study.projects} onSave={saveProject} onDelete={deleteProject} onMilestone={toggleMilestone} onShip={shipProject}/>}
+    {study&&tab==='projects'&&<LabsPanel courses={courses} projects={study.projects} onOpen={(courseId,section)=>setLabAt({courseId,section})}/>}
+    {study&&tab==='projects'&&<Projects courses={courses} projects={study.projects.filter(p=>!p.lab)} onSave={saveProject} onDelete={deleteProject} onMilestone={toggleMilestone} onShip={shipProject}/>}
     {tab==='opps'&&<Opportunities courses={courses} onAddCourse={c=>addCourse({...EMPTY,...c,modules:[]})}/>}
     {study&&tab==='gains'&&<Gains study={study} courses={courses}/>}
     {tab==='courses'&&<>
@@ -282,7 +287,10 @@ export default function LearningPage(){
     </div><button className="btn-primary" style={{width:'100%',marginTop:18}} onClick={save}>Save Course</button>
   </div></div></div>}
 
-  {studyAt&&study&&<StudyMode courses={courses} notes={study.notes} cards={study.cards} log={study.log} prefs={study.prefs} onSaveLessonNotes={saveStudyNotes} onSaveAiNotes={saveStudyAiNotes} start={studyAt} onClose={()=>setStudyAt(null)} onFocusDone={focusDone} onQuizDone={quizDone} onLessonDone={(c,id)=>toggleLesson(courses.find(x=>x.id===c.id)||c,id)} onSaveNote={saveNote} onPrefs={(p)=>{patch({prefs:p});savePrefs(p);}}/>}
+  {labAt&&study&&courses.find(c=>c.id===labAt.courseId)&&<LabMode course={courses.find(c=>c.id===labAt.courseId)} section={labAt.section} projects={study.projects} onSave={saveProject}
+    onMilestoneXP={(p,id)=>{const m=p.lab.milestones.find(x=>x.id===id);award({kind:'milestone',course_id:p.course_id,topic:`${p.title}: ${m?.title||''}`,xp:XP.milestone,count:{milestones:1}});}}
+    onShip={shipProject} onClose={()=>setLabAt(null)} onStudyLesson={(lessonId)=>{setLabAt(null);setStudyAt({courseId:labAt.courseId,lessonId});}}/>}
+  {studyAt&&study&&<StudyMode labs={study.projects} onOpenLab={(courseId,section)=>{setStudyAt(null);setLabAt({courseId,section});}} courses={courses} notes={study.notes} cards={study.cards} log={study.log} prefs={study.prefs} onSaveLessonNotes={saveStudyNotes} onSaveAiNotes={saveStudyAiNotes} start={studyAt} onClose={()=>setStudyAt(null)} onFocusDone={focusDone} onQuizDone={quizDone} onLessonDone={(c,id)=>toggleLesson(courses.find(x=>x.id===c.id)||c,id)} onSaveNote={saveNote} onPrefs={(p)=>{patch({prefs:p});savePrefs(p);}}/>}
   {certNote&&<a href="/tech-hub?tab=certificates" className="learn-toast" style={{textDecoration:'none',color:'inherit',bottom:toast?150:undefined}}><b>🖼 Framed in your Certificates Room</b><div style={{fontSize:12,opacity:.8}}>{certNote} · tap to see it</div></a>}
   {toast&&<div className="learn-toast">{toast.medals?toast.medals.map(m=><div key={m.id} style={{display:'flex',alignItems:'center',gap:10,textAlign:'left'}}><Medal id={m.id} earned size={54}/><div><b>New medal: {m.name}</b><div style={{fontSize:12,opacity:.8}}>{m.desc}</div></div></div>):<b>+{toast.xp} XP</b>}</div>}
   {selected&&!formOpen&&<CourseDetail onPrepSave={async(c)=>{await updateCourse(c);setSelected(s=>s&&s.id===c.id?{...c}:s);}} onStudy={(lessonId)=>{setStudyAt({courseId:selected.id,lessonId});setSelected(null);}} course={selected} onClose={()=>setSelected(null)} onEdit={()=>{setFormOpen(true);setForm({...EMPTY,...selected,modules:normalizeModules(selected.modules)});setSelected(null)}} onToggle={toggleLesson} onSaveNotes={saveLessonNotes} onCertificate={uploadCertificate} onSetCompleted={setCompleted} savingCert={savingCert} openLesson={openLesson} setOpenLesson={setOpenLesson} aiLesson={aiLesson} setAiLesson={setAiLesson} aiTranscript={aiTranscript} setAiTranscript={setAiTranscript} aiLoading={aiLoading} aiError={aiError} generateLessonNotes={generateLessonNotes} generateVimeoNotes={generateVimeoNotes}/>}

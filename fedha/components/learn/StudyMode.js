@@ -4,6 +4,7 @@ import { getSetting } from '../../lib/db';
 import { getKb, buildKb, kbToMarkdown, kbForPrompt } from '../../lib/byte-kb';
 import { getMaterials, relevantMaterial } from '../../lib/materials';
 import { folderOf } from '../../lib/course-folders';
+import { unitsOf, labOf } from '../../lib/labs';
 import { OUTFITS } from './ProfessorByte';
 import { genId, todayISO } from '../../lib/utils';
 import { showNotif } from '../../lib/notifications';
@@ -18,7 +19,7 @@ import { useMusic } from '../../context/MusicContext';
 // The timer runs on the clock (end time), so it stays right if the phone sleeps or you switch apps.
 const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
-export default function StudyMode({ onSaveAiNotes, courses, notes, cards = [], log = [], prefs, start, onClose, onFocusDone, onQuizDone, onLessonDone, onSaveNote, onSaveLessonNotes, onPrefs }) {
+export default function StudyMode({ labs = [], onOpenLab, onSaveAiNotes, courses, notes, cards = [], log = [], prefs, start, onClose, onFocusDone, onQuizDone, onLessonDone, onSaveNote, onSaveLessonNotes, onPrefs }) {
   const [courseId, setCourseId] = useState(start?.courseId || courses.find((c) => c.status !== 'completed')?.id || '');
   const course = courses.find((c) => c.id === courseId);
   const lessons = course?.modules || [];
@@ -182,6 +183,20 @@ export default function StudyMode({ onSaveAiNotes, courses, notes, cards = [], l
           <button className="btn-ghost" onClick={endSession}>End</button>
         </div>
 
+        {(() => {
+          // This lesson's unit is finished (and its lab isn't shipped yet): Byte is waiting in the lab.
+          if (!course || !lesson || !onOpenLab) return null;
+          const u = unitsOf(course).find((x) => x.section === (lesson.section || 'Course content'));
+          const lb = u && labOf(labs, course.id, u.section);
+          if (!u?.complete || lb?.status === 'shipped') return null;
+          return (
+            <button onClick={() => onOpenLab(course.id, u.section)} className="card" style={{ width: '100%', textAlign: 'left', padding: 12, marginBottom: 12, cursor: 'pointer', color: 'var(--text)', borderColor: 'rgba(52,211,153,.5)', background: 'linear-gradient(135deg,rgba(16,185,129,.16),rgba(5,10,8,.3))', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <span style={{ fontSize: 22 }}>🧪</span>
+              <span style={{ flex: 1 }}><b style={{ display: 'block', fontSize: 13.5 }}>Unit {u.index + 1} done. Byte is waiting in the lab.</b><span style={{ fontSize: 12, color: 'var(--text-3)' }}>{lb ? `${lb.lab.milestones.filter((m) => m.done).length}/${lb.lab.milestones.length} milestones · carry on` : 'A hands-on project built from this unit'}</span></span>
+              <span>→</span>
+            </button>
+          );
+        })()}
         {phase === 'setup' && (
           <div className="card" style={{ padding: 14, marginBottom: 14 }}>
             <label className="study-lbl">Course</label>
