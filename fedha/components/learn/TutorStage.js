@@ -93,6 +93,9 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const [live, setLive] = useState(false);
   const [heard, setHeard] = useState('');
   const [liveErr, setLiveErr] = useState('');
+  const [mic, setMic] = useState('off'); // off | listening | idle (your turn, tap to answer)
+  const [turn, setTurn] = useState('byte'); // whose turn it is: 'you' only when he is waiting for your answer
+  const micTries = useRef(0);
   const timers = useRef([]);
   const waitTimers = useRef([]);
   const playId = useRef(0);
@@ -143,6 +146,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   // Says one line in his voice; calls done() when finished (or after a safety timeout).
   const say = (text, mood, done) => {
     hush();
+    micOff(); setTurn('byte'); // the mic never listens while he talks (it would hear him)
     saying.current = text; sayStart.current = Date.now();
     let finished = false;
     const fin = () => { if (finished) return; finished = true; speaker.current = null; setLevel(0); done?.(); };
@@ -363,6 +367,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
   const armQuizTimers = () => {
     const c = cls.current; const q = c.quiz;
     if (!c.on || !q?.waiting) return;
+    setTurn('you');
     if (c.paused) { c.pending = armQuizTimers; return; }
     clearWait();
     const item = q.list[q.i];
@@ -429,10 +434,10 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     const c = cls.current;
     if (!a || a.handled) return;
     a.handled = true;
-    if (!c.on || hwOpenRef.current) return;
+    if (!c.on || hwOpenRef.current) { setTurn('you'); return; }
     switch (a.kind) {
       case 'lecture': lectureDone(a.step); break;
-      case 'qa': if (c.resumeFn) { const f = c.resumeFn; c.resumeFn = null; proceed(f); } break;
+      case 'qa': if (c.resumeFn) { const f = c.resumeFn; c.resumeFn = null; proceed(f); } else setTurn('you'); break;
       case 'quizin': case 'quizfb': proceed(nextQuestion); break;
       case 'quizq': case 'quizhint': gate(armQuizTimers); break;
       case 'quizdone': askRef.current('', 'wrapup', { minutesLeft: 3, quiz: lastQuiz.current }); break;
@@ -533,6 +538,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     setCur((c) => (c ? { ...c, done: true, cut: true } : c));
     setIdle({ mood: 'surprised', gesture: 'shrug', line: CUTS[Math.floor(Math.random() * CUTS.length)] });
     said.current = because;
+    setTurn('you'); micTries.current = 0;
   };
   const submitHeard = () => {
     const t = said.current.trim(); said.current = ''; setHeard('');
@@ -541,35 +547,50 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
     const interrupted = cutOff.current; cutOff.current = '';
     askRef.current(t, null, { interrupted });
   };
+  // ── The mic: it listens only on your turn, never while he talks. Android stops listening after a few seconds of
+  // silence; instead of restarting forever (the mic flicking on and off), it tries twice more, then waits for a tap.
+  function micOff() { clearTimeout(endT.current); try { rec.current?.abort(); } catch { /* none */ } rec.current = null; setMic((m) => (m === 'listening' ? 'off' : m)); }
+  function listenTurn() {
+    if (!liveRef.current || talkingRef.current || thinkingRef.current || rec.current) return;
+    const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (!SR) return;
+    const r = new SR();
+    r.lang = 'en-US'; r.continuous = false; r.interimResults = true; r.maxAlternatives = 1;
+    r.onresult = (e) => {
+      let fin = '', interim = '';
+      for (let k = e.resultIndex; k < e.results.length; k++) { const t = e.results[k][0].transcript; if (e.results[k].isFinal) fin += t + ' '; else interim += t; }
+      if (fin) said.current += fin;
+      onActivity();
+      setHeard((said.current + interim).trim());
+    };
+    r.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { setLiveErr('Microphone blocked. Allow it for Luxe, then try again.'); stopLive(); } };
+    r.onend = () => {
+      if (rec.current === r) rec.current = null;
+      if (!liveRef.current) { setMic('off'); return; }
+      if (said.current.trim()) { setMic('off'); micTries.current = 0; submitHeard(); return; }
+      if (talkingRef.current || thinkingRef.current) { setMic('off'); return; }
+      if (micTries.current < 2) { micTries.current += 1; setMic('off'); setTimeout(listenTurn, 900); }
+      else setMic('idle'); // stop here; the "Tap to answer" button starts it again
+    };
+    try { r.start(); rec.current = r; setMic('listening'); } catch { setMic('idle'); }
+  }
+  const tapToAnswer = () => { micTries.current = 0; said.current = ''; setHeard(''); listenTurn(); };
+  // When it becomes your turn in a live class, the mic opens (after a short breath).
+  useEffect(() => {
+    if (!live || turn !== 'you' || talking || thinking) return undefined;
+    micTries.current = 0;
+    const t = setTimeout(listenTurn, 500);
+    return () => clearTimeout(t);
+  }, [live, turn, talking, thinking]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function stopLive() {
-    liveRef.current = false; setLive(false); setHeard(''); clearWait();
-    try { rec.current?.abort(); } catch { /* none */ } rec.current = null;
+    liveRef.current = false; setLive(false); setHeard(''); clearWait(); micOff(); setMic('off');
   }
   const startLive = () => {
     const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
     if (!SR) { setLiveErr("This browser can't listen. Type your answers instead; he still talks."); return; }
     setLiveErr('');
-    const r = new SR();
-    r.lang = 'en-US'; r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
-    r.onresult = (e) => {
-      let fin = '', interim = '';
-      for (let k = e.resultIndex; k < e.results.length; k++) { const t = e.results[k][0].transcript; if (e.results[k].isFinal) fin += t + ' '; else interim += t; }
-      const now = (fin + interim).trim();
-      if (!now) return;
-      if (talkingRef.current || speaker.current) {
-        // Talking over him: cut him off, unless it's only his own voice coming back through the mic.
-        if (Date.now() - sayStart.current < 700 || isEcho(now) || words(now).length < 2) return;
-        interrupt(fin);
-      } else if (fin) said.current += fin;
-      onActivity();
-      setHeard((said.current + interim).trim());
-      clearTimeout(endT.current);
-      endT.current = setTimeout(() => { if (!talkingRef.current && !thinkingRef.current && said.current.trim()) submitHeard(); }, 1500);
-    };
-    r.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { setLiveErr('Microphone blocked. Allow it for Luxe, then try again.'); stopLive(); } };
-    r.onend = () => { if (liveRef.current) setTimeout(() => { try { if (liveRef.current) r.start(); } catch { /* already running */ } }, 250); };
-    try { r.start(); } catch { /* already started */ }
-    rec.current = r; liveRef.current = true; setLive(true);
+    liveRef.current = true; setLive(true); setTurn('byte');
     ask('', 'live_start');
   };
 
@@ -706,7 +727,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       <div style={{ position: 'relative', marginTop: 10, padding: '10px 12px', borderRadius: 14, background: 'var(--card-2)', border: '1px solid var(--border)', minHeight: 46 }}>
         <div style={{ position: 'absolute', top: -7, left: 44, width: 12, height: 12, background: 'var(--card-2)', borderLeft: '1px solid var(--border)', borderTop: '1px solid var(--border)', transform: 'rotate(45deg)' }} />
         {thinking ? <div style={{ fontSize: 13, color: 'var(--text-3)' }}>{reading ? `📖 Reading your ${reading} before we start…` : quizUi ? 'Marking your answer…' : classOn ? 'Getting the next part ready…' : 'Hmm… let me think about that…'}</div> : <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{bubble}</div>}
-        {live && <div style={{ marginTop: 8, fontSize: 12.5, color: heard ? 'var(--green)' : 'var(--text-3)', display: 'flex', gap: 6, alignItems: 'center' }}><motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity }} style={{ width: 8, height: 8, borderRadius: 4, background: '#EF4444', display: 'inline-block' }} />{heard ? `You: ${heard}` : talking ? 'Listening. Talk over him to interrupt.' : 'Your turn. Answer out loud.'}</div>}
+        {live && <div style={{ marginTop: 8, fontSize: 12.5, color: heard ? 'var(--green)' : 'var(--text-3)', display: 'flex', gap: 6, alignItems: 'center' }}><motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity }} style={{ width: 8, height: 8, borderRadius: 4, background: '#EF4444', display: 'inline-block' }} />{heard ? `You: ${heard}` : mic === 'listening' ? 'Listening… answer out loud.' : talking ? 'He is talking. Tap ✋ to cut in.' : mic === 'idle' ? 'Your turn.' : 'Live class on.'}{mic === 'idle' && !talking && !thinking && <button className="btn-primary" style={{ marginLeft: 'auto', padding: '4px 12px' }} onClick={tapToAnswer}>🎙 Tap to answer</button>}</div>}
         {answer && answer.scenes.length > 1 && <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>{answer.scenes.map((_, k) => <span key={k} style={{ flex: 1, height: 3, borderRadius: 2, background: k <= (cur?.s ?? 0) ? '#34D399' : 'var(--border)' }} />)}</div>}
       </div>
 
@@ -718,6 +739,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
         {quizUi?.waiting && !thinking && <button className="btn-ghost" onClick={reveal}>🤷 I don't know</button>}
         <button className="btn-ghost" aria-pressed={captions} onClick={() => { const v = !captions; setCaptions(v); try { localStorage.setItem('luxe_byte_cc', v ? '1' : '0'); } catch { /* private mode */ } }}>{captions ? '💬 Captions on' : '💬 Captions off'}</button>
         {live && talking && <button className="btn-primary" onClick={() => interrupt()}>✋ Interrupt</button>}
+        {live && mic === 'listening' && heard && <button className="btn-ghost" onClick={() => { try { rec.current?.stop(); } catch { /* none */ } }}>➤ Done talking</button>}
         {live && heard && !talking && <button className="btn-primary" onClick={submitHeard}>➤ Send answer</button>}
         {log.length > 1 && !thinking && <button className="btn-ghost" onClick={() => ask('', 'wrapup', { minutesLeft: 3 })}>🏁 End class + homework</button>}
         {lastAi && <button className="btn-ghost" onClick={() => { const lec = log.filter((m) => m.kind === 'lecture'); onSaveNote({ title: `Byte on ${subject}`.slice(0, 80), body: (lec.length ? lec : [lastAi]).map(toMd).join('\n\n'), course_id: courseId || null }); lastAi.saved = true; setLog((l) => [...l]); }}>{lastAi.saved ? '✓ Saved' : '📝 Save lesson'}</button>}
