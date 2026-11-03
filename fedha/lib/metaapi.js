@@ -49,6 +49,11 @@ async function call(url, { method = 'GET', body, timeout = 20000 } = {}) {
   return data;
 }
 
+// The account as MetaApi's provisioning API sees it: state (DEPLOYED…), connectionStatus (CONNECTED…), server, platform.
+export async function provisioningAccount(id) {
+  return call(`${PROVISIONING}/users/current/accounts/${id}`);
+}
+
 async function client(id, path, opts) {
   return call(`${await hostFor(id)}/users/current/accounts/${id}${path}`, opts);
 }

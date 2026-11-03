@@ -1,6 +1,6 @@
 import { requireUser } from '../../../lib/require-user';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
-import { BROKER_ACCOUNTS } from '../../../lib/metaapi';
+import { BROKER_ACCOUNTS, accountId, provisioningAccount, mt } from '../../../lib/metaapi';
 import { brokerOverview, getBrokerSettings, syncBrokerTrades } from '../../../lib/broker';
 import { fetchRates } from '../../../lib/exchange';
 
@@ -8,8 +8,28 @@ import { fetchRates } from '../../../lib/exchange';
 // The MetaApi token and account ids live in env vars, so only the signal owner may use this.
 const clamp = (v, lo, hi, d) => (Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Number(v))) : d);
 
+// GET ?check=1 — connection health without secrets or balances: are the token and account ids set, and how does
+// MetaApi see each account (deployed? connected to the broker? demo or real?). Cached 5 minutes.
+let checked = null;
+async function health() {
+  if (checked && Date.now() - checked.at < 300000) return checked.out;
+  const out = { token: !!process.env.METAAPI_TOKEN, accounts: {} };
+  for (const a of BROKER_ACCOUNTS) {
+    const id = accountId(a.key);
+    if (!id) { out.accounts[a.key] = { set: false }; continue; }
+    const r = { set: true };
+    try { const p = await provisioningAccount(id); Object.assign(r, { state: p?.state, connection: p?.connectionStatus, server: p?.server, platform: p?.platform }); }
+    catch (e) { r.error = `${e.status || ''} ${e.message}`.trim().slice(0, 160); }
+    if (r.connection === 'CONNECTED') { try { const i = await mt.accountInfo(id); r.mode = i?.type; r.currency = i?.currency; r.leverage = i?.leverage; } catch (e) { r.infoError = e.message.slice(0, 120); } }
+    out.accounts[a.key] = r;
+  }
+  checked = { at: Date.now(), out };
+  return out;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
+  if (req.method === 'GET' && req.query?.check) return res.status(200).json(await health());
   const user = await requireUser(req, res);
   if (!user) return;
   const owner = process.env.SIGNAL_OWNER_USER_ID;
