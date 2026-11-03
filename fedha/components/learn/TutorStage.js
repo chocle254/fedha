@@ -5,7 +5,7 @@ import TutorBoard, { boardToMd } from './TutorBoard';
 import Md from './Md';
 import CodePad from './CodePad';
 import { resizeImage } from '../../lib/utils';
-import { askStudy } from '../../lib/study';
+import { askStudy, getSass, setSass } from '../../lib/study';
 import { stopSpeaking } from '../../lib/voice';
 import { speakByte, warmByte, byteVoiceInfo, byteVoiceWhy, getByteVoice, setByteVoice, BYTE_VOICES } from '../../lib/byte-voice';
 
@@ -40,6 +40,15 @@ const QUIZ_INTRO = ['That is the whole lesson. Now a short quiz to lock it in. A
 const HINT_AT = 20000; // silence after his question before he gives a clue
 const REVEAL_GAP = 20000; // more silence after the clue before he answers and explains it simply
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
+// Savage mode (the sass dial): the same moments, with rage-bait. Roasts the mistake, never the person.
+const SAVAGE = {
+  CUTS: ['Interrupting a professor mid-genius? Bold. This better be good.', 'Oh, you have something to say? The floor is yours. Impress me.', 'Cutting me off? Fine. Let us see if it was worth it.'],
+  HINT_LEADS: ['Still nothing? Wow. Fine, here is a clue, since you clearly need one.', 'I could hear the gears grinding from here. Clue.', 'Tick tock. My toaster answered this faster. Clue incoming.'],
+  TIMEUP: ['Time is up. I will just do it myself, as usual.', 'Silence. Bold strategy. Here is the answer.', 'Nothing? Okay. Watch and learn.'],
+  POKES: ['Poking the professor? Answer a question instead, coward.', 'I felt that. My lawyer will be in touch.', 'Tap me again and I start teaching calculus.', 'You poke, I quiz. That is the deal.'],
+  QUIZ_INTRO: ['Lesson over. Now we find out if you were actually listening. Answer out loud or type it.', 'Quiz time. Let us see how much of my brilliance survived. Answer out loud or type it.', 'And now the moment of truth. Prove you were not just nodding. Answer out loud or type it.'],
+};
+const L = (name, normal) => (getSass() === 'savage' ? SAVAGE[name] : normal);
 const WHO = { eleven: 'ElevenLabs', troy: 'Troy', austin: 'Austin', daniel: 'Daniel', phone: 'the phone voice' };
 
 // A short "tok" for knocks on the glass.
@@ -88,6 +97,8 @@ export default function TutorStage({ pomo, prepare, active, subject, context, br
   const [thinking, setThinking] = useState(false);
   const [q, setQ] = useState('');
   const [voice, setVoice] = useState('auto');
+  const [sass, setSassState] = useState('savage');
+  useEffect(() => { setSassState(getSass()); }, []);
   const [idle, setIdle] = useState(null); // { gesture, mood, line }
   const [ripples, setRipples] = useState([]);
   const [showLog, setShowLog] = useState(false);
@@ -328,7 +339,7 @@ export default function TutorStage({ pomo, prepare, active, subject, context, br
     q.list = (list && list.length ? list : fallbackQuiz(p)).slice(0, taught);
     const intro = opts.early ? 'Quiz time, as you asked. Answer out loud or type it.'
       : opts.revision ? 'You finished this lesson last time, so let us see what stuck. Quick quiz. Answer out loud or type it.'
-      : pick(QUIZ_INTRO);
+      : pick(L('QUIZ_INTRO', QUIZ_INTRO));
     gate(() => showEntry({ role: 'ai', kind: 'quizin', scenes: oneScene(intro, 'excited', 'celebrate', { type: 'big', text: 'Quiz time', sub: `${q.list.length} question${q.list.length === 1 ? '' : 's'}` }), chips: [] }));
   };
 
@@ -353,7 +364,7 @@ export default function TutorStage({ pomo, prepare, active, subject, context, br
     if (!c.on || !q?.waiting || q.hinted) return;
     q.hinted = true;
     const item = q.list[q.i];
-    showEntry({ role: 'ai', kind: 'quizhint', scenes: oneScene(`${pick(HINT_LEADS)} ${item.hint || 'Think back to what we covered a minute ago.'}`, 'impatient', 'tap', q.board), chips: [] });
+    showEntry({ role: 'ai', kind: 'quizhint', scenes: oneScene(`${pick(L('HINT_LEADS', HINT_LEADS))} ${item.hint || 'Think back to what we covered a minute ago.'}`, 'impatient', 'tap', q.board), chips: [] });
   };
 
   // Out of time or "I don't know": the answer, then the same thing in simpler words.
@@ -366,7 +377,7 @@ export default function TutorStage({ pomo, prepare, active, subject, context, br
     q.missed.push(item.ask);
     playId.current++; hush(); setTalking(false);
     showEntry({ role: 'ai', kind: 'quizfb', chips: [], scenes: [
-      { say: q.timeup || pick(TIMEUP), mood: 'serious', gesture: 'explain', board: null },
+      { say: q.timeup || pick(L('TIMEUP', TIMEUP)), mood: 'serious', gesture: 'explain', board: null },
       { say: item.answer, mood: 'thinking', gesture: 'point', board: { type: 'big', text: 'The answer', sub: item.answer } },
       { say: `Now the simple version. ${item.simple || item.answer}`, mood: 'happy', gesture: 'explain', board: null },
     ] });
@@ -429,7 +440,7 @@ export default function TutorStage({ pomo, prepare, active, subject, context, br
       waitFor(HINT_AT - 4000, () => warmByte(item.hint, { mood: 'impatient', voice: voiceRef.current }));
       waitFor(HINT_AT, giveHint);
     } else {
-      q.timeup = q.timeup || pick(TIMEUP);
+      q.timeup = q.timeup || pick(L('TIMEUP', TIMEUP));
       waitFor(REVEAL_GAP - 4000, () => { warmByte(q.timeup, { mood: 'serious', voice: voiceRef.current }); warmByte(item.answer, { mood: 'thinking', voice: voiceRef.current }); });
       waitFor(REVEAL_GAP, reveal);
     }
@@ -615,7 +626,7 @@ export default function TutorStage({ pomo, prepare, active, subject, context, br
     if (cls.current.on && !cls.current.resumeFn && cu && logRef.current[cu.i]?.kind === 'lecture') cls.current.resumeFn = () => play(cu.i, cu.s);
     clearTimers(); hush(); playId.current++; setTalking(false); saying.current = '';
     setCur((c) => (c ? { ...c, done: true, cut: true } : c));
-    setIdle({ mood: 'surprised', gesture: 'shrug', line: CUTS[Math.floor(Math.random() * CUTS.length)] });
+    setIdle({ mood: 'surprised', gesture: 'shrug', line: pick(L('CUTS', CUTS)) });
     said.current = because;
     setTurn('you'); micTries.current = 0;
   };
@@ -697,7 +708,7 @@ export default function TutorStage({ pomo, prepare, active, subject, context, br
   const poke = () => {
     if (live && talking) { interrupt(); return; }
     if (talking || thinking) return;
-    setIdle({ gesture: Math.random() < 0.5 ? 'laugh' : 'shrug', mood: 'cheeky', line: POKES[Math.floor(Math.random() * POKES.length)] });
+    setIdle({ gesture: Math.random() < 0.5 ? 'laugh' : 'shrug', mood: 'cheeky', line: pick(L('POKES', POKES)) });
     setTimeout(() => setIdle((x) => (x ? { ...x, gesture: 'none' } : x)), 1800);
   };
 
@@ -834,6 +845,10 @@ export default function TutorStage({ pomo, prepare, active, subject, context, br
       <button className={live ? 'btn-ghost' : 'btn-primary'} style={{ width: '100%', marginTop: 10, padding: 12 }} onClick={() => (live ? stopLive() : startLive())}>{live ? '⏹ End live class' : '🎙 Start a live class (talk to him)'}</button>
       {liveErr && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 6 }}>{liveErr}</div>}
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>Sass:</span>
+        {[['chill', '😌 Chill'], ['cheeky', '😏 Cheeky'], ['savage', '🔥 Savage']].map(([k, l]) => <button key={k} className={`chip ${sass === k ? 'active' : ''}`} style={{ fontSize: 11.5, padding: '3px 9px' }} onClick={() => { setSass(k); setSassState(k); if (!talking && !thinking) showEntry({ role: 'ai', kind: 'misc', free: true, scenes: oneScene(k === 'savage' ? 'Savage mode. I will roast your mistakes and you will learn faster out of spite. Deal?' : k === 'cheeky' ? 'Cheeky mode. A little teasing, a lot of teaching.' : 'Chill mode. Gentle and patient. I will save the roasting for later.', k === 'savage' ? 'cheeky' : 'happy', k === 'savage' ? 'lean' : 'wave'), chips: [] }); }}>{l}</button>)}
+      </div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>His voice:</span>
         {BYTE_VOICES.map(([k, l]) => <button key={k} className={`chip ${voice === k ? 'active' : ''}`} style={{ fontSize: 11.5, padding: '3px 9px' }} onClick={() => { setVoice(k); voiceRef.current = k; setByteVoice(k); if (k === 'off') hush(); else if (!talking && !thinking) say(k === 'phone' ? 'This is the phone voice. Bit robotic, right?' : 'Hi. This is my voice now. Better, right?', 'cheeky'); }}>{l}</button>)}
         {voice !== 'off' && voice !== 'phone' && WHO[byteVoiceInfo()] && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>now: {WHO[byteVoiceInfo()]}{byteVoiceInfo() !== 'eleven' && byteVoiceWhy() && byteVoiceWhy() !== 'none' ? ` (ElevenLabs said: ${byteVoiceWhy()})` : ''}</span>}

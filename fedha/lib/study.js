@@ -172,8 +172,12 @@ export function studyText(course, lesson, notes = []) {
 }
 
 // Calls the study AI (/api/study).
+// Byte's sass dial (chill | cheeky | savage), chosen in the tutor and kept on the phone.
+export const getSass = () => { try { const v = localStorage.getItem('luxe_byte_sass'); return ['chill', 'cheeky', 'savage'].includes(v) ? v : 'savage'; } catch { return 'savage'; } };
+export const setSass = (v) => { try { localStorage.setItem('luxe_byte_sass', v); } catch { /* private mode */ } };
+
 export async function askStudy(body) {
-  const r = await fetch('/api/study', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const r = await fetch('/api/study', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sass: getSass(), ...body }) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || 'The AI could not answer right now.');
   return j;
