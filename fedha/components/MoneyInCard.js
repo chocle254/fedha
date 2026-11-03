@@ -9,11 +9,12 @@ const SEEN = 'luxe_money_seen';
 
 const tickFor = (view, d) => {
   const dt = new Date(`${d.day}T12:00:00`);
-  return view === 'daily' ? format(dt, 'EEEEE') : view === 'monthly' ? format(dt, 'MMMMM') : format(dt, 'yyyy');
+  return view === 'daily' ? format(dt, 'EEEEE') : view === 'weekly' ? format(dt, 'd/M') : view === 'monthly' ? format(dt, 'MMMMM') : format(dt, 'yyyy');
 };
 const labelFor = (view, d, i, last) => {
   const dt = new Date(`${d.day}T12:00:00`);
   if (view === 'daily') return i === last ? 'Today' : i === last - 1 ? 'Yesterday' : format(dt, 'EEE d MMM');
+  if (view === 'weekly') return i === last ? `This week · from ${format(dt, 'EEE d MMM')}` : i === last - 1 ? `Last week · from ${format(dt, 'd MMM')}` : `Week of ${format(dt, 'd MMM yyyy')}`;
   if (view === 'monthly') return i === last ? `This month · ${format(dt, 'MMM yyyy')}` : format(dt, 'MMMM yyyy');
   return i === last ? `This year · ${format(dt, 'yyyy')}` : format(dt, 'yyyy');
 };
@@ -21,9 +22,9 @@ const labelFor = (view, d, i, last) => {
 export default function MoneyInCard({ transactions }) {
   const s = useMemo(() => summarize(transactions || []), [transactions]);
   const [fresh, setFresh] = useState(0);
-  const [view, setView] = useState('daily'); // daily | monthly | yearly
-  const [selByView, setSelByView] = useState({ daily: 13, monthly: 11, yearly: 4 }); // bar being read (latest by default)
-  const bars = view === 'daily' ? s.days14 : view === 'monthly' ? s.months12 : s.years5;
+  const [view, setView] = useState('daily'); // daily | weekly | monthly | yearly
+  const [selByView, setSelByView] = useState({ daily: 13, weekly: 11, monthly: 11, yearly: 4 }); // bar being read (latest by default)
+  const bars = view === 'daily' ? s.days14 : view === 'weekly' ? s.weeks12 : view === 'monthly' ? s.months12 : s.years5;
   const last = bars.length - 1;
   const sel = Math.min(selByView[view], last);
   const setSel = (i) => setSelByView((p) => ({ ...p, [view]: i }));
@@ -65,7 +66,7 @@ export default function MoneyInCard({ transactions }) {
       </div>
       {/* Bar chart: daily (14 days), monthly (12 months) or yearly (5 years). Tap a bar to read it. */}
       <div role="tablist" aria-label="Chart period" style={{ display: 'flex', gap: 4, marginTop: 14, padding: 3, borderRadius: 10, background: 'rgba(255,246,232,0.08)' }}>
-        {[['daily', 'Daily'], ['monthly', 'Monthly'], ['yearly', 'Yearly']].map(([k, l]) => (
+        {[['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly']].map(([k, l]) => (
           <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setView(k)}
             style={{ flex: 1, padding: '5px 0', border: 0, borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer',
               background: view === k ? 'var(--chart-line, var(--green))' : 'transparent', color: view === k ? '#04120C' : 'var(--text-2)' }}>{l}</button>
@@ -89,7 +90,7 @@ export default function MoneyInCard({ transactions }) {
       </div>
       <div style={{ display: 'flex', gap: view === 'yearly' ? 8 : 3, marginTop: 4 }} aria-hidden="true">
         {bars.map((d, i) => (
-          <span key={d.day} className="font-num" style={{ flex: 1, textAlign: 'center', fontSize: 10, color: sel === i ? 'var(--text)' : 'var(--text-3)', fontWeight: sel === i || i === last ? 700 : 400 }}>
+          <span key={d.day} className="font-num" style={{ flex: 1, textAlign: 'center', fontSize: view === 'weekly' ? 8.5 : 10, color: sel === i ? 'var(--text)' : 'var(--text-3)', fontWeight: sel === i || i === last ? 700 : 400 }}>
             {tickFor(view, d)}
           </span>
         ))}
