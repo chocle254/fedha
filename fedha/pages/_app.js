@@ -220,7 +220,27 @@ function NotificationScheduler() {
   return null;
 }
 
+// Offline: save the main screens' pages into the service worker's page cache (worker/sw-src.js 'fedha-pages') once a
+// day while online, so any of them opens without internet, not only the ones visited since the last update.
+const OFFLINE_PAGES = ['/', '/wallets', '/transactions', '/budgets', '/goals', '/reports', '/planner', '/learning', '/meals', '/health', '/workout', '/utilities', '/trading', '/tech-hub', '/music', '/activities', '/discover'];
+function useOfflinePages() {
+  useEffect(() => {
+    if (typeof caches === 'undefined' || !navigator.onLine || !('serviceWorker' in navigator)) return undefined;
+    const t = setTimeout(async () => {
+      try {
+        const day = new Date().toDateString();
+        if (localStorage.getItem('luxe_offline_pages') === day) return;
+        const cache = await caches.open('fedha-pages');
+        for (const p of OFFLINE_PAGES) { try { const r = await fetch(p, { credentials: 'same-origin' }); if (r.ok) await cache.put(new Request(new URL(p, location.origin).href), r); } catch { /* next one */ } }
+        localStorage.setItem('luxe_offline_pages', day);
+      } catch { /* caches unavailable */ }
+    }, 12000); // after the app has settled
+    return () => clearTimeout(t);
+  }, []);
+}
+
 function AppBody({ Component, pageProps }) {
+  useOfflinePages();
   // Defer rendering the page until the client has mounted so the server HTML
   // and the first client paint match exactly (prevents hydration mismatches
   // caused by date/time and client-only data rendered during initial render).
