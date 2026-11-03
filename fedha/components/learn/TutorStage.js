@@ -5,7 +5,7 @@ import TutorBoard, { boardToMd } from './TutorBoard';
 import Md from './Md';
 import { askStudy } from '../../lib/study';
 import { stopSpeaking } from '../../lib/voice';
-import { speakByte, warmByte, byteVoiceInfo, getByteVoice, setByteVoice, BYTE_VOICES } from '../../lib/byte-voice';
+import { speakByte, warmByte, byteVoiceInfo, byteVoiceWhy, getByteVoice, setByteVoice, BYTE_VOICES } from '../../lib/byte-voice';
 
 // The tutor stage in Study mode. Professor Byte runs a class: he teaches the lesson point by point (the next part is
 // prepared while he talks, and the words stay off screen unless captions are on), then quizzes you at the end. He only
@@ -728,7 +728,7 @@ export default function TutorStage({ prepare, active, subject, context, brief, p
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>His voice:</span>
         {BYTE_VOICES.map(([k, l]) => <button key={k} className={`chip ${voice === k ? 'active' : ''}`} style={{ fontSize: 11.5, padding: '3px 9px' }} onClick={() => { setVoice(k); voiceRef.current = k; setByteVoice(k); if (k === 'off') hush(); else if (!talking && !thinking) say(k === 'phone' ? 'This is the phone voice. Bit robotic, right?' : 'Hi. This is my voice now. Better, right?', 'cheeky'); }}>{l}</button>)}
-        {voice !== 'off' && voice !== 'phone' && WHO[byteVoiceInfo()] && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>now: {WHO[byteVoiceInfo()]}</span>}
+        {voice !== 'off' && voice !== 'phone' && WHO[byteVoiceInfo()] && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>now: {WHO[byteVoiceInfo()]}{byteVoiceInfo() !== 'eleven' && byteVoiceWhy() && byteVoiceWhy() !== 'none' ? ` (ElevenLabs said: ${byteVoiceWhy()})` : ''}</span>}
       </div>
       <div className="tab-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', margin: '10px 0 8px' }}>
         {chips.map((c, k) => (String(c).startsWith('__fresh__:') ? <button key={'c' + k} className="chip" style={{ borderColor: 'rgba(125,249,255,.6)' }} disabled={thinking} onClick={() => ask('', c.split(':')[1], { fresh: true })}>↻ New take</button> : <button key={'c' + k} className="chip" style={{ borderColor: 'rgba(52,211,153,.5)' }} disabled={thinking} onClick={() => ask(c)}>{c}</button>))}

@@ -5,7 +5,7 @@
 // neural again. Two failures in a row rest the neural voice for 45 seconds.
 import { speak, stopSpeaking, pickByteVoice } from './voice';
 
-export const BYTE_VOICES = [['auto', 'Auto'], ['troy', 'Troy'], ['austin', 'Austin'], ['daniel', 'Daniel'], ['phone', 'Phone voice'], ['off', 'Silent']];
+export const BYTE_VOICES = [['auto', 'Auto'], ['eleven', 'ElevenLabs'], ['troy', 'Troy'], ['austin', 'Austin'], ['daniel', 'Daniel'], ['phone', 'Phone voice'], ['off', 'Silent']];
 const KEY = 'luxe_byte_voice_v2';
 export function getByteVoice() {
   try { const v = localStorage.getItem(KEY); return BYTE_VOICES.some(([k]) => k === v) ? v : 'auto'; } catch { return 'auto'; }
@@ -14,7 +14,9 @@ export function setByteVoice(v) { try { localStorage.setItem(KEY, v); } catch { 
 
 // Which voice actually answered last: 'eleven', 'troy', 'austin', 'daniel', or 'phone'.
 let lastWho = '';
+let lastWhy = ''; // why ElevenLabs didn't answer, when it didn't
 export const byteVoiceInfo = () => lastWho;
+export const byteVoiceWhy = () => lastWhy;
 
 // Mood → how he says it (Orpheus vocal directions).
 const TONE = { happy: 'cheerful', cheeky: 'cheerful', excited: 'excited', surprised: 'excited', proud: 'excited', thinking: 'calm', serious: 'professional', facepalm: 'dramatic', impatient: 'dramatic' };
@@ -59,6 +61,7 @@ function fetchChunk(text, voice, tone, signal) {
   if (inflight.has(k)) return inflight.get(k);
   const job = gate(async () => {
     const r = await fetch('/api/byte-voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice, tone }), signal });
+    lastWhy = r.headers.get('x-byte-why') || '';
     if (!r.ok) throw Object.assign(new Error('voice ' + r.status), { status: r.status });
     lastWho = r.headers.get('x-byte-voice') || lastWho;
     const blob = await r.blob();

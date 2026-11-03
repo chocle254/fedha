@@ -18,13 +18,14 @@ const EL_MODEL = process.env.ELEVENLABS_MODEL || 'eleven_flash_v2_5'; // half th
 
 // Best-effort memory of what is out of action (lasts as long as this server instance stays warm).
 const down = { eleven: 0, groq: 0 };
+let elevenWhy = ''; // the last reason ElevenLabs gave for not answering (sent back so the app can show it)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function viaEleven(text, tone) {
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key || Date.now() < down.eleven) return null;
   const stability = tone === 'excited' || tone === 'dramatic' ? 0.35 : tone === 'calm' || tone === 'professional' ? 0.65 : 0.5;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     try {
       const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${EL_VOICE}?output_format=mp3_44100_64`, {
         method: 'POST',
@@ -35,14 +36,16 @@ async function viaEleven(text, tone) {
       if (r.ok) return { buf: Buffer.from(await r.arrayBuffer()), type: 'audio/mpeg', who: 'eleven' };
       const d = await r.json().catch(() => ({}));
       const why = d?.detail?.status || d?.detail?.message || '';
-      if (r.status === 429 && attempt === 0) { await sleep(700); continue; } // the free plan only allows 2 requests at once
+      elevenWhy = `${r.status} ${why}`.trim().slice(0, 120);
+      if (r.status === 429 && attempt < 3) { await sleep([700, 1300, 2200][attempt]); continue; } // busy: the free plan allows 2 requests at once
       // Out of credits, blocked (ElevenLabs sometimes refuses free keys used from a server) or a bad key: rest it for a while.
       if (r.status === 401 || r.status === 402 || r.status === 403) down.eleven = Date.now() + (/quota/i.test(why) ? 60 : 10) * 60000;
-      else down.eleven = Date.now() + (r.status === 429 ? 15000 : 30000);
+      else down.eleven = Date.now() + (r.status === 429 ? 5000 : 20000);
       console.warn('[fedha] byte-voice elevenlabs failed:', r.status, why);
       return null;
     } catch (e) {
-      down.eleven = Date.now() + 30000;
+      down.eleven = Date.now() + 10000;
+      elevenWhy = e.message.slice(0, 120);
       console.warn('[fedha] byte-voice elevenlabs error:', e.message);
       return null;
     }
@@ -98,11 +101,14 @@ export default async function handler(req, res) {
   const text = String(req.body?.text || '').replace(/[*_#`[\]<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 190);
   if (!text) return res.status(400).json({ error: 'Nothing to say' });
   const pick = GROQ_VOICES.includes(req.body?.voice) ? req.body.voice : null; // null = auto
+  const onlyEleven = req.body?.voice === 'eleven'; // ElevenLabs or nothing (the app then uses the phone, never Groq)
   const tone = TONES.includes(req.body?.tone) ? req.body.tone : '';
   const order = pick ? [pick, ...GROQ_VOICES.filter((v) => v !== pick)] : GROQ_VOICES;
 
-  const got = (!pick && (await viaEleven(text, tone))) || (await viaGroq(text, tone, order));
-  if (!got) return res.status(502).json({ error: 'Voice failed' });
+  if (onlyEleven) down.eleven = 0; // chosen on purpose: always give it a real try
+  const got = (!pick && (await viaEleven(text, tone))) || (onlyEleven ? null : await viaGroq(text, tone, order));
+  if (!got) { res.setHeader('X-Byte-Why', elevenWhy || 'none'); return res.status(502).json({ error: 'Voice failed', eleven: elevenWhy }); }
+  if (got.who !== 'eleven' && elevenWhy) res.setHeader('X-Byte-Why', elevenWhy);
   res.setHeader('Content-Type', got.type);
   res.setHeader('X-Byte-Voice', got.who);
   res.setHeader('Cache-Control', 'private, max-age=3600');
