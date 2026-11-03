@@ -8,6 +8,7 @@ import { groupReport, brokerResults, splitLots, LOT_MIN, REAL_EARLY_TRADES, trai
 import { notify, trailProfiles, atrBefore, growthState } from './trading';
 import { newsCheck, newsReason } from './news-guard';
 import { ladderStage } from './ladder';
+import { channelGate } from './channel-pause';
 
 const PENDING_MAX_MS = 6 * 3600e3; // a limit order that has not filled in 6 h is cancelled
 
@@ -180,6 +181,9 @@ export async function placeSignalOnBrokers({ userId, parsed, source, signalKey, 
   const settings = await getBrokerSettings(userId);
   const accounts = BROKER_ACCOUNTS.filter((a) => settings[a.key]?.enabled && accountId(a.key));
   if (!accounts.length) return null;
+  // Paused channels (lib/channel-pause.js) don't trade on MT5 either.
+  const gate = await channelGate(userId, source).catch(() => ({ paused: false }));
+  if (gate.paused) return accounts.map((a) => ({ account: a.key, skipped: `${source} paused until ${new Date(gate.until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` }));
   const news = await newsCheck(parsed.symbol).catch(() => ({ level: 'clear' }));
   if (news.level !== 'clear') news.reason = await newsReason(news, parsed.symbol);
   const results = await Promise.all(accounts.map(async (acct) => {

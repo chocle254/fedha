@@ -293,6 +293,16 @@ export default function TradingPage() {
     setRiskNow(j.riskNow);
     flash('Settings saved.');
   }
+  // Pause a channel for a week, or bring it back now (pages/api/trading/channels.js).
+  async function setPause(source, action) {
+    try {
+      const r = await fetch('/api/trading/channels', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source, action }) });
+      const j = await r.json();
+      if (!r.ok) { flash(j.error || 'Could not change that channel.', true); return; }
+      setSettings((s0) => ({ ...s0, broker_settings: { ...(s0?.broker_settings || {}), pauses: j.pauses } }));
+      flash(action === 'pause' ? `${source} paused for a week.` : `${source} is back on, on probation.`);
+    } catch { flash('Could not change that channel.', true); }
+  }
   async function useBinanceBalance() {
     try {
       const r = await fetch('/api/binance/balances', { cache: 'no-store' });
@@ -610,8 +620,26 @@ export default function TradingPage() {
                       {groupsFromBroker ? 'Scored from the MT5 demo accounts (each signal on each account counts once). ' : 'Every signal is paper-traded on its own. '}R = profit ÷ risk: +1R made what it risked, −1R hit the stop. Confidence grows as a channel keeps winning, and its lots grow with it. Real money needs {GROUP_MIN_TRADES} closed trades, or 5 with a clear winning record (Early real, at most ×1 lots). 3 stop-losses in a row halve the size.
                     </div>
                   )}
-                  <div className="sx-groups">
-                    {(allGroups ? groups : groups.slice(0, 8)).map((g) => {
+                  {(() => {
+                    // Channels in groups: winning ones, ones still being tested, losing ones, and paused ones
+                    // (lib/channel-pause.js pauses a losing channel for a week; its signals are recorded, not traded).
+                    const pauses = settings?.broker_settings?.pauses || {};
+                    const pausedNow = (src) => pauses[src]?.until && Date.parse(pauses[src].until) > Date.now();
+                    const stageOf = (src) => settings?.broker_settings?.ladder?.channels?.[src]?.stage;
+                    const sect = { win: [], test: [], lose: [], pause: [] };
+                    for (const g of groups) {
+                      if (pausedNow(g.source)) sect.pause.push(g);
+                      else if (g.verdict === 'drop' || (g.closed >= 3 && g.avgR < 0) || g.streak >= 3) sect.lose.push(g);
+                      else if (['proven', 'real'].includes(stageOf(g.source)) || ((g.verdict === 'keep' || g.verdict === 'scale') && g.avgR > 0) || (g.closed >= 3 && g.avgR > 0.1)) sect.win.push(g);
+                      else sect.test.push(g);
+                    }
+                    const SECT = [['win', '🏆 Winning', C.up, 'Making money on their record. Lots grow as they keep winning.'], ['test', '🧪 Testing', C.gold, 'Too few trades to judge yet.'], ['lose', '📉 Losing', C.down, 'Losing money. They pause for a week automatically if it continues.'], ['pause', '⏸ Paused', '#848E9C', 'Sitting out for a week: signals are recorded, nothing is traded.']];
+                    return SECT.map(([key, label, color, hint]) => sect[key].length > 0 && (
+                      <div key={key} style={{ marginTop: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '4px 2px 6px' }}><b style={{ color, fontSize: 13 }}>{label}</b><small style={{ color: '#848E9C' }}>{sect[key].length} · {hint}</small></div>
+                        <div className="sx-groups">
+                          {sect[key].map((g) => {
+                      const pz = pauses[g.source]; const pzOn = pausedNow(g.source);
                       const lad = settings?.broker_settings?.ladder?.channels?.[g.source];
                       const v = lad?.stage === 'real' ? [C.up, '💰 Real'] : lad?.stage === 'proven' ? ['#7CC4FF', '⭐ Proven'] : { scale: [C.up, `Lots ×${g.lotMultiplier}`], keep: ['#EAECEF', `Lots ×${g.lotMultiplier}`], testing: [C.gold, 'Testing'], drop: [C.down, 'Drop'] }[g.verdict];
                       const open = openGroup === g.source;
@@ -634,15 +662,19 @@ export default function TradingPage() {
                             <div className="sx-g-more">
                               <div>{g.confidence}% confident · total {g.totalR >= 0 ? '+' : ''}{g.totalR.toFixed(1)}R{g.open ? ` · ${g.open} open` : ''} · worst run {g.worstStreak} SL</div>
                               <div>{g.why}</div>
+                              {pz?.reason && <div>⏸ {pzOn ? `Paused until ${new Date(pz.until).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}` : 'Was paused'}: {pz.reason}.{!pzOn && pz.resumed_at ? ' Back on probation: only its new trades count.' : ''}</div>}
+                              <div style={{ marginTop: 6 }}><span role="button" tabIndex={0} className="sx-how" onClick={(e) => { e.stopPropagation(); setPause(g.source, pzOn ? 'resume' : 'pause'); }}>{pzOn ? '▶ Resume now' : '⏸ Pause for a week'}</span></div>
                               {lad?.note && <div>Ladder ({lad.stage === 'real' ? 'Real' : lad.stage === 'proven' ? 'Proven' : 'Trial'}): {lad.note}</div>}
                               <div>Trailing stop: <b>{TRAIL_LABEL[p?.mode || TRAIL_DEFAULT]}</b>{p && p.trades >= 5 && best?.avgR != null ? ` · learned from ${p.trades} trades (${best.avgR >= 0 ? '+' : ''}${best.avgR.toFixed(2)}R avg)` : ' · default until 5 closed trades'}</div>
                             </div>
                           )}
                         </button>
                       );
-                    })}
-                  </div>
-                  {groups.length > 8 && <button className="sx-more" onClick={() => setAllGroups((v) => !v)}>{allGroups ? 'Show top 8' : `Show all ${groups.length} channels`}</button>}
+                                              })}
+                        </div>
+                      </div>
+                    ));
+                  })()}
                 </>
               )}
               {closedSignals.length > 0 && <button className="sx-more" onClick={() => setShowClosedSignals((v) => !v)}>{showClosedSignals ? 'Hide' : 'Show'} {closedSignals.length} closed signals</button>}

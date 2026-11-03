@@ -5,6 +5,7 @@ import { pushToAll } from './nestlink-push';
 import { klines, bookTicker, lastPrice, isMt5, mt5Filters } from './market';
 import { instrument } from './instruments';
 import { newsCheck, newsReason } from './news-guard';
+import { channelGate } from './channel-pause';
 
 const BINANCE = 'https://api.binance.com/api/v3';
 const filterCache = new Map();
@@ -318,6 +319,9 @@ export async function maybeAutoEnter(userId, signal) {
   try {
     const s = await getSettings(userId);
     if (!s.auto_enabled) return null;
+    // A losing channel sits out for a week (lib/channel-pause.js): its signal is recorded, not traded.
+    const gate = await channelGate(userId, signal.source, s).catch(() => ({ paused: false }));
+    if (gate.paused) return { ok: false, skipped: `${signal.source} is paused until ${new Date(gate.until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} (${gate.reason})` };
     const rr = rewardRisk(Number(signal.entry), Number(signal.stop_loss), signal.take_profits);
     if (Number(s.min_rr) > 0 && (rr == null || rr < Number(s.min_rr))) return { ok: false, skipped: 'rr' };
     // Size by the channel's track record: proven groups get bigger lots, new or shaky ones smaller.
