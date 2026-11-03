@@ -2023,3 +2023,20 @@ html[data-holiday="vice"] .bottom-nav { background: rgba(14,2,30,.94) !important
 @keyframes hdSway { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
 .vc-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; margin-right: 6px; padding: 4px 11px; border-radius: 20px; font-size: 12.5px; font-weight: 800; color: #FFE4F1; cursor: pointer; font-family: inherit;
   background: linear-gradient(90deg, rgba(255,46,136,.25), rgba(34,211,238,.18)); border: 1px solid rgba(255,46,136,.55); text-shadow: 0 0 6px rgba(255,46,136,.6); }
+
+/* Byte caught doing something weird when the tutor opens (TutorStage SKITS): the effect around him. */
+.bs { position: absolute; left: 0; right: 0; top: 0; height: 60%; pointer-events: none; z-index: 2; }
+.bs-notes span, .bs-zzz span { position: absolute; left: calc(55% + var(--i) * 8px); top: 18%; font-size: 18px; font-weight: 800; color: #7DF9FF; text-shadow: 0 0 8px rgba(125,249,255,.8); animation: bsFloat 2.4s ease-out infinite; animation-delay: calc(var(--i) * .45s); opacity: 0; }
+.bs-zzz span { color: #C4B5FD; text-shadow: 0 0 8px rgba(196,181,253,.8); font-size: calc(14px + var(--i) * 5px); animation-duration: 2.8s; }
+@keyframes bsFloat { 0% { transform: translate(0, 10px) rotate(-10deg) scale(.6); opacity: 0; } 20% { opacity: 1; } 100% { transform: translate(26px, -60px) rotate(15deg) scale(1.1); opacity: 0; } }
+.bs-cl { position: absolute; left: 50%; top: -6%; transform: translateX(-50%); font-size: 34px; filter: grayscale(.6) brightness(.8); animation: bsBob 3s ease-in-out infinite; }
+.bs-cloud i { position: absolute; left: calc(40% + var(--i) * 8%); top: 12%; width: 2px; height: 9px; border-radius: 2px; background: #93C5FD; animation: bsRain .9s linear infinite; animation-delay: calc(var(--i) * .22s); }
+@keyframes bsRain { from { transform: translateY(0); opacity: 1; } to { transform: translateY(40px); opacity: 0; } }
+@keyframes bsBob { 0%, 100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(-4px); } }
+.bs-sweat i { position: absolute; left: calc(30% + var(--i) * 22%); top: 22%; width: 6px; height: 9px; border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; background: #7DD3FC; animation: bsSweat 1.1s ease-in infinite; animation-delay: calc(var(--i) * .35s); }
+@keyframes bsSweat { 0% { transform: translateY(0) scale(.6); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(34px) scale(1); opacity: 0; } }
+.bs-plant { position: absolute; right: -36px; bottom: -150%; font-size: 30px; animation: bsBob 2.6s ease-in-out infinite; }
+.bs-batt { position: absolute; right: -18px; top: 30%; font-size: 20px; transform: rotate(-30deg); }
+.bs-crumbs i { position: absolute; left: calc(45% + var(--i) * 6%); top: 40%; width: 3px; height: 3px; border-radius: 1px; background: #FBBF24; animation: bsCrumb 1.2s ease-in infinite; animation-delay: calc(var(--i) * .2s); }
+@keyframes bsCrumb { from { transform: translate(0, 0); opacity: 1; } to { transform: translate(calc((var(--i) - 2) * 8px), 50px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .bs * { animation: none !important; opacity: 1 !important; } }

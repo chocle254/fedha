@@ -48,6 +48,33 @@ const SAVAGE = {
   POKES: ['Poking the professor? Answer a question instead, coward.', 'I felt that. My lawyer will be in touch.', 'Tap me again and I start teaching calculus.', 'You poke, I quiz. That is the deal.'],
   QUIZ_INTRO: ['Lesson over. Now we find out if you were actually listening. Answer out loud or type it.', 'Quiz time. Let us see how much of my brilliance survived. Answer out loud or type it.', 'And now the moment of truth. Prove you were not just nodding. Answer out loud or type it.'],
 };
+// Walking in on Byte: when the tutor opens, he is caught in the middle of something weird, notices you, and pulls
+// himself together. A different one each time (no AI needed, so it starts instantly). prop = the effect around him.
+const SKITS = [
+  { id: 'hum', prop: 'notes', scenes: [['Hmm hmm hmmm. Hmm hm hmmm. Hmm hmm hmm hmmmm.', 'happy', 'none'], ['Oh! You are here. I was not humming. That was the fridge.', 'surprised', 'shrug']] },
+  { id: 'sing', prop: 'notes', scenes: [['Gradient descent, take me down, to the minimum, of this town. Oh yeah.', 'excited', 'celebrate'], ['How long have you been standing there? Do not answer that. Class is starting.', 'surprised', 'facepalm']] },
+  { id: 'crisis', prop: 'cloud', scenes: [['If I explain something and nobody listens, did I even teach?', 'serious', 'think'], ['Am I just a bunch of if-statements wearing a hat?', 'thinking', 'shrug'], ['Oh. Hi. Ignore that. Professors have feelings too. Let us learn something.', 'surprised', 'wave']] },
+  { id: 'nap', prop: 'zzz', scenes: [['Zzz. Five more minutes. The gradient. Is. Vanishing. Zzz.', 'thinking', 'none'], ['Huh? I was not asleep. I was buffering. Totally different.', 'surprised', 'shrug']] },
+  { id: 'pushups', prop: 'sweat', scenes: [['Ninety eight. Ninety nine. One hundred.', 'serious', 'lean'], ['That was two push-ups. Robots count in binary. Anyway, welcome.', 'proud', 'celebrate']] },
+  { id: 'plant', prop: 'leaf', scenes: [['Listen, Gerald. Photosynthesis is just a solar-powered data pipeline. You are basically a data centre with leaves.', 'happy', 'explain'], ['Oh, you are here. Gerald is my best student. Do not tell him I said that.', 'cheeky', 'wave']] },
+  { id: 'mirror', prop: null, scenes: [['No, YOU are the better professor. No, you are. No, YOU are.', 'cheeky', 'point'], ['Ahem. I was calibrating my reflection. Very important robot maintenance.', 'surprised', 'shrug']] },
+  { id: 'battery', prop: 'crumbs', scenes: [['Mmm. Double A. Crunchy on the outside, lithium on the inside.', 'happy', 'laugh'], ['Want a bite? No? More for me. Okay, lesson time.', 'cheeky', 'wave']] },
+  { id: 'poem', prop: null, scenes: [['Roses are red, my LEDs are blue, I have a stack overflow, and soon so will you.', 'proud', 'explain'], ['Thank you, thank you. I will be here all week. Mostly because I live here.', 'cheeky', 'celebrate']] },
+  { id: 'segfault', prop: 'cloud', scenes: [['Segmentation fault. Core dumped. Why does it always end like this?', 'serious', 'facepalm'], ['Oh! Sorry. I was reading old error logs. It is like a sad movie for robots. Let us cheer up and learn.', 'surprised', 'shrug']] },
+  { id: 'villain', prop: null, scenes: [['Mwahaha. No. MWAHAHAHA. Yes, much more evil.', 'excited', 'laugh'], ['That is for when you get every answer right. Then I will have no one to roast. Let us begin.', 'cheeky', 'lean']] },
+  { id: 'password', prop: null, scenes: [['Was it password one two three? Password one two three four? Why do I even have a password? I am a drawing.', 'thinking', 'think'], ['Never mind. Hi! Cybersecurity lesson number one: do not be me.', 'cheeky', 'wave']] },
+  { id: 'dance', prop: 'notes', scenes: [['Left, right, recursion, recursion, recursion, recursion.', 'excited', 'celebrate'], ['I would explain this dance, but it never terminates. Let us do something easier: today\'s lesson.', 'cheeky', 'shrug']] },
+  { id: 'cloud', prop: null, scenes: [['Do you think the cloud knows it is just someone else\'s computer?', 'thinking', 'think'], ['Deep thoughts. Anyway. Hello, you. Sit down, we have work to do.', 'happy', 'wave']] },
+  { id: 'rehearse', prop: null, scenes: [['And THAT, ladies and gentlemen, is why you never trust an unvalidated input. Thank you. Thank you. No autographs.', 'proud', 'celebrate'], ['Oh. It is just you. I was rehearsing for my fans. You will do.', 'cheeky', 'shrug']] },
+];
+function nextSkit() {
+  let last = '';
+  try { last = localStorage.getItem('luxe_byte_skit') || ''; } catch { /* private */ }
+  const pool = SKITS.filter((k) => k.id !== last);
+  const k = pool[Math.floor(Math.random() * pool.length)];
+  try { localStorage.setItem('luxe_byte_skit', k.id); } catch { /* private */ }
+  return k;
+}
 const L = (name, normal) => (getSass() === 'savage' ? SAVAGE[name] : normal);
 const WHO = { eleven: 'ElevenLabs', troy: 'Troy', austin: 'Austin', daniel: 'Daniel', phone: 'the phone voice' };
 
@@ -98,6 +125,8 @@ export default function TutorStage({ pomo, prepare, active, subject, context, br
   const [q, setQ] = useState('');
   const [voice, setVoice] = useState('auto');
   const [sass, setSassState] = useState('savage');
+  const [skitProp, setSkitProp] = useState(null);
+  const skitNext = useRef(null);
   useEffect(() => { setSassState(getSass()); }, []);
   const [idle, setIdle] = useState(null); // { gesture, mood, line }
   const [ripples, setRipples] = useState([]);
@@ -523,6 +552,7 @@ export default function TutorStage({ pomo, prepare, active, subject, context, br
     const c = cls.current;
     if (!a || a.handled) return;
     a.handled = true;
+    if (a.kind === 'skit') { setSkitProp(null); const f = skitNext.current; skitNext.current = null; if (f) later(f, 500); return; }
     if (!c.on || hwOpenRef.current) { setTurn('you'); return; }
     switch (a.kind) {
       case 'lecture': lectureDone(a.step); break;
@@ -690,7 +720,13 @@ export default function TutorStage({ pomo, prepare, active, subject, context, br
   useEffect(() => {
     if (!active) return;
     if (request && request.n !== handled.current) { handled.current = request.n; started.current = true; ask('', request.level === 'normal' ? 'start' : request.level, { minutesLeft: request.minutesLeft }); return; }
-    if (!started.current) { started.current = true; ask('', 'start'); }
+    if (!started.current) {
+      started.current = true;
+      // Walk in on him doing something weird, then the class starts.
+      const k = nextSkit();
+      setSkitProp(k.prop); skitNext.current = () => askRef.current('', 'start');
+      showEntry({ role: 'ai', kind: 'skit', free: true, scenes: k.scenes.map(([say, mood, gesture]) => ({ say, mood, gesture, board: null })), chips: [] });
+    }
   }, [active, request?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!active) { pauseClass(); clearTimers(); hush(); stopLive(); setTalking(false); setCur((c) => (c ? { ...c, done: true } : c)); } }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -742,6 +778,16 @@ export default function TutorStage({ pomo, prepare, active, subject, context, br
           )}
         </AnimatePresence>
         <div role="button" tabIndex={0} aria-label="Poke Professor Byte" onClick={poke} style={{ position: 'absolute', left: board ? 2 : '50%', bottom: 4, transform: board ? 'none' : 'translateX(-50%)', transition: 'left .5s, transform .5s', cursor: 'pointer' }}>
+          {skitProp && (
+            <div className={`bs bs-${skitProp}`} aria-hidden="true">
+              {skitProp === 'notes' && ['♪', '♫', '♩', '♬', '♪'].map((n, i) => <span key={i} style={{ '--i': i }}>{n}</span>)}
+              {skitProp === 'zzz' && ['z', 'z', 'Z'].map((n, i) => <span key={i} style={{ '--i': i }}>{n}</span>)}
+              {skitProp === 'cloud' && <><span className="bs-cl">☁️</span>{[0, 1, 2, 3].map((i) => <i key={i} style={{ '--i': i }} />)}</>}
+              {skitProp === 'sweat' && [0, 1, 2].map((i) => <i key={i} style={{ '--i': i }} />)}
+              {skitProp === 'leaf' && <span className="bs-plant">🪴</span>}
+              {skitProp === 'crumbs' && <><span className="bs-batt">🔋</span>{[0, 1, 2, 3, 4].map((i) => <i key={i} style={{ '--i': i }} />)}</>}
+            </div>
+          )}
           <ProfessorByte size={board ? 118 : 150} mood={mood} gesture={gesture} talking={talking || !!(idle && speaker.current)} level={voice === 'off' ? null : level} thinking={thinking} look={board && talking ? { x: 0.9, y: -0.2 } : (listening || heard) ? { x: 0, y: 0.9 } : null} onKnock={knock} />
         </div>
         {/* the glass: reflections, and ripples when he knocks */}
