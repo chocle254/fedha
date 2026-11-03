@@ -102,7 +102,7 @@ function savePlan(key, v) {
   } catch { /* storage full or private */ }
 }
 
-export default function TutorStage({ pomo, prepare, active, subject, context, brief, planKey, onSaveNote, courseId, request, homework, onSetHomework, onGradeHomework }) {
+export default function TutorStage({ outfit = 'default', pomo, prepare, active, subject, context, brief, planKey, onSaveNote, courseId, request, homework, onSetHomework, onGradeHomework }) {
   const [log, setLog] = useState([]);
   const [plan, setPlan] = useState(null); // { title, opener, known, weak, steps, step, sig }
   const [reading, setReading] = useState(null); // what he is reading right now
@@ -788,7 +788,7 @@ export default function TutorStage({ pomo, prepare, active, subject, context, br
               {skitProp === 'crumbs' && <><span className="bs-batt">🔋</span>{[0, 1, 2, 3, 4].map((i) => <i key={i} style={{ '--i': i }} />)}</>}
             </div>
           )}
-          <ProfessorByte size={board ? 118 : 150} mood={mood} gesture={gesture} talking={talking || !!(idle && speaker.current)} level={voice === 'off' ? null : level} thinking={thinking} look={board && talking ? { x: 0.9, y: -0.2 } : (listening || heard) ? { x: 0, y: 0.9 } : null} onKnock={knock} />
+          <ProfessorByte outfit={outfit} size={board ? 118 : 150} mood={mood} gesture={gesture} talking={talking || !!(idle && speaker.current)} level={voice === 'off' ? null : level} thinking={thinking} look={board && talking ? { x: 0.9, y: -0.2 } : (listening || heard) ? { x: 0, y: 0.9 } : null} onKnock={knock} />
         </div>
         {/* the glass: reflections, and ripples when he knocks */}
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'linear-gradient(115deg, rgba(255,255,255,.10) 0%, rgba(255,255,255,0) 22%, rgba(255,255,255,0) 60%, rgba(255,255,255,.05) 68%, rgba(255,255,255,0) 76%)', boxShadow: 'inset 0 0 40px rgba(0,0,0,.55)' }} />

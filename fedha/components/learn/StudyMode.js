@@ -3,6 +3,8 @@ import { studyText, learnerBrief, loadHomework, saveHomework, pendingHomework, h
 import { getSetting } from '../../lib/db';
 import { getKb, buildKb, kbToMarkdown, kbForPrompt } from '../../lib/byte-kb';
 import { getMaterials, relevantMaterial } from '../../lib/materials';
+import { folderOf } from '../../lib/course-folders';
+import { OUTFITS } from './ProfessorByte';
 import { genId, todayISO } from '../../lib/utils';
 import { showNotif } from '../../lib/notifications';
 import QuickQuiz from './QuickQuiz';
@@ -249,7 +251,7 @@ export default function StudyMode({ onSaveAiNotes, courses, notes, cards = [], l
         </div>
         <div className="card" style={{ padding: 12, display: panel === 'tutor' ? 'block' : 'none' }}>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 8 }}>🎓 Professor Byte{course ? ` · reading your notes for ${lesson ? 'this lesson' : 'this course'}` : ''} · tap him, he reacts</div>
-          <TutorStage pomo={{ phase, endAt, paused: pausedLeft != null }} prepare={prepare} homework={homework} onSetHomework={setHomework} onGradeHomework={gradeHomework} active={panel === 'tutor'} subject={subject} context={() => brief().text} brief={brief} planKey={planKey} onSaveNote={onSaveNote} courseId={courseId} request={tutorReq} />
+          <TutorStage outfit={course && OUTFITS[folderOf(course)] ? folderOf(course) : 'default'} pomo={{ phase, endAt, paused: pausedLeft != null }} prepare={prepare} homework={homework} onSetHomework={setHomework} onGradeHomework={gradeHomework} active={panel === 'tutor'} subject={subject} context={() => brief().text} brief={brief} planKey={planKey} onSaveNote={onSaveNote} courseId={courseId} request={tutorReq} />
         </div>
       </div>
     </div>
