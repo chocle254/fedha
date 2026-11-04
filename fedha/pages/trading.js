@@ -198,7 +198,8 @@ export default function TradingPage() {
   const change = tk && tk.o ? ((tk.c - tk.o) / tk.o) * 100 : null;
   useEffect(() => { document.title = last ? `${fmtPrice(last)} | ${base(symbol)}/${quoteOf(symbol)} · Luxe` : 'Trading · Luxe'; }, [last, symbol]);
 
-  const unrealized = positions.reduce((a, t) => a + openPnl(t, tickers[t.symbol]?.c), 0);
+  const paperSince = settings?.broker_settings?.paper_since || '';
+  const unrealized = positions.filter((t) => String(t.created_at || '') >= paperSince).reduce((a, t) => a + openPnl(t, tickers[t.symbol]?.c), 0);
   const equityLive = account ? account.equity + unrealized : null;
 
   // Price just crossed a TP, a stop or a limit price: ask the server to settle it now instead of waiting for the next poll.
@@ -293,19 +294,19 @@ export default function TradingPage() {
     setRiskNow(j.riskNow);
     flash('Settings saved.');
   }
-  // Reset everything: every paper trade, the channel ladder, pauses and growth challenge; optional new start.
+  // Reset balance: a fresh paper balance from now; every channel keeps its track record (lib/paper-reset.js).
   async function resetAll() {
-    const v = window.prompt('Reset EVERYTHING in paper trading: all trades and history, the channel ladder, paused channels and the growth challenge. Real MT5 trades are not touched.\n\nStarting balance (USDT) for the fresh account:', String(settings?.paper_balance || 1000));
+    const v = window.prompt('Start the paper balance again. Every channel keeps its full track record (report cards, ladder, pauses). Real MT5 trades are not touched.\n\nStarting balance (USDT):', String(settings?.paper_balance || 1000));
     if (v === null) return;
     const bal = Number(String(v).replace(/[^0-9.]/g, ''));
     if (!(bal > 0)) { flash('Enter a starting balance above 0.', true); return; }
-    if (!window.confirm(`Delete every paper trade and start again at $${bal}? This can't be undone.`)) return;
+    if (!window.confirm(`Start the balance again at $${bal}?`)) return;
     const r = await fetch('/api/trading/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reset', balance: bal }) });
     const j = await r.json();
     if (!r.ok) { flash(j.error || 'Could not reset.', true); return; }
     setSettings(j.settings); setAccount(j.account); setRiskNow(j.riskNow);
     setForm((f) => ({ ...f, balance: String(j.settings.paper_balance) }));
-    flash(`Fresh start: $${j.reset.start}. ${j.reset.cleared} old trades cleared.`);
+    flash(`Fresh balance: $${j.reset.start}. Channel records kept.`);
     load();
   }
   // Pause a channel for a week, or bring it back now (pages/api/trading/channels.js).
@@ -751,10 +752,10 @@ export default function TradingPage() {
               <label className="tx-field"><span>Min reward:risk</span><input className="font-num" inputMode="decimal" value={form.rr} onChange={(e) => setForm({ ...form, rr: e.target.value })} /><em>0 = off</em></label>
               <button className="tx-submit buy" onClick={() => saveSettings({})}>Save settings</button>
               <div style={{ marginTop: 16, padding: 12, borderRadius: 12, border: '1px solid rgba(239,68,68,.45)', background: 'rgba(239,68,68,.06)' }}>
-                <b style={{ fontSize: 13.5 }}>Reset everything</b>
-                <div style={{ fontSize: 12, color: 'var(--text-3)', margin: '4px 0 8px', lineHeight: 1.5 }}>Wipes every paper trade and its history, the channel ladder, paused channels and the growth challenge, and starts a fresh account at the balance you choose. This also happens by itself when the account is blown. Real MT5 trades are never touched.</div>
-                {(settings.broker_settings?.resets || []).slice(0, 3).map((x) => <div key={x.at} style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{new Date(x.at).toLocaleDateString([], { day: 'numeric', month: 'short' })}: {x.reason === 'blown' ? `blown at $${Number(x.equity).toFixed(2)}` : 'reset by you'} · {x.trades} trades cleared · new start ${x.to}</div>)}
-                <button className="tx-submit sell" style={{ marginTop: 8 }} onClick={resetAll}>Reset everything</button>
+                <b style={{ fontSize: 13.5 }}>Reset balance</b>
+                <div style={{ fontSize: 12, color: 'var(--text-3)', margin: '4px 0 8px', lineHeight: 1.5 }}>Starts the paper balance again at the amount you choose. This also happens by itself when the account is blown. Channel performance is never reset: every trade keeps counting for the report cards, the ladder and pauses, so you always know which channels are good. Real MT5 trades are never touched.</div>
+                {(settings.broker_settings?.resets || []).slice(0, 3).map((x) => <div key={x.at} style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{new Date(x.at).toLocaleDateString([], { day: 'numeric', month: 'short' })}: {x.reason === 'blown' ? `blown at $${Number(x.equity).toFixed(2)}` : 'reset by you'} · {x.trades} trades on that balance · new start ${x.to}</div>)}
+                <button className="tx-submit sell" style={{ marginTop: 8 }} onClick={resetAll}>Reset balance</button>
               </div>
               <p className="tx-fine">
                 How the simulation works: market orders fill at the best ask (buy) or bid (sell), so you pay the spread like on Binance. Limit orders that cross the book fill straight away; otherwise they wait until price trades through them. Fees are 0.1% per side. Sizes follow Binance&apos;s lot-size, tick-size and minimum-order rules, and you can&apos;t spend more than your free balance. Signal trades scale out equally across their take-profits and trail the stop once TP1 is hit, in the style that has worked best for that channel (learned from its past trades every 6 hours; ATR ×2 until there is enough history). They close after 7 days; manual orders stay open until TP, SL or you close them. If a stop and a target are hit in the same candle, the stop counts. Selling a coin you don&apos;t hold is a simulated short. Next trade risks {fmtUsd(riskNow, false)}.

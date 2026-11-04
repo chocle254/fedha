@@ -87,11 +87,13 @@ export async function getEquity(userId, settings) {
 //   riskRoom = equity - openRisk: the most a new signal trade may risk, so the balance can never go below zero
 export async function getAccount(userId, settings) {
   const { data } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId);
+  // After a reset the balance starts again from paper_since; older trades still count for the channel report cards.
+  const since = settings.broker_settings?.paper_since || '';
   let realized = 0;
   let locked = 0;
   let mt5Notional = 0; // margin for these is set once the equity (and so the leverage) is known
   let openRisk = 0;
-  for (const t of (data || []).filter(isMain)) {
+  for (const t of (data || []).filter((x) => isMain(x) && String(x.created_at || '') >= since)) {
     if (['won', 'lost', 'expired'].includes(t.status)) realized += Number(t.pnl_usdt) || 0;
     else {
       if (t.status === 'open') realized += partialRealized(t); // TPs already hit pay into the balance straight away
