@@ -1,4 +1,4 @@
-import { speak as luxeSpeak } from './voice';
+import { speakByte } from './byte-voice';
 // Two YouTube players ("decks") so one song can blend into the next, like a DJ: the next song starts on the other
 // deck at volume 0 and the volumes cross over `blend` seconds. YouTube requires its player to stay visible, so the
 // decks live in a small floating card (components/MiniPlayer / MusicContext) while music from YouTube plays.
@@ -92,7 +92,12 @@ export class Decks {
   time() { const p = this.player; return { cur: p?.getCurrentTime?.() || 0, dur: p?.getDuration?.() || 0, playing: p?.getPlayerState?.() === 1 }; }
 }
 
-// DJ Luxe's voice: the shared Luxe voice (lib/voice.js) in its radio-host style.
+// DJ Luxe's voice: his own male ElevenLabs voice (then Groq's male voices, then a male phone voice), via
+// lib/byte-voice.js with persona 'dj'. Only one line at a time; stopDjVoice() silences him.
+let current = null;
 export function speak(text, { onStart, onEnd } = {}) {
-  luxeSpeak(text, { style: 'host', onStart: () => onStart?.(), onEnd: () => onEnd?.() });
+  current?.stop();
+  current = speakByte(text, { persona: 'dj', voice: 'auto', mood: 'cheeky', onStart: () => onStart?.(), onEnd: () => { current = null; onEnd?.(); } });
+  return current;
 }
+export function stopDjVoice() { current?.stop(); current = null; }

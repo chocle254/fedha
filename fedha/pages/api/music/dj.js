@@ -14,11 +14,11 @@ import { nvidiaChat } from '../../../lib/nvidia-client';
 //   switchUp: true = "switch it up": a new direction next to your taste
 //   journey:  moods still to come (sent back by the player for the next chapter); empty = plan a new journey
 //   chapter:  chapter number (1 = the start of the set)
-//   prev:     the previous chapter's name and mood, for the handover line
+//   prev:     the previous chapter's name and mood, for the mood-change line
 //   hour:     the listener's local hour
 // }
-// Returns { name, mood, journey, intro, why, tracks } (tracks carry `dj` lines; track 1 of a later chapter carries
-// the mood-change line).
+// Returns { name, mood, journey, intro, why, tracks }. The DJ never talks over songs: he only speaks when the mood
+// changes (the intro of the set, then one line on track 1 of each later chapter, said over the blend).
 const DZ = 'https://api.deezer.com';
 const j = async (path) => { const r = await fetch(`${DZ}${path}`, { signal: AbortSignal.timeout(9000) }); return r.json(); };
 const shape = (t) => ({
@@ -31,7 +31,7 @@ const parseJSON = (t) => { const s = String(t || ''); const a = s.indexOf('{'); 
 const ask = async (prompt, maxTokens = 700, temperature = 0.8) => parseJSON(await nvidiaChat({ prompt, system: 'You output only valid JSON. No markdown, no commentary.', temperature, maxTokens }));
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const dayPart = (h) => (h < 5 ? 'late night' : h < 12 ? 'morning' : h < 17 ? 'afternoon' : h < 21 ? 'evening' : 'night');
-const VOICE = 'You are DJ Luxe, a smooth, confident radio DJ. Plain, natural English like a top US hip-hop radio host. No slang from any particular country, no "bro", no clichés about where the listener is from.';
+const VOICE = 'You are DJ Luxe, a laid-back male radio DJ with a dry, playful sense of humour: chill, warm, a little cheeky, never loud or cheesy. Plain, natural English like a relaxed late-night US radio host. No slang from any particular country, no "bro", no clichés about where the listener is from.';
 const MOODS = ['heartbreak', 'healing', 'late night', 'chill', 'feel good', 'throwback', 'hype', 'party', 'gym', 'focus', 'love'];
 
 // What's trending: Deezer's editor-run TikTok and Instagram Reels hit playlists plus the global chart.
@@ -145,19 +145,13 @@ ${ahead.length || chapterNo > 1 ? '' : `"next":["3-4 moods from: ${MOODS.join(',
     const nextJourney = ahead.length ? ahead : (Array.isArray(plan?.next) ? plan.next.map(String).filter(Boolean).slice(0, 4) : []);
     const name = plan?.name ? String(plan.name).slice(0, 60) : request && chapterNo === 1 ? request : `${chapterMood} mix`;
 
-    // 3. The voice: an intro (or the mood-change line) and handovers through the chapter.
+    // 3. The voice: one short line for the mood change (or the opening), funny and chill. Nothing between songs.
     const lines = await ask(`${VOICE}
-${prev ? `We're moving from "${prev.name}" (${prev.mood}) into a new chapter: "${name}" (${chapterMood}).` : `Opening the set with "${name}" (${chapterMood}), ${dayPart(hour)}.`}
-Why it fits: ${plan?.why || '—'}
-Songs in order:
-${tracks.map((t, i) => `${i + 1}. ${t.artist} - ${t.title}`).join('\n')}
-Write: "intro" (max 30 words: ${prev ? 'turn the mood, say where we are going now and tease song 1' : `a ${dayPart(hour)} greeting, say what this set is and that it moves through moods, tease song 1`}), and short handovers for songs 4, 8, 11 (max 18 words each, from the previous song into that one). Only use names and titles above; never invent facts, years, features or stories. JSON only: {"intro":"...","lines":{"4":"...","8":"...","11":"..."}}`, 500, 0.9).catch(() => null);
-    const intro = lines?.intro ? String(lines.intro).slice(0, 240) : prev ? `Switching the mood now. This is ${name}.` : `DJ Luxe here. ${plan?.why || ''} Starting with ${tracks[0].artist}.`;
-    const withLines = tracks.map((t, i) => ({
-      ...t,
-      dj: i === 0 && prev ? intro : lines?.lines?.[String(i + 1)] ? String(lines.lines[String(i + 1)]).slice(0, 180) : null,
-      chapter: chapterNo,
-    }));
+${prev ? `The mood is changing from "${prev.name}" (${prev.mood}) to "${name}" (${chapterMood}).` : `Opening the set with "${name}" (${chapterMood}), ${dayPart(hour)}. The set moves through moods.`}
+First song: ${tracks[0].artist} - ${tracks[0].title}.
+Write ONE line, max 32 words, said over the music: ${prev ? 'a light, funny remark about leaving the old mood behind, then where we are heading now and the first song' : `a chill ${dayPart(hour)} hello, a small joke, what this set is, then the first song`}. Easy to say out loud: no emojis, no hashtags, no lists. Only use the names and titles given; never invent facts. JSON only: {"line":"..."}`, 200, 0.95).catch(() => null);
+    const intro = lines?.line ? String(lines.line).slice(0, 240) : prev ? `Alright, we've done enough ${prev.mood || 'of that'}. Let's change the mood. Here's ${tracks[0].artist}.` : `DJ Luxe here, keeping it easy. ${plan?.why || ''} Starting with ${tracks[0].artist}.`;
+    const withLines = tracks.map((t, i) => ({ ...t, dj: i === 0 && prev ? intro : null, chapter: chapterNo }));
     return res.status(200).json({ name, mood: chapterMood, journey: nextJourney, chapter: chapterNo, intro, why: plan?.why || null, tracks: withLines });
   } catch {
     return res.status(502).json({ error: 'DJ Luxe could not reach the music catalogue. Try again in a minute.' });

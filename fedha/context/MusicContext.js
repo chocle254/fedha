@@ -3,7 +3,8 @@ import { streamUrl } from '../lib/audius';
 import { videoFor, findArtist, related, artistTop, bpmFor } from '../lib/popular';
 import { planMix, flowOrder, PRESETS } from '../lib/mix';
 import { songRadio } from '../lib/music-mixes';
-import { Decks, speak } from '../lib/yt-decks';
+import { Decks, speak, stopDjVoice } from '../lib/yt-decks';
+import { warmByte } from '../lib/byte-voice';
 import { getSetting, setSetting } from '../lib/db';
 
 // One music player for the whole app (Music Room + the mini player on every page), so music keeps going while you
@@ -211,7 +212,8 @@ export function MusicProvider({ children }) {
       const vid = await videoFor(t);
       if (!vid) { setIdx(n); return advance(1, seconds); }
       blending.current = true;
-      if (t.dj) speak(t.dj, { onStart: () => { ducking.current = 0.35; setDj((x) => ({ ...(x || {}), talking: true, text: t.dj })); }, onEnd: () => { ducking.current = 1; setDj((x) => (x ? { ...x, talking: false } : x)); } });
+      // DJ Luxe only talks when the mood changes: over the blend into a new chapter, the music dipped under him.
+      if (t.dj) speak(t.dj, { onStart: () => { ducking.current = 0.4; setDj((x) => ({ ...(x || {}), talking: true, text: t.dj })); }, onEnd: () => { ducking.current = 1; setDj((x) => (x ? { ...x, talking: false } : x)); } });
       setDeck(d.other); // show the incoming song as it fades in
       await d.blend(vid, t.gain, seconds, () => ducking.current, curve);
       blending.current = false;
@@ -309,7 +311,7 @@ export function MusicProvider({ children }) {
   // ✕ on the mini player: stop everything and hide it.
   const stop = useCallback(() => {
     decks.current?.pause(); audio.current?.pause();
-    try { window.speechSynthesis?.cancel(); } catch { /* none */ }
+    stopDjVoice(); ducking.current = 1;
     setDj(null); setIdx(-1); setQueue([]); state.current.queue = []; setPlaying(false);
     try { localStorage.removeItem(SESSION); } catch { /* private */ }
   }, []);
@@ -363,11 +365,11 @@ export function MusicProvider({ children }) {
       djRef.current = { journey: j.journey || [], chapter: 1, name: j.name, mood: j.mood, names: { 1: { name: j.name, mood: j.mood } } };
       setDj({ on: true, loading: false, talking: true, text: j.intro, name: j.name, chapterMood: j.mood, journey: j.journey || [], why: j.why, mood: o.mood || null });
       setShuffle(false);
-      speak(j.intro, { onEnd: () => setDj((x) => (x ? { ...x, talking: false } : x)) });
+      speak(j.intro, { onStart: () => { ducking.current = 0.4; }, onEnd: () => { ducking.current = 1; setDj((x) => (x ? { ...x, talking: false } : x)); } });
       playList(j.tracks, 0);
     } catch (e) { djRef.current = null; setDj(null); flash(e.message || 'DJ Luxe is busy. Try again.'); }
   }, [djAsk, playList]);
-  const stopDj = useCallback(() => { djRef.current = null; setDj(null); try { window.speechSynthesis?.cancel(); } catch { /* none */ } }, []);
+  const stopDj = useCallback(() => { djRef.current = null; setDj(null); stopDjVoice(); ducking.current = 1; }, []);
 
   // Three songs before a chapter ends, DJ Luxe builds the next one (the next mood on the journey) and adds it, so
   // the set keeps going and blends into it. When a new chapter starts, the DJ card shows its name.
@@ -385,6 +387,7 @@ export function MusicProvider({ children }) {
       const more = j.tracks.filter((t) => !now.some((y) => y.id === t.id)).map((t) => ({ ...t, chapter: d.chapter + 1 }));
       d.chapter += 1; d.journey = j.journey || []; d.names[d.chapter] = { name: j.name, mood: j.mood };
       if (more.length) { const nl = [...now, ...more]; setQueue(nl); state.current.queue = nl; }
+      if (more[0]?.dj) warmByte(more[0].dj, { persona: 'dj', voice: 'auto', mood: 'cheeky' }); // ready before the blend
       setDj((x) => (x ? { ...x, journey: d.journey, up: j.name } : x));
     }).catch(() => {}).finally(() => { d.fetching = false; });
   }, [idx, queue, djAsk]);

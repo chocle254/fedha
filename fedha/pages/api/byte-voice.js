@@ -6,6 +6,8 @@
 // Nothing is stored; the phone keeps a short memory of what it already fetched.
 //
 // POST { text, voice, tone } → audio (mp3 from ElevenLabs, wav from Groq) + header X-Byte-Voice: eleven | troy | austin | daniel
+// persona: 'dj' = DJ Luxe's own male voice (ELEVENLABS_DJ_VOICE_ID, default "Chris", a relaxed, casual American man;
+//          falls back to Byte's voice if that one isn't on the account). Anything else = Professor Byte.
 // voice: 'auto' (ElevenLabs first), or 'troy' | 'austin' | 'daniel' to start with that Groq voice. Text over 190 characters is cut.
 import { requireUser } from '../../lib/require-user';
 
@@ -14,6 +16,7 @@ const GROQ_VOICES = ['troy', 'austin', 'daniel'];
 const TONES = ['cheerful', 'friendly', 'warm', 'professional', 'calm', 'excited', 'whisper', 'dramatic'];
 const GROQ_MODEL = process.env.GROQ_TTS_MODEL || 'canopylabs/orpheus-v1-english';
 const EL_VOICE = process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB'; // "Adam", a deep male voice every free account can use
+const EL_DJ_VOICE = process.env.ELEVENLABS_DJ_VOICE_ID || 'iP95p4xoKVk53GoZ742B'; // "Chris": laid-back, casual male
 const EL_MODEL = process.env.ELEVENLABS_MODEL || 'eleven_flash_v2_5'; // half the credits per character of the older models
 
 // Best-effort memory of what is out of action (lasts as long as this server instance stays warm).
@@ -21,22 +24,25 @@ const down = { eleven: 0, groq: 0 };
 let elevenWhy = ''; // the last reason ElevenLabs gave for not answering (sent back so the app can show it)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function viaEleven(text, tone) {
+let djVoiceMissing = false; // the DJ voice isn't on this account: use Byte's for the DJ too
+async function viaEleven(text, tone, persona) {
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key || Date.now() < down.eleven) return null;
-  const stability = tone === 'excited' || tone === 'dramatic' ? 0.35 : tone === 'calm' || tone === 'professional' ? 0.65 : 0.5;
+  const dj = persona === 'dj' && !djVoiceMissing;
+  const stability = dj ? 0.4 : tone === 'excited' || tone === 'dramatic' ? 0.35 : tone === 'calm' || tone === 'professional' ? 0.65 : 0.5;
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
-      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${EL_VOICE}?output_format=mp3_44100_64`, {
+      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${dj ? EL_DJ_VOICE : EL_VOICE}?output_format=mp3_44100_64`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'audio/mpeg', 'xi-api-key': key },
-        body: JSON.stringify({ text, model_id: EL_MODEL, voice_settings: { stability, similarity_boost: 0.75, use_speaker_boost: true } }),
+        body: JSON.stringify({ text, model_id: EL_MODEL, voice_settings: { stability, similarity_boost: 0.75, style: dj ? 0.3 : 0, use_speaker_boost: true } }),
         signal: AbortSignal.timeout(12000),
       });
       if (r.ok) return { buf: Buffer.from(await r.arrayBuffer()), type: 'audio/mpeg', who: 'eleven' };
       const d = await r.json().catch(() => ({}));
       const why = d?.detail?.status || d?.detail?.message || '';
       elevenWhy = `${r.status} ${why}`.trim().slice(0, 120);
+      if (dj && (r.status === 404 || r.status === 400 || /voice/i.test(why))) { djVoiceMissing = true; return viaEleven(text, tone, persona); }
       if (r.status === 429 && attempt < 3) { await sleep([700, 1300, 2200][attempt]); continue; } // busy: the free plan allows 2 requests at once
       // Out of credits, blocked (ElevenLabs sometimes refuses free keys used from a server) or a bad key: rest it for a while.
       if (r.status === 401 || r.status === 402 || r.status === 403) down.eleven = Date.now() + (/quota/i.test(why) ? 60 : 10) * 60000;
@@ -103,10 +109,11 @@ export default async function handler(req, res) {
   const pick = GROQ_VOICES.includes(req.body?.voice) ? req.body.voice : null; // null = auto
   const onlyEleven = req.body?.voice === 'eleven'; // ElevenLabs or nothing (the app then uses the phone, never Groq)
   const tone = TONES.includes(req.body?.tone) ? req.body.tone : '';
+  const persona = req.body?.persona === 'dj' ? 'dj' : null;
   const order = pick ? [pick, ...GROQ_VOICES.filter((v) => v !== pick)] : GROQ_VOICES;
 
   if (onlyEleven) down.eleven = 0; // chosen on purpose: always give it a real try
-  const got = (!pick && (await viaEleven(text, tone))) || (onlyEleven ? null : await viaGroq(text, tone, order));
+  const got = (!pick && (await viaEleven(text, tone, persona))) || (onlyEleven ? null : await viaGroq(text, tone, order));
   if (!got) { res.setHeader('X-Byte-Why', elevenWhy || 'none'); return res.status(502).json({ error: 'Voice failed', eleven: elevenWhy }); }
   if (got.who !== 'eleven' && elevenWhy) res.setHeader('X-Byte-Why', elevenWhy);
   res.setHeader('Content-Type', got.type);

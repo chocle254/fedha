@@ -55,12 +55,12 @@ const gate = (fn) => new Promise((resolve, reject) => {
 });
 const inflight = new Map(); // the same chunk asked for twice (warm-up + playback) is fetched once
 
-function fetchChunk(text, voice, tone, signal) {
-  const k = `${voice}|${tone}|${text}`;
+function fetchChunk(text, voice, tone, signal, persona = null) {
+  const k = `${persona || ''}|${voice}|${tone}|${text}`;
   if (cache.has(k)) return Promise.resolve(cache.get(k));
   if (inflight.has(k)) return inflight.get(k);
   const job = gate(async () => {
-    const r = await fetch('/api/byte-voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice, tone }), signal });
+    const r = await fetch('/api/byte-voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice, tone, persona }), signal });
     lastWhy = r.headers.get('x-byte-why') || '';
     if (!r.ok) throw Object.assign(new Error('voice ' + r.status), { status: r.status });
     lastWho = r.headers.get('x-byte-voice') || lastWho;
@@ -73,10 +73,10 @@ function fetchChunk(text, voice, tone, signal) {
 }
 
 // Gets the first two chunks of a line ready while the one before it is still playing, so there is no gap between lines.
-export function warmByte(text, { mood = 'happy', voice = getByteVoice() } = {}) {
+export function warmByte(text, { mood = 'happy', voice = getByteVoice(), persona = null } = {}) {
   if (typeof window === 'undefined' || !text || voice === 'off' || voice === 'phone' || Date.now() < neuralDownUntil) return;
   const tone = TONE[mood] || 'cheerful';
-  chunks(text).slice(0, 2).forEach((c) => { fetchChunk(c, voice, tone).catch(() => {}); });
+  chunks(text).slice(0, 2).forEach((c) => { fetchChunk(c, voice, tone, undefined, persona).catch(() => {}); });
 }
 
 let ac = null;
@@ -85,7 +85,8 @@ function audioCtx() {
 }
 
 // Speaks a line. Returns { stop }. onLevel(0..1) gives mouth movement; onStart fires when sound begins.
-export function speakByte(text, { mood = 'happy', voice = getByteVoice(), onStart, onEnd, onLevel } = {}) {
+// persona 'dj' = DJ Luxe's own voice (pages/api/byte-voice.js).
+export function speakByte(text, { mood = 'happy', voice = getByteVoice(), persona = null, onStart, onEnd, onLevel } = {}) {
   let stopped = false, ended = false, audio = null, raf = 0, started = false, fails = 0;
   const ctrl = new AbortController();
   const begin = () => { if (!started) { started = true; onStart?.(); } };
@@ -108,7 +109,7 @@ export function speakByte(text, { mood = 'happy', voice = getByteVoice(), onStar
   const tone = TONE[mood] || 'cheerful';
   const parts = chunks(text);
   const jobs = [];
-  const get = (i) => { if (i < parts.length && !jobs[i]) jobs[i] = fetchChunk(parts[i], voice, tone, ctrl.signal); return jobs[i]; };
+  const get = (i) => { if (i < parts.length && !jobs[i]) jobs[i] = fetchChunk(parts[i], voice, tone, ctrl.signal, persona); return jobs[i]; };
   const playPart = async (i) => {
     if (stopped) return;
     if (i >= parts.length) { finish(); return; }
