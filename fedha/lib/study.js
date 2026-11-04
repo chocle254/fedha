@@ -176,8 +176,13 @@ export function studyText(course, lesson, notes = []) {
 export const getSass = () => { try { const v = localStorage.getItem('luxe_byte_sass'); return ['chill', 'cheeky', 'savage'].includes(v) ? v : 'savage'; } catch { return 'savage'; } };
 export const setSass = (v) => { try { localStorage.setItem('luxe_byte_sass', v); } catch { /* private mode */ } };
 
+// How fast Byte teaches: 'slow' (step by step, every line of code explained, write it yourself), 'normal', 'quick'.
+export const PACES = [['slow', '🐢 Step by step'], ['normal', '🚶 Normal'], ['quick', '🏃 Quick revision']];
+export const getPace = () => { try { const v = localStorage.getItem('luxe_byte_pace'); return PACES.some(([k]) => k === v) ? v : 'slow'; } catch { return 'slow'; } };
+export const setPace = (v) => { try { localStorage.setItem('luxe_byte_pace', v); } catch { /* private mode */ } };
+
 export async function askStudy(body) {
-  const r = await fetch('/api/study', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sass: getSass(), ...body }) });
+  const r = await fetch('/api/study', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sass: getSass(), pace: getPace(), ...body }) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || 'The AI could not answer right now.');
   return j;

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { studyText, learnerBrief, loadHomework, saveHomework, pendingHomework, homeworkKey } from '../../lib/study';
+import { getPace, setPace, PACES, studyText, learnerBrief, loadHomework, saveHomework, pendingHomework, homeworkKey } from '../../lib/study';
 import { getSetting } from '../../lib/db';
 import { getKb, buildKb, kbToMarkdown, kbForPrompt } from '../../lib/byte-kb';
 import { getMaterials, relevantMaterial } from '../../lib/materials';
@@ -9,7 +9,7 @@ import { OUTFITS } from './ProfessorByte';
 import { genId, todayISO } from '../../lib/utils';
 import { showNotif } from '../../lib/notifications';
 import QuickQuiz from './QuickQuiz';
-import TutorStage from './TutorStage';
+import TutorStage, { forgetCourse } from './TutorStage';
 import StudyMaterials from './StudyMaterials';
 import StudyMusic from './StudyMusic';
 import { useMusic } from '../../context/MusicContext';
@@ -19,13 +19,14 @@ import { useMusic } from '../../context/MusicContext';
 // The timer runs on the clock (end time), so it stays right if the phone sleeps or you switch apps.
 const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
-export default function StudyMode({ labs = [], onOpenLab, onSaveAiNotes, courses, notes, cards = [], log = [], prefs, start, onClose, onFocusDone, onQuizDone, onLessonDone, onSaveNote, onSaveLessonNotes, onPrefs }) {
+export default function StudyMode({ onRestartCourse, labs = [], onOpenLab, onSaveAiNotes, courses, notes, cards = [], log = [], prefs, start, onClose, onFocusDone, onQuizDone, onLessonDone, onSaveNote, onSaveLessonNotes, onPrefs }) {
   const [courseId, setCourseId] = useState(start?.courseId || courses.find((c) => c.status !== 'completed')?.id || '');
   const course = courses.find((c) => c.id === courseId);
   const lessons = course?.modules || [];
   const [lessonId, setLessonId] = useState(start?.lessonId || lessons.find((m) => !m.completed)?.id || '');
   const lesson = lessons.find((m) => m.id === lessonId);
   const [topic, setTopic] = useState('');
+  const [pace, setPaceState] = useState(getPace);
   const [p, setP] = useState(prefs);
 
   const [phase, setPhase] = useState('setup'); // setup | focus | recall | break
@@ -73,7 +74,16 @@ export default function StudyMode({ labs = [], onOpenLab, onSaveAiNotes, courses
       return kb;
     } catch { return null; }
   };
-  const planKey = `${courseId || 'free'}|${lessonId || ''}|${topic.trim().toLowerCase()}`;
+  // A different pace is a different lesson plan (slow plans have more, smaller steps).
+  const planKey = `${courseId || 'free'}|${lessonId || ''}|${topic.trim().toLowerCase()}${pace === 'normal' ? '' : `|${pace}`}`;
+  // Start the course over: every lesson back to not done, Byte forgets his plans for it, lesson 1 is up.
+  const restart = async () => {
+    if (!course || !window.confirm(`Start "${course.title}" from scratch? Every lesson goes back to not done and Byte teaches it again from lesson 1. Your notes and XP stay.`)) return;
+    forgetCourse(course.id);
+    await onRestartCourse?.(course);
+    setLessonId(lessons[0]?.id || '');
+    setPaceState('slow'); setPace('slow');
+  };
 
   // Homework Byte set last class on this course (or free-study topic).
   const hwKey = homeworkKey(courseId, courseId ? '' : (topic.trim() || subject));
@@ -209,6 +219,12 @@ export default function StudyMode({ labs = [], onOpenLab, onSaveAiNotes, courses
                 <option value="">— Whole course —</option>
                 {lessons.map((m) => <option key={m.id} value={m.id}>{m.completed ? '✓ ' : ''}{m.title}</option>)}
               </select></>}
+            {course && lessons.some((m) => m.completed) && <button className="btn-ghost" style={{ marginTop: 8, width: '100%' }} onClick={restart}>↺ Start this course from scratch</button>}
+            <label className="study-lbl">How Byte teaches</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {PACES.map(([k, l]) => <button key={k} className={`chip ${pace === k ? 'active' : ''}`} onClick={() => { setPaceState(k); setPace(k); }}>{l}</button>)}
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 5, lineHeight: 1.45 }}>{pace === 'slow' ? 'Slow and deep: basics first, code built up one line at a time with every word and symbol explained, and you write each piece yourself.' : pace === 'quick' ? 'Brisk revision of the key ideas, for things you mostly know.' : 'A normal class: each idea explained with a worked example.'}</div>
             <label className="study-lbl">Topic (optional)</label>
             <input className="input" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. Transformers attention, React hooks…" />
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginTop: 10 }}>

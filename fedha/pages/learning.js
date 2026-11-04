@@ -183,6 +183,11 @@ export default function LearningPage(){
     const cur=courses.find(x=>x.id===course.id)||course;
     await updateCourse({...cur,modules:normalizeModules(cur.modules).map(m=>m.id===id&&!m.aiNotes?{...m,aiNotes}:m)});
   }
+  // From Study mode: start a course from scratch. Lessons go back to not done (the xp flag stays, so no double XP).
+  async function restartCourse(course){
+    const cur=courses.find(x=>x.id===course.id)||course;
+    await updateCourse({...cur,modules:normalizeModules(cur.modules).map(m=>({...m,completed:false})),completed_minutes:0,status:'active',completed_at:null,manual_complete:false,restarted_at:todayISO()});
+  }
   // From Study mode: save lesson or course notes without opening the course page underneath.
   async function saveStudyNotes(course,id,notes){
     const cur=courses.find(x=>x.id===course.id)||course;
@@ -306,7 +311,7 @@ export default function LearningPage(){
   {labAt&&study&&courses.find(c=>c.id===labAt.courseId)&&<LabMode course={courses.find(c=>c.id===labAt.courseId)} section={labAt.section} projects={study.projects} onSave={saveProject}
     onMilestoneXP={(p,id)=>{const m=p.lab.milestones.find(x=>x.id===id);award({kind:'milestone',course_id:p.course_id,topic:`${p.title}: ${m?.title||''}`,xp:XP.milestone,count:{milestones:1}});}}
     onShip={shipProject} onClose={()=>setLabAt(null)} onStudyLesson={(lessonId)=>{setLabAt(null);setStudyAt({courseId:labAt.courseId,lessonId});}}/>}
-  {studyAt&&study&&<StudyMode labs={study.projects} onOpenLab={(courseId,section)=>{setStudyAt(null);setLabAt({courseId,section});}} courses={courses} notes={study.notes} cards={study.cards} log={study.log} prefs={study.prefs} onSaveLessonNotes={saveStudyNotes} onSaveAiNotes={saveStudyAiNotes} start={studyAt} onClose={()=>setStudyAt(null)} onFocusDone={focusDone} onQuizDone={quizDone} onLessonDone={(c,id)=>toggleLesson(courses.find(x=>x.id===c.id)||c,id)} onSaveNote={saveNote} onPrefs={(p)=>{patch({prefs:p});savePrefs(p);}}/>}
+  {studyAt&&study&&<StudyMode onRestartCourse={restartCourse} labs={study.projects} onOpenLab={(courseId,section)=>{setStudyAt(null);setLabAt({courseId,section});}} courses={courses} notes={study.notes} cards={study.cards} log={study.log} prefs={study.prefs} onSaveLessonNotes={saveStudyNotes} onSaveAiNotes={saveStudyAiNotes} start={studyAt} onClose={()=>setStudyAt(null)} onFocusDone={focusDone} onQuizDone={quizDone} onLessonDone={(c,id)=>toggleLesson(courses.find(x=>x.id===c.id)||c,id)} onSaveNote={saveNote} onPrefs={(p)=>{patch({prefs:p});savePrefs(p);}}/>}
   {certNote&&<a href="/tech-hub?tab=certificates" className="learn-toast" style={{textDecoration:'none',color:'inherit',bottom:toast?150:undefined}}><b>🖼 Framed in your Certificates Room</b><div style={{fontSize:12,opacity:.8}}>{certNote} · tap to see it</div></a>}
   {toast&&<div className="learn-toast">{toast.medals?toast.medals.map(m=><div key={m.id} style={{display:'flex',alignItems:'center',gap:10,textAlign:'left'}}><Medal id={m.id} earned size={54}/><div><b>New medal: {m.name}</b><div style={{fontSize:12,opacity:.8}}>{m.desc}</div></div></div>):<b>+{toast.xp} XP</b>}</div>}
   {selected&&!formOpen&&<CourseDetail onPrepSave={async(c)=>{await updateCourse(c);setSelected(s=>s&&s.id===c.id?{...c}:s);}} onStudy={(lessonId)=>{setStudyAt({courseId:selected.id,lessonId});setSelected(null);}} course={selected} onClose={()=>setSelected(null)} onEdit={()=>{setFormOpen(true);setForm({...EMPTY,...selected,modules:normalizeModules(selected.modules)});setSelected(null)}} onToggle={toggleLesson} onSaveNotes={saveLessonNotes} onCertificate={uploadCertificate} onSetCompleted={setCompleted} savingCert={savingCert} openLesson={openLesson} setOpenLesson={setOpenLesson} aiLesson={aiLesson} setAiLesson={setAiLesson} aiTranscript={aiTranscript} setAiTranscript={setAiTranscript} aiLoading={aiLoading} aiError={aiError} generateLessonNotes={generateLessonNotes} generateVimeoNotes={generateVimeoNotes}/>}

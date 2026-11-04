@@ -104,6 +104,17 @@ function savePlan(key, v) {
 
 const HW_LEVELS = ['homework_check', 'homework_grade', 'homework_help'];
 
+// Starting a course from scratch: forget his saved plans and answers for it, so he teaches it fresh.
+export function forgetCourse(courseId) {
+  if (!courseId) return;
+  for (const k of [PKEY, AKEY]) {
+    try {
+      const all = JSON.parse(localStorage.getItem(k) || '{}');
+      localStorage.setItem(k, JSON.stringify(Object.fromEntries(Object.entries(all).filter(([key]) => !key.startsWith(`${courseId}|`)))));
+    } catch { /* private mode */ }
+  }
+}
+
 export default function TutorStage({ outfit = 'default', pomo, prepare, active, subject, context, brief, planKey, onSaveNote, courseId, request, homework, onSetHomework, onGradeHomework }) {
   const [log, setLog] = useState([]);
   const [plan, setPlan] = useState(null); // { title, opener, known, weak, steps, step, sig }
