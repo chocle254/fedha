@@ -6,11 +6,7 @@ import { showNotif } from '../lib/notifications';
 import { applyCredits } from '../lib/nestlink-credits';
 import { summarize, incomeLine } from '../lib/earnings';
 
-// Payouts are rare: check every minute, and every 3 s for 5 minutes after you start one (a request every 3 s
-// all day kept the phone's radio awake and warmed it up).
-const POLL_MS = 60000;
-const FAST_MS = 3000;
-const FAST_FOR = 5 * 60000;
+const POLL_MS = 3000;
 
 // Invisible. While Luxe is open it asks the server which NestLink payouts have
 // finished, credits them to the "mpesa 2" wallet and shows a notification.
@@ -59,17 +55,15 @@ export default function NestLinkCredits() {
   }, [addTransaction]);
 
   useEffect(() => {
-    let fastUntil = 0; let t = 0;
-    const loop = () => { run(); t = setTimeout(loop, Date.now() < fastUntil ? FAST_MS : POLL_MS); };
-    loop();
+    run();
+    const t = setInterval(run, POLL_MS);
     const onVisible = () => run();
-    const onSweep = () => { fastUntil = Date.now() + FAST_FOR; clearTimeout(t); loop(); };
     document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('nestlink-sweep', onSweep);
+    window.addEventListener('nestlink-sweep', onVisible);
     return () => {
-      clearTimeout(t);
+      clearInterval(t);
       document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('nestlink-sweep', onSweep);
+      window.removeEventListener('nestlink-sweep', onVisible);
     };
   }, [run]);
 
