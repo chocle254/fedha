@@ -8,6 +8,7 @@ import { runProject, pythonIsWarm } from '../../lib/code-runner';
 import { getKb } from '../../lib/byte-kb';
 import { getMaterials, relevantMaterial } from '../../lib/materials';
 import { folderOf } from '../../lib/course-folders';
+import { resizeImage } from '../../lib/utils';
 
 // The Project Lab: after a unit, Byte (in his lab coat) runs a hands-on project built from it. Skipped a lesson?
 // You explain yourself first. Then: the mission, a milestone checklist, a code workspace (several files, Run with
@@ -27,6 +28,7 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const [review, setReview] = useState(null);
+  const [shots, setShots] = useState([]); // design labs: photos / screenshots for this milestone (sent, not stored)
   const [showHint, setShowHint] = useState(false);
   // explain-yourself gate
   const [missed, setMissed] = useState([]);
@@ -152,13 +154,16 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
   const submit = async () => {
     const m = ms[cur];
     if (!m) return;
-    setBusy('Byte is reviewing your code…'); setErr(''); setReview(null);
+    const design = L.domain === 'design' || L.lang === 'none';
+    if (design && !shots.length) { say('Photos first. Show me the work: screenshots from the app or photos of your drawing.', 'impatient'); return; }
+    setBusy(design ? 'Byte is looking at your work…' : 'Byte is reviewing your code…'); setErr(''); setReview(null);
     let r = out;
-    if (!r) r = await run();
+    if (!r && !design) r = await run();
     try {
-      const j = await askStudy({ type: 'lab_review', title: lab.title, brief: L.brief, n: cur + 1, milestone: m, files: L.files, run: r ? `${r.out || ''}${r.error ? `\nERROR: ${r.error}` : ''}` : '', history: (L.reviews || []).map((x) => x.score) });
+      const j = await askStudy({ type: 'lab_review', design, images: design ? shots : undefined, title: lab.title, brief: L.brief, n: cur + 1, milestone: m, files: L.files, run: r ? `${r.out || ''}${r.error ? `\nERROR: ${r.error}` : ''}` : '', history: (L.reviews || []).map((x) => x.score) });
       const rv = j.review;
       setReview(rv);
+      if (rv.done) setShots([]); // passed: start the next milestone's photos fresh
       const reviews = [...(L.reviews || []), { at: new Date().toISOString(), milestone: m.id, score: rv.score }].slice(-40);
       const milestones = ms.map((x, i) => (i === cur ? { ...x, done: rv.done || x.done, score: rv.score, review: { say: rv.say, fixes: rv.fixes, at: new Date().toISOString() } } : x));
       const next = { ...lab, milestones: lab.milestones.map((x) => (x.id === m.id ? { ...x, done: rv.done || x.done } : x)), lab: { ...L, milestones, reviews } };
@@ -256,7 +261,15 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
                 </div>
               )}
               <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                <button className="lab-btn ghost" disabled={!!busy} onClick={run}>▶ Run</button>
+                {(L.domain === 'design' || L.lang === 'none') ? (
+                  <div style={{ width: '100%' }}>
+                    <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 6 }}>Hand in this milestone as photos or screenshots (up to 4): the app screen, your drawing, the frames.</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {shots.map((src, i) => <div key={i} style={{ position: 'relative' }}><img src={src} alt={`Hand-in ${i + 1}`} style={{ width: 60, height: 80, objectFit: 'cover', borderRadius: 8, border: '1px solid rgba(52,211,153,.35)' }} /><button aria-label="Remove" onClick={() => setShots((x) => x.filter((_, k) => k !== i))} style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: 9, border: 0, background: '#000', color: '#fff', fontSize: 10 }}>✕</button></div>)}
+                      {shots.length < 4 && <label className="lab-btn ghost" style={{ cursor: 'pointer' }}>📷 {shots.length ? 'Add' : 'Add photos / screenshots'}<input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={async (e) => { const outImgs = []; for (const fl of Array.from(e.target.files || []).slice(0, 4 - shots.length)) { try { outImgs.push(await resizeImage(fl, 1400, 0.8)); } catch { /* skip */ } } setShots((x) => [...x, ...outImgs].slice(0, 4)); e.target.value = ''; }} /></label>}
+                    </div>
+                  </div>
+                ) : <button className="lab-btn ghost" disabled={!!busy} onClick={run}>▶ Run</button>}
                 {!allDone && <button className="lab-btn" disabled={!!busy} onClick={submit}>Submit milestone {cur + 1} to Byte</button>}
                 {allDone && lab.status !== 'shipped' && <button className="lab-btn" onClick={ship}>🚀 Ship the lab</button>}
                 {allDone && nextUnit && <button className="lab-btn ghost" onClick={() => onStudyLesson(nextUnit.lessons.find((l) => !l.completed)?.id || nextUnit.lessons[0].id)}>Next: unit {nextUnit.index + 1} →</button>}

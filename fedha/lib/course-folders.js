@@ -1,5 +1,5 @@
-// lib/course-folders.js — sorts courses into folders by subject (AI, Cybersecurity, Data, Cloud, Software, Maths,
-// Business, Other). Picked automatically from the course's name, provider and description; a course can be put in a
+// lib/course-folders.js — sorts courses into folders by subject (AI, Cybersecurity, Data, Cloud, Software, 3D/CAD/Animation,
+// Maths, Business, Other). Picked automatically from the course's name, provider and description; a course can be put in a
 // folder by hand (course.folder), which always wins.
 export const FOLDERS = [
   { id: 'ai', name: 'AI & Machine Learning', icon: '🤖', color: '#A78BFA', words: /\b(ai|a\.i\.|artificial intelligence|machine learning|ml|deep learning|neural|llm|gpt|transformer|nlp|computer vision|agents?|generative|genai|prompt|reinforcement|pytorch|tensorflow|keras|hugging ?face|langchain|rag|diffusion|chatbot)\b/i },
@@ -7,6 +7,7 @@ export const FOLDERS = [
   { id: 'data', name: 'Data', icon: '📊', color: '#60A5FA', words: /\b(data science|data analy|analytics|sql|database|pandas|numpy|statistics|excel|power ?bi|tableau|big data|spark|etl|visuali[sz]ation|data engineer)\b/i },
   { id: 'cloud', name: 'Cloud & DevOps', icon: '☁️', color: '#22D3EE', words: /\b(cloud|aws|azure|gcp|google cloud|devops|docker|kubernetes|k8s|terraform|ci\/cd|linux|sysadmin|networking|ccna|serverless)\b/i },
   { id: 'software', name: 'Software & Web', icon: '💻', color: '#34D399', words: /\b(cs50|computer science|programming|coding|code|python|javascript|typescript|java\b|c\+\+|c#|golang|rust|react|next\.?js|node|web dev|frontend|backend|full ?stack|html|css|api|algorithms?|data structures|leetcode|software|mobile|android|ios|flutter|git)\b/i },
+  { id: 'design', name: '3D, CAD & Animation', icon: '🎨', color: '#F472B6', words: /\b(blender|3d|3-d|cad|autocad|fusion ?360|solidworks|sketchup|onshape|tinkercad|freecad|revit|maya|cinema ?4d|3ds ?max|zbrush|sculpt\w*|modell?ing|render\w*|animation|animator|motion graphics|after effects|rigging|texturing|uv mapping|game art|product design|industrial design|drafting|technical drawing)\b/i },
   { id: 'math', name: 'Maths', icon: '📐', color: '#FBBF24', words: /\b(math|maths|mathematics|calculus|algebra|linear algebra|probability|discrete)\b/i },
   { id: 'business', name: 'Business & Money', icon: '💼', color: '#F59E0B', words: /\b(business|startup|marketing|finance|trading|invest|forex|accounting|sales|entrepreneur|product management|economics)\b/i },
   { id: 'other', name: 'Other', icon: '📁', color: '#94A3B8', words: /$^/ },

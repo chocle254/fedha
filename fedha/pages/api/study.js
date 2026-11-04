@@ -65,6 +65,7 @@ const STAGE_ASK = {
   quiz: 'Pop quiz! Ask the learner one good question that tests understanding (no answer yet). Be theatrical about it.',
 };
 
+const PHONE_ONLY = 'The learner has ONLY an Android phone, no computer, so desktop programs (Blender, AutoCAD, SolidWorks, Maya...) cannot be used yet. Phone options to practise with: Onshape (real parametric CAD, free plan, Android app), Prisma 3D (free 3D modelling and animation), Nomad Sculpt (sculpting, paid), FlipaClip (free 2D frame-by-frame animation), plus pen and paper (sketches, orthographic views with dimensions, storyboards, flipbooks). Only name an app you are sure fits the task.';
 const SPEAK = `SPEAKING CODE: "say" is read aloud by a voice, so NEVER put code, symbols or a copied line of code in "say" (it comes out as robotic gibberish). The code goes on the board; in "say" talk about it like a teacher: refer to lines by number and describe them in plain words ("line 2 makes an empty list called scores", "the colon at the end opens the loop's body", "this adds one to count").
 `;
 
@@ -125,21 +126,23 @@ Return JSON: {"projects":[{"title":"","goal":"","milestones":["",""]}]}` };
         cloud: 'A DevOps / cloud lab that can run locally: config files, scripts, a small service with health checks, automation.',
         software: 'Build a working program or app feature with real structure: functions, tests, edge cases.',
         math: 'Implement the maths in code and verify it numerically.',
+        design: `A design studio project for 3D, CAD or animation, done WITHOUT a computer. ${PHONE_ONLY} Build it around the unit: e.g. a model or part in Onshape or Prisma 3D, a turnaround or orthographic drawing with dimensions on paper, a storyboard or animatic, a 12-frame bouncing-ball animation in FlipaClip, a lighting or composition study. Every milestone is handed in as PHOTOS or SCREENSHOTS (say exactly what to photograph). Set "lang":"none" and ship ONE file "brief.md": the plan, the reference measurements or shot list, and space for their notes. No code.`,
         business: 'A practical tool or analysis for the business idea in the unit, as code or a structured model.',
         other: 'A practical project that makes the learner apply the unit.',
       };
       return { json: true, max: 6000, temp: 0.55, text: `${mat}You are Professor Byte designing the PROJECT LAB that follows a finished unit. The learner just completed: course "${clip(b.course, 160)}", unit ${Number(b.unit) || 1}: "${clip(b.section, 120)}" (lessons: ${clip((b.lessons || []).join('; '), 1200)}).
 ${DOM[b.domain] || DOM.other}
-${b.previous?.length ? `Labs they already built (make this one build on them, a step harder): ${clip(b.previous.join('; '), 600)}\n` : ''}${b.weak?.length ? `Their weak spots to work on: ${clip(b.weak.join('; '), 400)}\n` : ''}It must use exactly what this unit taught, take 1-3 hours in total, run on a phone (Python with the standard library plus numpy, pandas, scikit-learn or matplotlib if needed, which install automatically; no network, files outside the lab or shell commands; or plain JavaScript), and feel like a real project with a mission.
+${b.previous?.length ? `Labs they already built (make this one build on them, a step harder): ${clip(b.previous.join('; '), 600)}\n` : ''}${b.weak?.length ? `Their weak spots to work on: ${clip(b.weak.join('; '), 400)}\n` : ''}It must use exactly what this unit taught, take 1-3 hours in total, ${b.domain === 'design' ? 'be doable on a phone or on paper (no code: the deliverables are photos and screenshots), ' : ''}run on a phone (Python with the standard library plus numpy, pandas, scikit-learn or matplotlib if needed, which install automatically; no network, files outside the lab or shell commands; or plain JavaScript), and feel like a real project with a mission.
 Return JSON: {"title":"","brief":"the mission in 2-3 sentences, exciting and concrete","why":"what real skill this proves","domain":"${clip(b.domain, 20) || 'other'}","lang":"python","files":[{"name":"main.py","content":"starter code with TODO comments, runnable"},{"name":"data.csv","content":"small synthetic data if needed"}],"milestones":[{"title":"","goal":"what must work","criteria":["a checkable requirement"],"hint":"a nudge, not the answer"}],"stretch":["a harder extra for later"]}
 4-6 milestones in build order; 1-4 files, each under 6000 characters; all starter code must run.` };
     }
     case 'lab_review':
-      return { json: true, max: 3000, text: `You are Professor Byte reviewing a learner's project lab like a sharp senior engineer and CS lecturer. ${sassLine(b.sass)}
+      return { json: true, max: 3000, text: `You are Professor Byte reviewing a learner's project lab like ${b.design ? 'a sharp senior 3D artist, animator and CAD designer' : 'a sharp senior engineer and CS lecturer'}. ${sassLine(b.sass)}
+${b.seen ? `WHAT THEIR PHOTOS / SCREENSHOTS SHOW (read by a vision model): ${clip(b.seen, 5000)}\nJudge the work in them against the criteria: form and proportions, measurements, topology or constraints, timing and spacing, composition, clarity. Be specific about what you can see. If the photos do not show what the milestone asks for, say exactly what to photograph.\n` : b.design ? 'They handed in NO photos: the milestone cannot pass without them. Tell them exactly what to photograph or screenshot.\n' : ''}
 Lab: "${clip(b.title, 120)}": ${clip(b.brief, 600)}
 Milestone ${Number(b.n) || 1}: "${clip(b.milestone?.title, 120)}": ${clip(b.milestone?.goal, 400)}
 It counts as done only if ALL of these hold: ${clip((b.milestone?.criteria || []).join(' | '), 800)}
-${b.run ? `The app ran it. Output:\n${clip(b.run, 2500)}\n` : 'It was not run; mentally execute it.\n'}Their earlier review scores (oldest first): ${clip((b.history || []).join(', '), 200) || 'none yet'}.
+${b.run ? `The app ran it. Output:\n${clip(b.run, 2500)}\n` : b.design ? '' : 'It was not run; mentally execute it.\n'}Their earlier review scores (oldest first): ${clip((b.history || []).join(', '), 200) || 'none yet'}.
 Their files:
 ${clip((b.files || []).map((f) => `--- ${f.name}\n${f.content}`).join('\n'), 12000)}
 Judge honestly. ${SPEAK}Return JSON: {"done":false,"score":7,"say":"what Byte says aloud, 2-4 sentences, in your tone, no code in it (point to file and line numbers instead): did this milestone work, and the one thing that matters most","good":["what is genuinely good"],"fixes":[{"file":"main.py","line":12,"note":"what is wrong and how to fix it"}],"growth":"one honest line comparing this with their earlier scores (sharper, same, or slipping, and why)","next":"what to do next"}
@@ -178,7 +181,7 @@ You are about to tutor this learner one-on-one. You have read everything above: 
 ${pacing}
 - Each step has one check question that proves they truly got it (understanding, not recall of a word) and its answer.
 - If the lesson is a PROCESS or PIPELINE (data pipeline, ML training loop, request lifecycle, attack chain, compiler stages...), make each stage its own step, in order, and list the stages in "pipeline".
-- "mode": "coding" if the lesson is about writing or understanding code (programming, algorithms, data structures, implementing ML in code); "math" if it is mainly maths or derivations; "lab" if it is hands-on tools or commands (cybersecurity tools, Linux, cloud consoles); otherwise "concept".
+- "mode": "design" if the lesson is about 3D modelling, CAD, animation, rendering or design software (Blender, AutoCAD, Fusion 360, Maya...); "coding" if the lesson is about writing or understanding code (programming, algorithms, data structures, implementing ML in code); "math" if it is mainly maths or derivations; "lab" if it is hands-on tools or commands (cybersecurity tools, Linux, cloud consoles); otherwise "concept".
 - "lang": for coding, the language this course uses (python if unsure).
 - "known": 1-3 things they already seem solid on. "weak": 1-4 things to fix, from the brief.
 - "opener": one cheeky line showing you actually read their notes (mention something specific from them).
@@ -192,12 +195,13 @@ Return JSON: {"title":"short session title","mode":"concept","lang":"","pipeline
       const at = Math.max(0, Math.min(steps.length, Number(b.step) || 0));
       const lecture = b.level === 'teach' && !!steps[at];
       const plan = steps.length && b.level !== 'homework_check' && !lecture ? `\nLESSON PLAN (context only, the class carries on by itself afterwards):\n${steps.map((x, k) => `${k + 1}. ${clip(x.title, 80)}: ${clip(x.goal, 160)}${k < at ? ' [taught]' : k === at ? ' <- next' : ''}`).join('\n')}` : '';
-      const mode = ['coding', 'math', 'lab', 'concept'].includes(b.plan?.mode) ? b.plan.mode : 'concept';
+      const mode = ['coding', 'math', 'lab', 'design', 'concept'].includes(b.plan?.mode) ? b.plan.mode : 'concept';
       const pipe = Array.isArray(b.plan?.pipeline) ? b.plan.pipeline.slice(0, 8) : [];
       const HOW = {
         coding: `THIS IS A CODING CLASS: teach like a CS lecturer. Put a short, correct, runnable ${clip(b.plan?.lang, 20) || 'python'} snippet (max 12 lines) on a code board and walk through it LINE BY LINE: one or two lines per scene, using "focus" to highlight exactly the lines you are explaining, saying what each line does AND why it is written that way. Keep the same code on the board while you walk it. Then TRACE it with a real input on a table board (the variables after each line or loop pass) and state the exact output. Mention the time complexity when it matters, and the classic bug people write here. The learner must come away able to WRITE this code, not just read it.`,
         math: 'THIS IS A MATHS CLASS: derive it step by step with real numbers, one transformation per scene, saying why each step is allowed. Put the working on the board (big or steps). Then do one full worked example with numbers and check the result makes sense.',
         lab: 'THIS IS A HANDS-ON LAB: use the real commands or tools, on a code board, with realistic output, and explain every flag or field and what the output tells you. For security tools, add a one-line note on using them only on systems you own or are allowed to test.',
+        design: `THIS IS A DESIGN STUDIO CLASS (3D, CAD or animation). Teach the tool like a studio mentor: for each action give the exact menu path ("Add > Mesh > Cube") and shortcut on a table board (Action | Shortcut | Where), say what the learner would see on screen as they do it, why artists or engineers do it that way, and the classic beginner trap (unapplied scale, flipped normals, keyframes on the wrong frame, a sketch that is not fully constrained...). Use steps boards for workflows and compare boards for "do / don't". ${PHONE_ONLY} So after the software steps, give them a way to PRACTISE THE SAME IDEA NOW on the phone or on paper.`,
         concept: 'Build the idea in layers: why it exists (the problem it solves), how it works step by step, a real-world example from this field, then the subtle point people miss.',
       }[mode];
       const slow = b.pace === 'slow'; const quick = b.pace === 'quick';
@@ -287,6 +291,10 @@ export default async function handler(req, res) {
   const b = req.body || {};
   if (b.type === 'lesson_kb' && b.research !== false) {
     try { const r = await webSearch(`${clip(b.lesson, 120)} ${clip(b.course, 80)} explained`, { limit: 5 }); b.web = r.map((x) => `- ${x.title}: ${x.snippet}`).join('\n'); } catch { /* teach from knowledge */ }
+  }
+  // Design lab milestones handed in as photos or screenshots: describe what they show, then review it.
+  if (b.type === 'lab_review' && Array.isArray(b.images) && b.images.length) {
+    b.seen = await visionRead(b.images, `These are a learner's photos or screenshots for a design milestone (3D modelling, CAD or animation, done on a phone app or on paper). Milestone: ${clip(b.milestone?.title, 120)}: ${clip(b.milestone?.goal, 300)}. Describe precisely what each image shows: the object or scene, shapes and proportions, any dimensions or labels written, frames or poses, app interface visible, quality and mistakes you can see. Output only the description.`).catch(() => '');
   }
   // Homework handed in as photos: read the handwriting first, then grade it like typed work.
   if (b.type === 'stage' && b.level === 'homework_grade' && Array.isArray(b.images) && b.images.length) {
@@ -391,7 +399,7 @@ export default async function handler(req, res) {
   if (b.type === 'plan') {
     const steps = (Array.isArray(obj.steps) ? obj.steps : []).filter((x) => x?.title).slice(0, 8).map((x) => ({ title: clip(x.title, 80), goal: clip(x.goal, 200), check: clip(x.check, 220), answer: clip(x.answer, 400) }));
     if (!steps.length) return res.status(500).json({ error: 'No lesson plan came back.' });
-    const mode = ['coding', 'math', 'lab', 'concept'].includes(obj.mode) ? obj.mode : 'concept';
+    const mode = ['coding', 'math', 'lab', 'design', 'concept'].includes(obj.mode) ? obj.mode : 'concept';
     return res.status(200).json({ plan: { title: clip(obj.title, 80), mode, lang: mode === 'coding' ? clip(obj.lang, 20).toLowerCase() || 'python' : '', pipeline: (Array.isArray(obj.pipeline) ? obj.pipeline : []).map((x) => clip(x, 50)).filter(Boolean).slice(0, 8), opener: clip(obj.opener, 300), known: (obj.known || []).map((x) => clip(x, 120)).slice(0, 3), weak: (obj.weak || []).map((x) => clip(x, 120)).slice(0, 4), steps } });
   }
   if (b.type === 'capstone_ideas') return res.status(200).json({ projects: (obj.projects || []).filter((x) => x?.title).slice(0, 3) });
