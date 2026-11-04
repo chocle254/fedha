@@ -26,6 +26,9 @@ const MODES = {
 export const SOUND_LABEL = { theater: '🔊 Theater', max: '💥 Max bass', off: '🔈 Plain' };
 const readSound = () => { try { return localStorage.getItem('luxe_sound') || 'theater'; } catch { return 'theater'; } };
 
+const SESSION = 'luxe_music_session';
+const lean = ({ dj, smart, why, score, on, ...t }) => t;
+
 export function MusicProvider({ children }) {
   const audio = useRef(null);
   const graph = useRef(null);
@@ -53,6 +56,10 @@ export function MusicProvider({ children }) {
   const [mixRev, setMixRev] = useState(0);
   const [tracksPlayed, setTracksPlayed] = useState({}); // id -> { t, n, last }: On Repeat, Recently played
   const [sleepAt, setSleepAt] = useState(null); // ms timestamp, or 'end' (end of this song)
+  const [skips, setSkips] = useState({ artists: {} }); // artists you skip early (For You sinks them)
+  const resumeAt = useRef(0); // seconds to start from the next time this track loads (restored session)
+  const loadedId = useRef(null); // the track actually loaded into a player (null after a restore)
+  const wasPlaying = useRef(false); // playing when the app went to the background
   const sleepRef = useRef(null);
   sleepRef.current = sleepAt;
   const track = idx >= 0 ? queue[idx] : null;
@@ -63,6 +70,16 @@ export function MusicProvider({ children }) {
     getSetting('music_likes', []).then((l) => setLikes(Array.isArray(l) ? l : [])).catch(() => {});
     getSetting('music_plays', {}).then((p) => setPlays(p && typeof p === 'object' ? p : {})).catch(() => {});
     getSetting('music_tracks', {}).then((p) => setTracksPlayed(p && typeof p === 'object' ? p : {})).catch(() => {});
+    getSetting('music_skips', { artists: {} }).then((p) => setSkips(p && p.artists ? p : { artists: {} })).catch(() => {});
+    // Pick up where you stopped: the queue, the song and the second (saved every few seconds, below).
+    try {
+      const ses = JSON.parse(localStorage.getItem(SESSION) || 'null');
+      if (ses?.queue?.length && ses.idx >= 0 && ses.queue[ses.idx]) {
+        setQueue(ses.queue); setIdx(ses.idx); state.current.queue = ses.queue;
+        resumeAt.current = Number(ses.pos) || 0;
+        setTime({ cur: resumeAt.current, dur: ses.queue[ses.idx].duration || 0 });
+      }
+    } catch { /* nothing saved */ }
     setMixState(getMix());
     const a = new Audio(); a.crossOrigin = 'anonymous'; a.preload = 'auto'; audio.current = a;
     a.addEventListener('play', () => setPlaying(true));
@@ -129,14 +146,16 @@ export function MusicProvider({ children }) {
 
   const load = useCallback(async (list, i, tries = 0) => {
     const t = list[i]; if (!t) return;
-    setIdx(i); setDock(true);
+    const from = resumeAt.current; resumeAt.current = 0;
+    setIdx(i); setDock(true); loadedId.current = t.id;
     if (t.source === 'yt') {
       audio.current?.pause();
       const d = ensureDecks(); if (!d) return;
       const vid = await videoFor(t);
       if (!vid) { if (tries < 6) { flash(`Couldn't find ${t.title} on YouTube. Next one.`); load(list, nextIndex(list, i), tries + 1); } return; }
       await d.play(vid, t.gain);
-      setDeck(d.active); setPlaying(true); countPlay(t);
+      if (from > 5) setTimeout(() => d.seek(from), 600);
+      setDeck(d.active); setPlaying(true); if (!from) countPlay(t);
       const n = list[nextIndex(list, i)]; if (n?.source === 'yt') videoFor(n); // look the next one up early
       return;
     }
@@ -145,8 +164,9 @@ export function MusicProvider({ children }) {
     ensureGraph(); applySound(readSound());
     if (graph.current?.ac.state === 'suspended') await graph.current.ac.resume().catch(() => {});
     a.src = streamUrl(t.id);
+    if (from > 5) a.addEventListener('loadedmetadata', () => { a.currentTime = from; }, { once: true });
     await a.play().catch(() => {});
-    countPlay(t);
+    if (!from) countPlay(t);
   }, [ensureDecks, ensureGraph, applySound, nextIndex, countPlay]);
 
   // Blend into the next YouTube song (with DJ Luxe's line over it if the set has one).
@@ -157,6 +177,13 @@ export function MusicProvider({ children }) {
     // Sleep timer "end of this song": stop instead of moving on.
     if (sleepRef.current === 'end' && dir > 0 && secs == null) { decks.current?.pause(); audio.current?.pause(); setSleepAt(null); sleepRef.current = null; return; }
     const { queue: list, idx: i } = state.current;
+    // End of the queue: keep going with songs like the last one (Spotify's autoplay) instead of starting over.
+    if (dir > 0 && !state.current.shuffle && i === list.length - 1 && list[i]) {
+      try {
+        const more = (await songRadio(list[i])).slice(1).filter((x) => !list.some((y) => y.id === x.id)).slice(0, 25);
+        if (more.length) { const nl = [...list, ...more]; setQueue(nl); state.current.queue = nl; flash('Autoplay: more like this'); load(nl, i + 1); return; }
+      } catch { /* loop the queue then */ }
+    }
     const n = nextIndex(list, i, dir); const t = list[n];
     if (!t) return;
     const d = decks.current;
@@ -206,7 +233,15 @@ export function MusicProvider({ children }) {
 
   // ── controls ───────────────────────────────────────────────────────────────
   const playList = useCallback((list, i = 0) => { setQueue(list); state.current.queue = list; load(list, i); }, [load]);
-  const next = useCallback(() => advance(1, 2), [advance]);
+  const next = useCallback(() => {
+    // Skipped in the first 30 s: For You learns you're not into this artist right now.
+    const t = state.current.track;
+    const cur = t?.source === 'yt' ? decks.current?.time()?.cur : audio.current?.currentTime;
+    if (t?.artist && cur != null && cur < 30) {
+      setSkips((p) => { const a = { ...(p.artists || {}), [t.artist]: ((p.artists || {})[t.artist] || 0) + 1 }; const trimmed = { artists: Object.fromEntries(Object.entries(a).sort((x, y) => y[1] - x[1]).slice(0, 300)) }; setSetting('music_skips', trimmed).catch(() => {}); return trimmed; });
+    }
+    advance(1, 2);
+  }, [advance]);
   const prev = useCallback(() => {
     const { track: t, queue: list, idx: i } = state.current;
     if (t?.source === 'yt') { const tm = decks.current?.time(); if (tm && tm.cur > 5) { decks.current.seek(0); return; } }
@@ -215,12 +250,17 @@ export function MusicProvider({ children }) {
   }, [load, nextIndex]);
   const toggle = useCallback(async () => {
     const { track: t } = state.current; if (!t) return;
+    if (loadedId.current !== t.id) { load(state.current.queue, state.current.idx); return; } // restored: start it from where you stopped
     if (t.source === 'yt') { decks.current?.toggle(); return; }
     const a = audio.current; if (!a) return;
     if (graph.current?.ac.state === 'suspended') await graph.current.ac.resume().catch(() => {});
     if (a.paused) a.play().catch(() => {}); else a.pause();
+  }, [load]);
+  const seek = useCallback((s) => {
+    const t = state.current.track;
+    if (t && loadedId.current !== t.id) { resumeAt.current = s; setTime((x) => ({ ...x, cur: s })); return; } // restored, not loaded yet
+    if (t?.source === 'yt') decks.current?.seek(s); else if (audio.current) audio.current.currentTime = s;
   }, []);
-  const seek = useCallback((s) => { if (state.current.track?.source === 'yt') decks.current?.seek(s); else if (audio.current) audio.current.currentTime = s; }, []);
   const like = useCallback(async (t) => {
     const has = likes.some((x) => x.id === t.id);
     const nextLikes = has ? likes.filter((x) => x.id !== t.id) : [{ ...t, dj: undefined, smart: undefined, liked_at: Date.now() }, ...likes].slice(0, 500);
@@ -232,6 +272,7 @@ export function MusicProvider({ children }) {
     decks.current?.pause(); audio.current?.pause();
     try { window.speechSynthesis?.cancel(); } catch { /* none */ }
     setDj(null); setIdx(-1); setQueue([]); state.current.queue = []; setPlaying(false);
+    try { localStorage.removeItem(SESSION); } catch { /* private */ }
   }, []);
 
   // Queue (Spotify's Play next / Add to queue), song radio, crossfade, sleep timer.
@@ -311,6 +352,28 @@ export function MusicProvider({ children }) {
     stopDj(); setShuffle(false); playList(mixed, 0);
   }, [likes, topArtists, playList, stopDj]);
 
+  // Save where you are every 5 s and when the app goes to the background, so it survives the app being closed.
+  const saveSession = useCallback(() => {
+    const { queue: list, idx: i, track: t } = state.current;
+    if (!t || i < 0) return;
+    const pos = t.source === 'yt' ? (decks.current?.time()?.cur ?? resumeAt.current) : (audio.current?.currentTime || resumeAt.current);
+    const from = Math.max(0, i - 10);
+    try { localStorage.setItem(SESSION, JSON.stringify({ queue: list.slice(from, i + 40).map(lean), idx: i - from, pos: loadedId.current === t.id ? pos : resumeAt.current, at: Date.now() })); } catch { /* full */ }
+  }, []);
+  useEffect(() => { const iv = setInterval(saveSession, 5000); return () => clearInterval(iv); }, [saveSession]);
+  // Leaving the app pauses YouTube (Android stops video in the background). Coming back: play on from there.
+  useEffect(() => {
+    const vis = () => {
+      const t = state.current.track;
+      if (document.visibilityState === 'hidden') { wasPlaying.current = !!(t && (t.source === 'yt' ? decks.current?.time()?.playing : audio.current && !audio.current.paused)); saveSession(); return; }
+      if (wasPlaying.current && t?.source === 'yt' && decks.current && !decks.current.time()?.playing) setTimeout(() => decks.current?.toggle(), 300);
+      wasPlaying.current = false;
+    };
+    document.addEventListener('visibilitychange', vis);
+    window.addEventListener('pagehide', saveSession);
+    return () => { document.removeEventListener('visibilitychange', vis); window.removeEventListener('pagehide', saveSession); };
+  }, [saveSession]);
+
   // Lock screen and headset buttons.
   useEffect(() => {
     if (!track || typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
@@ -331,7 +394,7 @@ export function MusicProvider({ children }) {
 
   const yt = track?.source === 'yt';
   return (
-    <Ctx.Provider value={{ queue, idx, track, playing, time, sound, setSound, shuffle, setShuffle, likes, like, playList, next, prev, toggle, seek, dj, startDj, stopDj, smartShuffle, note, topArtists, playNext, addToQueue, removeFromQueue, startRadio, mix, mixPlan, setMixDefault, saveMixPair, hearMix, sleepAt, setSleep, tracksPlayed, plays, stop }}>
+    <Ctx.Provider value={{ queue, idx, track, playing, time, sound, setSound, shuffle, setShuffle, likes, like, playList, next, prev, toggle, seek, dj, startDj, stopDj, smartShuffle, note, topArtists, playNext, addToQueue, removeFromQueue, startRadio, mix, mixPlan, setMixDefault, saveMixPair, hearMix, sleepAt, setSleep, tracksPlayed, plays, skips, stop }}>
       {children}
       {/* The YouTube decks: a small floating card while popular music plays (YouTube requires it to be visible). */}
       <div style={{ position: 'fixed', right: 16, bottom: 'calc(84px + env(safe-area-inset-bottom))', width: 88, height: 50, zIndex: 46, borderRadius: 10, overflow: 'hidden', opacity: yt ? 1 : 0, pointerEvents: 'none', background: '#000', transition: 'opacity 0.3s' }}>

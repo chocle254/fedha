@@ -5,6 +5,7 @@ import { useMusic, SOUND_LABEL } from '../context/MusicContext';
 import { GENRES, trending, search } from '../lib/audius';
 import { searchTracks, findArtist, artistTop, related, chart } from '../lib/popular';
 import { dailyMixes, releaseRadar, lyricsFor, daylistName } from '../lib/music-mixes';
+import { forYou, fetchCharts, kenyaNow } from '../lib/music-foryou';
 import { PRESET_KEYS, PRESET_LABEL, PRESETS, BARS, barsToSecs, curvePoints } from '../lib/mix';
 
 // Music Room, Spotify-style.
@@ -88,7 +89,7 @@ export default function Music() {
   const [q, setQ] = useState('');
   const [results, setResults] = useState(null); // { title, list }
   const [err, setErr] = useState('');
-  const [home, setHome] = useState({ charts: null, mixes: [], radar: [], artists: [] });
+  const [home, setHome] = useState({ charts: null, mixes: [], radar: [], artists: [], forYou: null, kenya: [], spotify: [] });
   const [indie, setIndie] = useState({ genre: GENRES[2], list: null });
   const [menu, setMenu] = useState(null); // track for the ⋯ sheet
   const [sheet, setSheet] = useState(null); // 'queue' | 'sleep' | 'fade'
@@ -110,6 +111,7 @@ export default function Music() {
       chart().then((c) => setHome((h) => ({ ...h, charts: c }))).catch(() => setHome((h) => ({ ...h, charts: [] })));
       dailyMixes(names).then((mixes) => setHome((h) => ({ ...h, mixes }))).catch(() => {});
       releaseRadar(names).then((radar) => setHome((h) => ({ ...h, radar }))).catch(() => {});
+      fetchCharts().then((c) => setHome((h) => ({ ...h, kenya: kenyaNow(c), spotify: (c.spotify || []).slice(0, 30) }))).catch(() => {});
       try {
         const mine = (await Promise.all(names.slice(0, 3).map(findArtist))).filter(Boolean);
         const circle = mine[0] ? await related(mine[0].id, 10) : [];
@@ -117,6 +119,16 @@ export default function Music() {
       } catch { /* chips are a bonus */ }
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // For You: YouTube + Apple Music + Spotify charts blended with your likes, plays and skips (lib/music-foryou.js).
+  // Built again once your listening history has loaded.
+  const tasteReady = (m.likes?.length || 0) + Object.keys(m.plays || {}).length > 0;
+  useEffect(() => {
+    const artists = { ...(m.plays || {}) };
+    for (const l of m.likes || []) if (l.artist) artists[l.artist] = (artists[l.artist] || 0) + 2;
+    const recent = new Set(Object.values(m.tracksPlayed || {}).filter((x) => Date.now() - x.last < 2 * 864e5).map((x) => x.t.id));
+    forYou({ artists, skips: m.skips, recent, liked: new Set((m.likes || []).map((l) => l.id)) }).then((list) => setHome((h) => ({ ...h, forYou: list }))).catch(() => setHome((h) => ({ ...h, forYou: [] })));
+  }, [tasteReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onRepeat = useMemo(() => Object.values(m.tracksPlayed || {}).filter((x) => x.n >= 2).sort((a, b) => b.n - a.n).slice(0, 20).map((x) => x.t), [m.tracksPlayed]);
   const recently = useMemo(() => Object.values(m.tracksPlayed || {}).sort((a, b) => b.last - a.last).slice(0, 20).map((x) => x.t), [m.tracksPlayed]);
@@ -274,6 +286,10 @@ export default function Music() {
                 )}
               </div>
             </section>
+            {home.forYou === null && <div className="mr-note">Building For You from YouTube, Apple Music, Spotify and your taste…</div>}
+            <Row title="For You" items={home.forYou} onPlay={playing(home.forYou || [])} sub={(x) => x.why || x.artist} />
+            <Row title="🇰🇪 Kenya right now" items={home.kenya} onPlay={playing(home.kenya)} sub={(x) => `${x.artist}${x.on?.length > 1 ? ' · YouTube + Apple' : x.on?.[0] === 'apple' ? ' · Apple Music' : ' · YouTube'}`} />
+            <Row title="Spotify charts" items={home.spotify} onPlay={playing(home.spotify)} />
             <Row title="Release Radar" items={home.radar} onPlay={playing(home.radar)} sub={(x) => `${x.artist}${x.released ? ` · ${x.released.slice(0, 7)}` : ''}`} />
             <Row title="On Repeat" items={onRepeat} onPlay={playing(onRepeat)} />
             <Row title="Recently played" items={recently} onPlay={playing(recently)} />
