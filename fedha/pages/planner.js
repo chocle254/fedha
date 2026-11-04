@@ -26,6 +26,8 @@ const BEDTIME_LATEST = 23 * 60;      // 23:00 (11pm) — absolute latest bedtime
 const MIN_SLEEP_MINUTES = 7 * 60;    // never schedule less than 7h sleep before the next wake time
 // Meals are pinned to the clock; everything else flows around them.
 const LUNCH_AT = 13 * 60;            // lunch starts exactly here (prep finishes right before)
+const LUNCH_COOK = 60;               // cooking starts at 12:00: ~15 min on the fire, scroll while the rice cooks, 10 min to serve
+const LUNCH_EAT = 30;
 const DINNER_AT = 19 * 60;           // dinner starts exactly here
 // Work blocks soak up every spare minute between the fixed things, within these limits.
 const WORK_MIN = 45;                 // a work block is never shorter than this
@@ -290,7 +292,6 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
   if (!pastBreakfast) {
     want('am', 'bfast_prep', 'Prepare Breakfast', 'meal', '🍳', "Start cooking now. Check Meals tab for today's breakfast.", PRIORITY.essential, 15, isWeekend ? 25 : 20);
     want('am', 'breakfast', 'Eat Breakfast', 'meal', '🍽️', 'Sit down and eat. No phone while eating.', PRIORITY.essential, 15, isWeekend ? 30 : 20);
-    want('am', 'dishes1', 'Clean Dishes', 'routine', '🧹', '10 mins now saves stress later.', PRIORITY.chores, 5, isWeekend ? 15 : 10);
   }
   // Wake-up to "start my day": the rest of that gap is getting ready, so plans begin at your start time.
   if (dayStartAt != null && !anchored) {
@@ -304,16 +305,25 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
   work('am', 'work2', pickWork(workItems, 1), 90);
   if (isWeekend && !pastBreakfast) want('am', 'laundry_hang', 'Hang / Check Laundry', 'chores', '👕', 'Hang clothes out to dry or move to the dryer.', PRIORITY.chores, 10, 15);
 
-  // MIDDAY — lunch is pinned to LUNCH_AT; prep ends right as it starts.
+  // MIDDAY — the real lunch routine: start cooking at 12:00, the rice takes about an hour and most of it is
+  // waiting, so the day's scrolling happens while it cooks; then serve and eat at 13:00 for 30 min.
+  // No dishes: a sister does them (breakfast and dinner too).
+  const cookLunch = !pastLunch && !done.has('lunch_prep');
   if (!pastLunch) {
-    want('mid', 'lunch_prep', 'Prepare Lunch', 'meal', '🍲', 'Start cooking now — check Meals tab.', PRIORITY.essential, 15, isWeekend ? 30 : 25, { role: 'prep' });
-    want('mid', 'lunch', 'Eat Lunch', 'meal', '🍽️', 'Biggest meal of the day — fuel for the afternoon.', PRIORITY.essential, 20, isWeekend ? 30 : 25, { role: 'eat' });
-    want('mid', 'dishes2', 'Clean Up', 'routine', '🧹', 'Quick clean. Clear space = clear mind.', PRIORITY.chores, 5, isWeekend ? 15 : 10, { role: 'after' });
+    want('mid', 'lunch_prep', 'Cook Lunch', 'meal', '🍲', 'Get the rice and the rest on the fire. Check the Meals tab for today.', PRIORITY.essential, LUNCH_COOK, LUNCH_COOK, {
+      role: 'prep',
+      parts: [
+        { id: 'lunch_prep', label: 'Start Cooking Lunch', type: 'meal', emoji: '🍲', note: 'Get the rice and the rest on the fire. Check the Meals tab for today.', duration: 15 },
+        { id: 'scroll', label: 'Scroll While the Rice Cooks 📱', type: 'personal', emoji: '📱', note: 'TikTok, Instagram, X while it cooks. Check the pot now and then.', duration: LUNCH_COOK - 25 },
+        { id: 'lunch_serve', label: 'Finish Cooking & Serve', type: 'meal', emoji: '🍛', note: 'Rice should be ready. Finish up and serve.', duration: 10 },
+      ],
+    });
+    want('mid', 'lunch', 'Eat Lunch', 'meal', '🍽️', 'Biggest meal of the day. Fuel for the afternoon.', PRIORITY.essential, LUNCH_EAT, LUNCH_EAT, { role: 'eat' });
   }
 
   // AFTERNOON — the long work stretch, then the workout(s) well clear of lunch AND dinner.
-  // Right after lunch: the day's scrolling, with a start and an end.
-  want('pm', 'scroll', 'Scroll Time 📱', 'personal', '📱', 'TikTok, Instagram, X — guilt-free until the block ends. Then the phone goes down.', PRIORITY.social, 15, isWeekend ? SCROLL_MIN.weekend : SCROLL_MIN.weekday);
+  // The day's scrolling is while lunch cooks; only if there is no cooking today does it get its own block here.
+  if (!cookLunch) want('pm', 'scroll', 'Scroll Time 📱', 'personal', '📱', 'TikTok, Instagram, X — guilt-free until the block ends. Then the phone goes down.', PRIORITY.social, 15, isWeekend ? SCROLL_MIN.weekend : SCROLL_MIN.weekday);
   if (researchItem) want('pm', 'research', researchItem.label, 'research', researchItem.emoji, researchItem.note, PRIORITY.work, 30, 60, { grow: true, max: 90, squeeze: 20 });
   // The top-priority item gets a second run after lunch, so it ends up with the biggest share of the day.
   work('pm', 'work3', continued(pickWork(workItems, 0)), 120);
@@ -352,7 +362,6 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
   if (!pastDinner) {
     want('din', 'dinner_prep', 'Prepare Dinner', 'meal', '🍲', 'Start cooking. Check Meals tab for tonight.', PRIORITY.essential, 15, isWeekend ? 30 : 20, { role: 'prep' });
     want('din', 'dinner', 'Eat Dinner', 'meal', '🍽️', 'Eat well — this fuels overnight recovery.', PRIORITY.essential, 20, isWeekend ? 30 : 25, { role: 'eat' });
-    want('din', 'dishes3', 'Clean Kitchen', 'routine', '🧹', 'Full clean. Good kitchen tonight = easy morning tomorrow.', PRIORITY.chores, 5, isWeekend ? 15 : 10, { role: 'after' });
   }
 
   // EVENING — wind down to bed.
@@ -445,7 +454,7 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
     const after = items.find((w) => w.role === 'after');
     if (prep) {
       cursor = Math.max(cursor, eatAt - prep.ideal);
-      place({ ...prep, duration: prep.ideal });
+      if (prep.parts) prep.parts.forEach((x) => place(x)); else place({ ...prep, duration: prep.ideal });
     }
     cursor = Math.max(cursor, eatAt);
     place({ ...eat, duration: eat.ideal });
