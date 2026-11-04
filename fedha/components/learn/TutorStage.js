@@ -102,6 +102,8 @@ function savePlan(key, v) {
   } catch { /* storage full or private */ }
 }
 
+const HW_LEVELS = ['homework_check', 'homework_grade', 'homework_help'];
+
 export default function TutorStage({ outfit = 'default', pomo, prepare, active, subject, context, brief, planKey, onSaveNote, courseId, request, homework, onSetHomework, onGradeHomework }) {
   const [log, setLog] = useState([]);
   const [plan, setPlan] = useState(null); // { title, opener, known, weak, steps, step, sig }
@@ -112,6 +114,10 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
   const [hwText, setHwText] = useState('');
   const [hwSet, setHwSet] = useState(null); // homework he just set
   const [hwVerdict, setHwVerdict] = useState(null);
+  // Homework not done: he gives you time and hints to do it now, then goes through it with you. { endAt, hints }
+  const [hwCatch, setHwCatch] = useState(null);
+  const hwCatchRef = useRef(null); hwCatchRef.current = hwCatch;
+  const [hwLeft, setHwLeft] = useState(0);
   const hwChecked = useRef(false);
   const afterRef = useRef(null); // what to do once the current answer has played
   const sig = useRef({ pasted: 0, typed: 0, first: 0 });
@@ -583,11 +589,11 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
     if (!level && c.quiz?.waiting) { setQ(''); answerQuiz(userText); return; }
     if (level === 'wrapup') {
       c.on = false; c.quiz = null; c.pending = null; c.resumeFn = null; setClassOn(false); setQuizUi(null); setPaused(false); c.paused = false;
-    } else if (c.on && level !== 'homework_check' && level !== 'homework_grade') keepPlace();
-    const kind = c.on && level !== 'homework_check' && level !== 'homework_grade' ? 'qa' : 'misc';
+    } else if (c.on && !HW_LEVELS.includes(level)) keepPlace();
+    const kind = c.on && !HW_LEVELS.includes(level) ? 'qa' : 'misc';
     clearTimers(); clearWait(); hush(); setTalking(false); setIdle(null); setHeard('');
     const history = logRef.current.map((m) => ({ role: m.role, text: m.role === 'ai' ? m.scenes.map((x) => x.say).join(' ') : m.text }));
-    if (!['homework_check', 'homework_grade', 'wrapup'].includes(level)) setLog((l) => { const n = [...l, { role: 'user', text: userText }]; logRef.current = n; return n; });
+    if (![...HW_LEVELS, 'wrapup'].includes(level)) setLog((l) => { const n = [...l, { role: 'user', text: userText }]; logRef.current = n; return n; });
     setQ(''); setThinking(true); thinkingRef.current = true;
     const ck = CACHEABLE.includes(level) && !liveRef.current ? `${planKey}|${level}` : null;
     if (ck && !opts.fresh) {
@@ -596,10 +602,13 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
     }
     try {
       const p = await ensurePlan();
-      const hwFor = ['homework_check', 'homework_grade'].includes(level) ? hwRef.current : null;
-      const j = await askStudy({ type: 'stage', level: level || undefined, homework: hwFor ? { title: hwFor.title, task: hwFor.task, deliverable: hwFor.deliverable, misses: hwFor.misses || 0 } : undefined, submission: opts.submission, images: opts.images, signals: opts.signals, skipped: opts.skipped || undefined, minutesLeft: opts.minutesLeft, quiz: level === 'wrapup' ? (opts.quiz || lastQuiz.current || undefined) : undefined, question: userText, topic: subject, context: context(), history, live: liveRef.current, interrupted: opts.interrupted || undefined, plan: p ? { steps: p.steps } : undefined, step: p ? p.step : undefined });
+      const hwFor = HW_LEVELS.includes(level) ? hwRef.current : null;
+      const j = await askStudy({ type: 'stage', level: level || undefined, homework: hwFor ? { title: hwFor.title, task: hwFor.task, deliverable: hwFor.deliverable, misses: hwFor.misses || 0 } : undefined, submission: opts.submission, catchUp: opts.catchUp || undefined, images: opts.images, signals: opts.signals, skipped: opts.skipped || undefined, minutesLeft: opts.minutesLeft, quiz: level === 'wrapup' ? (opts.quiz || lastQuiz.current || undefined) : undefined, question: userText, topic: subject, context: context(), history, live: liveRef.current, interrupted: opts.interrupted || undefined, plan: p ? { steps: p.steps } : undefined, step: p ? p.step : undefined });
       if (level === 'wrapup' && j.homework) { onSetHomework?.(j.homework); setHwSet(j.homework); }
-      if (level === 'homework_grade') { onGradeHomework?.(j.grade, !!opts.skipped); setHwVerdict({ ...(j.grade || {}), skipped: !!opts.skipped }); setHwOpen(false); afterRef.current = opts.then || (liveRef.current ? 'live_start' : 'start'); }
+      if (level === 'homework_help') { setHwCatch({ endAt: Date.now() + (j.minutes || 10) * 60000, hints: j.hints || [], shown: 1 }); sig.current = { pasted: 0, typed: 0, first: 0 }; }
+      // Done in class and gone through together: it counts as done, whatever the score.
+      if (level === 'homework_grade' && opts.catchUp) { const g = { ...(j.grade || {}), done: true, score: j.grade?.score ?? 0, note: j.grade?.note || 'Done in class and gone through together' }; onGradeHomework?.(g, false); setHwVerdict({ ...g, inClass: true }); setHwCatch(null); setHwOpen(false); afterRef.current = opts.then || (liveRef.current ? 'live_start' : 'start'); }
+      else if (level === 'homework_grade') { onGradeHomework?.(j.grade, !!opts.skipped); setHwVerdict({ ...(j.grade || {}), skipped: !!opts.skipped }); setHwOpen(false); afterRef.current = opts.then || (liveRef.current ? 'live_start' : 'start'); }
       const entry = { role: 'ai', kind, scenes: j.scenes || [], chips: j.chips || [] };
       if (ck && entry.scenes.length) saveAnswer(ck, entry);
       showEntry(entry);
@@ -610,14 +619,35 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
   const askRef = useRef(ask); askRef.current = ask;
   K.current = { entryEnded, stepKey: (p, k) => `${planKeyRef.current}|${p?.sig}|${k}` };
   const nextAfterHw = useRef('start');
-  const handIn = (skipped) => {
+  // ✋ Hand it in (timeUp: the catch-up time ran out, hand in whatever is there).
+  // "I didn't do it": no scolding and carry-over any more: he gives you minutes and hints to do it now.
+  const hwTextRef = useRef(''); hwTextRef.current = hwText;
+  const hwImgsRef = useRef([]); hwImgsRef.current = hwImgs;
+  const handIn = (skipped, timeUp = false) => {
+    if (thinkingRef.current) return;
+    if (skipped) {
+      setLog((l) => { const n = [...l, { role: 'user', text: "I didn't do the homework." }]; logRef.current = n; return n; });
+      askRef.current('', 'homework_help', { then: nextAfterHw.current });
+      return;
+    }
+    const text = hwTextRef.current.trim(); const imgs = hwImgsRef.current;
     const s0 = sig.current;
     const signals = { pasted: s0.pasted, typed: s0.typed, seconds: s0.first ? Math.round((Date.now() - s0.first) / 1000) : 0 };
-    if (!skipped && hwText.trim().length < 3 && !hwImgs.length) return;
-    setLog((l) => { const n = [...l, { role: 'user', text: skipped ? "I didn't do the homework." : `Homework:\n${hwText.trim()}` }]; logRef.current = n; return n; });
-    // bypass the "user turn" path: grade directly
-    askRef.current('', 'homework_grade', { submission: skipped ? '' : hwText.trim(), images: skipped ? undefined : hwImgs, signals, skipped, then: nextAfterHw.current }); setHwImgs([]);
+    if (!timeUp && text.length < 3 && !imgs.length) return;
+    const catchUp = !!hwCatchRef.current;
+    setLog((l) => { const n = [...l, { role: 'user', text: text ? `Homework:\n${text}` : '(time ran out, nothing handed in)' }]; logRef.current = n; return n; });
+    askRef.current('', 'homework_grade', { submission: text, images: imgs.length ? imgs : undefined, signals, catchUp, then: nextAfterHw.current }); setHwImgs([]);
   };
+  // The catch-up clock: hints come one at a time as time passes; at zero he takes what you have.
+  useEffect(() => {
+    if (!hwCatch) return undefined;
+    const t = setInterval(() => {
+      const left = Math.max(0, Math.round((hwCatch.endAt - Date.now()) / 1000));
+      setHwLeft(left);
+      if (left === 0 && !thinkingRef.current) { clearInterval(t); handIn(false, true); } // waits if he is mid-answer
+    }, 1000);
+    return () => clearInterval(t);
+  }, [hwCatch?.endAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Before teaching he reads everything and plans the session. Re-planned when the material changes.
   async function ensurePlan(force = false) {
@@ -834,7 +864,17 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
           <div style={{ fontWeight: 800, fontSize: 13.5 }}>📌 Homework check: {homework.title}</div>
           <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.5 }}>{homework.task}</div>
           {homework.deliverable && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>Show: {homework.deliverable}</div>}
-          {homework.misses > 0 && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 4 }}>Skipped {homework.misses} time{homework.misses === 1 ? '' : 's'} already.</div>}
+          {homework.misses > 0 && !hwCatch && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 4 }}>Skipped {homework.misses} time{homework.misses === 1 ? '' : 's'} already.</div>}
+          {hwCatch && (
+            <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 10, background: 'rgba(245,197,107,.1)', border: '1px solid rgba(245,197,107,.3)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <b style={{ fontSize: 13, flex: 1 }}>⏱ Do it now: {Math.floor(hwLeft / 60)}:{String(hwLeft % 60).padStart(2, '0')} left</b>
+                <button className="btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => setHwCatch((x) => (x ? { ...x, endAt: x.endAt + 5 * 60000 } : x))}>+5 min</button>
+              </div>
+              {hwCatch.hints.slice(0, hwCatch.shown).map((h, i) => <div key={i} style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.45 }}>💡 {h}</div>)}
+              {hwCatch.shown < hwCatch.hints.length && <button className="btn-ghost" style={{ fontSize: 12, marginTop: 6, padding: '4px 10px' }} onClick={() => setHwCatch((x) => ({ ...x, shown: x.shown + 1 }))}>💡 Another hint ({hwCatch.hints.length - hwCatch.shown} left)</button>}
+            </div>
+          )}
           <textarea className="input" rows={homework.kind === 'code' ? 10 : 5} spellCheck={homework.kind !== 'code'} style={{ marginTop: 8, ...(homework.kind === 'code' ? { fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12.5, background: '#0A0D12', color: '#D1FAE5', whiteSpace: 'pre' } : {}) }} value={hwText} placeholder={homework.kind === 'code' ? `Write your ${homework.lang || 'code'} here…` : 'Your work, in your own words (or a link to it)…'}
             onKeyDown={(e) => { if (homework.kind === 'code' && e.key === 'Tab') { e.preventDefault(); const el = e.target, a = el.selectionStart; setHwText((t) => `${t.slice(0, a)}    ${t.slice(el.selectionEnd)}`); requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = a + 4; }); } }}
             onPaste={(e) => { sig.current.pasted += (e.clipboardData?.getData('text') || '').length; if (!sig.current.first) sig.current.first = Date.now(); }}
@@ -847,14 +887,14 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
           <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>He reads photos of your handwriting too. He can tell pasted and AI-written work, so write it yourself.</div>
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
             <button className="btn-primary" style={{ flex: 1 }} disabled={thinking || (hwText.trim().length < 3 && !hwImgs.length)} onClick={() => handIn(false)}>✋ Hand it in</button>
-            <button className="btn-ghost" disabled={thinking} onClick={() => handIn(true)}>😬 I didn't do it</button>
+            {!hwCatch && <button className="btn-ghost" disabled={thinking} onClick={() => handIn(true)}>😬 I didn't do it</button>}
           </div>
         </div>
       )}
       {hwVerdict && !hwOpen && (
         <div className="card-2" style={{ marginTop: 10, padding: '9px 11px', fontSize: 12.5, display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 18 }}>{hwVerdict.skipped || !hwVerdict.done ? '😤' : hwVerdict.ai_suspect ? '🤖' : hwVerdict.score >= 8 ? '🌟' : '✅'}</span>
-          <span style={{ flex: 1 }}><b>Homework: {hwVerdict.skipped ? 'not done, carried over' : !hwVerdict.done ? 'not done properly, carried over' : `${hwVerdict.score}/10${hwVerdict.ai_suspect ? ' · looks AI-written' : ''}`}</b>{hwVerdict.note ? <span style={{ color: 'var(--text-3)' }}> · {hwVerdict.note}</span> : null}</span>
+          <span style={{ fontSize: 18 }}>{hwVerdict.inClass ? '✅' : hwVerdict.skipped || !hwVerdict.done ? '😤' : hwVerdict.ai_suspect ? '🤖' : hwVerdict.score >= 8 ? '🌟' : '✅'}</span>
+          <span style={{ flex: 1 }}><b>Homework: {hwVerdict.inClass ? `done in class ✓ (${hwVerdict.score}/10)` : hwVerdict.skipped ? 'not done, carried over' : !hwVerdict.done ? 'not done properly, carried over' : `${hwVerdict.score}/10${hwVerdict.ai_suspect ? ' · looks AI-written' : ''}`}</b>{hwVerdict.note ? <span style={{ color: 'var(--text-3)' }}> · {hwVerdict.note}</span> : null}</span>
           <button className="btn-icon" aria-label="Dismiss" onClick={() => setHwVerdict(null)}>✕</button>
         </div>
       )}
