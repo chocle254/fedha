@@ -21,7 +21,8 @@ const EL_MODEL = process.env.ELEVENLABS_MODEL || 'eleven_flash_v2_5'; // half th
 
 // Best-effort memory of what is out of action (lasts as long as this server instance stays warm).
 const down = { eleven: 0, groq: 0 };
-let elevenWhy = ''; // the last reason ElevenLabs gave for not answering (sent back so the app can show it)
+let elevenWhy = '';
+let elevenOutUntil = 0; // out of monthly credits: even 'ElevenLabs only' falls back to Groq's male voices meanwhile // the last reason ElevenLabs gave for not answering (sent back so the app can show it)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let djVoiceMissing = false; // the DJ voice isn't on this account: use Byte's for the DJ too
@@ -45,6 +46,7 @@ async function viaEleven(text, tone, persona) {
       if (dj && (r.status === 404 || r.status === 400 || /voice/i.test(why))) { djVoiceMissing = true; return viaEleven(text, tone, persona); }
       if (r.status === 429 && attempt < 3) { await sleep([700, 1300, 2200][attempt]); continue; } // busy: the free plan allows 2 requests at once
       // Out of credits, blocked (ElevenLabs sometimes refuses free keys used from a server) or a bad key: rest it for a while.
+      if (/quota/i.test(why)) elevenOutUntil = Date.now() + 60 * 60000;
       if (r.status === 401 || r.status === 402 || r.status === 403) down.eleven = Date.now() + (/quota/i.test(why) ? 60 : 10) * 60000;
       else down.eleven = Date.now() + (r.status === 429 ? 5000 : 20000);
       console.warn('[fedha] byte-voice elevenlabs failed:', r.status, why);
@@ -112,8 +114,10 @@ export default async function handler(req, res) {
   const persona = req.body?.persona === 'dj' ? 'dj' : null;
   const order = pick ? [pick, ...GROQ_VOICES.filter((v) => v !== pick)] : GROQ_VOICES;
 
-  if (onlyEleven) down.eleven = 0; // chosen on purpose: always give it a real try
-  const got = (!pick && (await viaEleven(text, tone, persona))) || (onlyEleven ? null : await viaGroq(text, tone, order));
+  if (onlyEleven && Date.now() > elevenOutUntil) down.eleven = 0; // chosen on purpose: always give it a real try
+  // ElevenLabs only = ElevenLabs or the phone, EXCEPT when it is out of credits: then Groq's male voices, never the
+  // phone's default (often a woman's) voice for Byte or DJ Luxe.
+  const got = (!pick && (await viaEleven(text, tone, persona))) || (onlyEleven && Date.now() > elevenOutUntil ? null : await viaGroq(text, tone, persona === 'dj' ? ['austin', 'troy', 'daniel'] : order));
   if (!got) { res.setHeader('X-Byte-Why', elevenWhy || 'none'); return res.status(502).json({ error: 'Voice failed', eleven: elevenWhy }); }
   if (got.who !== 'eleven' && elevenWhy) res.setHeader('X-Byte-Why', elevenWhy);
   res.setHeader('Content-Type', got.type);
