@@ -2069,3 +2069,18 @@ html[data-holiday="vice"] .bottom-nav { background: rgba(14,2,30,.94) !important
 .lab-gutter { padding: 8px 6px; text-align: right; color: rgba(255,255,255,.25); font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; line-height: 19px; user-select: none; background: rgba(255,255,255,.02); }
 .lab-editor textarea { flex: 1; padding: 8px; border: 0; outline: none; resize: vertical; background: transparent; color: #D1FAE5; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; line-height: 19px; white-space: pre; overflow-x: auto; }
 .lab-term { margin: 8px 0 0; padding: 10px; border-radius: 8px; background: #000; color: #86EFAC; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; max-height: 260px; overflow-y: auto; }
+
+/* ═══ KEEPING COOL (components/PowerSaver.js) ═══
+   lx-still: background motion freezes a few seconds after a page opens and while scrolling.
+   lx-saver: low battery, no background motion at all. Loaders and buttons keep their animations. */
+html.lx-still .tm, html.lx-still .tm *, html.lx-still .hs, html.lx-still .hs *, html.lx-still .lx-ambience::after,
+html.lx-still [class^="hd-"], html.lx-still [class*=" hd-"], html.lx-still .lx-networth, html.lx-still .bh-box, html.lx-still .eh-egg,
+html.lx-saver [class^="hd-"], html.lx-saver [class*=" hd-"], html.lx-saver .lx-networth { animation-play-state: paused !important; }
+html.lx-saver .tm, html.lx-saver .hs, html.lx-saver .lx-ambience::after, html.lx-saver .hs-flash { display: none !important; }
+
+/* Tablets, foldables and phones held sideways (600–959 px): keep pages and the nav a comfortable reading width
+   in the middle instead of stretched edge to edge. */
+@media (min-width: 600px) and (max-width: 959px) {
+  .page { max-width: 720px; margin-left: auto; margin-right: auto; }
+  .bottom-nav { max-width: 720px; margin-left: auto; margin-right: auto; }
+}

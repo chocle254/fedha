@@ -7,6 +7,7 @@ import { MusicProvider } from '../context/MusicContext';
 import MiniPlayer from '../components/MiniPlayer';
 import WelcomeIntro from '../components/WelcomeIntro';
 import Ambience from '../components/Ambience';
+import PowerSaver from '../components/PowerSaver';
 import { isSupabaseEnabled, getSession, onAuthChange } from '../lib/supabase';
 import '../styles/globals.css';
 import { installApiAuth } from '../lib/api-auth-client';
@@ -306,6 +307,7 @@ export default function App(props) {
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
       </Head>
       <Ambience />
+      <PowerSaver />
       <AppBody {...props} />
       <WelcomeIntro enabled={!props.router?.pathname?.startsWith('/certificate')} />
     </>

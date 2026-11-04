@@ -231,7 +231,7 @@ export function MusicProvider({ children }) {
       if (typeof sleepRef.current === 'number' && Date.now() >= sleepRef.current) { decks.current?.pause(); audio.current?.pause(); sleepRef.current = null; setSleepAt(null); }
       if (t?.source !== 'yt' || !decks.current) return;
       const tm = decks.current.time();
-      setTime({ cur: tm.cur, dur: tm.dur }); setPlaying(tm.playing || blending.current);
+      if (!document.hidden) { setTime({ cur: tm.cur, dur: tm.dur }); setPlaying(tm.playing || blending.current); } // screen off: no redraws
       const secs = planRef.current?.secs || 0;
       if (!blending.current && tm.playing && tm.dur > 30 && secs > 0 && tm.dur - tm.cur <= secs + 0.5) advance(1);
       if (ducking.current < 1 && !blending.current) decks.current.setDuck(ducking.current);
