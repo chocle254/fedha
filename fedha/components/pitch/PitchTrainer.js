@@ -32,7 +32,7 @@ function makeListener(getCue) {
   const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
   const st = { segs: [], interim: '', live: false, last: Date.now(), longest: 0, rec: null, ok: !!SR, onChange: () => {} };
   if (!SR) return st;
-  const rec = new SR(); rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
+  const rec = new SR(); rec.lang = 'en-KE'; rec.continuous = true; rec.interimResults = true;
   let seen = 0;
   rec.onresult = (e) => {
     const now = Date.now();

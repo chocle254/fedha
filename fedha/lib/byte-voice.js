@@ -84,6 +84,26 @@ function audioCtx() {
   try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume().catch(() => {}); return ac; } catch { return null; }
 }
 
+// Loudness of a voice clip every 50 ms (0..1), for the mouth. Decoded once off to the side; null if it can't be.
+const ENV_STEP = 0.05;
+const envCache = new WeakMap();
+async function envelope(blob) {
+  if (envCache.has(blob)) return envCache.get(blob);
+  try {
+    const ctx = audioCtx(); if (!ctx) return null;
+    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const data = buf.getChannelData(0); const step = Math.floor(buf.sampleRate * ENV_STEP);
+    const out = [];
+    for (let i = 0; i < data.length; i += step) {
+      let sum = 0; const end = Math.min(data.length, i + step);
+      for (let k = i; k < end; k += 4) sum += data[k] * data[k];
+      out.push(Math.min(1, Math.sqrt(sum / ((end - i) / 4)) * 5));
+    }
+    envCache.set(blob, out);
+    return out;
+  } catch { return null; }
+}
+
 // Speaks a line. Returns { stop }. onLevel(0..1) gives mouth movement; onStart fires when sound begins.
 // persona 'dj' = DJ Luxe's own voice (pages/api/byte-voice.js).
 export function speakByte(text, { mood = 'happy', voice = getByteVoice(), persona = null, onStart, onEnd, onLevel } = {}) {
@@ -132,21 +152,22 @@ export function speakByte(text, { mood = 'happy', voice = getByteVoice(), person
     fails = 0;
     const url = URL.createObjectURL(blob);
     audio = new Audio(url);
-    const ctx = audioCtx();
-    let analyser = null, data = null;
-    if (ctx && onLevel) {
-      try { const src = ctx.createMediaElementSource(audio); analyser = ctx.createAnalyser(); analyser.fftSize = 512; src.connect(analyser); analyser.connect(ctx.destination); data = new Uint8Array(analyser.fftSize); } catch { analyser = null; }
-    }
+    // The voice plays straight from the audio element (not through Web Audio): routing it through an analyser
+    // made it crackle on mid-range phones when the screen was busy. The mouth follows a loudness map measured
+    // from the clip before it plays, read 20 times a second (and only sent on when it changes).
+    const env = onLevel ? await envelope(blob) : null;
+    if (stopped) { URL.revokeObjectURL(url); return; }
+    let tick = 0; let last = -1;
     const meter = () => {
-      if (!analyser || stopped) return;
-      analyser.getByteTimeDomainData(data);
-      let sum = 0; for (let k = 0; k < data.length; k++) { const v = (data[k] - 128) / 128; sum += v * v; }
-      onLevel(Math.min(1, Math.sqrt(sum / data.length) * 5));
-      raf = requestAnimationFrame(meter);
+      if (stopped || !env) return;
+      const k = Math.min(env.length - 1, Math.floor(audio.currentTime / ENV_STEP));
+      const v = env[k] || 0;
+      if (Math.abs(v - last) > 0.06) { last = v; onLevel(v); }
+      tick = setTimeout(meter, 50);
     };
     audio.onplay = () => { begin(); meter(); };
-    audio.onended = () => { URL.revokeObjectURL(url); cancelAnimationFrame(raf); playPart(i + 1); };
-    audio.onerror = () => { URL.revokeObjectURL(url); cancelAnimationFrame(raf); rescue(); };
+    audio.onended = () => { URL.revokeObjectURL(url); clearTimeout(tick); onLevel?.(0); playPart(i + 1); };
+    audio.onerror = () => { URL.revokeObjectURL(url); clearTimeout(tick); rescue(); };
     audio.play().catch(() => { if (!stopped) rescue(); });
   };
   playPart(0);

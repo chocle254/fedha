@@ -102,6 +102,13 @@ function savePlan(key, v) {
   } catch { /* storage full or private */ }
 }
 
+// The mic's language: Kenyan English unless the phone is set to another English (luxe_mic_lang overrides).
+function micLang() {
+  try { const v = localStorage.getItem('luxe_mic_lang'); if (v) return v; } catch { /* private mode */ }
+  const nav = (typeof navigator !== 'undefined' && navigator.language) || '';
+  return /^en-(KE|GB|IN|NG|ZA|AU)$/i.test(nav) ? nav : 'en-KE';
+}
+
 const HW_LEVELS = ['homework_check', 'homework_grade', 'homework_help'];
 
 // Starting a course from scratch: forget his saved plans and answers for it, so he teaches it fresh.
@@ -716,8 +723,10 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
     const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
     if (!SR) return;
     const r = new SR();
-    r.lang = 'en-US'; r.continuous = false; r.interimResults = true; r.maxAlternatives = 1;
+    // Kenyan English: Google's recogniser hears a Kenyan accent much better with en-KE than with en-US.
+    r.lang = micLang(); r.continuous = false; r.interimResults = true; r.maxAlternatives = 1;
     r.onresult = (e) => {
+      if (talkingRef.current) return; // never take his own voice coming back from the speaker
       let fin = '', interim = '';
       for (let k = e.resultIndex; k < e.results.length; k++) { const t = e.results[k][0].transcript; if (e.results[k].isFinal) fin += t + ' '; else interim += t; }
       if (fin) said.current += fin;
@@ -740,7 +749,7 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
   useEffect(() => {
     if (!live || turn !== 'you' || talking || thinking) return undefined;
     micTries.current = 0;
-    const t = setTimeout(listenTurn, 500);
+    const t = setTimeout(listenTurn, 900); // let the speaker go quiet first, so the mic doesn't catch his last word
     return () => clearTimeout(t);
   }, [live, turn, talking, thinking]); // eslint-disable-line react-hooks/exhaustive-deps
 

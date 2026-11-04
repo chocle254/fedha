@@ -354,7 +354,7 @@ export default function JarvisWidget() {
     if (!SpeechRecognition) { setActionError("Voice input isn't supported in this browser — try typing instead."); return; }
 
     const rec = new SpeechRecognition();
-    rec.lang = 'en-US';
+    rec.lang = 'en-KE'; // Kenyan English: hears the accent much better than en-US
     rec.interimResults = false;
     rec.maxAlternatives = 1;
     rec.onresult = (e) => {
