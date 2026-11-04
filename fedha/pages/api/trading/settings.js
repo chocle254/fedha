@@ -1,6 +1,7 @@
 import { requireUser } from '../../../lib/require-user';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getSettings, getAccount, riskAmount } from '../../../lib/trading';
+import { resetPaper, resetIfBlown } from '../../../lib/paper-reset';
 
 // PAPER ONLY. Live mode is rejected until real execution is built and enabled.
 async function snapshot(userId, settings) {
@@ -13,7 +14,20 @@ export default async function handler(req, res) {
   const user = await requireUser(req, res);
   if (!user) return;
 
-  if (req.method === 'GET') return res.status(200).json(await snapshot(user.id, await getSettings(user.id)));
+  if (req.method === 'GET') {
+    await resetIfBlown(user.id).catch(() => null); // also checked every minute by the tick
+    return res.status(200).json(await snapshot(user.id, await getSettings(user.id)));
+  }
+
+  // Reset everything (Trading → Settings): every paper trade, the ladder, pauses and growth challenge; new start.
+  if (req.method === 'POST' && req.body?.action === 'reset') {
+    const bal = req.body.balance == null || req.body.balance === '' ? null : Number(req.body.balance);
+    if (bal != null && !(bal > 0 && bal <= 1e9)) return res.status(400).json({ error: 'Starting balance must be more than 0.' });
+    try {
+      const r = await resetPaper(user.id, { balance: bal, reason: 'manual' });
+      return res.status(200).json({ ...(await snapshot(user.id, await getSettings(user.id))), reset: r });
+    } catch (e) { return res.status(500).json({ error: e.message }); }
+  }
 
   if (req.method === 'PUT') {
     const b = req.body || {};
@@ -33,6 +47,6 @@ export default async function handler(req, res) {
     return res.status(200).json(await snapshot(user.id, row));
   }
 
-  res.setHeader('Allow', 'GET, PUT');
+  res.setHeader('Allow', 'GET, PUT, POST');
   return res.status(405).json({ error: 'Method not allowed' });
 }
