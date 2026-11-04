@@ -109,6 +109,19 @@ function micLang() {
   return /^en-(KE|GB|IN|NG|ZA|AU)$/i.test(nav) ? nav : 'en-KE';
 }
 
+// What the voice says: the caption keeps the code, but the voice never reads symbols out (it sounded robotic).
+// Code blocks become "the code on the board", short code like `total` or `print()` is said as a word, and
+// operators inside a sentence are said the way a teacher would.
+export function speakable(text) {
+  return String(text || '')
+    .replace(/```[\s\S]*?```/g, ' the code on the board ')
+    .replace(/`([^`]+)`/g, (_, c) => (/^[A-Za-z_][\w.]*(\(\))?$/.test(c.trim()) ? c.trim().replace(/\(\)$/, '').replace(/\./g, ' dot ').replace(/_/g, ' ') : ' this code '))
+    .replace(/\s==\s/g, ' equals ').replace(/\s!=\s/g, ' is not equal to ').replace(/\s<=\s/g, ' is at most ').replace(/\s>=\s/g, ' is at least ')
+    .replace(/\s\+=\s/g, ' plus equals ').replace(/\s-=\s/g, ' minus equals ').replace(/\s=\s/g, ' equals ').replace(/\s<\s/g, ' is less than ').replace(/\s>\s/g, ' is greater than ')
+    .replace(/[{}[\];<>|\\#$^~]/g, ' ').replace(/\(\)/g, '').replace(/[()]/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+
 const HW_LEVELS = ['homework_check', 'homework_grade', 'homework_help'];
 
 // Starting a course from scratch: forget his saved plans and answers for it, so he teaches it fresh.
@@ -134,6 +147,8 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
   const [hwVerdict, setHwVerdict] = useState(null);
   // Homework not done: he gives you time and hints to do it now, then goes through it with you. { endAt, hints }
   const [hwCatch, setHwCatch] = useState(null);
+  const [pinned, setPinned] = useState(null); // a board held on screen (📌) so you can copy it while he carries on
+  const [copied, setCopied] = useState('');
   const hwCatchRef = useRef(null); hwCatchRef.current = hwCatch;
   const [hwLeft, setHwLeft] = useState(0);
   const hwChecked = useRef(false);
@@ -221,7 +236,7 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
     const fin = () => { if (finished) return; finished = true; speaker.current = null; setLevel(0); done?.(); };
     const words = text.split(/\s+/).length;
     if (voiceRef.current === 'off') { later(fin, Math.max(2600, words * 330 + 900)); return; }
-    speaker.current = speakByte(text, { mood, voice: voiceRef.current, onLevel: setLevel, onEnd: fin });
+    speaker.current = speakByte(speakable(text), { mood, voice: voiceRef.current, onLevel: setLevel, onEnd: fin });
     later(fin, words * 650 + 9000); // safety net if audio never reports the end
   };
 
@@ -445,13 +460,16 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
     setThinking(true); thinkingRef.current = true;
     const item = q.list[q.i];
     let g = null;
-    try { g = await askStudy({ type: 'quiz_grade', ask: item.ask, answer: item.answer, reply }); } catch { g = null; }
+    // Marked in context: what this part taught and what he just said, so a short, informal but right answer counts.
+    const pst = planRef.current?.steps?.[q.step ?? -1];
+    const recent = logRef.current.filter((m) => m.role === 'ai').slice(-2).map((m) => (m.scenes || []).map((x) => x.say).join(' ')).join(' ').slice(-900);
+    try { g = await askStudy({ type: 'quiz_grade', ask: item.ask, answer: item.answer, reply, part: pst ? `${pst.title}: ${pst.goal}` : undefined, recent }); } catch { g = null; }
     setThinking(false); thinkingRef.current = false;
     if (!c.on || c.quiz !== q) return;
     if (!g) g = { verdict: 'partial', say: `I could not mark that one, the free AI is busy. Here is the answer: ${item.answer}`, mood: 'serious' };
     if (g.verdict === 'right') q.right += 1; else if (g.verdict === 'partial') q.partial += 1; else q.wrong += 1;
     if (g.verdict !== 'right') q.missed.push(item.ask);
-    if (q.check && g.verdict !== 'right' && q.tries === 0) {
+    if (q.check && g.verdict === 'wrong' && q.tries === 0) { // a partly right answer gets the missing piece, not a whole re-teach
       // Missed the check: he says what was right and what wasn't, re-teaches that piece another way, then asks again.
       q.tries = 1; q.i -= 1;
       const p = planRef.current;
@@ -802,7 +820,22 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
   const scene = answer?.scenes?.[cur.s] || answer?.scenes?.[answer.scenes.length - 1] || null;
   // The board stays up until a later scene replaces it.
   const board = answer ? [...answer.scenes.slice(0, (cur?.s ?? 0) + 1)].reverse().find((x) => x.board)?.board || null : null;
-  const boardKey = answer ? `${cur.i}-${answer.scenes.findIndex((x) => x.board === board)}` : 'none';
+  const boardKey0 = answer ? `${cur.i}-${answer.scenes.findIndex((x) => x.board === board)}` : 'none';
+  const shown = pinned || board;
+  const boardKey = pinned ? 'pinned' : boardKey0;
+  // Every piece of code he has put on the board this class, so you can copy it at your own pace. A snippet he
+  // built up line by line shows once, in its fullest version.
+  const codeSnips = (() => {
+    const out = [];
+    log.forEach((m, i) => {
+      if (m.role !== 'ai' || !m.scenes) return;
+      const upto = cur && i === cur.i ? (cur.s ?? 0) + 1 : cur && i > cur.i ? 0 : m.scenes.length;
+      m.scenes.slice(0, upto).forEach((x) => { if (x.board?.type === 'code' && x.board.code?.trim()) out.push({ code: x.board.code.replace(/\s+$/, ''), lang: x.board.lang || '' }); });
+    });
+    const keep = out.filter((a, k) => !out.some((b, j) => j !== k && b.code.length > a.code.length && b.code.startsWith(a.code)));
+    return keep.filter((a, k) => keep.findIndex((b) => b.code === a.code) === k);
+  })();
+  const copyCode = async (code) => { try { await navigator.clipboard.writeText(code); setCopied(code); setTimeout(() => setCopied(''), 1500); } catch { /* clipboard blocked */ } };
   const mood = idle?.mood || (heard ? 'thinking' : listening ? 'happy' : scene?.mood) || 'happy';
   const gesture = idle?.gesture || (talking ? (scene?.gesture === 'none' && board ? 'point' : scene?.gesture) : 'none') || 'none';
   const showText = captions || voice === 'off';
@@ -820,14 +853,16 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
       <div style={{ position: 'relative', height: 300, borderRadius: 18, overflow: 'hidden', background: 'radial-gradient(120% 90% at 30% 20%, #1B2440 0%, #0B1020 60%, #05070D 100%)', border: '1px solid rgba(125,249,255,.18)' }}>
         <div style={{ position: 'absolute', left: '-20%', right: '-20%', bottom: -40, height: 120, background: 'repeating-linear-gradient(90deg, rgba(125,249,255,.08) 0 1px, transparent 1px 34px), repeating-linear-gradient(0deg, rgba(125,249,255,.08) 0 1px, transparent 1px 22px)', transform: 'perspective(260px) rotateX(62deg)', transformOrigin: 'bottom' }} />
         <AnimatePresence mode="wait">
-          {board && (
+          {shown && (
             <motion.div key={boardKey} initial={{ opacity: 0, rotateY: -35, x: 30 }} animate={{ opacity: 1, rotateY: 0, x: 0 }} exit={{ opacity: 0, rotateY: 30, x: 20 }} transition={{ type: 'spring', stiffness: 140, damping: 16 }}
               style={{ position: 'absolute', right: 10, top: 12, width: '58%', maxHeight: 214, overflowY: 'auto', padding: 10, borderRadius: 12, background: 'linear-gradient(160deg, rgba(30,41,59,.95), rgba(15,23,42,.95))', border: '2px solid #3B4A63', boxShadow: '0 10px 30px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.04)', color: '#E5E7EB', transformPerspective: 600 }}>
-              <TutorBoard board={board} />
+              <TutorBoard board={shown} />
+              <button type="button" onClick={() => setPinned(pinned ? null : board)} aria-label={pinned ? 'Unpin the board' : 'Pin this board'} title={pinned ? 'Unpin: follow the lesson again' : 'Pin: keep this board up while he carries on'}
+                style={{ position: 'sticky', bottom: 0, float: 'right', marginTop: 6, border: 0, borderRadius: 999, padding: '3px 9px', fontSize: 11, fontWeight: 700, cursor: 'pointer', background: pinned ? '#FBBF24' : 'rgba(255,255,255,.12)', color: pinned ? '#000' : '#E5E7EB' }}>{pinned ? '📌 Pinned · tap to unpin' : '📌 Pin'}</button>
             </motion.div>
           )}
         </AnimatePresence>
-        <div role="button" tabIndex={0} aria-label="Poke Professor Byte" onClick={poke} style={{ position: 'absolute', left: board ? 2 : '50%', bottom: 4, transform: board ? 'none' : 'translateX(-50%)', transition: 'left .5s, transform .5s', cursor: 'pointer' }}>
+        <div role="button" tabIndex={0} aria-label="Poke Professor Byte" onClick={poke} style={{ position: 'absolute', left: shown ? 2 : '50%', bottom: 4, transform: shown ? 'none' : 'translateX(-50%)', transition: 'left .5s, transform .5s', cursor: 'pointer' }}>
           {skitProp && (
             <div className={`bs bs-${skitProp}`} aria-hidden="true">
               {skitProp === 'notes' && ['♪', '♫', '♩', '♬', '♪'].map((n, i) => <span key={i} style={{ '--i': i }}>{n}</span>)}
@@ -838,17 +873,29 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
               {skitProp === 'crumbs' && <><span className="bs-batt">🔋</span>{[0, 1, 2, 3, 4].map((i) => <i key={i} style={{ '--i': i }} />)}</>}
             </div>
           )}
-          <ProfessorByte outfit={outfit} size={board ? 118 : 150} mood={mood} gesture={gesture} talking={talking || !!(idle && speaker.current)} level={voice === 'off' ? null : level} thinking={thinking} look={board && talking ? { x: 0.9, y: -0.2 } : (listening || heard) ? { x: 0, y: 0.9 } : null} onKnock={knock} />
+          <ProfessorByte outfit={outfit} size={shown ? 118 : 150} mood={mood} gesture={gesture} talking={talking || !!(idle && speaker.current)} level={voice === 'off' ? null : level} thinking={thinking} look={shown && talking ? { x: 0.9, y: -0.2 } : (listening || heard) ? { x: 0, y: 0.9 } : null} onKnock={knock} />
         </div>
         {/* the glass: reflections, and ripples when he knocks */}
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'linear-gradient(115deg, rgba(255,255,255,.10) 0%, rgba(255,255,255,0) 22%, rgba(255,255,255,0) 60%, rgba(255,255,255,.05) 68%, rgba(255,255,255,0) 76%)', boxShadow: 'inset 0 0 40px rgba(0,0,0,.55)' }} />
         {ripples.map((id) => (
           <motion.div key={id} initial={{ scale: 0.2, opacity: 0.8 }} animate={{ scale: 2.4, opacity: 0 }} transition={{ duration: 0.8 }}
-            style={{ position: 'absolute', left: board ? 70 : '55%', bottom: 120, width: 60, height: 60, marginLeft: -30, borderRadius: '50%', border: '2px solid rgba(200,250,255,.7)', pointerEvents: 'none' }} />
+            style={{ position: 'absolute', left: shown ? 70 : '55%', bottom: 120, width: 60, height: 60, marginLeft: -30, borderRadius: '50%', border: '2px solid rgba(200,250,255,.7)', pointerEvents: 'none' }} />
         ))}
         <div style={{ position: 'absolute', top: 8, left: 10, fontSize: 10.5, letterSpacing: 1, fontWeight: 800, color: 'rgba(125,249,255,.6)' }}>PROFESSOR BYTE</div>
       </div>
 
+      {codeSnips.length > 0 && (
+        <details className="card-2" style={{ marginTop: 10, padding: '9px 11px' }}>
+          <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 800 }}>⌨️ Code from this class ({codeSnips.length}) · copy it at your own pace</summary>
+          {codeSnips.map((c, k) => (
+            <div key={k} style={{ marginTop: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-3)' }}><span style={{ flex: 1 }}>{c.lang || 'code'} · snippet {k + 1}</span>
+                <button type="button" className="chip" style={{ fontSize: 11, padding: '2px 9px' }} onClick={() => copyCode(c.code)}>{copied === c.code ? '✓ Copied' : '📋 Copy'}</button></div>
+              <pre style={{ margin: '4px 0 0', padding: 8, borderRadius: 8, background: '#0A0D12', color: '#D1FAE5', fontSize: 12, lineHeight: 1.5, overflowX: 'auto', fontFamily: 'ui-monospace, Menlo, monospace' }}>{c.code.split('\n').map((ln, n) => <div key={n}><span style={{ color: 'rgba(255,255,255,.3)', userSelect: 'none', display: 'inline-block', width: 22 }}>{n + 1}</span>{ln || ' '}</div>)}</pre>
+            </div>
+          ))}
+        </details>
+      )}
       {plan && (
         <div className="card-2" style={{ marginTop: 10, padding: '9px 11px' }}>
           <button onClick={() => setShowPlan(!showPlan)} style={{ all: 'unset', cursor: 'pointer', display: 'flex', width: '100%', gap: 8, alignItems: 'center' }}>
