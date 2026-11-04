@@ -22,7 +22,9 @@ export default function NotesHub({ courses, notes, cards, onSaveNote, onDeleteNo
       if (c.notes) list.push({ key: `c:${c.id}`, kind: 'course', title: `${c.title}: course notes`, sub: c.provider || 'Course', body: c.notes, course: c, at: c.created_at });
     }
     for (const n of notes) list.push({ key: `n:${n.id}`, kind: 'note', title: n.title || 'Untitled', sub: courses.find((c) => c.id === n.course_id)?.title || 'My note', body: n.body, note: n, course: courses.find((c) => c.id === n.course_id), at: n.updated_at });
-    return list.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+    // Never the same card twice (a duplicated course or lesson id made cards stick when switching tabs).
+    const seen = new Set();
+    return list.filter((x) => (seen.has(x.key) ? false : seen.add(x.key))).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
   }, [courses, notes]);
   const shown = all.filter((x) => (course === 'all' || x.course?.id === course) && (!search || (x.title + x.body + x.sub).toLowerCase().includes(search.toLowerCase())));
 
@@ -52,7 +54,7 @@ export default function NotesHub({ courses, notes, cards, onSaveNote, onDeleteNo
       </div>
       <div className="tab-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 12 }}>
         <button className={`chip ${course === 'all' ? 'active' : ''}`} onClick={() => setCourse('all')}>All ({all.length})</button>
-        {courses.filter((c) => all.some((x) => x.course?.id === c.id)).map((c) => <button key={c.id} className={`chip ${course === c.id ? 'active' : ''}`} onClick={() => setCourse(c.id)}>{c.title.slice(0, 22)}</button>)}
+        {courses.filter((c, i) => courses.findIndex((y) => y.id === c.id) === i && all.some((x) => x.course?.id === c.id)).map((c) => <button key={c.id} className={`chip ${course === c.id ? 'active' : ''}`} onClick={() => setCourse(c.id)}>{c.title.slice(0, 22)}</button>)}
       </div>
       {!shown.length && <div className="card-2" style={{ padding: 18, fontSize: 13, color: 'var(--text-3)', textAlign: 'center', lineHeight: 1.5 }}>{all.length ? 'No notes match.' : 'No notes yet. Write one here, generate AI notes on a lesson, or save a tutor answer from Study mode.'}</div>}
       {shown.map((x) => (

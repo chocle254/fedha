@@ -4,7 +4,7 @@ import { askStudy } from '../../lib/study';
 import { speakByte } from '../../lib/byte-voice';
 import { stopSpeaking } from '../../lib/voice';
 import { labOf, missedLessons, newLab, sharpness, unitsOf, FILE_CAP, MAX_FILES } from '../../lib/labs';
-import { runProject } from '../../lib/code-runner';
+import { runProject, pythonIsWarm } from '../../lib/code-runner';
 import { getKb } from '../../lib/byte-kb';
 import { getMaterials, relevantMaterial } from '../../lib/materials';
 import { folderOf } from '../../lib/course-folders';
@@ -143,7 +143,7 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
   };
 
   const run = async () => {
-    setBusy(/^py/.test(L.lang) ? 'Running (the first Python run downloads Python, ~10 s)…' : 'Running…'); setErr('');
+    setBusy(/^py/.test(L.lang) && !pythonIsWarm() ? 'Starting Python and installing the packages your code imports (first run: up to a few minutes on mobile data)…' : 'Running…'); setErr('');
     const r = await runProject({ lang: L.lang, files: L.files });
     setBusy(''); setOut(r);
     if (r.error) say(pick(['It crashed. Read the error, it is literally telling you what is wrong.', 'Boom. Error. Look at the last line of the traceback first.', 'Red text. My favourite. Read it, fix it, run it again.']), 'facepalm');
@@ -188,7 +188,7 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
             <div className="lab-kicker">PROJECT LAB · UNIT {unit ? unit.index + 1 : ''} · {course.title.toUpperCase()}</div>
             <div className="lab-title">{lab?.title || unit?.section}</div>
           </div>
-          <button className="btn-ghost" onClick={() => { if (lab) onSave(lab); onClose(); }}>Leave lab</button>
+          <button className="lab-leave" onClick={() => { if (lab) onSave(lab); onClose(); }}>✕ Leave</button>
         </div>
 
         <div className="lab-byte">
@@ -261,7 +261,7 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
                 {allDone && lab.status !== 'shipped' && <button className="lab-btn" onClick={ship}>🚀 Ship the lab</button>}
                 {allDone && nextUnit && <button className="lab-btn ghost" onClick={() => onStudyLesson(nextUnit.lessons.find((l) => !l.completed)?.id || nextUnit.lessons[0].id)}>Next: unit {nextUnit.index + 1} →</button>}
               </div>
-              {out && <pre className="lab-term">{`$ run ${out.entry || ''}\n`}{out.out || ''}{out.error ? `\n${out.error}` : ''}{!out.out && !out.error ? '(no output)' : ''}</pre>}
+              {out && <pre className="lab-term">{out.installed?.length ? `$ installed ${out.installed.join(', ')}\n` : ''}{`$ run ${out.entry || ''}\n`}{out.out || ''}{out.error ? `\n${out.error}` : ''}{!out.out && !out.error ? '(no output)' : ''}</pre>}
             </div>
 
             {review && (

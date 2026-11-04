@@ -383,6 +383,9 @@ export default function StartupDetail() {
                   {startup.accelerator && <span className="muse-chip muse-chip-plain">🏛 {startup.accelerator}</span>}
                   {streak > 0 && <span className="muse-chip muse-chip-plain">🔥 {streak}d</span>}
                   {startup.audit && <span className="muse-chip muse-chip-plain">🧪 {startup.audit.score}</span>}
+                  {/* Pause: everything stays, but it leaves the planner and events until resumed. */}
+                  <button type="button" className="muse-chip muse-chip-plain" style={{ cursor: 'pointer', border: 0, font: 'inherit', ...(startup.paused ? { background: 'var(--yellow)', color: '#000' } : {}) }}
+                    onClick={() => save({ paused: !cur().paused, paused_at: cur().paused ? null : new Date().toISOString() })}>{startup.paused ? '⏸ Paused · tap to resume' : '⏸ Pause'}</button>
                 </div>
               </div>
               <Ring pct={totalPct} color={stage.color} />

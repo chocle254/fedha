@@ -23,6 +23,22 @@ import {
   getSetting, setSetting, seedDefaultData,
 } from '../lib/db';
 
+// One course per id. A course saved twice with the same id (it happened to Google AI Professional Certificate)
+// made cards stick on screen in Learning → Notes. Keeps the copy with more lessons done (then the bigger one).
+function uniqueCourses(list) {
+  if (!Array.isArray(list)) return [];
+  const score = (c) => [(c.modules || []).filter((m) => m.completed).length, JSON.stringify(c).length];
+  const best = new Map();
+  for (const c of list) {
+    const have = best.get(c?.id);
+    if (!have) { best.set(c?.id, c); continue; }
+    const [a1, a2] = score(c); const [b1, b2] = score(have);
+    if (a1 > b1 || (a1 === b1 && a2 > b2)) best.set(c.id, c);
+  }
+  const seen = new Set();
+  return list.filter((c) => { if (seen.has(c?.id)) return false; seen.add(c?.id); return true; }).map((c) => best.get(c?.id));
+}
+
 const AppContext = createContext({});
 const BASE_CURRENCY = 'KES'; // all stored amounts are in KES
 
@@ -63,7 +79,7 @@ export function AppProvider({ children }) {
     ]);
     setWallets(ws); setTransactions(ts); setBudgets(bs); setLoans(ls);
     setGoals(gs); setIncomePlans(ips); setChallenges(chs);
-    setHackathons(hks); setStartups(sts); setOnlineJobs(ojs); setProjects(prs); setCertificates(crts); setResearch(rsc); setClientProjects(cps || []); setCourses(Array.isArray(crs) ? crs : []); setCurrencyState(cur);
+    setHackathons(hks); setStartups(sts); setOnlineJobs(ojs); setProjects(prs); setCertificates(crts); setResearch(rsc); setClientProjects(cps || []); setCourses(uniqueCourses(crs)); setCurrencyState(cur);
     setSavingsPlanDaysState(spd);
     setLastSavedGoalIdState(lsg);
 
@@ -479,7 +495,7 @@ export function AppProvider({ children }) {
 
   // ─── LEARNING / COURSES ────────────────────────────────────────────────────
   const saveCourses = useCallback(async (next) => {
-    const normalized = Array.isArray(next) ? next : [];
+    const normalized = uniqueCourses(next);
     await setSetting('courses', normalized);
     setCourses(normalized);
     return normalized;

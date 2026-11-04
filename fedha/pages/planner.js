@@ -175,7 +175,7 @@ function getWorkPriorityItems({ hackathons, startups, projects, onlineJobs, clie
   // instead — see startupEvents(). With no roadmap task due, fall back to the
   // weekly commitment.
   const today = todayISO();
-  (startups || []).forEach(s => {
+  (startups || []).filter((s) => !s.paused).forEach(s => { // paused startups (Tech Hub ⏸) stay out of the day
     const due = (s.roadmap?.tasks || []).filter((t) => !t.done && !t.time && t.date && t.date <= today);
     if (due.length) {
       due.slice(0, 2).forEach((t) => {
@@ -559,7 +559,7 @@ function hackathonEvents(hackathons) {
 // fixed-time events, with Muse's steps in the note.
 function startupEvents(startups) {
   const out = [];
-  (startups || []).forEach((s) => (s.roadmap?.tasks || []).forEach((t) => {
+  (startups || []).filter((s) => !s.paused).forEach((s) => (s.roadmap?.tasks || []).forEach((t) => {
     if (t.done || !t.date || !t.time) return;
     const [h, m] = t.time.split(':').map(Number);
     const end = h * 60 + m + (t.minutes || 60);
@@ -730,7 +730,7 @@ export default function PlannerPage() {
   const workSignature = JSON.stringify([
     hackathons?.map((h) => [h.id, hackStatus(h), h.deadline, (h.tasks || []).filter((t) => !t.done).length, h.results_date, h.results_time]) || [],
     lowCash,
-    startups?.map((s) => [s.id, !!(s.focus && !s.focus.done), (s.roadmap?.tasks || []).filter((t) => t.date && t.date <= todayISO()).map((t) => [t.id, t.done, t.time || ''])]) || [],
+    startups?.map((s) => [s.id, !!s.paused, !!(s.focus && !s.focus.done), (s.roadmap?.tasks || []).filter((t) => t.date && t.date <= todayISO()).map((t) => [t.id, t.done, t.time || ''])]) || [],
     projects?.map((p) => [p.id, projectStatus(p)]) || [],
     clientProjects?.map((p) => [p.id, p.status, p.deadline, p.agreed_amount, p.previously_paid, (p.payments || []).length, (p.change_requests || []).length, p.estimated_days]) || [],
     onlineJobs?.map((j) => [j.id, j.status]) || [],

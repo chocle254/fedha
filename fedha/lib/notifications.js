@@ -65,6 +65,22 @@ export async function showNotif({ title, body, icon = '/icon.svg', badge = '/ico
 // Fires at a specific time today. Returns the timeout ID so you can cancel it.
 const scheduled = {};
 
+// The server (supabase/functions/send-reminders) pushes meal and planner reminders by itself. When Luxe is in the
+// background those would arrive twice (the server's push and this timer), so then the timer stays quiet and the
+// server's copy is the one you see. With no push subscription the timer still shows them.
+const SERVER_SENDS = /^(meal_|block_)/;
+let pushOn = null;
+function checkPush() {
+  try { navigator.serviceWorker?.ready.then((r) => r.pushManager?.getSubscription()).then((sub) => { pushOn = !!sub; }).catch(() => {}); } catch { /* none */ }
+}
+// A timer the phone froze while Luxe was in the background fires late, all at once, when you come back: those
+// reminders are old news (the server already sent them), so anything more than 90 s late is dropped.
+function fire(due, opts) {
+  if (Date.now() - due > 90000) return;
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible' && pushOn && SERVER_SENDS.test(String(opts?.tag || ''))) return;
+  showNotif(opts);
+}
+
 export function scheduleAt(timeStr, id, notifOptions) {
   if (!notifGranted()) return;
 
@@ -77,7 +93,9 @@ export function scheduleAt(timeStr, id, notifOptions) {
 
   if (delay <= 0 || delay > 24 * 60 * 60 * 1000) return;
 
-  scheduled[id] = setTimeout(() => showNotif(notifOptions), delay);
+  checkPush();
+  const due = target.getTime();
+  scheduled[id] = setTimeout(() => fire(due, notifOptions), delay);
   return scheduled[id];
 }
 
@@ -91,7 +109,8 @@ export function scheduleAtDate(date, id, notifOptions) {
   const delay = date.getTime() - Date.now();
   if (delay <= 0 || delay > 7 * 24 * 60 * 60 * 1000) return;
 
-  scheduled[id] = setTimeout(() => showNotif(notifOptions), delay);
+  const due = date.getTime();
+  scheduled[id] = setTimeout(() => fire(due, notifOptions), delay);
   return scheduled[id];
 }
 

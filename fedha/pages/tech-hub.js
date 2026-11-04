@@ -1738,7 +1738,8 @@ function ResearchSection({ research, onAdd, onEdit, onDelete }) {
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 // A startup in the list: stage-coloured card with the journey path,
 // progress ring and what Muse would say about it today.
-function StartupCard({ s, onDelete }) {
+// Paused startups stay here with all their progress but leave the planner, events and nudges until resumed.
+function StartupCard({ s, onDelete, onPause }) {
   const stages = s.stages || {};
   const { allDone, currentIdx, stage, pct } = journeyState(stages);
   const notice = museNotice(s);
@@ -1749,13 +1750,13 @@ function StartupCard({ s, onDelete }) {
   const r = 22, c = 2 * Math.PI * r;
   return (
     <Link href={`/startup/${s.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-      <div className="su-card" style={{ '--stage': stage.color }}>
+      <div className="su-card" style={{ '--stage': stage.color, ...(s.paused ? { opacity: 0.62, filter: 'grayscale(.6)' } : {}) }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div className="su-icon">{stage.emoji}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="su-name">{s.name}</div>
             <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>
-              {allDone ? '🏁 Fully mapped' : `${stage.label} · stage ${currentIdx + 1} of ${STAGES.length}`}{s.accelerator ? ` · 🏛 ${s.accelerator}` : ''}
+              {s.paused ? '⏸ Paused · ' : ''}{allDone ? '🏁 Fully mapped' : `${stage.label} · stage ${currentIdx + 1} of ${STAGES.length}`}{s.accelerator ? ` · 🏛 ${s.accelerator}` : ''}
             </div>
           </div>
           <div style={{ position: 'relative', width: 52, height: 52, flexShrink: 0 }}>
@@ -1787,6 +1788,7 @@ function StartupCard({ s, onDelete }) {
           {plan?.tasks?.length > 0 && <span>🗺️ {planDone}/{plan.tasks.length}</span>}
           {dueToday > 0 && <span style={{ color: 'var(--yellow)' }}>📅 {dueToday} today</span>}
           <span style={{ flex: 1 }} />
+          <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPause?.(); }} className="su-del" aria-label={s.paused ? `Resume ${s.name}` : `Pause ${s.name}`} title={s.paused ? 'Resume: back in the planner' : 'Pause: out of the planner until you resume'}>{s.paused ? '▶️' : '⏸️'}</button>
           <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(); }} className="su-del" aria-label={`Delete ${s.name}`}>🗑️</button>
           <span className="su-open">Open →</span>
         </div>
@@ -1798,7 +1800,7 @@ function StartupCard({ s, onDelete }) {
 export default function TechHubPage() {
   const {
     hackathons: hackathonsRaw, addHackathon, updateHackathon, removeHackathon,
-    startups: startupsRaw, addStartup, removeStartup,
+    startups: startupsRaw, addStartup, removeStartup, updateStartup,
     projects: projectsRaw, addProject, updateProject, removeProject,
     certificates: certificatesRaw, addCertificate, updateCertificate, removeCertificate,
     research: researchRaw, addResearch, updateResearch, removeResearch,
@@ -2483,7 +2485,7 @@ export default function TechHubPage() {
                 </div>
               ) : (
                 <div className="su-grid">
-                  {startups.map((s) => <StartupCard key={s.id} s={s} onDelete={() => { if (window.confirm(`Delete "${s.name}" and its whole journey? This can't be undone.`)) removeStartup(s.id); }} />)}
+                  {startups.map((s) => <StartupCard key={s.id} s={s} onPause={() => updateStartup?.({ ...s, paused: !s.paused, paused_at: s.paused ? null : new Date().toISOString() })} onDelete={() => { if (window.confirm(`Delete "${s.name}" and its whole journey? This can't be undone.`)) removeStartup(s.id); }} />)}
                 </div>
               )}
 
