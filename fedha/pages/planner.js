@@ -314,7 +314,7 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
       role: 'prep',
       parts: [
         { id: 'lunch_prep', label: 'Start Cooking Lunch', type: 'meal', emoji: '🍲', note: 'Get the rice and the rest on the fire. Check the Meals tab for today.', duration: 15 },
-        { id: 'scroll', label: 'Scroll While the Rice Cooks 📱', type: 'personal', emoji: '📱', note: 'TikTok, Instagram, X while it cooks. Check the pot now and then.', duration: LUNCH_COOK - 25 },
+        { id: 'scroll', label: 'Scroll While the Rice Cooks 📱', type: 'personal', emoji: '📱', note: 'TikTok, Instagram, X while it cooks. Check the pot now and then.', duration: LUNCH_COOK - 25, hold: true }, // part of cooking: the bath and soap never land here
         { id: 'lunch_serve', label: 'Finish Cooking & Serve', type: 'meal', emoji: '🍛', note: 'Rice should be ready. Finish up and serve.', duration: 10 },
       ],
     });
@@ -438,7 +438,7 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
   let cursor = wake;
   const place = (w) => {
     if (!w || w.duration <= 0) return;
-    blocks.push({ id: w.id, time: m2t(cursor), label: w.label, type: w.type, duration: w.duration, emoji: w.emoji, note: w.note });
+    blocks.push({ id: w.id, time: m2t(cursor), label: w.label, type: w.type, duration: w.duration, emoji: w.emoji, note: w.note, ...(w.hold ? { hold: true } : {}) });
     cursor += w.duration;
   };
   const prepOf = (seg) => bySeg(seg).find((w) => w.role === 'prep');

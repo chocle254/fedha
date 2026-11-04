@@ -6,7 +6,9 @@
 import { getSetting, setSetting } from './db';
 
 export const SOAP_BATCH_MIN = 90;
-const BATH_MIN = 20;
+const BATH_MIN = 25;   // the bath itself
+const GROOM_MIN = 35;  // then grooming: oil, fresh clothes, hair (bath + grooming = 1 hour)
+const BATH_TOTAL = BATH_MIN + GROOM_MIN;
 const WALK_MIN = 40;
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -130,7 +132,7 @@ export function planAnchors({ blocks, weather, prefs, wake, workoutMinutes = 0, 
   const out = [];
   const warnings = [];
   const startOf = (b) => t2m(b.time);
-  const hard = blocks.filter((b) => ['meal', 'event'].includes(b.type) || b.id === 'sleep' || b.fun).map((b) => [startOf(b), b.id === 'sleep' ? 24 * 60 : startOf(b) + b.duration]);
+  const hard = blocks.filter((b) => ['meal', 'event'].includes(b.type) || b.id === 'sleep' || b.fun || b.hold).map((b) => [startOf(b), b.id === 'sleep' ? 24 * 60 : startOf(b) + b.duration]);
   const soft = blocks.filter((b) => b.type === 'routine').map((b) => [startOf(b), startOf(b) + b.duration]);
   const busy = [...hard];
   const dayStart = Math.max(wake, 6 * 60);
@@ -170,7 +172,7 @@ export function planAnchors({ blocks, weather, prefs, wake, workoutMinutes = 0, 
   for (let s = Math.max(dayStart + 30, 7 * 60); s <= 19 * 60; s += 30) {
     const from = s - pre;
     if (from < dayStart) continue;
-    if (overlaps(from, s + BATH_MIN, [...busy, ...soft])) continue;
+    if (overlaps(from, s + BATH_TOTAL, [...busy, ...soft])) continue;
     const h = hourAt(weather, s);
     candidates.push({ s, feels: h?.feels ?? null, rain: h?.rain ?? 0 });
   }
@@ -206,8 +208,9 @@ export function planAnchors({ blocks, weather, prefs, wake, workoutMinutes = 0, 
       out.push({ id: 'anchor_workout', pinned: true, type: 'workout', emoji: '🏠', time: m2t(bath.s - pre), duration: pre, label: 'Small-space workout', note: `${workoutNote} Right before your bath, so you only wash once.` });
       busy.push([bath.s - pre, bath.s]);
     }
-    out.push({ id: 'anchor_bath', pinned: true, type: 'health', emoji: '🛁', time: m2t(bath.s), duration: BATH_MIN, label: 'Bath & fresh clothes', note: why });
-    busy.push([bath.s, bath.s + BATH_MIN]);
+    out.push({ id: 'anchor_bath', pinned: true, type: 'health', emoji: '🛁', time: m2t(bath.s), duration: BATH_MIN, label: 'Bath', note: why });
+    out.push({ id: 'anchor_groom', pinned: true, type: 'health', emoji: '🪮', time: m2t(bath.s + BATH_MIN), duration: GROOM_MIN, label: 'Grooming: oil, clothes & hair', note: 'Apply oil, change into fresh clothes, comb your hair. Take your time.' });
+    busy.push([bath.s, bath.s + BATH_TOTAL]);
   }
 
   // 3. Walk: comfortable, dry, ideally late afternoon (golden hour) or early morning.
