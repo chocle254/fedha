@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Luxe · Kokoro voice test</title>
+<style>
+  body { margin: 0; padding: 20px 16px 40px; font-family: system-ui, sans-serif; background: #0B0F14; color: #E5E7EB; }
+  h1 { font-size: 20px; margin: 0 0 4px; } p { color: #9CA3AF; font-size: 13.5px; line-height: 1.5; }
+  label { display: block; font-size: 12px; color: #9CA3AF; margin: 14px 0 6px; font-weight: 700; letter-spacing: .5px; }
+  select, textarea, button { width: 100%; box-sizing: border-box; font: inherit; border-radius: 12px; border: 1px solid #263041; background: #111827; color: #E5E7EB; padding: 10px 12px; }
+  textarea { min-height: 96px; }
+  button { margin-top: 12px; background: #34D399; color: #04130D; font-weight: 800; border: 0; padding: 13px; }
+  button:disabled { opacity: .5; }
+  #log { margin-top: 14px; font-family: ui-monospace, monospace; font-size: 12.5px; white-space: pre-wrap; color: #A7F3D0; background: #05080C; border-radius: 12px; padding: 10px; min-height: 60px; }
+  audio { width: 100%; margin-top: 12px; }
+</style>
+</head>
+<body>
+  <h1>🎙️ Kokoro voice test</h1>
+  <p>Kokoro runs on this phone, with no account and no limit. The first time, it downloads the voice model (about 90 MB, once), so use Wi-Fi if you can. Then try a few voices and watch how long each line takes.</p>
+
+  <label>VOICE</label>
+  <select id="voice">
+    <option value="am_michael">am_michael · American man (warm)</option>
+    <option value="am_adam">am_adam · American man</option>
+    <option value="am_fenrir">am_fenrir · American man (deeper)</option>
+    <option value="am_puck">am_puck · American man (lively)</option>
+    <option value="am_echo">am_echo · American man</option>
+    <option value="am_eric">am_eric · American man</option>
+    <option value="am_liam">am_liam · American man</option>
+    <option value="am_onyx">am_onyx · American man (low)</option>
+    <option value="bm_george">bm_george · British man</option>
+    <option value="bm_lewis">bm_lewis · British man</option>
+    <option value="bm_daniel">bm_daniel · British man</option>
+    <option value="bm_fable">bm_fable · British man</option>
+  </select>
+
+  <label>LINE</label>
+  <textarea id="text">Alright, class. Today we teach a computer to spot spam, and no, it will not be as clever as you. Yet. Let us start with the data.</textarea>
+
+  <label>QUALITY</label>
+  <select id="dtype">
+    <option value="q8">q8 · smaller and faster (try first)</option>
+    <option value="fp32">fp32 · full quality, bigger download</option>
+  </select>
+
+  <button id="go">▶ Load and speak</button>
+  <audio id="player" controls></audio>
+  <div id="log">Ready.</div>
+
+<script type="module">
+  const $ = (id) => document.getElementById(id);
+  const log = (t) => { $('log').textContent += `\n${t}`; };
+  let tts = null, loadedType = null;
+  $('go').onclick = async () => {
+    $('go').disabled = true;
+    try {
+      const dtype = $('dtype').value;
+      if (!tts || loadedType !== dtype) {
+        $('log').textContent = `Loading Kokoro (${dtype})… the first time this downloads the model.`;
+        const t0 = performance.now();
+        const { KokoroTTS } = await import('https://cdn.jsdelivr.net/npm/kokoro-js@1/+esm');
+        tts = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', { dtype, device: 'wasm' });
+        loadedType = dtype;
+        log(`Loaded in ${((performance.now() - t0) / 1000).toFixed(1)} s.`);
+      }
+      const text = $('text').value.trim();
+      const t1 = performance.now();
+      log(`Speaking as ${$('voice').value}…`);
+      const audio = await tts.generate(text, { voice: $('voice').value });
+      const secs = (performance.now() - t1) / 1000;
+      const blob = audio.toBlob();
+      $('player').src = URL.createObjectURL(blob);
+      $('player').play().catch(() => {});
+      const len = audio.audio.length / audio.sampling_rate;
+      log(`Made ${len.toFixed(1)} s of speech in ${secs.toFixed(1)} s (${(len / secs).toFixed(2)}× real time; above 1× means it keeps up).`);
+    } catch (e) {
+      log(`Error: ${e.message || e}`);
+    } finally { $('go').disabled = false; }
+  };
+</script>
+</body>
+</html>
