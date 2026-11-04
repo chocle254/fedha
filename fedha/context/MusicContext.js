@@ -253,9 +253,11 @@ export function MusicProvider({ children }) {
 
   // Last song in the queue: add more like it now (Spotify's autoplay), so it blends into the next one too.
   const topping = useRef(null);
+  const djRef = useRef(null); // DJ Luxe's journey: { journey, chapter, name, mood, names: { chapter: name }, fetching }
   useEffect(() => {
     const { queue: list, idx: i, shuffle: sh } = state.current;
     const cur = list[i];
+    if (djRef.current && cur?.chapter) return; // DJ Luxe adds his next chapter himself (below)
     if (sh || !cur || i !== list.length - 1 || cur.source !== 'yt' || topping.current === cur.id) return;
     topping.current = cur.id;
     songRadio(cur).then((r) => {
@@ -344,23 +346,48 @@ export function MusicProvider({ children }) {
     return Object.entries(score).sort((a, b) => b[1] - a[1]).map(([a]) => a).slice(0, 4);
   }, [plays, likes]);
 
-  // DJ Luxe: a fresh set, an intro, and lines between songs.
+  // DJ Luxe: a journey of moods, a chapter (~12 songs) at a time, an intro, and lines between songs.
   // opts: { mood, request, switchUp } (a string is treated as a mood, for older callers)
+  const djAsk = useCallback(async (extra) => {
+    const recent = [...state.current.queue.map((t) => t.id), ...Object.keys(tracksPlayed).slice(0, 40)].slice(-80);
+    const r = await fetch('/api/music/dj', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ artists: topArtists().length ? topArtists() : ['Lil Wayne'], plays, recent, hour: new Date().getHours(), ...extra }) });
+    const j = await r.json();
+    if (!r.ok || !j.tracks?.length) throw new Error(j.error || 'No set');
+    return j;
+  }, [topArtists, plays, tracksPlayed]);
   const startDj = useCallback(async (opts = {}) => {
     const o = typeof opts === 'string' ? { mood: opts } : opts || {};
     setDj((x) => ({ ...(x || {}), on: true, loading: true, talking: false, text: o.switchUp ? 'Switching it up…' : o.request ? `Finding: ${o.request}` : o.mood ? `Building a ${o.mood} set…` : 'Building your set…' }));
     try {
-      const recent = [...state.current.queue.map((t) => t.id), ...Object.keys(tracksPlayed).slice(0, 40)].slice(-80);
-      const r = await fetch('/api/music/dj', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ artists: topArtists().length ? topArtists() : ['Lil Wayne'], plays, recent, mood: o.mood || null, request: o.request || null, switchUp: !!o.switchUp, hour: new Date().getHours() }) });
-      const j = await r.json();
-      if (!r.ok || !j.tracks?.length) throw new Error(j.error || 'No set');
-      setDj({ on: true, loading: false, talking: true, text: j.intro, name: j.name, why: j.why, mood: o.mood || null });
+      const j = await djAsk({ mood: o.mood || null, request: o.request || null, switchUp: !!o.switchUp, chapter: 1, journey: [] });
+      djRef.current = { journey: j.journey || [], chapter: 1, name: j.name, mood: j.mood, names: { 1: { name: j.name, mood: j.mood } } };
+      setDj({ on: true, loading: false, talking: true, text: j.intro, name: j.name, chapterMood: j.mood, journey: j.journey || [], why: j.why, mood: o.mood || null });
       setShuffle(false);
       speak(j.intro, { onEnd: () => setDj((x) => (x ? { ...x, talking: false } : x)) });
       playList(j.tracks, 0);
-    } catch (e) { setDj(null); flash(e.message || 'DJ Luxe is busy. Try again.'); }
-  }, [topArtists, playList, plays, tracksPlayed]);
-  const stopDj = useCallback(() => { setDj(null); try { window.speechSynthesis?.cancel(); } catch { /* none */ } }, []);
+    } catch (e) { djRef.current = null; setDj(null); flash(e.message || 'DJ Luxe is busy. Try again.'); }
+  }, [djAsk, playList]);
+  const stopDj = useCallback(() => { djRef.current = null; setDj(null); try { window.speechSynthesis?.cancel(); } catch { /* none */ } }, []);
+
+  // Three songs before a chapter ends, DJ Luxe builds the next one (the next mood on the journey) and adds it, so
+  // the set keeps going and blends into it. When a new chapter starts, the DJ card shows its name.
+  useEffect(() => {
+    const d = djRef.current; const { queue: list, idx: i } = state.current; const cur = list[i];
+    if (!d || !cur?.chapter) return;
+    const shown = d.names[cur.chapter];
+    if (shown) setDj((x) => (x && x.name !== shown.name ? { ...x, name: shown.name, chapterMood: shown.mood } : x));
+    if (d.fetching || i < list.length - 3) return;
+    d.fetching = true;
+    const last = d.names[d.chapter] || {};
+    djAsk({ chapter: d.chapter + 1, journey: d.journey, prev: { name: last.name, mood: last.mood } }).then((j) => {
+      if (djRef.current !== d) return; // DJ turned off or restarted meanwhile
+      const now = state.current.queue;
+      const more = j.tracks.filter((t) => !now.some((y) => y.id === t.id)).map((t) => ({ ...t, chapter: d.chapter + 1 }));
+      d.chapter += 1; d.journey = j.journey || []; d.names[d.chapter] = { name: j.name, mood: j.mood };
+      if (more.length) { const nl = [...now, ...more]; setQueue(nl); state.current.queue = nl; }
+      setDj((x) => (x ? { ...x, journey: d.journey, up: j.name } : x));
+    }).catch(() => {}).finally(() => { d.fetching = false; });
+  }, [idx, queue, djAsk]);
 
   // Smart Shuffle: your likes, shuffled, with a ✨ song from the artists around them every 3 tracks.
   const smartShuffle = useCallback(async () => {

@@ -11,7 +11,8 @@ import { PRESETS } from '../lib/mix';
 // Music Room, Spotify-style.
 //   Now playing: a cover-art card (swipe ← next, → previous, double-tap ♥), synced lyrics, queue, sleep timer,
 //                automatic mixing (each song blends into the next, queue ordered by tempo: lib/mix.js). Popular songs play through YouTube in a tiny corner player (data saver).
-//   DJ Luxe:     moods, typed requests, "switch it up", a voice between songs (pages/api/music/dj.js).
+//   DJ Luxe:     a journey of moods (~12 songs each, old school + new + TikTok/Reels hits), typed requests, "switch it up",
+//                a voice between songs (pages/api/music/dj.js).
 //   Made for you: daylist, Daily Mixes, Release Radar, On Repeat, Recently played, charts, your artists.
 //   Every song: ⋯ → play next, add to queue, start radio, like.   Indie tab: Audius with the bass modes.
 const fmt = (s) => { const m = Math.floor((s || 0) / 60); const r = Math.floor((s || 0) % 60); return `${m}:${String(r).padStart(2, '0')}`; };
@@ -173,7 +174,7 @@ export default function Music() {
             <div className="mr-djIn">
               <div className="mr-djTag">DJ LUXE {m.dj?.talking && <span className="mr-onair"><i /> on the mic</span>}</div>
               <div className="mr-djLine">{m.dj?.on ? (m.dj.text || 'On air') : `Your own radio host. Pick a vibe or ask for anything: it builds a set from your taste (${top[0] || 'Lil Wayne'} and the artists around them), blends it, and talks you through it.`}</div>
-              {m.dj?.on && m.dj.name && !m.dj.loading && <div className="mr-djName">Now: {m.dj.name}</div>}
+              {m.dj?.on && m.dj.name && !m.dj.loading && <div className="mr-djName">Now: {m.dj.name}{m.dj.journey?.length ? ` · then ${m.dj.journey.join(' → ')}` : ''}</div>}
               <div className="mr-moods">
                 {MOODS.map(([k, l]) => <button type="button" key={k} className={m.dj?.mood === k ? 'on' : ''} disabled={m.dj?.loading} onClick={() => m.startDj({ mood: k })}>{l}</button>)}
               </div>
