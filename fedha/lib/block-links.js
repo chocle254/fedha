@@ -24,7 +24,7 @@ export function blockLink(block, ctx = {}) {
   }
   if (type === 'meal' || /^(bfast|breakfast|lunch|dinner|snack)/.test(id)) return { href: '/meals', text: '🍽️ Open Food' };
   if (type === 'workout' || /workout|recovery/.test(id)) return { href: '/workout', text: '🏋️ Open Workout' };
-  if (/^course/i.test(label) || type === 'learning') return { href: '/learning', text: '🎓 Open Learning' };
+  if (/^course/i.test(label) || type === 'learning') return { href: `/learning?study=${encodeURIComponent(label)}`, text: '🎧 Study this course' }; // opens Study mode on this block's course
   if (/^(client|project|research|job)/i.test(label) || type === 'research') return { href: '/tech-hub', text: '💻 Open Tech Hub' };
   if (id === 'scroll') return { href: '/reels', text: '📱 Open Reels' };
   if (/^(bath|freshen)/.test(id) || id === 'anchor_bath') return { href: '/health', text: '🚿 Open Health' };

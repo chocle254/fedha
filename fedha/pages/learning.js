@@ -18,6 +18,8 @@ import LabMode from '../components/learn/LabMode';
 import LabsPanel from '../components/learn/LabsPanel';
 import { Medal } from '../components/learn/Medal';
 import { getMaterials } from '../lib/materials';
+import { plannedCourseId } from '../lib/planner-course';
+import { useRouter } from 'next/router';
 import { FOLDERS, folderOf, folderInfo } from '../lib/course-folders';
 
 const TABS = [['today', '🏠 Today'], ['courses', '📚 Courses'], ['review', '🃏 Review'], ['quiz', '⚡ Quiz'], ['notes', '📝 Notes'], ['projects', '🛠️ Projects'], ['opps', '🌍 Opportunities'], ['gains', '🏅 Gains']];
@@ -82,6 +84,20 @@ export default function LearningPage(){
   const studyRef=useRef(null);studyRef.current=study;
   useEffect(()=>{loadAll().then(setStudy);},[]);
   useEffect(()=>{const t=new URLSearchParams(window.location.search).get('tab');if(t&&TABS.some(([k])=>k===t))setTab(t);},[]);
+  // Study with no course picked: open the course today's planner has you on (lib/planner-course.js).
+  const openStudy=useCallback(async(start={},label=null)=>{
+    if(start.courseId){setStudyAt(start);return;}
+    const id=await plannedCourseId(courses,label);
+    setStudyAt(id?{...start,courseId:id}:start);
+  },[courses]);
+  // From a planner course block or its notification: /learning?study=<block label> opens Study mode on that course.
+  const router=useRouter();
+  useEffect(()=>{
+    const q=router.query?.study;
+    if(!q||!study||!courses.length)return;
+    openStudy({},String(q));
+    router.replace('/learning',undefined,{shallow:true});
+  },[router.query?.study,study,courses.length]);// eslint-disable-line react-hooks/exhaustive-deps
   const patch=useCallback((p)=>{studyRef.current={...studyRef.current,...p};setStudy(studyRef.current);},[]);
   // Adds XP (and streak, counts, medals) for one study event; celebrates new medals.
   const award=useCallback(async(event)=>{
@@ -241,17 +257,17 @@ export default function LearningPage(){
   return <Layout fab={false}><div style={{minHeight:'100vh',paddingBottom:'calc(160px + env(safe-area-inset-bottom))'}}><div style={{maxWidth:1000,margin:'0 auto',padding:'28px 18px'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,marginBottom:16}}>
       <div><h1 className="lx-h1" style={{margin:'0 0 6px'}}>Learning</h1><p style={{margin:0,color:'var(--text-2)',fontSize:14,lineHeight:1.55}}>Study, recall, prove it. Every focus block, card and quiz moves you forward.</p></div>
-      {tab==='courses'?<button className="btn-primary" onClick={openNew}>＋ Course</button>:<button className="btn-primary" onClick={()=>setStudyAt({})}>🎧 Study</button>}
+      {tab==='courses'?<button className="btn-primary" onClick={openNew}>＋ Course</button>:<button className="btn-primary" onClick={()=>openStudy({})}>🎧 Study</button>}
     </div>
     <div className="tab-scroll" role="tablist" style={{display:'flex',gap:6,overflowX:'auto',marginBottom:16,paddingBottom:2}}>
       {TABS.map(([k,l])=><button key={k} role="tab" aria-selected={tab===k} className={`chip ${tab===k?'active':''}`} onClick={()=>setTab(k)}>{l}{k==='review'&&study?` (${study.cards.filter(c=>!c.due||c.due<=todayISO()).length})`:''}</button>)}
     </div>
     {study&&(()=>{const p=study.projects.find(x=>x.lab&&x.status!=='shipped'&&courses.some(c=>c.id===x.lab.course_id));if(!p)return null;const d=p.lab.milestones.filter(m=>m.done).length;return <button className="card" onClick={()=>setLabAt({courseId:p.lab.course_id,section:p.lab.section})} style={{width:'100%',textAlign:'left',padding:12,marginBottom:12,cursor:'pointer',color:'var(--text)',borderColor:'rgba(52,211,153,.4)',background:'linear-gradient(135deg,rgba(16,185,129,.14),rgba(5,10,8,.3))',display:'flex',gap:10,alignItems:'center'}}><span style={{fontSize:22}}>🧪</span><span style={{flex:1}}><b style={{display:'block',fontSize:13.5}}>Continue the lab: {p.title}</b><span style={{fontSize:12,color:'var(--text-3)'}}>{d}/{p.lab.milestones.length} milestones · Byte is at the bench</span></span><span>→</span></button>;})()}
     {!study&&tab!=='courses'&&<div className="card-2" style={{padding:18,textAlign:'center',color:'var(--text-3)',fontSize:13}}>Loading…</div>}
-    {study&&tab==='today'&&<Today study={study} courses={courses} onStudy={setStudyAt} onTab={setTab} onRecap={()=>award({kind:'recap',xp:XP.recap,count:{recaps:1}})} onSaveNote={saveNote} onQuizDone={quizDone}/>}
+    {study&&tab==='today'&&<Today study={study} courses={courses} onStudy={openStudy} onTab={setTab} onRecap={()=>award({kind:'recap',xp:XP.recap,count:{recaps:1}})} onSaveNote={saveNote} onQuizDone={quizDone}/>}
     {study&&tab==='review'&&<Review cards={study.cards} courses={courses} onGrade={gradeCard} onSaveCards={addCards} onDelete={deleteCard}/>}
     {study&&tab==='quiz'&&<><div style={{fontSize:13,color:'var(--text-2)',marginBottom:10,lineHeight:1.5}}>Quick questions from your notes (or any topic). Misses turn into flashcards so they come back until you know them.</div><QuizPicker courses={courses} notes={study.notes} onDone={quizDone}/></>}
-    {study&&tab==='notes'&&<NotesHub courses={courses} notes={study.notes} cards={study.cards} onSaveNote={saveNote} onDeleteNote={deleteNote} onSaveCards={addCards} onQuizDone={quizDone} onStudy={setStudyAt}/>}
+    {study&&tab==='notes'&&<NotesHub courses={courses} notes={study.notes} cards={study.cards} onSaveNote={saveNote} onDeleteNote={deleteNote} onSaveCards={addCards} onQuizDone={quizDone} onStudy={openStudy}/>}
     {study&&tab==='projects'&&<LabsPanel courses={courses} projects={study.projects} onOpen={(courseId,section)=>setLabAt({courseId,section})}/>}
     {study&&tab==='projects'&&<Projects courses={courses} projects={study.projects.filter(p=>!p.lab)} onSave={saveProject} onDelete={deleteProject} onMilestone={toggleMilestone} onShip={shipProject}/>}
     {tab==='opps'&&<Opportunities courses={courses} onAddCourse={c=>addCourse({...EMPTY,...c,modules:[]})}/>}
