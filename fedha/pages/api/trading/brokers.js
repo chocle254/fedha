@@ -28,7 +28,7 @@ async function health() {
         try {
           const sym = await findSymbol(id, want);
           const sp = sym ? await mt.spec(id, sym) : null;
-          r.symbols[want] = sym ? { symbol: sym, contractSize: sp?.contractSize, minVolume: sp?.minVolume, volumeStep: sp?.volumeStep } : null;
+          r.symbols[want] = sym ? { symbol: sym, contractSize: sp?.contractSize, minVolume: sp?.minVolume, volumeStep: sp?.volumeStep, tradeMode: sp?.tradeMode } : null;
         } catch (e) { r.symbols[want] = { error: e.message.slice(0, 100) }; }
       }
     }

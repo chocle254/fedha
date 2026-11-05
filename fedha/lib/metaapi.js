@@ -86,9 +86,23 @@ export async function findSymbol(id, wanted) {
   const aliases = ALIAS[wanted] || [wanted];
   let found = null;
   for (const a of aliases) {
-    found = names.find((n) => n.toUpperCase() === a) || names.find((n) => n.toUpperCase().replace(/[^A-Z]/g, '').startsWith(a));
-    if (found) break;
+    const matches = names.filter((n) => n.toUpperCase() === a || n.toUpperCase().replace(/[^A-Z]/g, '').startsWith(a));
+    if (matches.length) { found = await pickTradable(id, matches); break; }
   }
   symbolCache.set(key, found || null);
   return found || null;
+}
+
+// Micro / cent accounts list the full-size symbol too (EURUSD next to EURUSDm#), but only their own small
+// version can be traded. With several matches, skip any the broker has switched off and take the smallest lot.
+async function pickTradable(id, matches) {
+  if (matches.length === 1) return matches[0];
+  const specs = await Promise.all(matches.slice(0, 6).map(async (n) => {
+    try { return { n, sp: await mt.spec(id, n) }; } catch { return { n, sp: null }; }
+  }));
+  const open = specs.filter((x) => x.sp && x.sp.tradeMode !== 'SYMBOL_TRADE_MODE_DISABLED');
+  const pool = open.length ? open : specs.filter((x) => x.sp);
+  if (!pool.length) return matches[0];
+  pool.sort((a, b) => Number(a.sp.contractSize || Infinity) - Number(b.sp.contractSize || Infinity));
+  return pool[0].n;
 }
