@@ -21,7 +21,7 @@ export const config = { maxDuration: 60 };
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 // Judging is the hardest reasoning job here, so it always uses the larger model.
 const JUDGE_MODEL = process.env.GROQ_JUDGE_MODEL || 'openai/gpt-oss-120b';
-const TYPES = new Set(['hack_brief', 'hack_app', 'hack_ideas', 'hack_chat', 'hack_plan', 'hack_scope', 'hack_judge', 'hack_submission', 'hack_pitch', 'hack_rehearse', 'hack_postmortem', 'hack_panel', 'hack_judge_one', 'hack_appeal']);
+const TYPES = new Set(['hack_brief', 'hack_app', 'hack_ideas', 'hack_chat', 'hack_plan', 'hack_scope', 'hack_judge', 'hack_submission', 'hack_pitch', 'hack_rehearse', 'hack_postmortem', 'hack_panel', 'hack_judge_one', 'hack_appeal', 'hack_deliberate']);
 // Light jobs run on the smaller model so the big model's free-tier quota is kept for ideas, plans and judging.
 const LIGHT = new Set(['hack_rehearse', 'hack_postmortem']);
 const clip = (v, n) => String(v ?? '').slice(0, n);
@@ -51,7 +51,7 @@ export default async function handler(req, res) {
   // Which AI provider to try first for this request (the page alternates judges between them).
   // Light jobs go to NVIDIA first too, keeping Groq's budget for ideas, plans and judging.
   // Judges always go to the same model first (Groq's 120b), so a score never depends on which provider answered.
-  const JUDGING = ['hack_judge', 'hack_judge_one'].includes(b.type);
+  const JUDGING = ['hack_judge', 'hack_judge_one', 'hack_deliberate'].includes(b.type);
   const prefer = !JUDGING && (b.provider === 'nvidia' || LIGHT.has(b.type)) ? 'nvidia' : null;
   // Lessons the builder recorded after past hackathons (post-mortems): every prompt sees them.
   if (Array.isArray(b.lessons)) b.hack.lessons = list(b.lessons, 12, 220);
@@ -66,12 +66,13 @@ export default async function handler(req, res) {
     if (b.type === 'hack_ideas') b.found = await ideaResearch(b);
     if (b.type === 'hack_panel') b.found = await panelResearch(b);
     if (b.type === 'hack_judge_one' && !b.judge?.title) return res.status(400).json({ error: 'Judge persona required' });
+    if (b.type === 'hack_deliberate' && !(Array.isArray(b.reviews) && b.reviews.length >= 2)) return res.status(400).json({ error: 'The panel needs at least two reviews to discuss' });
     // Vision check, and chat questions about adding/building something: look at what already exists first.
     if (b.type === 'hack_scope' || (b.type === 'hack_chat' && FEATURE_TALK.test(String(b.question || '')))) b.found = await featureResearch(b);
-    const reasoning = ['hack_scope', 'hack_chat', 'hack_ideas', 'hack_judge', 'hack_judge_one'].includes(b.type) ? 'medium' : null;
+    const reasoning = ['hack_scope', 'hack_chat', 'hack_ideas', 'hack_judge', 'hack_judge_one', 'hack_deliberate'].includes(b.type) ? 'medium' : null;
     let obj;
     try {
-      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : JUDGING ? 0 : 0.6, LIGHT.has(b.type) ? 2500 : b.type === 'hack_judge_one' ? 3500 : 6000, ['hack_judge', 'hack_judge_one', 'hack_panel'].includes(b.type) ? JUDGE_MODEL : LIGHT.has(b.type) ? FALLBACK_MODEL : GROQ_MODEL, { reasoning, prefer, steady: JUDGING && !b.allow_backup });
+      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : JUDGING ? 0 : 0.6, LIGHT.has(b.type) ? 2500 : b.type === 'hack_judge_one' ? 3500 : 6000, ['hack_judge', 'hack_judge_one', 'hack_panel', 'hack_deliberate'].includes(b.type) ? JUDGE_MODEL : LIGHT.has(b.type) ? FALLBACK_MODEL : GROQ_MODEL, { reasoning, prefer, steady: JUDGING && !b.allow_backup });
     } catch (e) {
       // Groq's free tier caps tokens per request/minute. If the code
       // evidence made the prompt too big, try once more with less of it.
@@ -565,7 +566,41 @@ How you question builders: ${p.asks_like || 'directly'}
 You judge independently: you have not seen the other judges' scores.`;
 }
 
+// The deliberation room: the judges read each other's reviews, argue it out in their own voices and agree on
+// one verdict. Scores are kept inside the range the judges gave on their own (enforced in code on the page).
+function reviewText(r, p) {
+  return `${p.title}${p.org ? ` (${p.org})` : ''} [id: ${r.key}], seat ${p.seat || '?'}, overall ${r.overall}/100, ${r.shortlist ? `WOULD SHORTLIST${r.track ? ` for ${r.track}` : ''}` : 'would not shortlist'}
+  Cares about: ${(p.cares || []).join('; ')} · Red flags: ${(p.red_flags || []).join('; ')}
+  Scores: ${(r.scores || []).map((s) => `${s.criterion} ${s.score}/10 (${clip(s.note, 160)})`).join(' | ')}
+  Comment: ${clip(r.comment, 400)}
+  Strengths: ${(r.strengths || []).join(' | ')}
+  Fixes: ${(r.fixes || []).join(' | ')}
+  Requirements doubts: ${(r.requirements || []).filter((q) => q.status !== 'met').map((q) => `${q.rule} = ${q.status}${q.note ? ` (${clip(q.note, 120)})` : ''}`).join(' | ') || 'none'}
+  Would ask: ${(r.questions || []).join(' | ')}`;
+}
+
 const prompts = {
+  hack_deliberate(b) {
+    const panel = b.panel?.judges || [];
+    const reviews = (b.reviews || []).slice(0, 4);
+    const { criteria } = criteriaOf(b);
+    const verified = clip(b.hack.coach?.facts || b.hack.coach?.app?.verified, 2500);
+    return `You are running the deliberation room of THIS hackathon's judging panel. Each judge below has reviewed the project on their own. Now they meet, talk it through and agree on ONE verdict, like a real panel in the final deliberation.
+
+${ctx(b.hack)}
+${verified ? `\nVERIFIED FACTS (checked in code; true, and any judge who said otherwise is corrected by another judge in the discussion):\n${verified}\n` : ''}
+THE JUDGES' OWN REVIEWS:
+${reviews.map((r) => reviewText(r, panel.find((j) => j.key === r.key) || { title: r.key })).join('\n\n')}
+
+Write the discussion, then the panel's one verdict.
+- discussion: 8-14 turns. Each judge speaks in their own voice from their seat, refers to the project's real details (files, features, the video, the write-up) and to what the others said by role ("I hear the developer advocate, but…"). They disagree where their scores differ, push back, concede when another judge makes a better point, and settle each criterion where they were split. Real talk, short turns (1-3 sentences), no speeches, no flattery, nothing invented beyond the reviews and the facts above. The last turns reach the decision.
+- scores: exactly these criteria: ${criteria}. The panel's agreed score per criterion: it MUST be between the lowest and highest score the judges gave it on their own; note = one sentence naming what settled it.
+- shortlist: true only if the panel, after discussing, would put it through.
+- fixes: the 3-5 changes the whole panel agrees matter most, most important first.
+- dissent: if a judge still disagrees with the outcome, one sentence on who and why; else empty.
+
+Return JSON: {"discussion":[{"who":"judge id","says":""}],"scores":[{"criterion":"","score":0,"note":""}],"verdict":"one sentence the panel chair would read out","shortlist":false,"track":"","prize_odds":"one honest sentence","strengths":["2-4"],"fixes":["3-5"],"questions":["2-4 the panel would ask the builder"],"dissent":""}`;
+  },
   hack_panel(b) {
     const br = b.hack.coach?.brief || {};
     const { criteria } = criteriaOf(b);
@@ -826,6 +861,18 @@ Return JSON: {"fields":{"<key>":"text"}}`;
 };
 
 const shape = {
+  hack_deliberate(o, b) {
+    const keys = new Set((b.reviews || []).map((r) => r.key));
+    const discussion = (Array.isArray(o?.discussion) ? o.discussion : []).filter((t) => t && keys.has(String(t.who)) && String(t.says || '').trim()).slice(0, 16).map((t) => ({ who: clip(t.who, 30), says: clip(t.says, 500) }));
+    const scores = (o?.scores || []).filter((x) => x && x.criterion).slice(0, 10).map((x) => ({ criterion: clip(x.criterion, 80), score: num(x.score, 0, 10), note: clip(x.note, 300) }));
+    if (discussion.length < 4 || !scores.length) return { error: 'The panel could not agree this time.' };
+    return {
+      deliberation: {
+        discussion, scores, verdict: clip(o.verdict, 300), shortlist: !!o.shortlist, track: clip(o.track, 120), prize_odds: clip(o.prize_odds, 300),
+        strengths: list(o.strengths, 4), fixes: list(o.fixes, 5), questions: list(o.questions, 4), dissent: clip(o.dissent, 300),
+      },
+    };
+  },
   hack_panel(o) {
     const judges = (Array.isArray(o.judges) ? o.judges : []).filter((j) => j && j.title).slice(0, 4).map((j, i) => ({
       key: clip(j.key || `judge_${i + 1}`, 30), title: clip(j.title, 80), org: clip(j.org, 80),

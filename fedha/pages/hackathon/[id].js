@@ -9,10 +9,11 @@ import { ScoreBar, scoreColor } from '../../components/startup/museApi';
 import AppConnect from '../../components/hackcoach/AppConnect';
 import PitchCoach from '../../components/hackcoach/PitchCoach';
 import TeamChannel from '../../components/hackcoach/TeamChannel';
+import PanelTalk from '../../components/hackcoach/PanelTalk';
 import Appeals from '../../components/hackcoach/Appeals';
 import PostMortem from '../../components/hackcoach/PostMortem';
 import { startDateOf, gatherEvidence, timelineOf, timelineText, scanRepo, applyFacts, dropDone, verifiedFacts, fmtDuration } from '../../lib/hack-coach';
-import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, workload, minutesLogged, coachTasks, submissionFields, hackForAI, coachAsk, addDays, setLessons, lessonsFrom, combinePanel, fingerprint, carryAppeals } from '../../lib/hack-coach';
+import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, workload, minutesLogged, coachTasks, submissionFields, hackForAI, coachAsk, addDays, setLessons, lessonsFrom, combinePanel, fingerprint, carryAppeals, mergeDeliberation } from '../../lib/hack-coach';
 
 // The Hackathon Coach: a mentor that reads the hackathon you paste,
 // researches it, helps you pick an idea, plans the build to fit the time
@@ -80,7 +81,12 @@ function verdictText(v, hackName) {
   L.push(`Judges' verdict: ${hackName} (${v.date})`, `Overall: ${v.overall}/100`, v.verdict);
   if (v.prize_odds) L.push(`Prize odds: ${v.prize_odds}`);
   if (v.overall_before_appeals != null && v.overall !== v.overall_before_appeals) L.push(`(${v.overall_before_appeals} before appeals)`);
-  if (v.judges?.length) { L.push('', 'JUDGES'); v.judges.forEach((j) => L.push(`- ${j.role}: "${j.comment}"`)); }
+  if (v.judges?.length) { L.push('', v.discussion ? 'JUDGES (on their own, before the discussion)' : 'JUDGES'); v.judges.forEach((j) => L.push(`- ${j.role}: "${j.comment}"`)); }
+  if (v.discussion?.length) {
+    const name = (k) => (v.judges || []).find((j) => j.key === k)?.role || k;
+    L.push('', 'THE PANEL DISCUSSES'); v.discussion.forEach((t) => L.push(`${name(t.who)}: ${t.says}`));
+    if (v.dissent) L.push(`Dissent: ${v.dissent}`);
+  }
   if (v.missing_judges > 0) L.push(`(${v.missing_judges} judge${v.missing_judges > 1 ? 's' : ''} could not score this run; the verdict uses the others.)`);
   if (v.scores?.length) { L.push('', 'SCORES'); v.scores.forEach((x) => L.push(`- ${x.criterion}${x.weight ? ` (${x.weight}%)` : ''}: ${x.score}/10. ${x.note}`)); }
   if (v.requirements?.length) { L.push('', 'REQUIREMENTS'); v.requirements.forEach((r) => L.push(`- [${r.status === 'met' ? 'met' : r.status === 'missing' ? 'MISSING' : 'unclear'}${r.verified ? ', checked' : ''}] ${r.rule}${r.note ? `. ${r.note}` : ''}`)); }
@@ -397,7 +403,21 @@ export default function HackathonCoach() {
         if (!results.length) throw lastErr || new Error('No judge could score it right now. Try again in a minute.');
         // Only the current panel's judges are remembered (keeps the saved data small).
         saveCoach({ judge_memory: Object.fromEntries(panel.judges.filter((j) => memory[j.key]).map((j) => [j.key, memory[j.key]])) });
-        const raw = combinePanel(panel, results);
+        // The deliberation room: the judges discuss each other's reviews and agree on one verdict.
+        // Same reviews = same discussion (remembered, no AI call).
+        let raw = combinePanel(panel, results);
+        if (results.length >= 2) {
+          const dHash = fingerprint([results.map((x) => [x.key, x.scores, x.comment, x.shortlist]), cur().coach?.facts, (cur().coach?.appeal_facts || []).length]);
+          let d = cur().coach?.deliberation_memory?.hash === dHash ? cur().coach.deliberation_memory.d : null;
+          if (!d) {
+            setJudgeStep('The judges are discussing it together…');
+            try {
+              d = (await askJudge('hack_deliberate', { hack: hackForAI(cur()), panel, reviews: results, allow_backup: true })).deliberation;
+              saveCoach({ deliberation_memory: { hash: dHash, d } });
+            } catch { d = null; /* no discussion this time: the averaged verdict stands */ }
+          }
+          raw = mergeDeliberation(raw, d);
+        }
         // Checked facts beat the AI: requirements are re-marked from GitHub, done things are not suggested again.
         const r = {
           ...raw,
@@ -924,6 +944,7 @@ export default function HackathonCoach() {
                 {lastJudge.prize_odds && <div className="muse-bubble" style={{ marginTop: 12 }}>🏆 {lastJudge.prize_odds}</div>}
                 {lastJudge.judges?.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+                    {lastJudge.discussion?.length > 0 && <div className="muse-label">EACH JUDGE ON THEIR OWN, BEFORE THE DISCUSSION</div>}
                     {lastJudge.judges.map((j) => (
                       <div key={j.role} style={{ padding: 12, borderRadius: 12, background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -938,12 +959,14 @@ export default function HackathonCoach() {
                     {lastJudge.missing_judges > 0 && <div style={{ fontSize: 11.5, color: '#F59E0B' }}>{lastJudge.missing_judges} judge{lastJudge.missing_judges > 1 ? 's' : ''} could not score this run (free AI limit); the verdict uses the others.</div>}
                   </div>
                 )}
+                <PanelTalk verdict={lastJudge} />
+                {lastJudge.discussion?.length > 0 && <div className="muse-label" style={{ marginTop: 14 }}>THE PANEL&apos;S SCORES</div>}
                 <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {lastJudge.scores.map((s) => (
                     <div key={s.criterion}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}><b>{s.criterion}{s.weight ? <span style={{ color: 'var(--text-3)', fontWeight: 500 }}> · {s.weight}%</span> : null}</b><span className="font-num">{s.score}/10</span></div>
                       <ScoreBar value={s.score} color={scoreColor(s.score * 10)} />
-                      <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 3 }}>{s.note}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 3 }}>{s.note}{s.own != null && s.own !== s.score ? ` (averaged ${s.own} before the discussion)` : ''}</div>
                     </div>
                   ))}
                 </div>

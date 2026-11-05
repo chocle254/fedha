@@ -243,13 +243,42 @@ export function combinePanel(panel, results) {
   return {
     overall, verdict,
     prize_odds: shortlisted.length ? `Shortlisted by ${shortlisted.map((x) => x.p.title).join(' and ')}${tracks.length ? ` for ${tracks.join(' / ')}` : ''}. ${shortlisted.length < done.length ? `Win over ${named.filter((x) => !x.r.shortlist).map((x) => x.p.title).join(' and ')} with their fixes below.` : 'The whole panel is behind it.'}` : 'No judge would shortlist it yet: work through the fixes, starting with the ones more than one judge named.',
-    judges: named.map(({ r, p }) => ({ role: `${p.title}${p.org ? ` · ${p.org}` : ''}`, seat: p.seat, comment: r.comment, score: r.overall, shortlist: r.shortlist, track: r.track, scores: r.scores })),
+    judges: named.map(({ r, p }) => ({ key: r.key, role: `${p.title}${p.org ? ` · ${p.org}` : ''}`, seat: p.seat, comment: r.comment, score: r.overall, shortlist: r.shortlist, track: r.track, scores: r.scores })),
     scores, requirements,
     strengths: interleave(done.map((r) => r.strengths), 4),
     fixes: interleave(done.map((r) => r.fixes), 5),
     questions: interleave(done.map((r) => r.questions), 5),
     twists: interleave(done.map((r) => (r.twist ? [r.twist] : [])), 4),
     panel: true,
+  };
+}
+
+// The panel's one verdict after the discussion. Each agreed score is kept between the lowest and highest
+// score the judges gave on their own, so the discussion settles splits but cannot invent a score.
+export function mergeDeliberation(raw, d) {
+  if (!d) return raw;
+  const scores = (raw.scores || []).map((s) => {
+    const agreed = d.scores.find((x) => normName(x.criterion) === normName(s.criterion));
+    if (!agreed) return s;
+    const own = (s.by || []).map((x) => x.score);
+    const lo = own.length ? Math.min(...own) : 0;
+    const hi = own.length ? Math.max(...own) : 10;
+    return { ...s, score: Math.max(lo, Math.min(hi, agreed.score)), note: agreed.note || s.note, own: s.score };
+  });
+  const shortlistedBy = (raw.judges || []).filter((j) => j.shortlist).length;
+  return {
+    ...raw,
+    scores,
+    overall: weightedOverall(scores),
+    overall_before_discussion: raw.overall,
+    verdict: `${d.verdict || raw.verdict} ${d.shortlist ? 'The panel would shortlist it' : 'The panel would not shortlist it yet'}${d.shortlist && d.track ? ` for ${d.track}` : ''} (${shortlistedBy} of ${(raw.judges || []).length} wanted to on their own).`,
+    prize_odds: d.prize_odds || raw.prize_odds,
+    strengths: d.strengths?.length ? d.strengths : raw.strengths,
+    fixes: d.fixes?.length ? d.fixes : raw.fixes,
+    questions: d.questions?.length ? d.questions : raw.questions,
+    shortlist: d.shortlist,
+    discussion: d.discussion,
+    dissent: d.dissent,
   };
 }
 
