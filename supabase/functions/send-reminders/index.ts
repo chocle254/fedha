@@ -288,7 +288,10 @@ Deno.serve(async () => {
             requireInteraction: !!n.requireInteraction,
             vibrate: n.vibrate ?? [200, 100, 200],
             url: n.url || '/planner',
-          })
+          }),
+          // High urgency: Android delivers it even in power saving / Doze (normal-urgency pushes wait until the
+          // phone wakes). TTL 10 min: a reminder that can't be delivered by then is dropped, not shown late.
+          { urgency: 'high', TTL: 600 }
         );
         sent++;
       } catch (err: any) {
