@@ -11,6 +11,7 @@ import BrokerPanel from '../components/trading/BrokerPanel';
 import NewsStrip from '../components/trading/NewsStrip';
 import GrowthCard from '../components/trading/GrowthCard';
 import PotentialCard from '../components/trading/PotentialCard';
+import DaysCard from '../components/trading/DaysCard';
 import { ensurePushSubscription } from '../lib/push';
 import { groupReport, brokerResults, GROUP_MIN_TRADES, TRAIL_LABEL, TRAIL_DEFAULT } from '../lib/trading-core';
 import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST, lotsLabel, rrPlan, rrText, rrDetail, resultR, isMt5, pipSize, moveLabel, bankedPipsLabel, netPipsLabel } from '../components/trading/util';
@@ -610,6 +611,7 @@ export default function TradingPage() {
               )}
 
               <PotentialCard trades={trades} settings={settings} />
+              <DaysCard />
 
               {groups.length > 0 && (
                 <>
