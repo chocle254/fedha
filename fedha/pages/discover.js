@@ -5,6 +5,7 @@ import OnlineJobs from '../components/OnlineJobs';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatShort, genId, todayISO } from '../lib/utils';
 import { useFloatingCash } from '../lib/floating';
+import { getEarnPending, saveEarnPending } from '../lib/money-hunt';
 
 // ─── PENDING OPPORTUNITY CARD ─────────────────────────────────────────────────
 function PendingCard({ opp, onMarkDone, onCancel }) {
@@ -164,7 +165,10 @@ export default function DiscoverPage() {
   const [error, setError] = useState(null);
   const [activities, setActivities] = useState([]);
   const [opportunities, setOpportunities] = useState([]);
-  const [pending, setPending] = useState([]);
+  const [pending, setPendingState] = useState([]);
+  // Claimed gigs are saved, so they survive a reload and the planner's Money Hunt block can name them.
+  useEffect(() => { getEarnPending().then(setPendingState); }, []);
+  const setPending = (fn) => setPendingState((prev) => { const next = typeof fn === 'function' ? fn(prev) : fn; saveEarnPending(next); return next; });
   const [location, setLocation] = useState(null);
   const [locationStatus, setLocationStatus] = useState('idle'); // idle | loading | got | denied
   const [showTxn, setShowTxn] = useState(false);
@@ -337,7 +341,7 @@ export default function DiscoverPage() {
             <button className={`chip ${tab === 'opportunities' ? 'active' : ''}`} onClick={() => setTab('opportunities')}>🔍 Earn Online</button>
             {pending.length > 0 && (
               <button className={`chip ${tab === 'pending' ? 'active' : ''}`} onClick={() => setTab('pending')} style={{ position: 'relative' }}>
-                ��� Pending
+                ⏳ Pending
                 <span style={{ background: 'var(--green)', color: '#000', borderRadius: 100, fontSize: 10, fontWeight: 700, padding: '1px 6px', marginLeft: 4 }}>{pending.length}</span>
               </button>
             )}

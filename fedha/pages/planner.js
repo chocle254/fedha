@@ -12,6 +12,7 @@ import { showNotif, VIBRATE } from '../lib/notifications';
 import { pruneEndedEvents, todaysEventBlocks, eventWindow } from '../lib/events';
 import { format } from 'date-fns';
 import FunPicks from '../components/FunPicks';
+import { moneyHuntItem, getEarnPending } from '../lib/money-hunt';
 
 // ─── DAY ANCHORS ───────────────────────────────────────────────────────────
 // Bedtime is a protected window, not a "whatever's left after everything
@@ -301,6 +302,10 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
   }
   if (isWeekend && !pastBreakfast) want('am', 'laundry_sort', 'Sort & Start Laundry', 'chores', '👕', 'Sort clothes, start soaking or machine wash — do this first so clothes dry by afternoon.', PRIORITY.chores, 15, 30);
   work('am', 'work1', pickWork(workItems, 0), 150);
+  // Money hunt (Business): time every day to find paid work. When cash is low or nothing paid is lined up it is
+  // longer and comes in the morning; otherwise a short afternoon habit (lib/money-hunt.js).
+  const hunt = moneyHuntItem(ctx);
+  if (hunt.hungry) want('am', 'money_hunt', hunt.label, 'coding', hunt.emoji, hunt.note, PRIORITY.work, 30, isWeekend ? 60 : 90, { grow: true, max: 120, squeeze: 20 });
   if (!isWeekend && !pastSnack) want('am', 'snack', 'Mid-Morning Snack', 'meal', '🍌', 'Banana + groundnuts. Drink water, then back to focus.', PRIORITY.essential, 10, 15);
   work('am', 'work2', pickWork(workItems, 1), 90);
   if (isWeekend && !pastBreakfast) want('am', 'laundry_hang', 'Hang / Check Laundry', 'chores', '👕', 'Hang clothes out to dry or move to the dryer.', PRIORITY.chores, 10, 15);
@@ -327,6 +332,7 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
   if (researchItem) want('pm', 'research', researchItem.label, 'research', researchItem.emoji, researchItem.note, PRIORITY.work, 30, 60, { grow: true, max: 90, squeeze: 20 });
   // The top-priority item gets a second run after lunch, so it ends up with the biggest share of the day.
   work('pm', 'work3', continued(pickWork(workItems, 0)), 120);
+  if (!hunt.hungry) want('pm', 'money_hunt', hunt.label, 'coding', hunt.emoji, hunt.note, PRIORITY.work, 20, isWeekend ? 30 : 45, { squeeze: 15 });
   if (isWeekend) {
     want('pm', 'house_clean', 'Clean House / Room', 'chores', '🏠', 'Full room clean — sweep, mop, arrange, take out trash.', PRIORITY.chores, 20, 60);
     want('pm', 'laundry_fold', 'Fold & Put Away Clothes', 'chores', '👕', 'Fold and put away dry clothes.', PRIORITY.chores, 10, 20);
@@ -701,7 +707,9 @@ export default function PlannerPage() {
     setFunBlocks(next);
     await setSetting(`planner_fun_${todayISO()}`, next);
   }
-  const planCtx = { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, lowCash, workoutMode: prefs?.workoutMode, workoutStreak: prefs?.workoutStreak, anchorBath: true, dayWake: prefs?.dayWake, dayStart: prefs?.dayStart, funToday: funBlocks.length > 0 };
+  const [earnPending, setEarnPending] = useState([]); // gigs claimed in Business → Earn Online
+  useEffect(() => { getEarnPending().then(setEarnPending); }, []);
+  const planCtx = { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, lowCash, earnPending, workoutMode: prefs?.workoutMode, workoutStreak: prefs?.workoutStreak, anchorBath: true, dayWake: prefs?.dayWake, dayStart: prefs?.dayStart, funToday: funBlocks.length > 0 };
   const [allDayEvents, setAllDayEvents] = useState([]);
   const isWeekend = [0,6].includes(new Date().getDay());
   const [blocks, setBlocks] = useState([]);
@@ -730,6 +738,7 @@ export default function PlannerPage() {
   const workSignature = JSON.stringify([
     hackathons?.map((h) => [h.id, hackStatus(h), h.deadline, (h.tasks || []).filter((t) => !t.done).length, h.results_date, h.results_time]) || [],
     lowCash,
+    earnPending.map((o) => o.pending_id),
     startups?.map((s) => [s.id, !!s.paused, !!(s.focus && !s.focus.done), (s.roadmap?.tasks || []).filter((t) => t.date && t.date <= todayISO()).map((t) => [t.id, t.done, t.time || ''])]) || [],
     projects?.map((p) => [p.id, projectStatus(p)]) || [],
     clientProjects?.map((p) => [p.id, p.status, p.deadline, p.agreed_amount, p.previously_paid, (p.payments || []).length, (p.change_requests || []).length, p.estimated_days]) || [],
@@ -1093,7 +1102,7 @@ export default function PlannerPage() {
           )}
           {lowCash && (
             <div style={{ padding:'10px 14px', background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.25)', borderRadius:10, fontSize:13, color:'#FCD34D', marginBottom:14 }}>
-              💸 Floating cash is low, so paid work is scheduled first today.
+              💸 Floating cash is low, so paid work and a longer Money Hunt come first today.
             </div>
           )}
           {droppedToday.length > 0 && (
