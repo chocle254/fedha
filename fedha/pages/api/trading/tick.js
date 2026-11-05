@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { refreshTrades, growthMilestone } from '../../../lib/trading';
-import { syncBrokerTrades } from '../../../lib/broker';
+import { syncBrokerTrades, realMilestones } from '../../../lib/broker';
 import { learnTrailProfiles } from '../../../lib/trail-learn';
 import { evaluateLadder } from '../../../lib/ladder';
 import { resetIfBlown } from '../../../lib/paper-reset';
@@ -25,6 +25,8 @@ export default async function handler(req, res) {
   await learnTrailProfiles(userId).catch(() => null);
   // Channel ladder Trial → Proven → Real, every 10 min (notifies on every move).
   await evaluateLadder(userId).catch(() => null);
+  // Real account balance milestones ($500, then each step up), every 15 min. The only real-money alerts.
+  await realMilestones(userId).catch(() => null);
   // Blown paper account? Everything starts again (lib/paper-reset.js).
   await resetIfBlown(userId).catch(() => null);
   const { data, error } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId).in('status', ['pending', 'open']).limit(60);

@@ -183,6 +183,8 @@ export async function evaluateLadder(userId, { force = false } = {}) {
 
   const icon = { proven: '⭐', real: '💰', trial: '↩️' };
   for (const m of moves) {
+    // Moves into or out of Real stay quiet: real money is meant to be a surprise (the $500+ milestones are the alert).
+    if (m.to === 'real' || m.from === 'real') continue;
     const up = (m.from === 'trial' && m.to === 'proven') || m.to === 'real';
     await notify({
       title: `${icon[m.to]} ${m.source} ${up ? 'moved up to' : 'moved back to'} ${m.to === 'real' ? 'Real money' : m.to === 'proven' ? 'Proven' : 'Trial'}`,

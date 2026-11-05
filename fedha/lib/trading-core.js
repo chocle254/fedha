@@ -449,6 +449,12 @@ export const REAL_SCALE = [
   { upTo: 10000, label: 'Established', pct: 4 },
   { upTo: Infinity, label: 'Large', pct: 2 },
 ];
+// Real balance milestones: the only real-money notifications fire as each is first passed (lib/broker.js).
+export const REAL_MILESTONES = [500, 750, 1000, 1500, 2000, 3000, 5000, 7500, 10000];
+export function nextMilestone(m) {
+  const i = REAL_MILESTONES.findIndex((x) => x > m);
+  return i >= 0 ? REAL_MILESTONES[i] : Math.floor(m / 5000) * 5000 + 5000; // past $10k: every $5k
+}
 export function realScale(balance, ceilingPct = 10) {
   const b = Number(balance) || 0;
   const i = REAL_SCALE.findIndex((t) => b < t.upTo);

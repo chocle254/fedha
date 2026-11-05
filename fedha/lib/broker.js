@@ -4,7 +4,7 @@
 // SAFETY: real-money accounts are refused unless broker_settings.allow_real is true.
 import { supabaseAdmin } from './supabaseAdmin';
 import { BROKER_ACCOUNTS, accountId, metaapiConfigured, mt, tradeOk, findSymbol } from './metaapi';
-import { groupReport, brokerResults, splitLots, LOT_MIN, REAL_EARLY_TRADES, trailCandidate, TRAIL_DEFAULT, growthTier, realScale } from './trading-core';
+import { groupReport, brokerResults, splitLots, LOT_MIN, REAL_EARLY_TRADES, trailCandidate, TRAIL_DEFAULT, growthTier, realScale, nextMilestone } from './trading-core';
 import { notify, trailProfiles, atrBefore, growthState } from './trading';
 import { newsCheck, newsReason } from './news-guard';
 import { ladderStage } from './ladder';
@@ -191,12 +191,13 @@ export async function placeSignalOnBrokers({ userId, parsed, source, signalKey, 
   const results = await Promise.all(accounts.map(async (acct) => {
     try {
       const r = await placeOnAccount({ userId, acct, settings, parsed, source, signalKey, signalId, news });
-      if (r.ok) {
+      // Real money trades silently (the owner checks less that way); only demo trades notify.
+      if (r.ok && !r.real) {
         await notify({
           title: `${r.real ? '💰' : '🧪'} ${acct.name}: ${parsed.side} ${r.symbol} ${r.lots} lots`,
           body: `${r.legs} position${r.legs > 1 ? 's' : ''} (one per TP) · ${r.orderType} · lot ×${r.mult} (${r.confidence}% confident in ${source}) · risk $${r.riskUsd.toFixed(2)}${news.level === 'caution' ? ` · 📰 half lot, ${news.reason}` : ''}`,
         }, `broker-${acct.key}-${signalKey}`);
-      } else if (r.news) {
+      } else if (r.news && !(await isRealAccount(acct.key))) {
         await notify({ title: `📰 ${acct.name}: skipped ${parsed.side} ${parsed.symbol} for news`, body: news.reason }, `broker-${acct.key}-${signalKey}-news`);
       }
       return { account: acct.key, ...r };
@@ -205,6 +206,55 @@ export async function placeSignalOnBrokers({ userId, parsed, source, signalKey, 
     }
   }));
   return results;
+}
+
+// Is this account real money? Cached for 6 h per server instance (the account type never changes).
+const realCache = new Map();
+export async function isRealAccount(key) {
+  const id = accountId(key);
+  if (!id) return false;
+  const c = realCache.get(id);
+  if (c && Date.now() - c.at < 6 * 3600e3) return c.real;
+  let real = true; // unknown counts as real, so a failed lookup can't break the silence
+  try { real = (await mt.accountInfo(id))?.type === 'ACCOUNT_TRADE_MODE_REAL'; } catch { /* keep true */ }
+  realCache.set(id, { real, at: Date.now() });
+  return real;
+}
+
+// ── REAL BALANCE MILESTONES ──
+// The only real-money notifications: when a real account's balance first passes $500, then each higher
+// milestone (it is climbing). Checked every 15 minutes from the tick; each milestone fires once.
+export async function realMilestones(userId) {
+  if (!metaapiConfigured()) return null;
+  const { data } = await supabaseAdmin.from('trade_settings').select('broker_settings').eq('user_id', userId).maybeSingle();
+  const bs = data?.broker_settings || {};
+  const ms = bs.milestones || {};
+  if (ms.checkedAt && Date.now() - new Date(ms.checkedAt).getTime() < 15 * 60e3) return { skipped: 'recent' };
+  const next = { ...ms, checkedAt: new Date().toISOString() };
+  const hits = [];
+  for (const a of BROKER_ACCOUNTS) {
+    const id = accountId(a.key);
+    if (!id) continue;
+    let info;
+    try { info = await mt.accountInfo(id); } catch { continue; }
+    if (info?.type !== 'ACCOUNT_TRADE_MODE_REAL') continue;
+    const bal = Number(info.balance) || 0;
+    const prev = ms[a.key] || { best: 0, start: bal };
+    const cur = { ...prev, start: prev.start || bal };
+    let passed = 0;
+    for (let m = nextMilestone(prev.best || 0); bal >= m; m = nextMilestone(m)) passed = m;
+    if (passed) { cur.best = passed; hits.push({ a, passed, bal, start: cur.start }); }
+    next[a.key] = cur;
+  }
+  await supabaseAdmin.from('trade_settings').update({ broker_settings: { ...bs, milestones: next } }).eq('user_id', userId);
+  for (const h of hits) {
+    const x = h.start > 0 ? h.bal / h.start : 0;
+    await notify({
+      title: `💰 Your real account passed $${h.passed.toLocaleString()}`,
+      body: `${h.a.name} balance is $${h.bal.toFixed(2)} and climbing${x >= 2 ? `: ${x.toFixed(1)}× where it started` : ''}. Next stop: $${nextMilestone(h.passed).toLocaleString()}.`,
+    }, `real-milestone-${h.a.key}-${h.passed}`);
+  }
+  return { hits: hits.length };
 }
 
 // ── SYNC ──────────────────────────────────────────────────────────────────
@@ -262,7 +312,7 @@ export async function syncBrokerTrades(userId) {
       const status = profit > 0 ? 'won' : 'lost';
       await supabaseAdmin.from('broker_trades').update({ status, profit: Math.round(profit * 100) / 100, close_price: last.price, close_reason: reason, closed_at: last.time || new Date().toISOString() }).eq('id', r.id);
       r.status = status; r.close_reason = reason; changed++;
-      await notify({
+      if (!(await isRealAccount(key))) await notify({
         title: `${reason === 'tp' ? '🎯' : reason === 'sl' ? '🛑' : '✖️'} ${acct.name}: ${r.symbol} TP${r.leg} leg ${reason === 'tp' ? 'hit TP' : reason === 'sl' ? 'stopped out' : 'closed'}`,
         body: `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)} · ${r.lots} lots · from ${r.source}`,
       }, `broker-close-${r.id}`);
