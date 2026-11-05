@@ -499,7 +499,7 @@ function DiscoverCard({ item, kind, onAdd }) {
           <div style={{ fontSize: 15, fontWeight: 700 }}>{item.name}</div>
           <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>
             {item.organizer}
-            {item.source && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 100, background: item.source === 'Devpost' ? 'rgba(59,130,246,0.15)' : 'rgba(139,92,246,0.15)', color: item.source === 'Devpost' ? '#60A5FA' : '#A78BFA' }}>{item.source}</span>}
+            {(item.origin || item.from || (!['ai', 'manual'].includes(item.source) && item.source)) && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 100, background: item.source === 'Devpost' ? 'rgba(59,130,246,0.15)' : 'rgba(139,92,246,0.15)', color: item.source === 'Devpost' ? '#60A5FA' : '#A78BFA' }}>{item.origin || item.from || item.source}</span>}
           </div>
           {(item.dates || item.registrations > 0) && (
             <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 3 }}>
@@ -548,6 +548,12 @@ function DiscoverCard({ item, kind, onAdd }) {
             style={{ flex: 1, padding: '10px', background: 'var(--green-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 10, color: 'var(--green)', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>
             ➕ I'm registering
           </button>
+        )}
+        {kind === 'event' && item.url && (
+          <a href={item.url} target="_blank" rel="noreferrer"
+            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', background: item.devfest ? '#4285F4' : 'var(--card-2)', border: item.devfest ? 'none' : '1px solid var(--border)', borderRadius: 10, color: item.devfest ? '#fff' : 'var(--text)', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+            Details & RSVP ↗
+          </a>
         )}
         {item.url_hint && (
           <a href={`https://${item.url_hint.replace(/^https?:\/\//, '')}`} target="_blank" rel="noreferrer"
@@ -1897,6 +1903,7 @@ export default function TechHubPage() {
   const [events, setEvents] = useState([]);
   const [loadingHacks, setLoadingHacks] = useState(false);
   const [loadingEvents, setLoadingEvents] = useState(false);
+  const [evWhere, setEvWhere] = useState('all'); // all | devfest | near
   const [aiError, setAiError] = useState(null);
 
   // modals
@@ -2001,7 +2008,14 @@ export default function TechHubPage() {
     }
   }, [events, eventsNow]);
   // Closest event first.
-  const sortedEvents = sortEventsByStart(events.filter((e) => !isEventEnded(e, eventsNow)));
+  const myCity = (location?.city || 'Nairobi').toLowerCase();
+  const sortedEvents = sortEventsByStart(events.filter((e) => !isEventEnded(e, eventsNow)))
+    .filter((e) => e.source !== 'ai' || evWhere === 'all' || (evWhere === 'devfest' ? e.devfest : String(e.city || '').toLowerCase().includes(myCity)));
+  // Opening the Events tab loads the live list once.
+  useEffect(() => {
+    if (tab === 'events' && !loadingEvents && !events.some((e) => e.source === 'ai')) fetchAI('tech_events');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   function getLocation() {
     if (!navigator.geolocation) { setLocStatus('denied'); return; }
@@ -2099,7 +2113,8 @@ export default function TechHubPage() {
     const setLoading = type === 'hackathons' ? setLoadingHacks : setLoadingEvents;
     setLoading(true); setAiError(null);
     try {
-      const res = await fetch('/api/ai', {
+      // Events come live from Google Developer Groups (DevFests etc.) and Luma Nairobi (/api/tech-events), not AI.
+      const res = type === 'tech_events' ? await fetch('/api/tech-events') : await fetch('/api/ai', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type, location, currency: 'KES', currency_symbol: 'KSh', nonce: Date.now() }),
       });
@@ -2112,7 +2127,7 @@ export default function TechHubPage() {
         // entered manually. Persisted events are manual; freshly discovered
         // events live in memory until the next refresh.
         const manualEvents = events.filter((e) => e.source !== 'ai');
-        const discoveredEvents = (data.results || []).map((e) => ({ ...e, source: 'ai' }));
+        const discoveredEvents = (data.results || []).map((e) => ({ ...e, origin: e.source, source: 'ai' }));
         setEvents([...manualEvents, ...discoveredEvents]);
       }
     } catch (e) { setAiError(e.message); }
@@ -2407,6 +2422,15 @@ export default function TechHubPage() {
                 </div>
               </div>
 
+              {events.some((e) => e.source === 'ai') && (
+                <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                  {[['all', '🇰🇪 All Kenya'], ['devfest', '🎉 DevFests'], ['near', `📍 ${location?.city || 'Nairobi'}`]].map(([k, l]) => (
+                    <button key={k} className={`chip ${evWhere === k ? 'active' : ''}`} onClick={() => setEvWhere(k)}>{l}</button>
+                  ))}
+                  <span style={{ fontSize: 11.5, color: 'var(--text-3)', alignSelf: 'center' }}>Live from GDG & Luma</span>
+                </div>
+              )}
+
               {showEventForm && (
                 <div className="card" style={{ padding: 16, marginBottom: 12 }}>
                   <Field label="Event Name"><input className="input" placeholder="e.g. Nairobi Dev Meetup" value={eventForm.name} onChange={(e) => setEventForm((f) => ({ ...f, name: e.target.value }))} autoFocus /></Field>
@@ -2434,7 +2458,7 @@ export default function TechHubPage() {
               )}
 
               {sortedEvents.length === 0 && !loadingEvents ? (
-                <div className="empty-state"><div className="icon">📅</div><h3>Find tech events near you</h3><p>{location ? `Scanning around ${location.city}.` : 'Share your location above, then'} tap "Find events" for nearby meetups, conferences & demo days, or add one yourself</p></div>
+                <div className="empty-state"><div className="icon">📅</div><h3>{events.some((e) => e.source === 'ai') ? 'Nothing here right now' : 'Tech events in Kenya'}</h3><p>{events.some((e) => e.source === 'ai') ? 'No events match this filter. Try All Kenya.' : 'DevFests, GDG meetups and campus workshops, live from Google Developer Groups and Luma. Tap "Find events", or add one yourself.'}</p></div>
               ) : sortedEvents.map((e) => (
                 <div key={e.id} style={{ position: 'relative' }}>
                   <DiscoverCard item={e} kind="event" />
@@ -2444,14 +2468,22 @@ export default function TechHubPage() {
                     // Discovered events only live in memory and have no start time.
                     // "I'm going" opens the add form pre-filled, so you add the time and
                     // it's saved — then the Planner books its exact slot.
-                    <button onClick={() => {
+                    <button onClick={async () => {
+                      if (e.date && e.time) {
+                        // Real time known: save it straight away, so the Planner books the slot and reminders fire.
+                        const saved = { ...e, id: genId(), source: 'manual', from: e.origin };
+                        const next = [saved, ...events.filter((x) => x.id !== e.id)];
+                        setEvents(next);
+                        await setSetting('tech_hub_events', next.filter((x) => x.source !== 'ai'));
+                        return;
+                      }
                       setEventForm({ ...EMPTY_EVENT_FORM, name: e.name || '', organizer: e.organizer || '', description: e.description || '', location: e.venue || e.location || '', date: String(e.date || '').slice(0, 10), is_free: !!e.is_free });
                       setEvents((list) => list.filter((x) => x.id !== e.id));
                       setShowEventForm(true);
                       if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
                     }}
                       style={{ margin: '-4px 0 12px', width: '100%', padding: '9px', background: 'rgba(249,115,22,0.12)', border: '1px solid rgba(249,115,22,0.4)', borderRadius: 10, color: '#FDBA74', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Onest' }}>
-                      ✓ I'm going — set the time & add to my planner
+                      {e.date && e.time ? "✓ I'm going — add to my planner" : "✓ I'm going — set the time & add to my planner"}
                     </button>
                   )}
                 </div>
