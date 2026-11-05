@@ -1,6 +1,6 @@
 import { requireUser } from '../../../lib/require-user';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
-import { BROKER_ACCOUNTS, accountId, provisioningAccount, mt } from '../../../lib/metaapi';
+import { BROKER_ACCOUNTS, accountId, provisioningAccount, mt, findSymbol } from '../../../lib/metaapi';
 import { brokerOverview, getBrokerSettings, syncBrokerTrades } from '../../../lib/broker';
 import { fetchRates } from '../../../lib/exchange';
 
@@ -21,6 +21,17 @@ async function health() {
     try { const p = await provisioningAccount(id); Object.assign(r, { state: p?.state, connection: p?.connectionStatus, server: p?.server, platform: p?.platform }); }
     catch (e) { r.error = `${e.status || ''} ${e.message}`.trim().slice(0, 160); }
     if (r.connection === 'CONNECTED') { try { const i = await mt.accountInfo(id); r.mode = i?.type; r.currency = i?.currency; r.leverage = i?.leverage; } catch (e) { r.infoError = e.message.slice(0, 120); } }
+    // Lot size on gold and EURUSD (micro / cent accounts are far smaller per lot), so sizing can be checked.
+    if (r.connection === 'CONNECTED') {
+      r.symbols = {};
+      for (const want of ['XAUUSD', 'EURUSD']) {
+        try {
+          const sym = await findSymbol(id, want);
+          const sp = sym ? await mt.spec(id, sym) : null;
+          r.symbols[want] = sym ? { symbol: sym, contractSize: sp?.contractSize, minVolume: sp?.minVolume, volumeStep: sp?.volumeStep } : null;
+        } catch (e) { r.symbols[want] = { error: e.message.slice(0, 100) }; }
+      }
+    }
     out.accounts[a.key] = r;
   }
   checked = { at: Date.now(), out };
