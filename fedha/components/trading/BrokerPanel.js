@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { C, fmtUsd, ago } from './util';
+import RealVault from './RealVault';
 
 const STATUS = {
   pending: ['Waiting to fill', C.gold],
@@ -54,15 +55,17 @@ export default function BrokerPanel({ onData, flash }) {
   }
 
   // One card per signal per account, legs listed inside.
+  const realKeys = useMemo(() => new Set((data?.accounts || []).filter((a) => a.info?.real).map((a) => a.key)), [data]);
   const signals = useMemo(() => {
     const map = {};
     for (const t of data?.trades || []) {
+      if (realKeys.has(t.account)) continue; // real trades are shown inside the vault
       const k = `${t.account}|${t.signal_key}`;
       (map[k] = map[k] || { key: k, account: t.account, source: t.source, side: t.side, symbol: t.symbol, created_at: t.created_at, mult: t.lot_multiplier, confidence: t.confidence, risk: t.risk_usd, legs: [] }).legs.push(t);
     }
     return Object.values(map).map((g) => ({ ...g, legs: g.legs.sort((a, b) => a.leg - b.leg), profit: g.legs.reduce((s, l) => s + Number(l.profit || 0), 0), live: g.legs.some((l) => ['pending', 'open'].includes(l.status)) }))
       .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-  }, [data]);
+  }, [data, realKeys]);
 
   if (!data) return <div className="tx-empty">Loading MT5 accounts…</div>;
   if (data.error) return <div className="tx-empty">{data.error}</div>;
@@ -78,11 +81,28 @@ export default function BrokerPanel({ onData, flash }) {
   }
 
   const name = (k) => data.accounts.find((a) => a.key === k)?.name || k;
+  const controls = (a) => {
+    const s = a.settings || {};
+    const d = draft[a.key] || {};
+    return (
+              <>
+                <div className="tx-set-row">
+                  <div><b>Trade signals here</b><span>{s.enabled ? 'On: every new signal is placed on this account.' : 'Off'}</span></div>
+                  <button disabled={busy} className={`tx-switch ${s.enabled ? 'on' : ''}`} onClick={() => save({ [a.key]: { enabled: !s.enabled } })} aria-label={`Trade on ${a.name}`}><i /></button>
+                </div>
+                <label className="tx-field"><span>{a.info?.real ? 'Risk ceiling' : 'Base risk per signal'}</span><input className="font-num" inputMode="decimal" value={d.risk_pct || ''} onChange={(e) => setDraft({ ...draft, [a.key]: { ...d, risk_pct: e.target.value } })} /><em>% of balance</em></label>
+                <label className="tx-field"><span>Only channels at least</span><input className="font-num" inputMode="numeric" value={d.min_confidence || ''} onChange={(e) => setDraft({ ...draft, [a.key]: { ...d, min_confidence: e.target.value } })} /><em>% confident</em></label>
+                <label className="tx-field"><span>Stop for the day after losing</span><input className="font-num" inputMode="decimal" value={d.daily_loss_pct || ''} onChange={(e) => setDraft({ ...draft, [a.key]: { ...d, daily_loss_pct: e.target.value } })} /><em>% (0 = off)</em></label>
+                <button className="tx-link" disabled={busy} onClick={() => save({ [a.key]: { risk_pct: d.risk_pct, min_confidence: d.min_confidence, daily_loss_pct: d.daily_loss_pct } })}>Save {a.name} settings</button>
+              </>
+    );
+  };
   return (
     <div className="tx-brokers">
       {data.accounts.map((a) => {
-        const s = a.settings || {};
-        const d = draft[a.key] || {};
+        if (a.info?.real) {
+          return <RealVault key={a.key} account={a} settings={data.settings} trades={(data.trades || []).filter((t) => t.account === a.key)}>{controls(a)}</RealVault>;
+        }
         return (
           <div key={a.key} className="tx-broker">
             <div className="tx-group-top">
@@ -109,18 +129,7 @@ export default function BrokerPanel({ onData, flash }) {
                 </div>
               );
             })()}
-            {a.configured && (
-              <>
-                <div className="tx-set-row">
-                  <div><b>Trade signals here</b><span>{s.enabled ? 'On: every new signal is placed on this account.' : 'Off'}</span></div>
-                  <button disabled={busy} className={`tx-switch ${s.enabled ? 'on' : ''}`} onClick={() => save({ [a.key]: { enabled: !s.enabled } })} aria-label={`Trade on ${a.name}`}><i /></button>
-                </div>
-                <label className="tx-field"><span>Base risk per signal</span><input className="font-num" inputMode="decimal" value={d.risk_pct || ''} onChange={(e) => setDraft({ ...draft, [a.key]: { ...d, risk_pct: e.target.value } })} /><em>% of balance</em></label>
-                <label className="tx-field"><span>Only channels at least</span><input className="font-num" inputMode="numeric" value={d.min_confidence || ''} onChange={(e) => setDraft({ ...draft, [a.key]: { ...d, min_confidence: e.target.value } })} /><em>% confident</em></label>
-                <label className="tx-field"><span>Stop for the day after losing</span><input className="font-num" inputMode="decimal" value={d.daily_loss_pct || ''} onChange={(e) => setDraft({ ...draft, [a.key]: { ...d, daily_loss_pct: e.target.value } })} /><em>% (0 = off)</em></label>
-                <button className="tx-link" disabled={busy} onClick={() => save({ [a.key]: { risk_pct: d.risk_pct, min_confidence: d.min_confidence, daily_loss_pct: d.daily_loss_pct } })}>Save {a.name} settings</button>
-              </>
-            )}
+            {a.configured && controls(a)}
           </div>
         );
       })}
@@ -140,7 +149,7 @@ export default function BrokerPanel({ onData, flash }) {
         <button className="tx-link" disabled={busy} onClick={sync}>{busy ? 'Working…' : 'Check fills and closes now'}</button>
       </div>
 
-      <div className="tx-sub" style={{ padding: '10px 14px 4px' }}>MT5 trades</div>
+      <div className="tx-sub" style={{ padding: '10px 14px 4px' }}>{realKeys.size ? 'Demo MT5 trades' : 'MT5 trades'}</div>
       {signals.length ? signals.map((g) => (
         <details key={g.key} className="tx-inbox">
           <summary>
