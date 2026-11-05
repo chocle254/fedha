@@ -46,7 +46,7 @@ export default function TradingPage() {
   const [interval, setIntervalValue] = useState('15m');
   const [picker, setPicker] = useState(false);
   const [picked, setPicked] = useState(null);
-  const [tab, setTab] = useState('positions');
+  const [tab, setTab] = useState('signals');
   const [openGroup, setOpenGroup] = useState(null); // Signals tab: which channel card is expanded
   const [allGroups, setAllGroups] = useState(false);
   const [showHow, setShowHow] = useState(false);
@@ -508,14 +508,15 @@ export default function TradingPage() {
   };
 
   const TABS = [
-    ['positions', `Positions (${positions.length})`],
-    ['orders', `Open orders (${orders.length})`],
-    ['history', 'History'],
-    ['signals', `Signals (${activeSignals.length})`],
-    ['telegram', 'Telegram'],
-    ['mt5', 'MT5 accounts'],
-    ['wallet', 'Binance wallet'],
-    ['settings', 'Settings']
+    ['signals', `📡 Signals${activeSignals.length ? ` (${activeSignals.length})` : ''}`],
+    ['channels', `🏆 Channels${groups.length ? ` (${groups.length})` : ''}`],
+    ['positions', `📈 Positions${positions.length ? ` (${positions.length})` : ''}`],
+    ['orders', `⏳ Orders${orders.length ? ` (${orders.length})` : ''}`],
+    ['history', '📜 History'],
+    ['mt5', '🔒 Vault & MT5'],
+    ['telegram', '✈️ Telegram'],
+    ['wallet', '🪙 Wallet'],
+    ['settings', '⚙️ Settings']
   ];
 
   return (
@@ -544,22 +545,47 @@ export default function TradingPage() {
           <span className="tx-paper">PAPER</span>
         </div>
 
-        {/* Account strip */}
-        <div className="tx-acct font-num">
-          <div><span>Equity (live)</span><b style={{ color: equityLive == null ? 'inherit' : equityLive >= Number(settings?.paper_balance) ? C.up : C.down }}>{equityLive != null ? fmtUsd(equityLive, false) : '—'}</b></div>
-          <div><span>Wallet balance</span><b>{account ? fmtUsd(account.equity, false) : '—'}</b></div>
-          <div><span>Available</span><b>{account ? fmtUsd(account.available, false) : '—'}</b></div>
-          <div><span>In orders</span><b>{account ? fmtUsd(account.locked, false) : '—'}</b></div>
-          {account && <div title={`From the $${Number(settings?.paper_balance) || 0} start to $${MAIN_GOAL.toLocaleString()}. Lots grow with the balance: each trade risks your risk % of what the account holds now.`}><span>Goal ${MAIN_GOAL / 1000}k</span><b style={{ color: C.gold }}>{Math.max(0, (account.equity / MAIN_GOAL) * 100).toFixed(account.equity / MAIN_GOAL < 0.1 ? 2 : 1)}%</b></div>}
-          {account?.openRisk > 0 && <div><span>At risk (stops)</span><b>{fmtUsd(account.openRisk, false)}</b></div>}
-          <div><span>Unrealized</span><b style={{ color: unrealized >= 0 ? C.up : C.down }}>{fmtUsd(unrealized)}</b></div>
-          <div><span>Realized</span><b style={{ color: (account?.realized ?? stats.realized) >= 0 ? C.up : C.down }}>{fmtUsd(account?.realized ?? stats.realized)}</b></div>
-          <div><span>Win rate</span><b>{stats.rate == null ? '—' : `${stats.rate}%`}</b></div>
-          <div className="tx-auto">
-            <span>Auto-trade signals</span>
-            <button className={`tx-switch ${settings?.auto_enabled ? 'on' : ''}`} onClick={() => saveSettings({ auto_enabled: !settings?.auto_enabled })} aria-label="Auto-trade signals"><i /></button>
-          </div>
-        </div>
+        {/* Account: the paper book at a glance (the real money lives in the Vault tab) */}
+        {(() => {
+          const startBal = Number(settings?.paper_balance) || 0;
+          const eq = equityLive ?? account?.equity ?? null;
+          const chg = eq != null && startBal ? ((eq - startBal) / startBal) * 100 : null;
+          const goalPct = account ? Math.max(0, Math.min(100, (account.equity / MAIN_GOAL) * 100)) : 0;
+          const realized = account?.realized ?? stats.realized;
+          const tiles = [
+            ['Available', account ? fmtUsd(account.available, false) : '—', null],
+            ['In orders', account ? fmtUsd(account.locked, false) : '—', null],
+            ['At risk (stops)', account ? fmtUsd(account.openRisk || 0, false) : '—', null],
+            ['Unrealized', fmtUsd(unrealized), unrealized >= 0 ? C.up : C.down],
+            ['Realized', fmtUsd(realized), realized >= 0 ? C.up : C.down],
+            ['Win rate', stats.rate == null ? '—' : `${stats.rate}%`, null],
+          ];
+          return (
+            <div className="tx-hero font-num">
+              <div className="tx-hero-top">
+                <div className="tx-hero-main">
+                  <span className="tx-hero-label">PAPER ACCOUNT · EQUITY</span>
+                  <b className="tx-hero-eq" style={{ color: eq == null ? 'inherit' : eq >= startBal ? C.up : C.down }}>{eq != null ? fmtUsd(eq, false) : '—'}</b>
+                  {chg != null && <span className="tx-hero-chg" style={{ color: chg >= 0 ? C.up : C.down }}>{chg >= 0 ? '▲' : '▼'} {Math.abs(chg).toFixed(1)}% <em>from {fmtUsd(startBal, false)}</em></span>}
+                </div>
+                <div className="tx-auto">
+                  <span>Auto-trade<br /><small>{settings?.auto_enabled ? 'following signals' : 'off'}</small></span>
+                  <button className={`tx-switch ${settings?.auto_enabled ? 'on' : ''}`} onClick={() => saveSettings({ auto_enabled: !settings?.auto_enabled })} aria-label="Auto-trade signals"><i /></button>
+                </div>
+              </div>
+              {account && (
+                <div className="tx-hero-goal" title="Lots grow with the balance: each trade risks your risk % of what the account holds now.">
+                  <div><span>Goal {fmtUsd(MAIN_GOAL, false)}</span><b>{goalPct.toFixed(goalPct < 10 ? 2 : 1)}%</b></div>
+                  <div className="tx-hero-bar"><i style={{ width: `${Math.max(1, goalPct)}%` }} /></div>
+                </div>
+              )}
+              <div className="tx-hero-tiles">
+                {tiles.map(([k, v, c]) => <div key={k}><span>{k}</span><b style={c ? { color: c } : undefined}>{v}</b></div>)}
+              </div>
+              <button className="tx-hero-vault" onClick={() => { setTab('mt5'); setTimeout(() => document.getElementById('tx-bottom')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}>🔒 Real Money Vault <span>open ›</span></button>
+            </div>
+          );
+        })()}
 
         <NewsStrip symbol={symbol} />
 
@@ -576,7 +602,7 @@ export default function TradingPage() {
         </div>
 
         {/* Bottom panel */}
-        <div className="tx-panel tx-bottom">
+        <div className="tx-panel tx-bottom" id="tx-bottom">
           <div className="tx-tabs">
             {TABS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}{k === 'telegram' && skippedCount > 0 ? <em>{skippedCount}</em> : null}</button>)}
           </div>
@@ -610,8 +636,14 @@ export default function TradingPage() {
                 <div className="sx-empty">No active signals right now. New ones land here the moment a channel posts. The Telegram tab shows every message and why any were skipped.</div>
               )}
 
-              <PotentialCard trades={trades} settings={settings} />
-              <DaysCard />
+              {closedSignals.length > 0 && <button className="sx-more" onClick={() => setShowClosedSignals((v) => !v)}>{showClosedSignals ? 'Hide' : 'Show'} {closedSignals.length} closed signals</button>}
+              {showClosedSignals && closedSignals.map((s) => signalRow(s, false))}
+            </div>
+          )}
+          {tab === 'channels' && (
+            <div className="sx">
+              <div className="sx-wrap"><PotentialCard trades={trades} settings={settings} /></div>
+              <div className="sx-wrap"><DaysCard /></div>
 
               {groups.length > 0 && (
                 <>
@@ -624,9 +656,14 @@ export default function TradingPage() {
                     const b = L.book || {};
                     const gain = b.start ? ((b.equity - b.start) / b.start) * 100 : 0;
                     return (
-                      <div className="sx-note" style={{ lineHeight: 1.6 }}>
-                        <b>Ladder:</b> {count('trial')} trial · <span style={{ color: '#7CC4FF' }}>{count('proven')} proven</span> · <span style={{ color: C.up }}>{count('real')} real</span>
-                        <br />
+                      <div className="sx-note sx-ladder">
+                        <div className="sx-ladder-steps">
+                          <div><b>{count('trial')}</b><span>🧪 Trial</span></div>
+                          <i>→</i>
+                          <div className="pr"><b>{count('proven')}</b><span>⭐ Proven</span></div>
+                          <i>→</i>
+                          <div className="re"><b>{count('real')}</b><span>💰 Real</span></div>
+                        </div>
                         {b.signals ? <>Proven book (only promoted channels, on their own): <b>${Number(b.equity).toFixed(2)}</b> from ${b.start} ({gain >= 0 ? '+' : ''}{gain.toFixed(1)}%) · {b.signals} signals, {b.wins} wins · deepest dip {b.maxDdPct}%</>
                           : <>No channel has earned Proven yet: it takes 5+ signals averaging +0.20R, in profit, 65%+ confident and still improving. You get a notification when one moves up.</>}
                       </div>
@@ -635,7 +672,7 @@ export default function TradingPage() {
                   <div className="sx-h">Channels <small>{groups.length}</small><button className="sx-how" onClick={() => setShowHow((v) => !v)}>{showHow ? 'Hide' : 'ⓘ How scoring works'}</button></div>
                   {showHow && (
                     <div className="sx-note">
-                      {groupsFromBroker ? 'Scored from the MT5 demo accounts (each signal on each account counts once). ' : 'Every signal is paper-traded on its own. '}R = profit ÷ risk: +1R made what it risked, −1R hit the stop. Confidence grows as a channel keeps winning, and its lots grow with it. Real money needs {GROUP_MIN_TRADES} closed trades, or 5 with a clear winning record (Early real, at most ×1 lots). 3 stop-losses in a row halve the size.
+                      {groupsFromBroker ? 'Scored from the MT5 demo accounts (each signal on each account counts once). ' : 'Every signal is paper-traded on its own. '}R = profit ÷ risk: +1R made what it risked, −1R hit the stop. Confidence grows as a channel keeps winning, and its lots grow with it. Channels climb a ladder: Trial → Proven (5+ signals averaging +0.20R, still improving) → Real (10 more signals over 4+ days at +0.30R, 80% confident). 3 stop-losses in a row halve the size; a channel that loses again after a week's pause is blocked and deleted.
                     </div>
                   )}
                   {(() => {
@@ -695,8 +732,7 @@ export default function TradingPage() {
                   })()}
                 </>
               )}
-              {closedSignals.length > 0 && <button className="sx-more" onClick={() => setShowClosedSignals((v) => !v)}>{showClosedSignals ? 'Hide' : 'Show'} {closedSignals.length} closed signals</button>}
-              {showClosedSignals && closedSignals.map((s) => signalRow(s, false))}
+              {!groups.length && <div className="sx-empty">No channel has closed a trade yet. Channels show up here, ranked, once their first signals finish.</div>}
             </div>
           )}
           {tab === 'telegram' && (
@@ -775,10 +811,10 @@ export default function TradingPage() {
           background: var(--tx-bg); color: var(--tx-text); padding: 8px 8px 110px; min-height: 100vh; font-size: 13px; }
         .tx-root button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
         .tx-root input { font: inherit; color: var(--tx-text); background: transparent; border: 0; outline: none; min-width: 0; }
-        .tx-panel { background: var(--tx-panel); border-radius: 8px; overflow: hidden; }
+        .tx-panel { background: var(--tx-panel); border: 1px solid var(--tx-line); border-radius: 14px; overflow: hidden; }
         .tx-muted { color: var(--tx-dim); font-size: 12px; }
 
-        .tx-head { display: flex; align-items: center; gap: 14px; padding: 10px 12px; background: var(--tx-panel); border-radius: 8px; flex-wrap: wrap; }
+        .tx-head { display: flex; align-items: center; gap: 14px; padding: 12px 14px; background: linear-gradient(180deg, rgba(255,255,255,.04), transparent), var(--tx-panel); border: 1px solid var(--tx-line); border-radius: 14px; flex-wrap: wrap; }
         .tx-pair { display: flex; align-items: center; gap: 6px; font-size: 18px; }
         .tx-pair span { color: var(--tx-dim); font-size: 12px; }
         .tx-last { font-size: 20px; font-weight: 700; display: flex; flex-direction: column; line-height: 1.1; }
@@ -787,7 +823,7 @@ export default function TradingPage() {
         .tx-stats div, .tx-acct div, .tx-summary div { display: flex; flex-direction: column; gap: 2px; }
         .tx-stats span, .tx-acct span, .tx-summary span, .tx-row-grid span { color: var(--tx-dim); font-size: 11px; }
         .tx-stats b { font-size: 12px; font-weight: 600; }
-        .tx-paper { font-size: 10px; font-weight: 800; letter-spacing: .08em; color: ${C.gold}; border: 1px solid rgba(240,185,11,.4); padding: 3px 7px; border-radius: 4px; }
+        .tx-paper { font-size: 10px; font-weight: 800; letter-spacing: .12em; color: ${C.gold}; background: rgba(240,185,11,.08); border: 1px solid rgba(240,185,11,.35); padding: 4px 9px; border-radius: 999px; }
         .tx-live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--tx-dim); }
         .tx-live i { width: 7px; height: 7px; border-radius: 50%; background: #5E6673; }
         .tx-live.on { color: ${C.up}; }
@@ -805,7 +841,7 @@ export default function TradingPage() {
         .tx-side-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
         .tx-main { min-width: 0; }
 
-        .tx-chart { background: var(--tx-bg); border: 1px solid var(--tx-line); border-radius: 8px; overflow: hidden; height: 100%; display: flex; flex-direction: column; }
+        .tx-chart { background: var(--tx-bg); border: 1px solid var(--tx-line); border-radius: 14px; overflow: hidden; height: 100%; display: flex; flex-direction: column; }
         .tx-chart-bar { display: flex; align-items: center; gap: 2px; padding: 6px 8px; background: var(--tx-panel); overflow-x: auto; }
         .tx-iv { padding: 3px 7px; border-radius: 4px; color: var(--tx-dim) !important; font-size: 12px !important; white-space: nowrap; }
         .tx-iv.on { color: var(--tx-text) !important; background: #2B3139 !important; }
@@ -818,10 +854,16 @@ export default function TradingPage() {
         .tx-legend b { font-weight: 500; }
         .tx-chart-msg { position: absolute; z-index: 3; top: 40%; width: 100%; text-align: center; color: ${C.down}; }
 
-        .tx-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--tx-line); overflow-x: auto; padding: 0 8px; }
+        .tx-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--tx-line); overflow-x: auto; padding: 0 8px; scrollbar-width: none; }
+        .tx-tabs::-webkit-scrollbar { display: none; }
         .tx-tabs button { padding: 10px 8px; color: var(--tx-dim) !important; white-space: nowrap; position: relative; font-weight: 600; }
         .tx-tabs button.on { color: var(--tx-text) !important; }
         .tx-tabs button.on::after { content: ''; position: absolute; left: 30%; right: 30%; bottom: 0; height: 2px; background: ${C.gold}; border-radius: 2px; }
+        /* The main section tabs: pills, so the money sections read as places, not a list of links */
+        .tx-bottom > .tx-tabs { gap: 6px; padding: 10px; border-bottom: 1px solid var(--tx-line); background: rgba(0,0,0,.18); }
+        .tx-bottom > .tx-tabs button { padding: 7px 12px; border-radius: 999px; font-size: 12.5px; background: rgba(255,255,255,.04) !important; border: 1px solid transparent !important; transition: background .15s, color .15s; }
+        .tx-bottom > .tx-tabs button.on { background: rgba(240,185,11,.12) !important; border-color: rgba(240,185,11,.45) !important; color: ${C.gold} !important; }
+        .tx-bottom > .tx-tabs button.on::after { display: none; }
         .tx-tabs button em { font-style: normal; font-size: 10px; background: ${C.gold}; color: #000; border-radius: 999px; padding: 0 5px; margin-left: 4px; }
         .tx-tabs.small button { padding: 8px 6px; font-size: 12px; }
 
@@ -868,7 +910,40 @@ export default function TradingPage() {
         .tx-hint, .tx-fine { font-size: 11px; color: var(--tx-dim); line-height: 1.5; margin: 0; }
         .tx-note { font-size: 12px; }
 
-        .tx-bottom { margin-top: 6px; }
+        .tx-bottom { margin-top: 8px; scroll-margin-top: 8px; }
+
+        /* Account card */
+        .tx-hero { margin-top: 8px; padding: 14px; border-radius: 16px; border: 1px solid var(--tx-line); background: radial-gradient(120% 120% at 0% 0%, rgba(240,185,11,.10), transparent 50%), linear-gradient(180deg, rgba(255,255,255,.03), transparent), var(--tx-panel); }
+        .tx-hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+        .tx-hero-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .tx-hero-label { font-size: 10.5px; font-weight: 800; letter-spacing: .12em; color: var(--tx-dim); }
+        .tx-hero-eq { font-size: 30px; font-weight: 800; line-height: 1.1; letter-spacing: -.01em; }
+        .tx-hero-chg { font-size: 12.5px; font-weight: 700; }
+        .tx-hero-chg em { font-style: normal; color: var(--tx-dim); font-weight: 500; }
+        .tx-hero .tx-auto { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; background: rgba(0,0,0,.25); border: 1px solid var(--tx-line); font-size: 12px; font-weight: 700; line-height: 1.2; text-align: right; white-space: nowrap; }
+        .tx-hero .tx-auto small { color: var(--tx-dim); font-weight: 500; font-size: 10.5px; }
+        .tx-hero-goal { margin-top: 12px; }
+        .tx-hero-goal > div:first-child { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--tx-dim); font-weight: 600; }
+        .tx-hero-goal b { color: ${C.gold}; }
+        .tx-hero-bar { height: 6px; border-radius: 99px; background: rgba(255,255,255,.07); margin-top: 5px; overflow: hidden; }
+        .tx-hero-bar i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #8C6B1F, ${C.gold}); }
+        .tx-hero-tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
+        .tx-hero-tiles div { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; background: rgba(0,0,0,.22); border: 1px solid rgba(255,255,255,.05); min-width: 0; }
+        .tx-hero-tiles span { font-size: 10.5px; color: var(--tx-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tx-hero-tiles b { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tx-hero-vault { display: flex !important; width: 100%; align-items: center; justify-content: space-between; margin-top: 10px; padding: 10px 12px !important; border-radius: 12px; font-weight: 800; font-size: 12.5px; letter-spacing: .02em; color: #F5E6B0 !important; background: linear-gradient(90deg, rgba(212,175,55,.16), rgba(212,175,55,.04)) !important; border: 1px solid rgba(212,175,55,.35) !important; }
+        .tx-hero-vault span { color: rgba(245,230,176,.6); font-weight: 600; }
+
+        /* Channels tab */
+        .sx-wrap > div { background: var(--tx-panel) !important; border: 1px solid var(--tx-line) !important; border-radius: 14px !important; margin-top: 10px !important; }
+        .sx-ladder { padding: 12px !important; }
+        .sx-ladder-steps { display: flex; align-items: stretch; gap: 6px; margin-bottom: 8px; }
+        .sx-ladder-steps > div { flex: 1; text-align: center; padding: 8px 4px; border-radius: 10px; background: rgba(255,255,255,.04); border: 1px solid var(--tx-line); }
+        .sx-ladder-steps b { display: block; font-size: 18px; color: var(--tx-text); }
+        .sx-ladder-steps span { font-size: 11px; }
+        .sx-ladder-steps .pr { border-color: rgba(124,196,255,.35); } .sx-ladder-steps .pr b { color: #7CC4FF; }
+        .sx-ladder-steps .re { border-color: rgba(14,203,129,.35); } .sx-ladder-steps .re b { color: ${C.up}; }
+        .sx-ladder-steps i { align-self: center; font-style: normal; color: var(--tx-dim); }
         .tx-empty { padding: 28px 16px; color: var(--tx-dim); text-align: center; line-height: 1.6; }
         .tx-row { padding: 12px 14px; border-bottom: 1px solid var(--tx-line); }
         .tx-row-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -902,7 +977,7 @@ export default function TradingPage() {
         .sx-agree span { flex: 0 0 auto; font-size: 11.5px; font-weight: 600; padding: 5px 10px; border-radius: 999px; }
         .sx-agree .ok { color: #0ECB81; background: rgba(14,203,129,.12); }
         .sx-agree .no { color: #F0B90B; background: rgba(240,185,11,.12); }
-        .sx-card { background: var(--tx-panel); border: 1px solid var(--tx-line); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
+        .sx-card { background: linear-gradient(180deg, rgba(255,255,255,.03), transparent), var(--tx-panel); border: 1px solid var(--tx-line); border-radius: 14px; padding: 12px; margin-bottom: 8px; }
         .sx-top { display: flex; align-items: center; gap: 8px; }
         .sx-st { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
         .sx-src { margin: 4px 0 10px; font-size: 12px; color: var(--tx-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -919,7 +994,7 @@ export default function TradingPage() {
         .sx-in { margin-top: 8px; font-size: 12px; font-weight: 600; color: #0ECB81; }
         .sx-empty { padding: 22px 16px; text-align: center; color: var(--tx-dim); font-size: 13px; line-height: 1.5; background: var(--tx-panel); border-radius: 12px; }
         .sx-note { margin: 0 2px 10px; padding: 10px 12px; font-size: 12px; line-height: 1.5; color: var(--tx-dim); background: var(--tx-panel); border-radius: 10px; }
-        .sx-groups { background: var(--tx-panel); border-radius: 12px; overflow: hidden; }
+        .sx-groups { background: var(--tx-panel); border: 1px solid var(--tx-line); border-radius: 14px; overflow: hidden; }
         .sx-g { display: block; width: 100%; text-align: left; padding: 11px 12px !important; border-bottom: 1px solid var(--tx-line) !important; }
         .sx-g:last-child { border-bottom: 0 !important; }
         .sx-g.open { background: rgba(255,255,255,0.03) !important; }
@@ -1011,6 +1086,8 @@ export default function TradingPage() {
           .tx-field > span { font-size: 11px; }
           .tx-field input { font-size: 13px; }
           .tx-acct { gap: 14px; }
+          .tx-hero-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+          .tx-hero-eq { font-size: 26px; }
         }
         @media (max-width: 360px) {
           .tx-side-col { grid-template-columns: minmax(0, 1fr); }
