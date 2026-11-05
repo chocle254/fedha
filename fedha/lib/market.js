@@ -25,8 +25,8 @@ async function binanceCandles(sym, { interval, startTime, endTime, limit }) {
 }
 
 const MS = { '1m': 60e3, '3m': 180e3, '5m': 300e3, '15m': 900e3, '30m': 1800e3, '1h': 3600e3, '2h': 7200e3, '4h': 14400e3, '1d': 86400e3, '1w': 604800e3 };
-// Yahoo's nearest interval; 2h and 4h are built from 1h candles. (Yahoo keeps 1m for 7 days, 5m–30m for 60.)
-const YAHOO_INTERVAL = { '1m': '1m', '3m': '2m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '60m', '2h': '60m', '4h': '60m', '1d': '1d', '1w': '1wk' };
+// Yahoo's nearest interval; 3m is built from 1m candles, 2h and 4h from 1h candles. (Yahoo keeps 1m for 7 days, 5m–30m for 60.)
+const YAHOO_INTERVAL = { '1m': '1m', '3m': '1m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '60m', '2h': '60m', '4h': '60m', '1d': '1d', '1w': '1wk' };
 
 // Yahoo sometimes turns away cloud servers: try its second host before giving up.
 async function yahoo(symbol, params) {
@@ -85,7 +85,10 @@ async function yahooCandles(symbol, { interval = '15m', startTime, endTime, limi
     if (q.high?.[i] == null || q.low?.[i] == null || q.close?.[i] == null) continue;
     candles.push({ t: res.timestamp[i] * 1000, o: q.open?.[i] ?? q.close[i], h: q.high[i], l: q.low[i], c: q.close[i], v: q.volume?.[i] || 0 });
   }
-  if (interval === '2h' || interval === '4h') candles = merge(candles, ms);
+  // Snap every intraday candle to the start of its period and merge. Yahoo adds the live price as an extra
+  // point stamped "now" (not the period start), which showed as a stray flat candle on every refresh;
+  // merging folds it into the current candle. It also builds 3m from 1m and 2h/4h from 1h.
+  if (ms < MS['1d']) candles = merge(candles, ms);
   if (startTime) candles = candles.filter((k) => k.t + ms > startTime);
   if (endTime) candles = candles.filter((k) => k.t < endTime);
   return startTime ? candles.slice(0, limit) : candles.slice(-limit);
