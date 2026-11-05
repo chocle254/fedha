@@ -1,8 +1,9 @@
+import { createHash } from 'crypto';
 // pages/api/byte-voice.js — Professor Byte's real voice, with a fall-back chain so he rarely drops to the phone voice:
 //   1. ElevenLabs (your free key: ELEVENLABS_API_KEY, optional ELEVENLABS_VOICE_ID / ELEVENLABS_MODEL)
-//   2. Kokoro on Luxe's free Hugging Face Space (KOKORO_URL + KOKORO_KEY; kokoro-space/ in the repo): unlimited.
-//      Byte: KOKORO_BYTE_VOICE (default am_michael), DJ Luxe: KOKORO_DJ_VOICE (default am_fenrir). A free Space falls
-//      asleep when unused: the first call wakes it and Groq covers the minute it takes.
+//   2. Kokoro, running in this same Vercel project as a Python function (api/tts.py), no account or quota beyond
+//      Vercel's free CPU allowance. Byte: KOKORO_BYTE_VOICE (default am_michael), DJ Luxe: KOKORO_DJ_VOICE (default
+//      am_fenrir). A cold start downloads the model first: Groq covers that minute.
 //   3. Groq Orpheus: Troy, then Austin, then Daniel (same GROQ_API_KEY as the rest of Luxe)
 //   3. the phone's own voice, which the app itself switches to when this route answers 502
 // A voice that is out of credits or rate-limited is left alone for a while, so a line does not flip between voices.
@@ -64,14 +65,18 @@ async function viaEleven(text, tone, persona) {
   return null;
 }
 
+const kokoroKey = () => process.env.KOKORO_KEY || (process.env.SUPABASE_SERVICE_ROLE_KEY ? createHash('sha256').update(`kokoro:${process.env.SUPABASE_SERVICE_ROLE_KEY}`).digest('hex') : '');
+
 async function viaKokoro(text, persona) {
-  const url = process.env.KOKORO_URL;
+  // Default: the Kokoro Python function in this same project (api/tts.py). KOKORO_URL=off turns it off.
+  const url = process.env.KOKORO_URL || (process.env.VERCEL ? 'https://fedha.vercel.app/api' : '');
+  if (url === 'off') return null;
   if (!url || Date.now() < down.kokoro) return null;
   const voice = persona === 'dj' ? (process.env.KOKORO_DJ_VOICE || 'am_fenrir') : (process.env.KOKORO_BYTE_VOICE || 'am_michael');
   try {
     const r = await fetch(`${url.replace(/\/$/, '')}/tts`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Api-Key': process.env.KOKORO_KEY || '' },
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': kokoroKey() },
       body: JSON.stringify({ text, voice, speed: persona === 'dj' ? 0.95 : 1.0 }),
       signal: AbortSignal.timeout(15000),
     });
@@ -79,10 +84,10 @@ async function viaKokoro(text, persona) {
     console.warn('[fedha] byte-voice kokoro failed:', r.status);
     down.kokoro = Date.now() + 60000;
   } catch (e) {
-    // Asleep (free Spaces sleep when unused) or busy: wake it in the background, use Groq for a minute.
+    // Cold (model still downloading/loading) or busy: warm it in the background, use Groq for a minute.
     console.warn('[fedha] byte-voice kokoro error:', e.message);
     down.kokoro = Date.now() + 60000;
-    fetch(url, { signal: AbortSignal.timeout(60000) }).catch(() => {});
+    fetch(`${url.replace(/\/$/, '')}/tts`, { signal: AbortSignal.timeout(60000) }).catch(() => {});
   }
   return null;
 }
