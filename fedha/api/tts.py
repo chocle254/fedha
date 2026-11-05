@@ -1,12 +1,12 @@
 # Kokoro voice for Byte and DJ Luxe, running as a Vercel Python function inside Luxe (no extra server).
 # POST /api/tts {text, voice, speed} with header X-Api-Key = KOKORO_KEY, or by default a key derived from the
 # Supabase service key (both sides are in this project, so no new setting is needed) → MP3 (WAV if MP3 isn't available).
-# The model (~92 MB int8 + 28 MB voices) downloads to /tmp on a cold start and stays loaded while warm.
+# The model (~325 MB full-quality + 28 MB voices) downloads to /tmp on a cold start and stays loaded while warm.
 import hashlib, io, json, os, threading, urllib.request
 from http.server import BaseHTTPRequestHandler
 
 BASE = 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/'
-MODEL = os.environ.get('KOKORO_MODEL', 'kokoro-v1.0.int8.onnx')
+MODEL = os.environ.get('KOKORO_MODEL', 'kokoro-v1.0.onnx')  # full quality (int8 sounded hoarse)
 _tts = None
 _lock = threading.Lock()
 
@@ -32,10 +32,14 @@ def tts():
 def encode(samples, rate):
     import soundfile as sf
     buf = io.BytesIO()
-    try:
-        sf.write(buf, samples, rate, format='MP3')
-        return buf.getvalue(), 'audio/mpeg'
-    except Exception:
+    for opts in ({'compression_level': 0.0, 'bitrate_mode': 'CONSTANT'}, {}):  # best MP3 quality first
+        try:
+            buf = io.BytesIO()
+            sf.write(buf, samples, rate, format='MP3', **opts)
+            return buf.getvalue(), 'audio/mpeg'
+        except Exception:
+            pass
+    if True:
         buf = io.BytesIO()
         sf.write(buf, samples, rate, format='WAV', subtype='PCM_16')
         return buf.getvalue(), 'audio/wav'

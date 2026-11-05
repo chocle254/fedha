@@ -97,7 +97,7 @@ export class Decks {
 let current = null;
 export function speak(text, { onStart, onEnd } = {}) {
   current?.stop();
-  current = speakByte(text, { persona: 'dj', voice: 'auto', mood: 'cheeky', onStart: () => onStart?.(), onEnd: () => { current = null; onEnd?.(); } });
+  current = speakByte(text, { persona: 'dj', voice: 'kokoro', mood: 'cheeky', onStart: () => onStart?.(), onEnd: () => { current = null; onEnd?.(); } });
   return current;
 }
 export function stopDjVoice() { current?.stop(); current = null; }

@@ -1,5 +1,7 @@
 import { createHash } from 'crypto';
-// pages/api/byte-voice.js — Professor Byte's real voice, with a fall-back chain so he rarely drops to the phone voice:
+// pages/api/byte-voice.js — Professor Byte's and DJ Luxe's real voice.
+// voice 'kokoro' (the app's default): Kokoro only, the same voice every line, so it never switches mid-class. Groq
+// stands in only if Kokoro fails twice. Other choices use the old fall-back chain:
 //   1. ElevenLabs (your free key: ELEVENLABS_API_KEY, optional ELEVENLABS_VOICE_ID / ELEVENLABS_MODEL)
 //   2. Kokoro, running in this same Vercel project as a Python function (api/tts.py), no account or quota beyond
 //      Vercel's free CPU allowance. Byte: KOKORO_BYTE_VOICE (default am_michael), DJ Luxe: KOKORO_DJ_VOICE (default
@@ -15,7 +17,7 @@ import { createHash } from 'crypto';
 // voice: 'auto' (ElevenLabs first), or 'troy' | 'austin' | 'daniel' to start with that Groq voice. Text over 190 characters is cut.
 import { requireUser } from '../../lib/require-user';
 
-export const config = { maxDuration: 30 };
+export const config = { maxDuration: 60 };
 const GROQ_VOICES = ['troy', 'austin', 'daniel'];
 const TONES = ['cheerful', 'friendly', 'warm', 'professional', 'calm', 'excited', 'whisper', 'dramatic'];
 const GROQ_MODEL = process.env.GROQ_TTS_MODEL || 'canopylabs/orpheus-v1-english';
@@ -67,18 +69,18 @@ async function viaEleven(text, tone, persona) {
 
 const kokoroKey = () => process.env.KOKORO_KEY || (process.env.SUPABASE_SERVICE_ROLE_KEY ? createHash('sha256').update(`kokoro:${process.env.SUPABASE_SERVICE_ROLE_KEY}`).digest('hex') : '');
 
-async function viaKokoro(text, persona) {
+async function viaKokoro(text, persona, patient = 0) {
   // Default: the Kokoro Python function in this same project (api/tts.py). KOKORO_URL=off turns it off.
   const url = process.env.KOKORO_URL || (process.env.VERCEL ? 'https://fedha.vercel.app/api' : '');
   if (url === 'off') return null;
-  if (!url || Date.now() < down.kokoro) return null;
+  if (!url || (!patient && Date.now() < down.kokoro)) return null;
   const voice = persona === 'dj' ? (process.env.KOKORO_DJ_VOICE || 'am_fenrir') : (process.env.KOKORO_BYTE_VOICE || 'am_michael');
   try {
     const r = await fetch(`${url.replace(/\/$/, '')}/tts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': kokoroKey() },
       body: JSON.stringify({ text, voice, speed: persona === 'dj' ? 0.95 : 1.0 }),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(patient || 15000), // a cold start loads the model first
     });
     if (r.ok) return { buf: Buffer.from(await r.arrayBuffer()), type: r.headers.get('content-type') || 'audio/mpeg', who: 'kokoro' };
     console.warn('[fedha] byte-voice kokoro failed:', r.status);
@@ -148,9 +150,12 @@ export default async function handler(req, res) {
   if (onlyEleven && Date.now() > elevenOutUntil) down.eleven = 0; // chosen on purpose: always give it a real try
   // ElevenLabs only = ElevenLabs or the phone, EXCEPT when it is out of credits: then Groq's male voices, never the
   // phone's default (often a woman's) voice for Byte or DJ Luxe.
-  const got = (!pick && (await viaEleven(text, tone, persona)))
+  const kokoroFirst = req.body?.voice === 'kokoro';
+  const got = kokoroFirst
+    ? ((await viaKokoro(text, persona, 30000)) || (await viaKokoro(text, persona, 15000)) || (await viaGroq(text, tone, persona === 'dj' ? ['austin', 'troy', 'daniel'] : order)))
+    : ((!pick && (await viaEleven(text, tone, persona)))
     || (!pick && !(onlyEleven && Date.now() > elevenOutUntil) && (await viaKokoro(text, persona)))
-    || (onlyEleven && Date.now() > elevenOutUntil ? null : await viaGroq(text, tone, persona === 'dj' ? ['austin', 'troy', 'daniel'] : order));
+    || (onlyEleven && Date.now() > elevenOutUntil ? null : await viaGroq(text, tone, persona === 'dj' ? ['austin', 'troy', 'daniel'] : order)));
   if (!got) { res.setHeader('X-Byte-Why', elevenWhy || 'none'); return res.status(502).json({ error: 'Voice failed', eleven: elevenWhy }); }
   if (got.who !== 'eleven' && elevenWhy) res.setHeader('X-Byte-Why', elevenWhy);
   res.setHeader('Content-Type', got.type);

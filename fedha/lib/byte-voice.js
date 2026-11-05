@@ -1,18 +1,18 @@
-// lib/byte-voice.js — plays Professor Byte's voice. The neural voice comes from /api/byte-voice, which tries
-// ElevenLabs first, then Groq Orpheus (Troy, Austin, Daniel). The text is sent in sentence-sized chunks with the next
+// lib/byte-voice.js — plays Professor Byte's voice. The neural voice comes from /api/byte-voice: Kokoro by default
+// (free, runs in Luxe itself, one steady voice all class), or ElevenLabs / Groq Orpheus (Troy, Austin, Daniel) if chosen. The text is sent in sentence-sized chunks with the next
 // one fetched while the current one plays, plus a live loudness level so his mouth moves with the real sound.
 // Only when every neural voice fails for a chunk does the phone's own voice say that one chunk, and the next chunk tries
 // neural again. Two failures in a row rest the neural voice for 45 seconds.
 import { speak, stopSpeaking, pickByteVoice } from './voice';
 
-export const BYTE_VOICES = [['auto', 'Auto'], ['eleven', 'ElevenLabs'], ['troy', 'Troy'], ['austin', 'Austin'], ['daniel', 'Daniel'], ['phone', 'Phone voice'], ['off', 'Silent']];
-const KEY = 'luxe_byte_voice_v2';
+export const BYTE_VOICES = [['kokoro', 'Kokoro (free)'], ['auto', 'Auto'], ['eleven', 'ElevenLabs'], ['troy', 'Troy'], ['austin', 'Austin'], ['daniel', 'Daniel'], ['phone', 'Phone voice'], ['off', 'Silent']];
+const KEY = 'luxe_byte_voice_v3'; // v3: Kokoro became the default, so older choices start fresh on Kokoro
 export function getByteVoice() {
-  try { const v = localStorage.getItem(KEY); return BYTE_VOICES.some(([k]) => k === v) ? v : 'auto'; } catch { return 'auto'; }
+  try { const v = localStorage.getItem(KEY); return BYTE_VOICES.some(([k]) => k === v) ? v : 'kokoro'; } catch { return 'kokoro'; }
 }
 export function setByteVoice(v) { try { localStorage.setItem(KEY, v); } catch { /* private mode */ } }
 
-// Which voice actually answered last: 'eleven', 'troy', 'austin', 'daniel', or 'phone'.
+// Which voice actually answered last: 'kokoro', 'eleven', 'troy', 'austin', 'daniel', or 'phone'.
 let lastWho = '';
 let lastWhy = ''; // why ElevenLabs didn't answer, when it didn't
 export const byteVoiceInfo = () => lastWho;
