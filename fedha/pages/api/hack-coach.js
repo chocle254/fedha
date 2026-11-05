@@ -50,7 +50,9 @@ export default async function handler(req, res) {
   if (!b.hack) return res.status(400).json({ error: 'Hackathon data required' });
   // Which AI provider to try first for this request (the page alternates judges between them).
   // Light jobs go to NVIDIA first too, keeping Groq's budget for ideas, plans and judging.
-  const prefer = b.provider === 'nvidia' || LIGHT.has(b.type) ? 'nvidia' : null;
+  // Judges always go to the same model first (Groq's 120b), so a score never depends on which provider answered.
+  const JUDGING = ['hack_judge', 'hack_judge_one'].includes(b.type);
+  const prefer = !JUDGING && (b.provider === 'nvidia' || LIGHT.has(b.type)) ? 'nvidia' : null;
   // Lessons the builder recorded after past hackathons (post-mortems): every prompt sees them.
   if (Array.isArray(b.lessons)) b.hack.lessons = list(b.lessons, 12, 220);
 
@@ -69,7 +71,7 @@ export default async function handler(req, res) {
     const reasoning = ['hack_scope', 'hack_chat', 'hack_ideas', 'hack_judge', 'hack_judge_one'].includes(b.type) ? 'medium' : null;
     let obj;
     try {
-      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : ['hack_judge', 'hack_judge_one'].includes(b.type) ? 0.3 : 0.6, LIGHT.has(b.type) ? 2500 : b.type === 'hack_judge_one' ? 3500 : 6000, ['hack_judge', 'hack_judge_one', 'hack_panel'].includes(b.type) ? JUDGE_MODEL : LIGHT.has(b.type) ? FALLBACK_MODEL : GROQ_MODEL, { reasoning, prefer });
+      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : JUDGING ? 0 : 0.6, LIGHT.has(b.type) ? 2500 : b.type === 'hack_judge_one' ? 3500 : 6000, ['hack_judge', 'hack_judge_one', 'hack_panel'].includes(b.type) ? JUDGE_MODEL : LIGHT.has(b.type) ? FALLBACK_MODEL : GROQ_MODEL, { reasoning, prefer, steady: JUDGING && !b.allow_backup });
     } catch (e) {
       // Groq's free tier caps tokens per request/minute. If the code
       // evidence made the prompt too big, try once more with less of it.
@@ -82,7 +84,7 @@ export default async function handler(req, res) {
       ev.deps = (ev.deps || []).slice(0, 1);
       if (b.hack.coach.presentation?.text) b.hack.coach.presentation.text = String(b.hack.coach.presentation.text).slice(0, 2500);
       if (b.found) b.found = String(b.found).slice(0, 2500);
-      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), 0.6, 3000, ['hack_judge', 'hack_judge_one', 'hack_panel'].includes(b.type) ? JUDGE_MODEL : GROQ_MODEL, { reasoning: reasoning ? 'low' : null, prefer });
+      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), JUDGING ? 0 : 0.6, 3000, ['hack_judge', 'hack_judge_one', 'hack_panel'].includes(b.type) ? JUDGE_MODEL : GROQ_MODEL, { reasoning: reasoning ? 'low' : null, prefer, steady: JUDGING && !b.allow_backup });
     }
     const out = shape[b.type](obj, b);
     if (out.error) return res.status(500).json(out);
@@ -116,7 +118,9 @@ async function groqJSON(key, prompt, temperature = 0.6, maxTokens = 6000, model 
   return groqJSONOnly(key, prompt, temperature, maxTokens, model, opts, !nvidiaFirst && nvidiaAvailable());
 }
 
-async function groqJSONOnly(key, prompt, temperature = 0.6, maxTokens = 6000, model = GROQ_MODEL, { reasoning = null } = {}, nvidiaBackup = false) { // eslint-disable-line default-param-last
+// steady (judging): a fixed seed, and never the smaller model on a rate limit (it scores differently);
+// the page reuses the judge's last review instead.
+async function groqJSONOnly(key, prompt, temperature = 0.6, maxTokens = 6000, model = GROQ_MODEL, { reasoning = null, steady = false } = {}, nvidiaBackup = false) { // eslint-disable-line default-param-last
   let useReasoning = reasoning;
   const call = async (m) => {
     try { return await callOnce(m); } catch (e) {
@@ -133,6 +137,7 @@ async function groqJSONOnly(key, prompt, temperature = 0.6, maxTokens = 6000, mo
         model: m,
         temperature,
         max_tokens: maxTokens,
+        ...(temperature === 0 ? { seed: 42 } : {}),
         response_format: { type: 'json_object' },
         // gpt-oss models think before answering; "medium" gives real reasoning without eating the token budget.
         ...(useReasoning && /gpt-oss/.test(m) ? { reasoning_effort: useReasoning } : {}),
@@ -160,10 +165,10 @@ async function groqJSONOnly(key, prompt, temperature = 0.6, maxTokens = 6000, mo
       try { return await call(model); } catch (e2) { if (e2.status !== 429) throw e2; }
     }
     // Groq is rate limited: NVIDIA's free tier has its own, separate limit.
-    if (nvidiaBackup) {
+    if (nvidiaBackup && !steady) {
       try { return await nvidiaJSON(prompt, temperature, maxTokens); } catch (e4) { console.warn('[fedha] hack-coach NVIDIA backup failed:', e4.status, e4.message); }
     }
-    if (model !== FALLBACK_MODEL) {
+    if (model !== FALLBACK_MODEL && !steady) {
       try { return await call(FALLBACK_MODEL); } catch (e3) { if (e3.status !== 429) throw e3; }
     }
     throw e;
@@ -488,6 +493,19 @@ ABOUT THE PROJECT / PITCH NOTES FROM THE BUILDER (context only, NOT the presenta
 ${notes || '(none)'}`;
 }
 
+// A real judge re-reviewing remembers their last scores: scores move only when the project changed.
+function previousReview(b) {
+  const p = b.previous;
+  if (!p?.scores?.length) return '';
+  const changes = list(p.changes, 12, 160);
+  return `
+YOUR LAST REVIEW OF THIS PROJECT (${clip(p.date, 20)}):
+${p.scores.slice(0, 10).map((s) => `- ${clip(s.criterion, 80)}: ${num(s.score, 0, 10)}/10. ${clip(s.note, 200)}`).join('\n')}
+WHAT CHANGED SINCE THEN: ${changes.length ? changes.join(' | ') : 'the code, README, write-up or video changed (no commit messages available)'}
+Stay consistent, like a real judge looking at it again: keep each score unless something that changed (or a VERIFIED FACT) justifies moving it. When you move a score, its note must name the change. Do not move scores just because you are reviewing it again.
+`;
+}
+
 function judgeMaterial(b) {
   const verified = clip(b.hack.coach?.facts || b.hack.coach?.app?.verified, 3000);
   return `${ctx(b.hack)}
@@ -573,7 +591,7 @@ lens must use exactly these criterion names: ${criteria.replace(/ \(\d+%\)/g, ''
 Judge exactly as this hackathon's criteria say, through YOUR lens, as strictly as real judges: most entries score 45-70.
 
 ${judgeMaterial(b)}
-
+${previousReview(b)}
 Return JSON: {"scores":[{"criterion":"","score":0,"note":""}],"comment":"2-3 sentences in your own voice, from your seat","strengths":["2 things that work, from your seat"],"fixes":["the 3 changes that would raise YOUR scores most in the time left, most important first, concrete"],"questions":["2 hard questions you would ask"],"requirements":[{"rule":"","status":"met|missing|unclear","note":""}],"twist":{"idea":"one move that would impress YOU specifically","why":"","hours":0},"shortlist":false,"track":"the prize or track you would put it up for, or empty"}
 - scores: exactly these criteria: ${criteria}. score 1-10, note = one sentence why, naming the evidence.${realWeights ? '' : ' The hackathon gives no weights.'}
 - requirements: check every hard requirement from the brief (empty list if none).

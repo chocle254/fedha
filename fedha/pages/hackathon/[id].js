@@ -12,7 +12,7 @@ import TeamChannel from '../../components/hackcoach/TeamChannel';
 import Appeals from '../../components/hackcoach/Appeals';
 import PostMortem from '../../components/hackcoach/PostMortem';
 import { startDateOf, gatherEvidence, timelineOf, timelineText, scanRepo, applyFacts, dropDone, verifiedFacts, fmtDuration } from '../../lib/hack-coach';
-import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, workload, minutesLogged, coachTasks, submissionFields, hackForAI, coachAsk, addDays, setLessons, lessonsFrom, combinePanel } from '../../lib/hack-coach';
+import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, workload, minutesLogged, coachTasks, submissionFields, hackForAI, coachAsk, addDays, setLessons, lessonsFrom, combinePanel, fingerprint, carryAppeals } from '../../lib/hack-coach';
 
 // The Hackathon Coach: a mentor that reads the hackathon you paste,
 // researches it, helps you pick an idea, plans the build to fit the time
@@ -362,22 +362,41 @@ export default function HackathonCoach() {
         const sources = await gatherEvidence(cur().coach?.app?.repo, { pinned: cur().coach?.appeal_files || [] });
         setJudgeSeen(sources.map((f) => f.path));
         const payload = { hack: hackForAI(cur(), { evidence: sources }), pitch: subm };
-        // Judges alternate between the two free AI providers (Groq, NVIDIA, Groq…). Each provider's judges
-        // go one after another, and the two queues run at the same time: half the rate-limit pressure,
-        // about twice as fast. Each side falls back to the other if it is limited.
+        // Each judge remembers their last review. Same project (same code, README, write-up, video, facts)
+        // = same scores, with no AI call. Changed project = the judge re-reviews, starting from their last
+        // scores and moving only what the changes justify. A judge who can't answer keeps their last review.
+        const repo = cur().coach?.app?.repo;
+        const hc = payload.hack.coach || {};
+        const seen = fingerprint({ ev: hc.app?.evidence, head: repo?.commits?.[0]?.sha, facts: hc.facts, pres: hc.presentation, pitch: subm, crit: hc.brief?.criteria, reqs: hc.brief?.requirements });
+        const memory = { ...(cur().coach?.judge_memory || {}) };
         const results = [];
+        let reused = 0; let stale = 0;
         const reviewing = new Set();
         let lastErr = null;
         const showStep = () => setJudgeStep(reviewing.size ? `${results.length} of ${panel.judges.length} judges done · reviewing now: ${[...reviewing].join(', ')}` : `${results.length} of ${panel.judges.length} judges done`);
-        const queue = (provider) => panel.judges.filter((_, i) => (i % 2 === 1) === (provider === 'nvidia'));
-        await Promise.all(['groq', 'nvidia'].map(async (provider) => {
-          for (const j of queue(provider)) {
+        // Two judges at a time, all on the same model, so a score never depends on which provider answered.
+        const queues = [panel.judges.filter((_, i) => i % 2 === 0), panel.judges.filter((_, i) => i % 2 === 1)];
+        await Promise.all(queues.map(async (queue) => {
+          for (const j of queue) {
+            const hash = fingerprint([seen, j.key, j.title, j.lens]);
+            const mem = memory[j.key];
+            if (mem?.hash === hash && mem.result) { results.push(mem.result); reused++; showStep(); continue; }
             reviewing.add(j.title); showStep();
-            try { results.push((await askJudge('hack_judge_one', { ...payload, judge: j, provider })).result); } catch (e) { lastErr = e; }
+            const changes = mem ? (repo?.commits || []).filter((c) => c.date && Date.parse(c.date) > mem.at).map((c) => c.message) : [];
+            const previous = mem?.result ? { date: new Date(mem.at).toISOString().slice(0, 10), scores: mem.result.scores, changes } : null;
+            try {
+              const res = (await askJudge('hack_judge_one', { ...payload, judge: j, previous, allow_backup: !mem })).result;
+              results.push(res); memory[j.key] = { hash, result: res, at: Date.now() };
+            } catch (e) {
+              lastErr = e;
+              if (mem?.result) { results.push(mem.result); stale++; }
+            }
             reviewing.delete(j.title); showStep();
           }
         }));
         if (!results.length) throw lastErr || new Error('No judge could score it right now. Try again in a minute.');
+        // Only the current panel's judges are remembered (keeps the saved data small).
+        saveCoach({ judge_memory: Object.fromEntries(panel.judges.filter((j) => memory[j.key]).map((j) => [j.key, memory[j.key]])) });
         const raw = combinePanel(panel, results);
         // Checked facts beat the AI: requirements are re-marked from GitHub, done things are not suggested again.
         const r = {
@@ -387,8 +406,12 @@ export default function HackathonCoach() {
           questions: dropDone(raw.questions, cur()),
           twists: dropDone(raw.twists, cur(), 'idea'),
           missing_judges: panel.judges.length - results.length,
+          reused_judges: reused, stale_judges: stale,
         };
-        saveCoach({ judged: [{ ...r, at: Date.now(), date: today }, ...(cur().coach?.judged || [])].slice(0, 6) });
+        // Won appeals stay won.
+        const prev = (cur().coach?.judged || [])[0];
+        const kept = prev?.appeals?.length ? carryAppeals(r, prev) : r;
+        saveCoach({ judged: [{ ...kept, at: Date.now(), date: today }, ...(cur().coach?.judged || [])].slice(0, 6) });
         setTimeout(() => document.getElementById('hc-verdict')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
       } finally { setJudgeStep(''); }
     });
@@ -911,6 +934,7 @@ export default function HackathonCoach() {
                         {j.shortlist && <div style={{ fontSize: 11.5, color: 'var(--green)', marginTop: 4 }}>Would shortlist it{j.track ? ` for ${j.track}` : ''}</div>}
                       </div>
                     ))}
+                    {(lastJudge.reused_judges > 0 || lastJudge.stale_judges > 0) && <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{lastJudge.reused_judges > 0 ? `${lastJudge.reused_judges} judge${lastJudge.reused_judges > 1 ? 's' : ''} kept their scores: nothing they look at changed since last time.` : ''}{lastJudge.stale_judges > 0 ? ` ${lastJudge.stale_judges} couldn't answer (free AI limit), so their last review stands.` : ''}</div>}
                     {lastJudge.missing_judges > 0 && <div style={{ fontSize: 11.5, color: '#F59E0B' }}>{lastJudge.missing_judges} judge{lastJudge.missing_judges > 1 ? 's' : ''} could not score this run (free AI limit); the verdict uses the others.</div>}
                   </div>
                 )}

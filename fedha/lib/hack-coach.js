@@ -671,6 +671,29 @@ export function appealTargets(v) {
   ].filter((t) => !done.has(`${t.kind}:${t.target}`)).map((t) => ({ ...t, label: t.label.slice(0, 220) }));
 }
 
+// A short fingerprint of what a judge sees, so an unchanged project keeps its scores.
+export function fingerprint(value) {
+  const str = JSON.stringify(value) || '';
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(36) + str.length.toString(36);
+}
+
+// Won appeals stay won when the project is judged again: the score never drops below what the appeal set.
+export function carryAppeals(next, prev) {
+  const won = (prev?.appeals || []).filter((a) => a.ruling !== 'rejected').reverse();
+  let out = { ...next, appeals: [] };
+  for (const a of won) {
+    const s = (out.scores || []).find((x) => x.criterion === a.target);
+    const r = (out.requirements || []).find((x) => x.rule === a.target);
+    const stillApplies = (a.kind === 'score' && s && a.new_score > s.score)
+      || (a.kind === 'requirement' && r && r.status !== 'met')
+      || (a.kind === 'fix' && (out.fixes || []).includes(a.target));
+    out = stillApplies ? applyAppeal(out, a) : { ...out, appeals: [a, ...out.appeals] };
+  }
+  return out;
+}
+
 // Apply a won appeal to the verdict: the score, requirement or fix is corrected and the overall recomputed.
 export function applyAppeal(v, a) {
   const out = { ...v, appeals: [a, ...(v.appeals || [])].slice(0, 20) };
