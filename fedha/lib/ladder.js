@@ -18,7 +18,6 @@ import { getSettings, notify } from './trading';
 
 const EVERY_MS = 10 * 60e3;
 const BOOK_START = 1000;
-const BOOK_RISK = 0.01; // the Proven book risks 1% of its balance per signal
 
 export const LADDER_RULES = {
   promote: { signals: 5, avgR: 0.2, conf: 65, maxDD: 3, slip: 0.15 },
@@ -151,10 +150,17 @@ export async function evaluateLadder(userId, { force = false } = {}) {
     for (const x of signalResults(bySource[source])) if (x.at > c.provenAt) bookResults.push({ ...x, source });
   }
   bookResults.sort((a, b) => (a.at < b.at ? -1 : 1));
+  // Same risk as the main paper account (25% of the balance now), so the two books compare fairly.
+  const riskPct = settings.risk_mode === 'fixed'
+    ? ((Number(settings.risk_usdt) || 10) / (Number(settings.paper_balance) || BOOK_START)) * 100
+    : Number(settings.risk_pct) || 1;
   let eq = BOOK_START, peak = BOOK_START, ddPct = 0;
   const curve = [];
+  const per = {};
   for (const x of bookResults) {
-    eq *= 1 + Math.max(-1.5, x.r) * BOOK_RISK;
+    eq = Math.max(0, eq * (1 + Math.max(-1.5, x.r) * riskPct / 100));
+    const pc = per[x.source] || (per[x.source] = { source: x.source, n: 0, wins: 0, r: 0 });
+    pc.n += 1; pc.wins += x.r > 0 ? 1 : 0; pc.r += x.r;
     peak = Math.max(peak, eq);
     ddPct = Math.max(ddPct, ((peak - eq) / peak) * 100);
     curve.push(Math.round(eq * 100) / 100);
@@ -162,6 +168,9 @@ export async function evaluateLadder(userId, { force = false } = {}) {
   const book = {
     start: BOOK_START, equity: Math.round(eq * 100) / 100, signals: bookResults.length,
     wins: bookResults.filter((x) => x.r > 0).length, maxDdPct: Math.round(ddPct * 10) / 10, curve: curve.slice(-40),
+    riskPct: Math.round(riskPct * 10) / 10,
+    since: Object.values(channels).filter((c) => ['proven', 'real'].includes(c.stage) && c.provenAt).map((c) => c.provenAt).sort()[0] || null,
+    bySource: Object.values(per).map((c) => ({ ...c, r: Math.round(c.r * 100) / 100 })).sort((a, b) => b.r - a.r),
   };
 
   const ladder = { checkedAt: now, channels, book };
