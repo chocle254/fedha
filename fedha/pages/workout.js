@@ -25,35 +25,36 @@ export const EXERCISES = {
 };
 
 // ─── SMALL-SPACE PLAN ────────────────────────────────────────────────────────
-// One ~20–35 minute session a day that fits a strip the length of a bed (about 2 × 1 m):
-// no jumping, no equipment, nothing that needs walking room. It starts at 3 sets of each
-// move and adds a set for every full week of streak, up to 5.
-const MICRO_DAYS = [
-  { focus: 'Push 💪', theme: '#3B82F6', moves: [['pushups', 10], ['pike_pushups', 6], ['plank', 20]] },
-  { focus: 'Legs 🦵', theme: '#10B981', moves: [['squats', 15], ['glute_bridges', 15], ['calf_raises', 20]] },
-  { focus: 'Core 🔥', theme: '#F97316', moves: [['situps', 12], ['mountain_climbers', 16], ['plank', 25]] },
-  { focus: 'Push 💎', theme: '#8B5CF6', moves: [['wide_pushups', 10], ['diamond_pushups', 6], ['pushups', 8]] },
-  { focus: 'Legs 🍑', theme: '#EF4444', moves: [['lunges', 10], ['wall_sit', 30], ['glute_bridges', 15]] },
-  { focus: 'Full body ⚡', theme: '#14B8A6', moves: [['squats', 12], ['pushups', 10], ['mountain_climbers', 16], ['plank', 20]] },
-  { focus: 'Rest & stretch 🧘', theme: '#A78BFA', moves: [], rest: true },
-];
+// The same plan as the full one (same day, focus and moves, in the same order: every move already fits a strip the
+// length of a bed, no jumping or equipment), as ONE shorter session: the morning moves at ~60% of the reps per set.
+// It starts at 3 sets of each move and adds a set for every full week of streak, up to 5. Sunday stays the full
+// plan's light recovery (2 easy sets).
+const MICRO_SHARE = 0.6;
 export function microLevel(streak = 0) { return Math.min(5, 3 + Math.floor((Number(streak) || 0) / 7)); }
+function microMoves(dayIdx, streak = 0) {
+  const full = WEEKLY_PLAN[dayIdx];
+  const recovery = dayIdx === 6;
+  const sets = recovery ? 2 : microLevel(streak);
+  return (full.morning.isRest ? [] : full.morning.exercises).map((e) => ({
+    ...e, sets, reps: recovery ? e.reps : Math.max(5, Math.round((e.reps * MICRO_SHARE) / (e.unit === 'sec' ? 5 : 1)) * (e.unit === 'sec' ? 5 : 1)),
+  }));
+}
 export function microDay(dayIdx, streak = 0) {
-  const d = MICRO_DAYS[dayIdx];
-  const sets = microLevel(streak);
-  const exercises = d.moves.map(([id, reps]) => ({ ...EXERCISES[id], sets, reps }));
+  const full = WEEKLY_PLAN[dayIdx];
+  const exercises = microMoves(dayIdx, streak);
+  const sets = exercises[0]?.sets || 0;
   return {
-    day: WEEKLY_PLAN_DAYS[dayIdx], focus: d.focus, theme: d.theme,
-    morning: { title: `${microMinutes(dayIdx, streak)}-minute session · ${sets} sets each`, exercises, isRest: !!d.rest },
+    day: full.day, focus: full.focus, theme: full.theme,
+    morning: { title: `${microMinutes(dayIdx, streak)}-minute session · ${sets} sets each`, exercises, isRest: !exercises.length },
     evening: { title: 'Rest', exercises: [], isRest: true },
   };
 }
 // Minutes for a small-space session: ~1.5 min per set (work + 60–90 s rest),
 // plus 5 min warm-up and 3 min cool-down stretch. Never less than 20 minutes.
 export function microMinutes(dayIdx, streak = 0) {
-  const d = MICRO_DAYS[dayIdx];
-  if (d.rest) return 0;
-  return Math.max(20, Math.round(d.moves.length * microLevel(streak) * 1.5) + 8);
+  const moves = microMoves(dayIdx, streak);
+  if (!moves.length) return 0;
+  return Math.max(20, Math.round(moves.reduce((n, e) => n + e.sets, 0) * 1.5) + 8);
 }
 // The plan the Planner and this page use for a day, depending on the chosen mode.
 export function planForDay(dayIdx, mode = 'small', streak = 0) {
