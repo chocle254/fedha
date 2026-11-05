@@ -21,9 +21,12 @@ const BOOK_START = 1000;
 
 export const LADDER_RULES = {
   promote: { signals: 5, avgR: 0.2, conf: 65, maxDD: 3, slip: 0.15 },
-  real: { signals: 5, avgR: 0.25, conf: 70, pf: 1.3, maxDD: 3 },
+  // Real money is strict: 10 signals since Proven, spread over 4+ separate days (one lucky morning is not enough),
+  // +0.3R each, 80% confident, wins 1.5× its losses, a small worst dip, and the recent half still holding up.
+  real: { signals: 10, days: 4, avgR: 0.3, conf: 80, pf: 1.5, maxDD: 2.5, slip: 0.15 },
   demoteProven: { minSignals: 3, streak: 3, maxDD: 4 },
-  demoteReal: { minSignals: 4, streak: 3 },
+  // Real slips back fast: 3 losses in a row, below zero after 3 signals, or a 3R dip.
+  demoteReal: { minSignals: 3, streak: 3, maxDD: 3 },
 };
 
 function normCdf(z) {
@@ -53,7 +56,7 @@ export function signalResults(trades) {
 
 export function ladderStats(results) {
   const n = results.length;
-  if (!n) return { n: 0, avgR: 0, pnl: 0, wins: 0, losses: 0, streak: 0, conf: 50, firstAvg: 0, lastAvg: 0, maxDD: 0, pf: 0 };
+  if (!n) return { n: 0, days: 0, avgR: 0, pnl: 0, wins: 0, losses: 0, streak: 0, conf: 50, firstAvg: 0, lastAvg: 0, maxDD: 0, pf: 0 };
   let sum = 0, sq = 0, pnl = 0, wins = 0, streak = 0, cum = 0, peak = 0, maxDD = 0, gain = 0, loss = 0;
   for (const x of results) {
     sum += x.r; sq += x.r * x.r; pnl += x.pnl;
@@ -66,7 +69,7 @@ export function ladderStats(results) {
   const half = Math.floor(n / 2);
   const avg = (a) => (a.length ? a.reduce((s, x) => s + x.r, 0) / a.length : 0);
   return {
-    n, avgR, pnl, wins, losses: n - wins, streak, conf,
+    n, days: new Set(results.map((x) => String(x.at).slice(0, 10))).size, avgR, pnl, wins, losses: n - wins, streak, conf,
     firstAvg: avg(results.slice(0, half)), lastAvg: avg(results.slice(half)),
     maxDD, pf: loss > 0 ? gain / loss : gain > 0 ? 99 : 0,
   };
@@ -82,10 +85,11 @@ export function canPromote(s) {
 }
 export function canGoReal(s) {
   const q = R.real;
-  return s.n >= q.signals && s.avgR >= q.avgR && s.pf >= q.pf && s.conf >= q.conf && s.streak < 3 && s.maxDD <= q.maxDD && s.lastAvg > 0;
+  return s.n >= q.signals && s.days >= q.days && s.avgR >= q.avgR && s.pnl > 0 && s.pf >= q.pf && s.conf >= q.conf && s.streak < 3
+    && s.maxDD <= q.maxDD && s.lastAvg > 0 && s.lastAvg >= s.firstAvg - q.slip;
 }
 const provenSlipping = (s) => s.streak >= R.demoteProven.streak || s.maxDD > R.demoteProven.maxDD || (s.n >= R.demoteProven.minSignals && s.avgR < 0);
-const realSlipping = (s) => s.streak >= R.demoteReal.streak || (s.n >= R.demoteReal.minSignals && s.avgR < 0);
+const realSlipping = (s) => s.streak >= R.demoteReal.streak || s.maxDD > R.demoteReal.maxDD || (s.n >= R.demoteReal.minSignals && s.avgR < 0);
 
 // What a channel still needs for its next step, in plain words (for the Trading page).
 export function nextStepNote(stage, s) {
@@ -93,6 +97,7 @@ export function nextStepNote(stage, s) {
   const need = [];
   const rule = stage === 'proven' ? R.real : R.promote;
   if (s.n < rule.signals) need.push(`${rule.signals - s.n} more signal${rule.signals - s.n === 1 ? '' : 's'}`);
+  if (stage === 'proven' && s.days < R.real.days) need.push(`results on ${R.real.days} separate days (now ${s.days})`);
   if (s.avgR < rule.avgR) need.push(`average ${fmtR(rule.avgR)} (now ${fmtR(s.avgR)})`);
   if (s.conf < rule.conf) need.push(`${rule.conf}% confidence (now ${s.conf}%)`);
   if (stage === 'proven' && s.n >= 2 && s.pf < R.real.pf) need.push(`wins ${R.real.pf}× its losses`);
@@ -129,7 +134,7 @@ export async function evaluateLadder(userId, { force = false } = {}) {
     if (c.stage === 'trial' && canPromote(s)) { to = 'proven'; why = `${s.n} signals, ${fmtR(s.avgR)} each, ${s.conf}% confident, still improving.`; }
     else if (c.stage === 'proven' && canGoReal(s)) { to = 'real'; why = `On its own in the Proven book: ${s.n} signals, ${fmtR(s.avgR)} each, wins ${s.pf.toFixed(1)}× its losses, ${s.conf}% confident.`; }
     else if (c.stage === 'proven' && provenSlipping(s)) { to = 'trial'; why = s.streak >= 3 ? `${s.streak} losses in a row since promotion.` : `${fmtR(s.avgR)} per signal since promotion.`; }
-    else if (c.stage === 'real' && realSlipping(s)) { to = 'proven'; why = s.streak >= 3 ? `${s.streak} real-stage losses in a row.` : `${fmtR(s.avgR)} per signal since going real.`; }
+    else if (c.stage === 'real' && realSlipping(s)) { to = 'proven'; why = s.streak >= R.demoteReal.streak ? `${s.streak} real-stage losses in a row.` : s.maxDD > R.demoteReal.maxDD ? `Dropped ${s.maxDD.toFixed(1)}R from its best since going real.` : `${fmtR(s.avgR)} per signal since going real.`; }
     if (to) {
       c.history = [...(c.history || []), { from: c.stage, to, at: now, why }].slice(-6);
       c.stage = to; c.since = now;
