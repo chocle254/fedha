@@ -343,7 +343,21 @@ export default function WorkoutPage() {
   const totalSets = sessionData.exercises.reduce((s, e) => s + e.sets, 0);
   const doneSets = sessionData.exercises.reduce((s, e) => s + Math.min(e.sets, completedSets[`${session}_${e.id}`] || 0), 0);
   const sessionPct = totalSets > 0 ? Math.round((doneSets / totalSets) * 100) : 0;
-  const sessionComplete = totalSets > 0 && doneSets >= totalSets;
+  const stopped = !!completedSets._stopped;
+  const sessionComplete = totalSets > 0 && (doneSets >= totalSets || stopped);
+
+  // Stopping early because something hurts or goes numb: the day still counts (the streak keeps going), the rest of
+  // the moves are skipped, and the safety advice shows. Pushing through numbness is how small problems get bigger.
+  async function stopForToday() {
+    const updated = { ...completedSets, _stopped: true };
+    setCompletedSets(updated);
+    await setSetting(`workout_${todayISO()}`, updated);
+    if (doneSets < totalSets) {
+      const newStreak = streak + 1;
+      setStreak(newStreak);
+      await setSetting('workout_streak', newStreak);
+    }
+  }
 
   return (
     <Layout fab={false}>
@@ -443,7 +457,13 @@ export default function WorkoutPage() {
             </div>
             {sessionComplete && (
               <div style={{ marginTop: 14, padding: '10px 14px', background: 'var(--green-dim)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 12, fontSize: 14, fontWeight: 600, color: 'var(--green)', textAlign: 'center' }}>
-                🎉 Session complete. Rest and eat your protein.
+                {stopped && doneSets < totalSets ? '✅ Stopped early, and the day still counts. Listening to your body is part of training.' : '🎉 Session complete. Rest and eat your protein.'}
+              </div>
+            )}
+            {stopped && doneSets < totalSets && (
+              <div style={{ marginTop: 10, fontSize: 13, lineHeight: 1.55, color: 'var(--text-2)' }}>
+                <b style={{ color: 'var(--text)' }}>If a leg feels numb or tingly:</b> sit or lie down with the leg straight and relaxed, then gently move your ankle and toes. A squeezed nerve (often from deep squats or lunges, or kneeling) usually wakes up within 10–30 minutes. Drink water and eat something.
+                <div style={{ marginTop: 6 }}><b style={{ color: '#F87171' }}>See a doctor or clinic soon</b> if it lasts more than an hour or keeps coming back, if the leg feels weak or your foot drags, if it comes with back pain shooting down the leg, if both legs are numb, or if the leg is swollen, cold or changing colour. Trouble controlling your bladder or bowels with it means go now.</div>
               </div>
             )}
           </div>
@@ -468,6 +488,13 @@ export default function WorkoutPage() {
                 />
               ))}
             </div>
+          )}
+
+          {!sessionData.isRest && !sessionComplete && doneSets > 0 && (
+            <button onClick={stopForToday}
+              style={{ width: '100%', marginBottom: 16, padding: '11px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 12, color: '#FCA5A5', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              🛑 Stop here: something hurts, feels numb or wrong
+            </button>
           )}
 
           {/* How it works tip */}
