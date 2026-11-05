@@ -4,7 +4,7 @@
 // SAFETY: real-money accounts are refused unless broker_settings.allow_real is true.
 import { supabaseAdmin } from './supabaseAdmin';
 import { BROKER_ACCOUNTS, accountId, metaapiConfigured, mt, tradeOk, findSymbol } from './metaapi';
-import { groupReport, brokerResults, splitLots, LOT_MIN, REAL_EARLY_TRADES, trailCandidate, TRAIL_DEFAULT, growthTier } from './trading-core';
+import { groupReport, brokerResults, splitLots, LOT_MIN, REAL_EARLY_TRADES, trailCandidate, TRAIL_DEFAULT, growthTier, realScale } from './trading-core';
 import { notify, trailProfiles, atrBefore, growthState } from './trading';
 import { newsCheck, newsReason } from './news-guard';
 import { ladderStage } from './ladder';
@@ -115,7 +115,9 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
   const tps = parsed.takeProfits.filter((tp) => (buy ? tp > entry : tp < entry));
   if (!tps.length) return { skipped: 'Price is already past every take-profit.' };
 
-  const plannedRisk = (Number(info.balance) * Number(growth ? growth.pct : cfg.risk_pct || 1) * mult) / 100;
+  // Real accounts step their risk % down as the balance passes $100, $1,000 and $10,000 (REAL_SCALE).
+  const scale = real && !growth && cfg.scale !== false ? realScale(info.balance, cfg.risk_pct) : null;
+  const plannedRisk = (Number(info.balance) * Number(growth ? growth.pct : scale ? scale.pct : cfg.risk_pct || 1) * mult) / 100;
   const maxRiskUsd = growth ? (Number(info.balance) * growth.cap) / 100 : undefined;
   const split = splitLots({ riskUsd: plannedRisk, entry, stop: sl, tps, contractSize: spec.contractSize, minVolume: spec.minVolume, volumeStep: spec.volumeStep, maxRiskUsd });
   if (split.error) return { skipped: split.error };

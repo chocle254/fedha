@@ -441,6 +441,21 @@ export const GROWTH_TIERS = [
 ];
 export const GROWTH_LEVERAGE = 1000;
 
+// Real accounts scale with their balance: the dollar risk grows with the account, but the PERCENT steps down
+// at each milestone so a big account isn't risked like a small one. The account's own risk_pct is the ceiling.
+export const REAL_SCALE = [
+  { upTo: 100, label: 'Seed', pct: 10 },
+  { upTo: 1000, label: 'Growing', pct: 6 },
+  { upTo: 10000, label: 'Established', pct: 4 },
+  { upTo: Infinity, label: 'Large', pct: 2 },
+];
+export function realScale(balance, ceilingPct = 10) {
+  const b = Number(balance) || 0;
+  const i = REAL_SCALE.findIndex((t) => b < t.upTo);
+  const t = REAL_SCALE[i];
+  return { ...t, index: i, pct: Math.min(t.pct, Number(ceilingPct) || t.pct), next: REAL_SCALE[i + 1] ? t.upTo : null };
+}
+
 // The stage for this balance. The last stage uses the account's normal risk (basePct), with the usual
 // "smallest lot may risk up to twice the plan" rule.
 export function growthTier(balance, basePct = 1) {
