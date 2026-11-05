@@ -302,33 +302,42 @@ export function rankFile(p, size = 0) {
   if (/^(main|app|index|server|api|routes?|router)\.[a-z]+$/.test(base)) r += 4;
   if (/(^|\/)(routers?|routes|pages|app|screens|views|components|services|agents|api|controllers|handlers|lib|hooks|models)\//.test(f)) r += 3;
   if (size) r += Math.min(4, Math.log2(size / 1000 + 1)); // substantial files tell judges more
+  // Where the AI lives: AI hackathons are judged on it, so judges must see these files.
+  if (/(^|[_-])(ai|llm|agents?|prompts?|openai|groq|gemini|claude|anthropic|genai|rag|embeddings?|model)([_.-]|$)/.test(base)) r += 3;
   r -= f.split('/').length * 0.4;
   return r;
 }
-export async function gatherEvidence(repo, { maxFiles = 8, perFile = 1800 } = {}) {
+// The start of a long file plus an outline of the rest (functions, classes, routes).
+export function fileExcerpt(text, perFile = 1800) {
+  const t = String(text || '');
+  const outline = t.length > perFile ? t.split('\n').filter((l) => OUTLINE.test(l)).map((l) => l.trim().slice(0, 110)).slice(0, 45) : [];
+  return { text: t.slice(0, outline.length ? Math.round(perFile * 0.55) : perFile), outline, size: t.length, truncated: t.length > perFile };
+}
+
+// pinned: files the builder proved matter (won appeals); always shown, on top of the usual picks.
+export async function gatherEvidence(repo, { maxFiles = 8, perFile = 1800, pinned = [] } = {}) {
   if (!repo?.full_name) return [];
   // Best-ranked first, but at most 2 files from any one folder, so the
   // judges see pages, components and the backend, not eight API helpers.
   const sizes = repo.sizes || {};
   const ranked = (repo.files || []).map((p) => [p, rankFile(p, sizes[p])]).filter(([, r]) => r >= 0).sort((a, b) => b[1] - a[1]);
   const perDir = {};
+  const pins = (pinned || []).filter((p) => (repo.files || []).includes(p)).slice(0, 4);
   const picks = [];
   for (const [p] of ranked) {
     const dir = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '.';
-    if ((perDir[dir] || 0) >= 2) continue;
+    if ((perDir[dir] || 0) >= 2 || pins.includes(p)) continue;
     perDir[dir] = (perDir[dir] || 0) + 1;
     picks.push(p);
     if (picks.length >= maxFiles) break;
   }
-  const got = await Promise.all(picks.map(async (p) => {
+  const got = await Promise.all([...pins, ...picks].map(async (p) => {
     try {
       const r = await fetch(rawUrl(repo.full_name, repo.branch || 'main', p));
       if (!r.ok) return null;
-      const text = await r.text();
       // An outline of the whole file (functions, classes, components, API
       // routes), so judges see what is in it beyond the first lines.
-      const outline = text.length > perFile ? text.split('\n').filter((l) => OUTLINE.test(l)).map((l) => l.trim().slice(0, 110)).slice(0, 45) : [];
-      return { path: p, text: text.slice(0, outline.length ? Math.round(perFile * 0.55) : perFile), outline, size: text.length, truncated: text.length > perFile };
+      return { path: p, ...fileExcerpt(await r.text(), perFile) };
     } catch { return null; }
   }));
   return got.filter(Boolean);
@@ -645,5 +654,35 @@ export function factsText(hack) {
     f.from_video ? '- Judging: online, from the recorded demo video and the written submission. There is no live demo in front of judges, so never suggest live polls, audience moments or on-stage tricks.' : '',
     f.sponsors.length ? `- Sponsor tools named in the rules: ${f.sponsors.join(', ')}` : '- Sponsor tools: none named in the rules. Never suggest sponsor APIs or credits.',
     docs.length ? `- Documents in the repo (any folder): ${docs.join(', ')}` : '',
+    ...(hack?.coach?.appeal_facts || []).slice(0, 12).map((x) => `- Proved on appeal (checked against the code/live app; never contradict it): ${x.fact}`),
   ].filter(Boolean).join('\n');
+}
+
+// ── Appeals: the builder proves a judge wrong ──
+// What a builder can challenge in a verdict: score notes, requirements not marked met, fixes, judge comments.
+export function appealTargets(v) {
+  if (!v) return [];
+  const done = new Set((v.appeals || []).filter((a) => a.ruling !== 'rejected').map((a) => `${a.kind}:${a.target}`));
+  return [
+    ...(v.scores || []).map((s) => ({ kind: 'score', target: s.criterion, claim: s.note, label: `${s.criterion} (${s.score}/10): ${s.note}`, score: s.score })),
+    ...(v.requirements || []).filter((r) => r.status !== 'met').map((r) => ({ kind: 'requirement', target: r.rule, claim: r.note || r.status, label: `Requirement [${r.status}]: ${r.rule}${r.note ? ` · ${r.note}` : ''}`, status: r.status })),
+    ...(v.fixes || []).map((x) => ({ kind: 'fix', target: x, claim: x, label: `Fix: ${x}` })),
+    ...(v.judges || []).map((j) => ({ kind: 'comment', target: j.role, claim: j.comment, label: `${j.role}: "${j.comment}"` })),
+  ].filter((t) => !done.has(`${t.kind}:${t.target}`)).map((t) => ({ ...t, label: t.label.slice(0, 220) }));
+}
+
+// Apply a won appeal to the verdict: the score, requirement or fix is corrected and the overall recomputed.
+export function applyAppeal(v, a) {
+  const out = { ...v, appeals: [a, ...(v.appeals || [])].slice(0, 20) };
+  if (out.overall_before_appeals == null) out.overall_before_appeals = v.overall;
+  if (a.ruling === 'rejected') return out;
+  if (a.kind === 'score' && a.new_score) {
+    out.scores = (v.scores || []).map((s) => (s.criterion === a.target ? { ...s, score: a.new_score, note: `Corrected on appeal (was ${s.score}): ${a.finding}`, appealed: true } : s));
+    out.overall = weightedOverall(out.scores);
+  }
+  if (a.kind === 'requirement' && a.new_status) {
+    out.requirements = (v.requirements || []).map((r) => (r.rule === a.target ? { ...r, status: a.new_status, note: `On appeal: ${a.finding}`, appealed: true } : r));
+  }
+  if (a.kind === 'fix' && a.ruling === 'upheld') out.fixes = (v.fixes || []).filter((x) => x !== a.target);
+  return out;
 }

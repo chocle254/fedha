@@ -9,6 +9,7 @@ import { ScoreBar, scoreColor } from '../../components/startup/museApi';
 import AppConnect from '../../components/hackcoach/AppConnect';
 import PitchCoach from '../../components/hackcoach/PitchCoach';
 import TeamChannel from '../../components/hackcoach/TeamChannel';
+import Appeals from '../../components/hackcoach/Appeals';
 import PostMortem from '../../components/hackcoach/PostMortem';
 import { startDateOf, gatherEvidence, timelineOf, timelineText, scanRepo, applyFacts, dropDone, verifiedFacts, fmtDuration } from '../../lib/hack-coach';
 import { PHASES, phaseOf, mentorNotice, hoursLeft, fmtHours, workload, minutesLogged, coachTasks, submissionFields, hackForAI, coachAsk, addDays, setLessons, lessonsFrom, combinePanel } from '../../lib/hack-coach';
@@ -78,13 +79,16 @@ function verdictText(v, hackName) {
   const L = [];
   L.push(`Judges' verdict: ${hackName} (${v.date})`, `Overall: ${v.overall}/100`, v.verdict);
   if (v.prize_odds) L.push(`Prize odds: ${v.prize_odds}`);
+  if (v.overall_before_appeals != null && v.overall !== v.overall_before_appeals) L.push(`(${v.overall_before_appeals} before appeals)`);
   if (v.judges?.length) { L.push('', 'JUDGES'); v.judges.forEach((j) => L.push(`- ${j.role}: "${j.comment}"`)); }
+  if (v.missing_judges > 0) L.push(`(${v.missing_judges} judge${v.missing_judges > 1 ? 's' : ''} could not score this run; the verdict uses the others.)`);
   if (v.scores?.length) { L.push('', 'SCORES'); v.scores.forEach((x) => L.push(`- ${x.criterion}${x.weight ? ` (${x.weight}%)` : ''}: ${x.score}/10. ${x.note}`)); }
   if (v.requirements?.length) { L.push('', 'REQUIREMENTS'); v.requirements.forEach((r) => L.push(`- [${r.status === 'met' ? 'met' : r.status === 'missing' ? 'MISSING' : 'unclear'}${r.verified ? ', checked' : ''}] ${r.rule}${r.note ? `. ${r.note}` : ''}`)); }
   if (v.strengths?.length) { L.push('', 'WHAT WORKS'); v.strengths.forEach((x) => L.push(`- ${x}`)); }
   if (v.fixes?.length) { L.push('', 'FIX THESE FIRST'); v.fixes.forEach((x, i) => L.push(`${i + 1}. ${x}`)); }
   if (v.twists?.length) { L.push('', 'BEAT THEIR EXPECTATIONS'); v.twists.forEach((t) => L.push(`- ${t.idea}${t.hours ? ` (~${t.hours}h)` : ''}${t.why ? `. ${t.why}` : ''}`)); }
   if (v.questions?.length) { L.push('', 'THEY WILL ASK'); v.questions.forEach((x) => L.push(`- ${x}`)); }
+  if (v.appeals?.length) { L.push('', 'APPEALS'); v.appeals.forEach((a) => L.push(`- [${a.ruling}] ${a.target}: ${a.finding}`)); }
   return L.join('\n');
 }
 
@@ -355,7 +359,7 @@ export default function HackathonCoach() {
           panel = { ...(await askJudge('hack_panel', { hack: hackForAI(cur()) })).panel, at: Date.now() };
           saveCoach({ panel });
         }
-        const sources = await gatherEvidence(cur().coach?.app?.repo);
+        const sources = await gatherEvidence(cur().coach?.app?.repo, { pinned: cur().coach?.appeal_files || [] });
         setJudgeSeen(sources.map((f) => f.path));
         const payload = { hack: hackForAI(cur(), { evidence: sources }), pitch: subm };
         // Judges alternate between the two free AI providers (Groq, NVIDIA, Groq…). Each provider's judges
@@ -947,6 +951,7 @@ export default function HackathonCoach() {
                     <button className="muse-link" onClick={() => ask(`Help me answer the judges' questions well: ${lastJudge.questions.join(' | ')}`)}>Practise the answers with your mentor →</button>
                   </>
                 )}
+                <Appeals hack={hack} verdict={lastJudge} saveCoach={saveCoach} />
               </section>
             )}
           </div></div>

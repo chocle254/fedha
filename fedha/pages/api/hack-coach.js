@@ -5,7 +5,7 @@
 // hackathon, never invented.
 import { requireUser } from '../../lib/require-user';
 import { webSearchMulti } from '../../lib/web-search';
-import { weightedOverall } from '../../lib/hack-coach';
+import { weightedOverall, fileExcerpt } from '../../lib/hack-coach';
 import { MINDSET } from '../../lib/mentor-mindset';
 import { nvidiaChat, nvidiaAvailable } from '../../lib/nvidia-client';
 
@@ -21,7 +21,7 @@ export const config = { maxDuration: 60 };
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 // Judging is the hardest reasoning job here, so it always uses the larger model.
 const JUDGE_MODEL = process.env.GROQ_JUDGE_MODEL || 'openai/gpt-oss-120b';
-const TYPES = new Set(['hack_brief', 'hack_app', 'hack_ideas', 'hack_chat', 'hack_plan', 'hack_scope', 'hack_judge', 'hack_submission', 'hack_pitch', 'hack_rehearse', 'hack_postmortem', 'hack_panel', 'hack_judge_one']);
+const TYPES = new Set(['hack_brief', 'hack_app', 'hack_ideas', 'hack_chat', 'hack_plan', 'hack_scope', 'hack_judge', 'hack_submission', 'hack_pitch', 'hack_rehearse', 'hack_postmortem', 'hack_panel', 'hack_judge_one', 'hack_appeal']);
 // Light jobs run on the smaller model so the big model's free-tier quota is kept for ideas, plans and judging.
 const LIGHT = new Set(['hack_rehearse', 'hack_postmortem']);
 const clip = (v, n) => String(v ?? '').slice(0, n);
@@ -56,6 +56,10 @@ export default async function handler(req, res) {
 
   try {
     if (b.type === 'hack_brief') return res.status(200).json(await brief(b, GROQ_API_KEY));
+    if (b.type === 'hack_appeal') {
+      const out = await appeal(b, GROQ_API_KEY, prefer);
+      return res.status(out.error ? 400 : 200).json(out);
+    }
     if (b.type === 'hack_chat' && !String(b.question || '').trim()) return res.status(400).json({ error: 'Question required' });
     if (b.type === 'hack_ideas') b.found = await ideaResearch(b);
     if (b.type === 'hack_panel') b.found = await panelResearch(b);
@@ -369,6 +373,93 @@ Never claim something about this hackathon that is not in the brief or the searc
       sources: list(research?.sources, 8, 300).filter((u) => /^https?:\/\//.test(u)),
       confidence: ['high', 'medium', 'low'].includes(research?.confidence) ? research.confidence : (found ? 'medium' : 'low'),
       searched: !!found,
+    },
+  };
+}
+
+// ── Appeals: the builder proves a judge wrong ──
+// The proof is fetched here, now (repo files from GitHub, links to the live app), so the appeals judge
+// rules on what the code and app really show, never on the builder's word.
+const PRIVATE_HOST = /^(localhost|0\.|10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[|metadata\.)|\.(local|internal|localhost)$/i;
+async function fetchLink(url) {
+  let u;
+  try { u = new URL(String(url).trim()); } catch { return { url, ok: false, text: 'not a valid link' }; }
+  if (!/^https?:$/.test(u.protocol) || PRIVATE_HOST.test(u.hostname)) return { url, ok: false, text: 'only public http(s) links can be checked' };
+  try {
+    const r = await fetch(u.href, { redirect: 'follow', signal: AbortSignal.timeout(12000), headers: { 'User-Agent': 'LuxeHackathonCoach/1.0', Accept: 'application/json, text/html;q=0.9, */*;q=0.5' } });
+    let text = await r.text();
+    if (/html/i.test(r.headers.get('content-type') || '')) {
+      text = text.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    }
+    return { url: u.href, ok: r.ok, status: r.status, text: text.trim().slice(0, 2200) || '(empty response)' };
+  } catch (e) { return { url: u.href, ok: false, text: `could not load it (${e.name === 'TimeoutError' ? 'timed out' : e.message})` }; }
+}
+async function fetchRepoFile(repo, path) {
+  const p = String(path || '').trim().replace(/^\/+/, '');
+  if (!repo?.full_name || !p || p.includes('..')) return { path: p, ok: false, text: 'no repo connected or bad path' };
+  const raw = `https://raw.githubusercontent.com/${repo.full_name}/${encodeURIComponent(repo.branch || 'main')}/${p.split('/').map(encodeURIComponent).join('/')}`;
+  try {
+    const r = await fetch(raw, { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return { path: p, ok: false, text: `not found in the repo (HTTP ${r.status})` };
+    return { path: p, ok: true, ...fileExcerpt(await r.text(), 3500) };
+  } catch (e) { return { path: p, ok: false, text: `could not load it (${e.message})` }; }
+}
+
+async function appeal(b, key, prefer) {
+  const t = b.target || {};
+  const argument = clip(b.argument, 1500).trim();
+  if (!t.kind || !t.target) return { error: 'Pick what the judges said that you want to challenge.' };
+  if (!argument) return { error: 'Say what they got wrong.' };
+  const r0 = b.hack.coach?.app?.repo;
+  const repo = r0 ? { ...r0, branch: clip(b.branch, 100) || r0.branch } : null;
+  const files = await Promise.all(list(b.files, 4, 200).map((f) => fetchRepoFile(repo, f)));
+  const links = await Promise.all(list(b.links, 3, 400).map(fetchLink));
+  if (!files.length && !links.length) return { error: 'Add at least one file or link as proof.' };
+  const proof = [
+    ...files.map((f) => `--- repo file ${f.path} ${f.ok ? `(${Math.round((f.size || 0) / 100) / 10} KB${f.truncated ? ', start + outline of the rest' : ''})` : '(FAILED TO LOAD: proves nothing)'} ---\n${f.text}${f.outline?.length ? `\n[outline of the whole file]\n${f.outline.join('\n')}` : ''}`),
+    ...links.map((l) => `--- link ${l.url} ${l.ok ? `(HTTP ${l.status}, fetched just now)` : `(FAILED: ${l.text}; proves nothing)`} ---\n${l.ok ? l.text : ''}`),
+  ].join('\n\n');
+  const what = { score: `their score note on "${t.target}"${t.score != null ? ` (${t.score}/10)` : ''}`, requirement: `their requirement check "${t.target}" (marked ${t.status || 'not met'})`, fix: 'a fix they told the builder to make', comment: `the comment from ${t.target}` }[t.kind] || 'something they said';
+  const prompt = `You are the appeals reviewer for THIS hackathon's judging panel. The judges only saw excerpts of a few files, so they can get facts wrong. The builder says they did. Check the claim against the PROOF below, fetched just now from the repo and the live app. You are not here to be kind: rule on what the proof shows.
+
+${ctx(b.hack)}
+
+THE JUDGES SAID (${what}):
+"${clip(t.claim || t.target, 800)}"
+
+THE BUILDER'S ANSWER:
+"${argument}"
+
+PROOF (real content, fetched now):
+${proof}
+
+How to rule:
+- upheld: the proof clearly shows the judges' statement was factually wrong.
+- partly: the judges were wrong on part of it, or the proof supports the builder but not fully.
+- rejected: the proof does not show it, the judges were right, or the claim is a matter of taste (e.g. "the idea is not novel") that proof cannot settle.
+- Never take the builder's word alone; only what the proof shows counts. A file or link that failed to load proves nothing.
+- If the code proves a feature exists but the judges' point was that the demo or README does not show it, say so: the fact is upheld, and still_do says to make it visible.
+
+Return JSON: {"ruling":"upheld|partly|rejected","finding":"1-2 sentences: what the proof shows, naming the file (and function) or link","new_score":0,"new_status":"","fact":"","still_do":""}
+- new_score: only for a score claim and only if upheld or partly: the fair 1-10 score given the corrected facts; otherwise 0.
+- new_status: only for a requirement claim and only if upheld or partly: met|unclear; otherwise empty.
+- fact: only if upheld or partly: one sentence of checked fact future judges must not contradict, naming the proof (e.g. "backend/app/risk.py calls the LLM agent (ai.run_agent) on every order check, and /api/health reports ai: ok."). Otherwise empty.
+- still_do: one sentence on what is still worth doing (e.g. show it in the video), or empty.`;
+  const o = await groqJSON(key, prompt, 0.2, 2500, JUDGE_MODEL, { reasoning: 'medium', prefer });
+  const ruling = ['upheld', 'partly', 'rejected'].includes(o.ruling) ? o.ruling : 'rejected';
+  const won = ruling !== 'rejected';
+  const old = Number(t.score);
+  return {
+    appeal: {
+      kind: t.kind, target: clip(t.target, 400), claim: clip(t.claim, 600), argument, ruling,
+      finding: clip(o.finding, 500) || 'The appeals judge gave no reason.',
+      // A won appeal can only raise a score, by at most 4 points.
+      new_score: won && t.kind === 'score' && Number(o.new_score) > 0 ? Math.round(Math.max(Number.isFinite(old) ? old : 0, Math.min(10, Number(o.new_score), Number.isFinite(old) ? old + 4 : 10))) : 0,
+      new_status: won && t.kind === 'requirement' && ['met', 'unclear'].includes(o.new_status) ? o.new_status : '',
+      fact: won ? clip(o.fact, 400) : '',
+      still_do: clip(o.still_do, 300),
+      files: files.filter((f) => f.ok).map((f) => f.path), links: links.filter((l) => l.ok).map((l) => l.url),
+      failed: [...files.filter((f) => !f.ok).map((f) => `${f.path}: ${f.text}`), ...links.filter((l) => !l.ok).map((l) => `${l.url}: ${l.text}`)],
     },
   };
 }
