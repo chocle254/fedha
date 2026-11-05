@@ -6,11 +6,12 @@
 //   • its report card already says "drop".
 // After the week it is on probation: only its trades since it came back count, so its old record can't pause it
 // again straight away. If it keeps losing (4+ new trades at -0.10R or worse, or 3 stop-losses in a row) it is
-// paused for another week. You can pause or resume any channel by hand on the Trading page.
+// blocked for good and its data deleted (lib/channel-block.js). You can pause or resume any channel by hand on the Trading page.
 // State: trade_settings.broker_settings.pauses = { [source]: { until, reason, auto, at, resumed_at, times } }.
 import { supabaseAdmin } from './supabaseAdmin';
 import { getSettings, notify, isMain } from './trading';
 import { groupReport } from './trading-core';
+import { blockChannel, isBlocked } from './channel-block';
 
 export const PAUSE_DAYS = 7;
 export const PAUSE_RULES = {
@@ -41,6 +42,7 @@ export async function resumeChannel(userId, source) {
 export async function channelGate(userId, source, settings = null) {
   if (!source || source === 'Manual') return { paused: false };
   const s = settings || (await getSettings(userId));
+  if (isBlocked(s, source)) return { paused: true, blocked: true, reason: 'blocked' };
   const p = s.broker_settings?.pauses?.[source];
   if (p?.until && Date.parse(p.until) > Date.now()) return { paused: true, until: p.until, reason: p.reason };
 
@@ -57,6 +59,12 @@ export async function channelGate(userId, source, settings = null) {
   else if (g.streak >= rule.streak) reason = `${g.streak} stop-losses in a row`;
   else if (!since && g.verdict === 'drop') reason = `its report card says drop (${g.confidence}% confident, ${g.avgR.toFixed(2)}R per trade)`;
   if (!reason) return { paused: false };
+
+  // Lost again on probation, after a pause: blocked for good and its data deleted (lib/channel-block.js).
+  if (since) {
+    await blockChannel(userId, source, reason);
+    return { paused: true, blocked: true, reason };
+  }
 
   const until = await pauseChannel(userId, source, { reason, auto: true });
   const back = new Date(until).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });

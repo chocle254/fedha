@@ -48,6 +48,10 @@ export default async function handler(req, res) {
   if (!text || String(text).trim().length < 8) return res.status(200).json({ ok: false, skipped: 'empty' });
   const base = { user_id: userId, source: String(source || 'Telegram').slice(0, 60), text: String(text).slice(0, 2000), external_id: externalId ? String(externalId).slice(0, 120) : null };
 
+  // Blocked channels (failed again after a pause, lib/channel-block.js): ignored and nothing is stored.
+  const { data: ts } = await supabaseAdmin.from('trade_settings').select('broker_settings').eq('user_id', userId).maybeSingle();
+  if (ts?.broker_settings?.blocked?.[base.source]) return res.status(200).json({ ok: false, skipped: 'blocked' });
+
   const sent = messageDate ? new Date(messageDate).getTime() : Date.now();
   if (Number.isFinite(sent) && Date.now() - sent > MAX_AGE_MS) {
     await logInbox({ ...base, outcome: 'stale', detail: 'Arrived more than 5 minutes late (backlog after a reconnect).' });

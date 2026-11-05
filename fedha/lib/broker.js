@@ -185,7 +185,7 @@ export async function placeSignalOnBrokers({ userId, parsed, source, signalKey, 
   if (!accounts.length) return null;
   // Paused channels (lib/channel-pause.js) don't trade on MT5 either.
   const gate = await channelGate(userId, source).catch(() => ({ paused: false }));
-  if (gate.paused) return accounts.map((a) => ({ account: a.key, skipped: `${source} paused until ${new Date(gate.until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` }));
+  if (gate.paused) return accounts.map((a) => ({ account: a.key, skipped: gate.blocked ? `${source} is blocked` : `${source} paused until ${new Date(gate.until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` }));
   const news = await newsCheck(parsed.symbol).catch(() => ({ level: 'clear' }));
   if (news.level !== 'clear') news.reason = await newsReason(news, parsed.symbol);
   const results = await Promise.all(accounts.map(async (acct) => {

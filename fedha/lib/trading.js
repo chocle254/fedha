@@ -89,7 +89,9 @@ export async function getAccount(userId, settings) {
   const { data } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId);
   // After a reset the balance starts again from paper_since; older trades still count for the channel report cards.
   const since = settings.broker_settings?.paper_since || '';
-  let realized = 0;
+  // Trades of blocked channels are deleted (lib/channel-block.js); what they made or lost since the reset still counts.
+  const adj = settings.broker_settings?.blocked_pnl;
+  let realized = adj && adj.since === since ? Number(adj.pnl) || 0 : 0;
   let locked = 0;
   let mt5Notional = 0; // margin for these is set once the equity (and so the leverage) is known
   let openRisk = 0;
@@ -323,6 +325,7 @@ export async function maybeAutoEnter(userId, signal) {
     if (!s.auto_enabled) return null;
     // A losing channel sits out for a week (lib/channel-pause.js): its signal is recorded, not traded.
     const gate = await channelGate(userId, signal.source, s).catch(() => ({ paused: false }));
+    if (gate.blocked) return { ok: false, skipped: `${signal.source} is blocked (${gate.reason})` };
     if (gate.paused) return { ok: false, skipped: `${signal.source} is paused until ${new Date(gate.until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} (${gate.reason})` };
     const rr = rewardRisk(Number(signal.entry), Number(signal.stop_loss), signal.take_profits);
     if (Number(s.min_rr) > 0 && (rr == null || rr < Number(s.min_rr))) return { ok: false, skipped: 'rr' };
