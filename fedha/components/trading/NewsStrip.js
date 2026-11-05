@@ -56,7 +56,7 @@ export default function NewsStrip({ symbol }) {
               </div>
             );
           })}
-          <div style={{ color: 'var(--text-3)', fontSize: 11.5, marginTop: 2 }}>15 min before to 10 min after: real accounts skip, paper trades a quarter lot. The hour before (and 30 min after): half lot.</div>
+          <div style={{ color: 'var(--text-3)', fontSize: 11.5, marginTop: 2 }}>−15 to +10 min: real paused, paper ¼ lot. −60 to +30 min: ½ lot.</div>
         </div>
       )}
     </div>

@@ -66,7 +66,7 @@ export default function RealVault({ account, settings, trades, children }) {
             {hide(usd(bal))}
           </div>
           <div style={{ fontSize: 11.5, color: 'rgba(245,241,230,.5)', marginTop: 4 }}>
-            {shown ? 'Tap to hide' : '🎁 Surprise mode: tap to peek. You get a notification at $500, then at every milestone after.'}
+            {shown ? 'Tap to hide' : 'Hidden · tap to reveal'}
           </div>
         </button>
 
@@ -119,8 +119,8 @@ export default function RealVault({ account, settings, trades, children }) {
         <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)', fontSize: 12, lineHeight: 1.5 }}>
           {realChannels.length
             ? <><b style={{ color: GOLD }}>{realChannels.length} channel{realChannels.length === 1 ? '' : 's'} trading:</b> {realChannels.join(', ')}</>
-            : <><b style={{ color: GOLD }}>No channel has earned real money yet.</b> The bar: 10 signals since Proven, over 4+ days, +0.3R each, 80% confident.</>}
-          <div style={{ color: 'rgba(245,241,230,.5)', marginTop: 4 }}>Trades here are silent. {live ? 'It runs on its own.' : 'Real trading is switched off, so nothing is placed.'}</div>
+            : <><b style={{ color: GOLD }}>No channel cleared for real money.</b> Requires 10 Proven signals over 4+ days at +0.30R and 80% confidence.</>}
+          <div style={{ color: 'rgba(245,241,230,.5)', marginTop: 4 }}>{live ? 'Automated · silent until $500.' : 'Real trading is off.'}</div>
         </div>
 
         {/* Trade history, behind the same surprise */}

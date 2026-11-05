@@ -32,7 +32,7 @@ function Bars({ rows, minDays, unit }) {
             <div style={{ gridColumn: '2 / 4', fontSize: 10.5, color: 'var(--text-3)', marginTop: -4 }}>
               <span style={{ color: b.color, fontWeight: 700 }}>{b.text}</span>
               {' · '}{x.n} signals, {x.winPct}% won · {x.days} {unit}{x.days === 1 ? '' : 's'}
-              {x.verdict === 'early' ? ` (needs ${minDays})` : ` · ${x.conf}% sure it's ${x.avgR >= 0 ? 'positive' : 'negative'}`}
+              {x.verdict === 'early' ? ` (needs ${minDays})` : ` · ${x.conf}% confidence`}
             </div>
           </div>
         );
@@ -54,27 +54,27 @@ export default function DaysCard() {
   }, []);
 
   const box = { marginTop: 14, padding: 14, borderRadius: 12, background: 'var(--bg-2)', border: '1px solid var(--border)' };
-  if (err) return <div style={box}><b>📅 Good days &amp; bad days</b><div style={{ fontSize: 12, color: '#EF4444', marginTop: 6 }}>{err}</div></div>;
-  if (!d) return <div style={box}><b>📅 Good days &amp; bad days</b><div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>Loading…</div></div>;
-  if (!d.signals) return <div style={box}><b>📅 Good days &amp; bad days</b><div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>No closed signals yet.</div></div>;
+  if (err) return <div style={box}><b>Performance by day</b><div style={{ fontSize: 12, color: '#EF4444', marginTop: 6 }}>{err}</div></div>;
+  if (!d) return <div style={box}><b>Performance by day</b><div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>Loading…</div></div>;
+  if (!d.signals) return <div style={box}><b>Performance by day</b><div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>No closed signals yet.</div></div>;
 
   return (
     <div style={box}>
-      <div style={{ fontWeight: 800 }}>📅 Good days &amp; bad days</div>
+      <div style={{ fontWeight: 800 }}>Performance by day</div>
       <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2, lineHeight: 1.45 }}>
-        Every closed signal from {d.from} to {d.to} ({d.signals} signals over {d.dayCount} trading days), in R so balance changes don&apos;t skew it. The day is when the signal was posted.
+        {d.signals} signals · {d.dayCount} trading days · {d.from} to {d.to}
       </div>
 
       {d.patterns.length > 0 ? (
         <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {d.patterns.map((p) => (
             <span key={p.label} style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 999, border: `1px solid ${p.verdict === 'good' ? '#22C55E' : '#EF4444'}`, color: p.verdict === 'good' ? '#22C55E' : '#EF4444' }}>
-              {p.verdict === 'good' ? '▲' : '▼'} {p.label}: {rTxt(p.avgR)} a signal over {p.days} days
+              {p.verdict === 'good' ? '▲' : '▼'} {p.label} {rTxt(p.avgR)} · {p.days}d
             </span>
           ))}
         </div>
       ) : (
-        <div style={{ fontSize: 12, marginTop: 8, color: '#F59E0B' }}>No confirmed pattern yet: a weekday needs 4 separate days and a session 5 before it counts.</div>
+        <div style={{ fontSize: 12, marginTop: 8, color: '#F59E0B' }}>No confirmed pattern yet.</div>
       )}
 
       {/* Calendar: newest day first */}
@@ -95,9 +95,9 @@ export default function DaysCard() {
         </div>
       )}
 
-      <div className="muse-label" style={{ marginTop: 14, fontSize: 11 }}>BY WEEKDAY · average per signal</div>
+      <div className="muse-label" style={{ marginTop: 14, fontSize: 11 }}>BY WEEKDAY · AVG PER SIGNAL</div>
       <Bars rows={d.weekdays} minDays={4} unit="day" />
-      <div className="muse-label" style={{ marginTop: 14, fontSize: 11 }}>BY SESSION · when the signal was posted</div>
+      <div className="muse-label" style={{ marginTop: 14, fontSize: 11 }}>BY SESSION (UTC)</div>
       <Bars rows={d.sessions} minDays={5} unit="day" />
     </div>
   );

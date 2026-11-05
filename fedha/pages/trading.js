@@ -26,14 +26,14 @@ const trailed = (t) => t.source !== 'Manual' && t.trail_stop != null && t.stop_l
 // PAPER TRADING TERMINAL. Real Binance prices, simulated orders. Nothing here places a real order.
 const LIVE = ['pending', 'open'];
 const OUTCOME = {
-  traded: { label: 'Auto-traded', color: C.up },
-  tracked: { label: 'Signal added', color: C.blue },
-  unparsed: { label: 'Skipped', color: C.gold },
-  follow_up: { label: 'Result post', color: '#848E9C' },
-  stale: { label: 'Too late', color: '#848E9C' },
+  traded: { label: 'Executed', color: C.up },
+  tracked: { label: 'Tracked', color: C.blue },
+  unparsed: { label: 'Not a signal', color: C.gold },
+  follow_up: { label: 'Update', color: '#848E9C' },
+  stale: { label: 'Expired', color: '#848E9C' },
   duplicate: { label: 'Duplicate', color: '#848E9C' }
 };
-const SIGNAL_STATUS = { pending: ['Waiting for entry', C.gold], open: ['Live', C.blue], won: ['Hit TP', C.up], lost: ['Hit SL', C.down], expired: ['Expired', '#848E9C'] };
+const SIGNAL_STATUS = { pending: ['Pending', C.gold], open: ['Live', C.blue], won: ['Take profit', C.up], lost: ['Stopped out', C.down], expired: ['Expired', '#848E9C'] };
 const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } } };
 
 function Side({ side }) {
@@ -81,9 +81,9 @@ export default function TradingPage() {
     try {
       const p = await Notification.requestPermission();
       setAlerts(p);
-      if (p !== 'granted') { flash('Notifications are blocked. Allow them in your browser settings.', true); return; }
+      if (p !== 'granted') { flash('Notifications are blocked in your browser settings.', true); return; }
       const sub = await ensurePushSubscription();
-      flash(sub ? 'Alerts on: you will be notified when trades open, hit TPs or close.' : 'Allowed, but push could not be set up on this device.', !sub);
+      flash(sub ? 'Alerts enabled.' : 'Push is unavailable on this device.', !sub);
     } catch { flash('This browser cannot show notifications.', true); }
   }
   useEffect(() => {
@@ -297,7 +297,7 @@ export default function TradingPage() {
   }
   // Reset balance: a fresh paper balance from now; every channel keeps its track record (lib/paper-reset.js).
   async function resetAll() {
-    const v = window.prompt('Start the paper balance again. Every channel keeps its full track record (report cards, ladder, pauses). Real MT5 trades are not touched.\n\nStarting balance (USDT):', String(settings?.paper_balance || 1000));
+    const v = window.prompt('Reset paper balance. Channel records are kept.\n\nStarting balance (USDT):', String(settings?.paper_balance || 1000));
     if (v === null) return;
     const bal = Number(String(v).replace(/[^0-9.]/g, ''));
     if (!(bal > 0)) { flash('Enter a starting balance above 0.', true); return; }
@@ -307,7 +307,7 @@ export default function TradingPage() {
     if (!r.ok) { flash(j.error || 'Could not reset.', true); return; }
     setSettings(j.settings); setAccount(j.account); setRiskNow(j.riskNow);
     setForm((f) => ({ ...f, balance: String(j.settings.paper_balance) }));
-    flash(`Fresh balance: $${j.reset.start}. Channel records kept.`);
+    flash(`Balance reset to $${j.reset.start}.`);
     load();
   }
   // Pause a channel for a week, or bring it back now (pages/api/trading/channels.js).
@@ -326,7 +326,7 @@ export default function TradingPage() {
       const j = await r.json();
       if (!r.ok || !j.configured || !(Number(j.totalUsdt) > 0)) { flash(j.error || 'Could not read your Binance balance.', true); return; }
       setForm((f) => ({ ...f, balance: String(Math.floor(Number(j.totalUsdt) * 100) / 100) }));
-      flash('Balance filled from Binance. Tap Save to use it.');
+      flash('Binance balance loaded. Save to apply.');
     } catch { flash('Could not read your Binance balance.', true); }
   }
 
@@ -607,8 +607,8 @@ export default function TradingPage() {
             {TABS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}{k === 'telegram' && skippedCount > 0 ? <em>{skippedCount}</em> : null}</button>)}
           </div>
 
-          {tab === 'positions' && (loading ? <div className="tx-empty">Loading…</div> : positions.length ? positions.map(positionRow) : <div className="tx-empty">No open positions. Place an order above, or turn on auto-trade to follow Telegram signals.</div>)}
-          {tab === 'orders' && (orders.length ? orders.map(orderRow) : <div className="tx-empty">No open orders. Limit orders wait here until price reaches them.</div>)}
+          {tab === 'positions' && (loading ? <div className="tx-empty">Loading…</div> : positions.length ? positions.map(positionRow) : <div className="tx-empty">No open positions.</div>)}
+          {tab === 'orders' && (orders.length ? orders.map(orderRow) : <div className="tx-empty">No open orders.</div>)}
           {tab === 'history' && (
             <>
               <div className="tx-summary font-num">
@@ -633,7 +633,7 @@ export default function TradingPage() {
                 </div>
               )}
               {activeSignals.length ? activeSignals.map((s) => signalRow(s, true)) : (
-                <div className="sx-empty">No active signals right now. New ones land here the moment a channel posts. The Telegram tab shows every message and why any were skipped.</div>
+                <div className="sx-empty">No active signals. New signals appear here as channels post.</div>
               )}
 
               {closedSignals.length > 0 && <button className="sx-more" onClick={() => setShowClosedSignals((v) => !v)}>{showClosedSignals ? 'Hide' : 'Show'} {closedSignals.length} closed signals</button>}
@@ -664,15 +664,21 @@ export default function TradingPage() {
                           <i>→</i>
                           <div className="re"><b>{count('real')}</b><span>💰 Real</span></div>
                         </div>
-                        {b.signals ? <>Proven book (only promoted channels, on their own): <b>${Number(b.equity).toFixed(2)}</b> from ${b.start} ({gain >= 0 ? '+' : ''}{gain.toFixed(1)}%) · {b.signals} signals, {b.wins} wins · deepest dip {b.maxDdPct}%</>
-                          : <>No channel has earned Proven yet: it takes 5+ signals averaging +0.20R, in profit, 65%+ confident and still improving. You get a notification when one moves up.</>}
+                        {b.signals ? <>Proven book <b>${Number(b.equity).toFixed(2)}</b> <span style={{ color: gain >= 0 ? C.up : C.down }}>{gain >= 0 ? '+' : ''}{gain.toFixed(1)}%</span> · {b.signals} signals · {b.wins} won · max drawdown {b.maxDdPct}%</>
+                          : <>No Proven channels yet.</>}
                       </div>
                     );
                   })()}
-                  <div className="sx-h">Channels <small>{groups.length}</small><button className="sx-how" onClick={() => setShowHow((v) => !v)}>{showHow ? 'Hide' : 'ⓘ How scoring works'}</button></div>
+                  <div className="sx-h">Channels <small>{groups.length}</small><button className="sx-how" onClick={() => setShowHow((v) => !v)}>{showHow ? 'Close' : 'ⓘ Methodology'}</button></div>
                   {showHow && (
                     <div className="sx-note">
-                      {groupsFromBroker ? 'Scored from the MT5 demo accounts (each signal on each account counts once). ' : 'Every signal is paper-traded on its own. '}R = profit ÷ risk: +1R made what it risked, −1R hit the stop. Confidence grows as a channel keeps winning, and its lots grow with it. Channels climb a ladder: Trial → Proven (5+ signals averaging +0.20R, still improving) → Real (10 more signals over 4+ days at +0.30R, 80% confident). 3 stop-losses in a row halve the size; a channel that loses again after a week's pause is blocked and deleted.
+                      <dl className="sx-dl">
+                        <dt>R</dt><dd>Profit ÷ risk. +1R returned the amount risked; −1R hit the stop.</dd>
+                        <dt>Proven</dt><dd>5+ signals, avg ≥ +0.20R, improving.</dd>
+                        <dt>Real</dt><dd>10 further signals over 4+ days, avg ≥ +0.30R, 80% confidence.</dd>
+                        <dt>Pause</dt><dd>Losing channels sit out 7 days. A second failure blocks and removes them.</dd>
+                        <dt>Source</dt><dd>{groupsFromBroker ? 'MT5 demo fills.' : 'Paper fills, one per signal.'}</dd>
+                      </dl>
                     </div>
                   )}
                   {(() => {
@@ -688,10 +694,10 @@ export default function TradingPage() {
                       else if (['proven', 'real'].includes(stageOf(g.source)) || ((g.verdict === 'keep' || g.verdict === 'scale') && g.avgR > 0) || (g.closed >= 3 && g.avgR > 0.1)) sect.win.push(g);
                       else sect.test.push(g);
                     }
-                    const SECT = [['win', '🏆 Winning', C.up, 'Making money on their record. Lots grow as they keep winning.'], ['test', '🧪 Testing', C.gold, 'Too few trades to judge yet.'], ['lose', '📉 Losing', C.down, 'Losing money. They pause for a week automatically if it continues.'], ['pause', '⏸ Paused', '#848E9C', 'Sitting out for a week: signals are recorded, nothing is traded.']];
+                    const SECT = [['win', 'Performing', C.up, 'Profitable'], ['test', 'Evaluating', C.gold, 'Insufficient data'], ['lose', 'Underperforming', C.down, 'Unprofitable'], ['pause', 'Paused', '#848E9C', 'Suspended for 7 days']];
                     return SECT.map(([key, label, color, hint]) => sect[key].length > 0 && (
                       <div key={key} style={{ marginTop: 10 }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '4px 2px 6px' }}><b style={{ color, fontSize: 13 }}>{label}</b><small style={{ color: '#848E9C' }}>{sect[key].length} · {hint}</small></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '6px 2px 8px' }}><span style={{ width: 6, height: 6, borderRadius: 99, background: color }} /><b style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.14em', textTransform: 'uppercase', color: '#EAECEF' }}>{label}</b><small style={{ color: '#848E9C', fontSize: 11 }}>{sect[key].length} · {hint}</small></div>
                         <div className="sx-groups">
                           {sect[key].map((g) => {
                       const pz = pauses[g.source]; const pzOn = pausedNow(g.source);
@@ -717,7 +723,7 @@ export default function TradingPage() {
                             <div className="sx-g-more">
                               <div>{g.confidence}% confident · total {g.totalR >= 0 ? '+' : ''}{g.totalR.toFixed(1)}R{g.open ? ` · ${g.open} open` : ''} · worst run {g.worstStreak} SL</div>
                               <div>{g.why}</div>
-                              {pz?.reason && <div>⏸ {pzOn ? `Paused until ${new Date(pz.until).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}` : 'Was paused'}: {pz.reason}.{!pzOn && pz.resumed_at ? ' Back on probation: only its new trades count.' : ''}</div>}
+                              {pz?.reason && <div>⏸ {pzOn ? `Paused until ${new Date(pz.until).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}` : 'Was paused'}: {pz.reason}.{!pzOn && pz.resumed_at ? ' On probation.' : ''}</div>}
                               <div style={{ marginTop: 6 }}><span role="button" tabIndex={0} className="sx-how" onClick={(e) => { e.stopPropagation(); setPause(g.source, pzOn ? 'resume' : 'pause'); }}>{pzOn ? '▶ Resume now' : '⏸ Pause for a week'}</span></div>
                               {lad?.note && <div>Ladder ({lad.stage === 'real' ? 'Real' : lad.stage === 'proven' ? 'Proven' : 'Trial'}): {lad.note}</div>}
                               <div>Trailing stop: <b>{TRAIL_LABEL[p?.mode || TRAIL_DEFAULT]}</b>{p && p.trades >= 5 && best?.avgR != null ? ` · learned from ${p.trades} trades (${best.avgR >= 0 ? '+' : ''}${best.avgR.toFixed(2)}R avg)` : ' · default until 5 closed trades'}</div>
@@ -732,26 +738,26 @@ export default function TradingPage() {
                   })()}
                 </>
               )}
-              {!groups.length && <div className="sx-empty">No channel has closed a trade yet. Channels show up here, ranked, once their first signals finish.</div>}
+              {!groups.length && <div className="sx-empty">No channel results yet.</div>}
             </div>
           )}
           {tab === 'telegram' && (
             <>
               <div className="tx-tg-status">
-                <span className={`tx-live ${listenerOn ? 'on' : ''}`}><i />{listenerOn ? 'Listener connected' : 'Listener not reporting'}</span>
+                <span className={`tx-live ${listenerOn ? 'on' : ''}`}><i />{listenerOn ? 'Connected' : 'Offline'}</span>
                 <span className="tx-muted">
-                  {inbox.listener?.seenAt ? `last heartbeat ${ago(inbox.listener.seenAt)}` : 'no heartbeat yet'}
-                  {inbox.listener?.stats ? ` · ${inbox.listener.stats.seen} messages seen · ${inbox.listener.stats.forwarded} forwarded` : ''}
+                  {inbox.listener?.seenAt ? `Last seen ${ago(inbox.listener.seenAt)}` : 'Awaiting first heartbeat'}
+                  {inbox.listener?.stats ? ` · ${inbox.listener.stats.seen} received · ${inbox.listener.stats.forwarded} forwarded` : ''}
                   {inbox.listener?.stats?.watching?.length ? ` · watching ${inbox.listener.stats.watching.join(', ')}` : ''}
                 </span>
               </div>
               {inbox.needsMigration && (
                 <div className="tx-row-note" style={{ padding: '10px 14px', color: C.gold }}>
-                  Run <code>supabase-migration-signal-inbox.sql</code> in the Supabase SQL editor to turn on this inbox and the listener status.
+                  Inbox unavailable: run <code>supabase-migration-signal-inbox.sql</code>.
                 </div>
               )}
               <div className="tx-row-note" style={{ padding: '6px 14px 10px' }}>
-                &quot;Forwarded&quot; in the listener log means the message was sent here. Each one is listed below with what happened to it. Only messages with a pair, a direction and a TP or SL become signals.
+                Messages with a pair, direction and TP or SL become signals.
               </div>
               {inbox.inbox.length ? inbox.inbox.map((m) => {
                 const o = OUTCOME[m.outcome] || { label: m.outcome, color: '#848E9C' };
@@ -766,7 +772,7 @@ export default function TradingPage() {
                     <pre>{(m.text || '').normalize('NFKC')}</pre>
                   </details>
                 );
-              }) : !inbox.needsMigration && <div className="tx-empty">No messages forwarded yet.</div>}
+              }) : !inbox.needsMigration && <div className="tx-empty">No messages yet.</div>}
             </>
           )}
           <div style={{ display: tab === 'mt5' ? 'block' : 'none' }}><BrokerPanel onData={setBrokerRows} flash={flash} /></div>
@@ -774,12 +780,12 @@ export default function TradingPage() {
           {tab === 'settings' && form && settings && (
             <div className="tx-settings">
               <div className="tx-set-row">
-                <div><b>Auto-trade Telegram signals</b><span>{settings.auto_enabled ? 'On: every new signal with a stop-loss opens a paper trade, sized by your risk.' : 'Off: signals are listed and you enter them yourself.'}</span></div>
+                <div><b>Auto-trade signals</b><span>{settings.auto_enabled ? 'Signals with a stop-loss are entered automatically.' : 'Signals are listed for manual entry.'}</span></div>
                 <button className={`tx-switch ${settings.auto_enabled ? 'on' : ''}`} onClick={() => saveSettings({ auto_enabled: !settings.auto_enabled })} aria-label="Auto-trade"><i /></button>
               </div>
               <GrowthCard />
               <label className="tx-field"><span>Starting balance</span><input className="font-num" inputMode="decimal" value={form.balance} onChange={(e) => setForm({ ...form, balance: e.target.value })} /><em>USDT</em></label>
-              <button className="tx-link" onClick={useBinanceBalance}>Use my real Binance balance</button>
+              <button className="tx-link" onClick={useBinanceBalance}>Use Binance balance</button>
               <div className="tx-tabs small" style={{ margin: '10px 0' }}>
                 <button className={form.riskMode === 'percent' ? 'on' : ''} onClick={() => setForm({ ...form, riskMode: 'percent' })}>Risk % of equity</button>
                 <button className={form.riskMode === 'fixed' ? 'on' : ''} onClick={() => setForm({ ...form, riskMode: 'fixed' })}>Fixed $ risk</button>
@@ -787,11 +793,11 @@ export default function TradingPage() {
               {form.riskMode === 'percent'
                 ? <label className="tx-field"><span>Risk per trade</span><input className="font-num" inputMode="decimal" value={form.pct} onChange={(e) => setForm({ ...form, pct: e.target.value })} /><em>%</em></label>
                 : <label className="tx-field"><span>Risk per trade</span><input className="font-num" inputMode="decimal" value={form.fixed} onChange={(e) => setForm({ ...form, fixed: e.target.value })} /><em>USDT</em></label>}
-              <label className="tx-field"><span>Min reward:risk</span><input className="font-num" inputMode="decimal" value={form.rr} onChange={(e) => setForm({ ...form, rr: e.target.value })} /><em>0 = off</em></label>
+              <label className="tx-field"><span>Min. reward : risk</span><input className="font-num" inputMode="decimal" value={form.rr} onChange={(e) => setForm({ ...form, rr: e.target.value })} /><em>0 = off</em></label>
               <button className="tx-submit buy" onClick={() => saveSettings({})}>Save settings</button>
               <div style={{ marginTop: 16, padding: 12, borderRadius: 12, border: '1px solid rgba(239,68,68,.45)', background: 'rgba(239,68,68,.06)' }}>
                 <b style={{ fontSize: 13.5 }}>Reset balance</b>
-                <div style={{ fontSize: 12, color: 'var(--text-3)', margin: '4px 0 8px', lineHeight: 1.5 }}>Starts the paper balance again at the amount you choose. This also happens by itself when the account is blown. Channel performance is never reset: every trade keeps counting for the report cards, the ladder and pauses, so you always know which channels are good. Real MT5 trades are never touched.</div>
+                <div style={{ fontSize: 12, color: 'var(--text-3)', margin: '4px 0 8px', lineHeight: 1.5 }}>Restarts the paper balance. Runs automatically if the account is depleted. Channel records and MT5 accounts are unaffected.</div>
                 {(settings.broker_settings?.resets || []).slice(0, 3).map((x) => <div key={x.at} style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{new Date(x.at).toLocaleDateString([], { day: 'numeric', month: 'short' })}: {x.reason === 'blown' ? `blown at $${Number(x.equity).toFixed(2)}` : 'reset by you'} · {x.trades} trades on that balance · new start ${x.to}</div>)}
                 <button className="tx-submit sell" style={{ marginTop: 8 }} onClick={resetAll}>Reset balance</button>
               </div>
@@ -809,7 +815,10 @@ export default function TradingPage() {
       <style jsx global>{`
         .tx-root { --tx-bg: transparent; --tx-panel: rgba(16, 19, 25, 0.74); --tx-line: rgba(255,255,255,0.08); --tx-text: #EAECEF; --tx-dim: #848E9C; --tx-input: rgba(0,0,0,0.35);
           background: var(--tx-bg); color: var(--tx-text); padding: 8px 8px 110px; min-height: 100vh; font-size: 13px; }
-        .tx-root button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+        .tx-root button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        .tx-root button:focus-visible { outline: 2px solid ${C.gold}; outline-offset: 2px; border-radius: 8px; }
+        .tx-root .font-num, .tx-root b { font-variant-numeric: tabular-nums; }
+        .tx-root { letter-spacing: .005em; -webkit-font-smoothing: antialiased; }
         .tx-root input { font: inherit; color: var(--tx-text); background: transparent; border: 0; outline: none; min-width: 0; }
         .tx-panel { background: var(--tx-panel); border: 1px solid var(--tx-line); border-radius: 14px; overflow: hidden; }
         .tx-muted { color: var(--tx-dim); font-size: 12px; }
@@ -944,12 +953,12 @@ export default function TradingPage() {
         .sx-ladder-steps .pr { border-color: rgba(124,196,255,.35); } .sx-ladder-steps .pr b { color: #7CC4FF; }
         .sx-ladder-steps .re { border-color: rgba(14,203,129,.35); } .sx-ladder-steps .re b { color: ${C.up}; }
         .sx-ladder-steps i { align-self: center; font-style: normal; color: var(--tx-dim); }
-        .tx-empty { padding: 28px 16px; color: var(--tx-dim); text-align: center; line-height: 1.6; }
+        .tx-empty { padding: 30px 16px; color: var(--tx-dim); text-align: center; line-height: 1.6; font-size: 12.5px; }
         .tx-row { padding: 12px 14px; border-bottom: 1px solid var(--tx-line); }
         .tx-row-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .tx-sym { font-weight: 700; font-size: 14px; padding: 0 !important; }
         .tx-sym i { font-style: normal; color: var(--tx-dim); font-weight: 500; font-size: 12px; }
-        .tx-badge { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 3px; }
+        .tx-badge { font-size: 10.5px; font-weight: 800; letter-spacing: .04em; padding: 3px 8px; border-radius: 999px; }
         .tx-st { font-size: 11px; color: var(--tx-dim); }
         .tx-x { color: var(--tx-dim) !important; padding: 2px 6px !important; }
         .tx-row-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
@@ -965,11 +974,11 @@ export default function TradingPage() {
         .tx-btn:disabled { opacity: .6; }
         .tx-summary { display: flex; gap: 22px; padding: 12px 14px; border-bottom: 1px solid var(--tx-line); flex-wrap: wrap; }
         .tx-summary b { font-size: 15px; }
-        .tx-sub { padding: 14px 14px 6px; color: var(--tx-dim); font-size: 12px; font-weight: 700; }
+        .tx-sub { padding: 16px 14px 8px; color: var(--tx-dim); font-size: 10.5px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
         .tx-board-row { display: grid; grid-template-columns: 1.6fr 1fr 1fr .5fr; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--tx-line); font-size: 12px; }
         .tx-board-row b:last-child { text-align: right; }
         .sx { padding: 6px 10px 14px; }
-        .sx-h { display: flex; align-items: center; gap: 8px; margin: 14px 2px 8px; font-size: 15px; font-weight: 700; }
+        .sx-h { display: flex; align-items: center; gap: 8px; margin: 18px 2px 10px; font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--tx-dim); }
         .sx-h small { font-size: 11px; font-weight: 700; color: var(--tx-dim); background: #2B3139; border-radius: 999px; padding: 2px 8px; }
         .sx-how { margin-left: auto; font-size: 12px !important; font-weight: 500; color: var(--tx-dim) !important; }
         .sx-agree { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-bottom: 8px; }
@@ -992,8 +1001,11 @@ export default function TradingPage() {
         .sx-act input { flex: 1; height: 36px; padding: 0 10px !important; border: 1px solid var(--tx-line) !important; border-radius: 8px; background: var(--tx-bg) !important; }
         .sx-act .tx-btn { flex: 0 0 auto; padding: 0 16px; height: 36px; }
         .sx-in { margin-top: 8px; font-size: 12px; font-weight: 600; color: #0ECB81; }
-        .sx-empty { padding: 22px 16px; text-align: center; color: var(--tx-dim); font-size: 13px; line-height: 1.5; background: var(--tx-panel); border-radius: 12px; }
-        .sx-note { margin: 0 2px 10px; padding: 10px 12px; font-size: 12px; line-height: 1.5; color: var(--tx-dim); background: var(--tx-panel); border-radius: 10px; }
+        .sx-empty { padding: 26px 16px; text-align: center; color: var(--tx-dim); font-size: 12.5px; line-height: 1.5; background: var(--tx-panel); border: 1px dashed var(--tx-line); border-radius: 14px; }
+        .sx-dl { display: grid; grid-template-columns: 64px 1fr; gap: 6px 12px; margin: 0; }
+        .sx-dl dt { font-size: 10.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: ${C.gold}; padding-top: 1px; }
+        .sx-dl dd { margin: 0; color: var(--tx-text); font-size: 12px; line-height: 1.45; }
+        .sx-note { margin: 0 2px 10px; padding: 12px 14px; font-size: 12px; line-height: 1.5; color: var(--tx-dim); background: var(--tx-panel); border: 1px solid var(--tx-line); border-radius: 14px; }
         .sx-groups { background: var(--tx-panel); border: 1px solid var(--tx-line); border-radius: 14px; overflow: hidden; }
         .sx-g { display: block; width: 100%; text-align: left; padding: 11px 12px !important; border-bottom: 1px solid var(--tx-line) !important; }
         .sx-g:last-child { border-bottom: 0 !important; }

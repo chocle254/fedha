@@ -45,18 +45,18 @@ export default function OrderForm({ symbol, livePrice, account, riskNow, picked,
   const setTotal = (v) => { setTotalIn(v); const t = Number(v); setAmountIn(t > 0 && eff > 0 ? trim(t / eff) : ''); };
   const setPct = (p) => { if (!(eff > 0)) return; const t = (avail * p) / 100 / (1 + FEE); setTotalIn(trim(t, 2)); setAmountIn(trim(t / eff)); };
   const sizeByRisk = () => {
-    if (!(sl > 0 && eff > 0) || slWrong) { setNote({ err: true, text: 'Set a stop-loss on the right side of the price first.' }); return; }
+    if (!(sl > 0 && eff > 0) || slWrong) { setNote({ err: true, text: 'Set a valid stop-loss first.' }); return; }
     const per = Math.abs(eff - sl) + eff * FEE * 2;
     let q = riskNow / per;
     if (q * eff * (1 + FEE) > avail) q = avail / (eff * (1 + FEE));
     setAmount(trim(q));
-    setNote({ text: `Sized so the stop loses about ${fmtUsd(Math.min(riskNow, q * per), false)}.` });
+    setNote({ text: `Risk at stop: ${fmtUsd(Math.min(riskNow, q * per), false)}` });
   };
 
   async function submit() {
     setNote(null);
     if (!(amount > 0)) { setNote({ err: true, text: 'Enter an amount.' }); return; }
-    if (slWrong || tpWrong) { setNote({ err: true, text: `For a ${buy ? 'buy' : 'sell'}, TP goes ${buy ? 'above' : 'below'} and SL ${buy ? 'below' : 'above'} the price.` }); return; }
+    if (slWrong || tpWrong) { setNote({ err: true, text: `${buy ? 'Buy' : 'Sell'}: TP ${buy ? 'above' : 'below'}, SL ${buy ? 'below' : 'above'} price.` }); return; }
     setBusy(true);
     try {
       const r = await fetch('/api/trading/trades', {
@@ -119,7 +119,7 @@ export default function OrderForm({ symbol, livePrice, account, riskNow, picked,
       <button className={`tx-submit ${buy ? 'buy' : 'sell'}`} disabled={busy} onClick={submit}>
         {busy ? 'Placing…' : `${buy ? 'Buy' : 'Sell'} ${base(symbol)}`}
       </button>
-      {!buy && <div className="tx-hint">Selling without holding the coin opens a simulated short (Spot can&apos;t really short).</div>}
+      {!buy && <div className="tx-hint">Opens a simulated short.</div>}
       {note && <div className="tx-note" style={{ color: note.err ? C.down : C.up }}>{note.text}</div>}
     </div>
   );

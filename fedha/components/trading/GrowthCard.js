@@ -38,7 +38,7 @@ export default function GrowthCard() {
   return (
     <div className="tx-set-row" style={{ display: 'block' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ flex: 1 }}><b>🌱 Growth account</b><span>A second paper account from KES 1,000. The main account still trades every signal to measure every channel; this one takes the same signals only when its balance supports the lot (0.01-lot minimum, 1:1000 margin), risking more while tiny and less as it grows.</span></div>
+        <div style={{ flex: 1 }}><b>Growth account</b><span>Small-balance simulation from KES 1,000 at real lot sizes.</span></div>
         <button className={`tx-switch ${on ? 'on' : ''}`} disabled={busy} onClick={() => save(on ? { on: false } : saved?.since ? { on: true } : fresh())} aria-label="Growth account"><i /></button>
       </div>
       {!saved?.since && (
@@ -51,9 +51,9 @@ export default function GrowthCard() {
         <div className="font-num" style={{ marginTop: 8, fontSize: 12.5, lineHeight: 1.6 }}>
           <div><b style={{ fontSize: 16, color: g.equity >= g.start ? '#22C55E' : '#EF4444' }}>{fmtUsd(g.equity, false)}</b> <span style={{ color: 'var(--text-3)' }}>from {fmtUsd(g.start, false)}{saved.start_kes ? ` (KES ${Number(saved.start_kes).toLocaleString()})` : ''} · goal {fmtUsd(tgt, false)}</span></div>
           <div style={{ margin: '6px 0', height: 6, borderRadius: 3, background: 'rgba(132,142,156,.2)' }}><div style={{ width: `${progress}%`, height: '100%', borderRadius: 3, background: '#22C55E' }} /></div>
-          <div>{g.trades} trades · {g.wins} won · {g.losses} lost · {g.open} open · free margin {fmtUsd(g.free, false)}</div>
-          <div><b>{t.label} stage</b>{t.next ? ` · ${t.nextLabel} at ${fmtUsd(t.next, false)}` : ''}: risk {t.pct}% a trade, smallest lot may risk up to {t.cap}% ({fmtUsd((g.equity * t.cap) / 100, false)}){t.minConf ? `, channels ${t.minConf}%+ confident` : ', every channel'}.</div>
-          {g.typicalStop ? <div style={{ color: 'var(--text-3)' }}>Gold fits stops up to ${((g.equity * t.cap) / 100).toFixed(2)} now (channels&apos; typical ${g.typicalStop.toFixed(2)}); forex fits far sooner.</div> : null}
+          <div>{g.trades} trades · {g.wins} won · {g.losses} lost · {g.open} open · margin {fmtUsd(g.free, false)}</div>
+          <div><b>{t.label}</b>{t.next ? ` → ${t.nextLabel} at ${fmtUsd(t.next, false)}` : ''} · risk {t.pct}% · cap {t.cap}%{t.minConf ? ` · ≥${t.minConf}% confidence` : ''}</div>
+          {g.typicalStop ? <div style={{ color: 'var(--text-3)' }}>Gold max stop ${((g.equity * t.cap) / 100).toFixed(2)} · typical ${g.typicalStop.toFixed(2)}</div> : null}
           {g.recent?.length > 0 && (
             <div style={{ marginTop: 6, display: 'grid', gap: 2 }}>
               {g.recent.map((x) => (

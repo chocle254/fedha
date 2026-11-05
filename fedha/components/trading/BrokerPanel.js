@@ -87,7 +87,7 @@ export default function BrokerPanel({ onData, flash }) {
     return (
               <>
                 <div className="tx-set-row">
-                  <div><b>Trade signals here</b><span>{s.enabled ? 'On: every new signal is placed on this account.' : 'Off'}</span></div>
+                  <div><b>Trade signals</b><span>{s.enabled ? 'Active' : 'Inactive'}</span></div>
                   <button disabled={busy} className={`tx-switch ${s.enabled ? 'on' : ''}`} onClick={() => save({ [a.key]: { enabled: !s.enabled } })} aria-label={`Trade on ${a.name}`}><i /></button>
                 </div>
                 <label className="tx-field"><span>{a.info?.real ? 'Risk ceiling' : 'Base risk per signal'}</span><input className="font-num" inputMode="decimal" value={d.risk_pct || ''} onChange={(e) => setDraft({ ...draft, [a.key]: { ...d, risk_pct: e.target.value } })} /><em>% of balance</em></label>
@@ -109,12 +109,12 @@ export default function BrokerPanel({ onData, flash }) {
               <b>{a.name}{a.info ? ` · ${a.info.login}` : ''}</b>
               {a.info && <span className="tx-badge" style={{ color: a.info.real ? C.down : C.up, background: 'rgba(132,142,156,.12)' }}>{a.info.real ? 'REAL MONEY' : 'DEMO'}</span>}
             </div>
-            {!a.configured && <div className="tx-muted">Not connected: add its MetaApi account id to Vercel.</div>}
+            {!a.configured && <div className="tx-muted">Not connected.</div>}
             {a.error && <div className="tx-muted" style={{ color: C.down }}>{a.error}</div>}
             {a.info && (
               <div className="tx-muted font-num">
                 {a.info.server} · balance {fmtUsd(a.info.balance, false)} · equity {fmtUsd(a.info.equity, false)} · 1:{a.info.leverage}
-                {a.info.real && !data.settings.allow_real ? ' · real trading is OFF, so nothing will be placed here' : ''}
+                {a.info.real && !data.settings.allow_real ? ' · real trading off' : ''}
               </div>
             )}
             {a.goldFit && (() => {
@@ -122,10 +122,10 @@ export default function BrokerPanel({ onData, flash }) {
               const short = g.typicalStop != null && g.maxStop < g.typicalStop;
               return (
                 <div className="tx-muted font-num" style={{ color: short ? '#F59E0B' : undefined }}>
-                  Gold: the smallest trade (0.01 lot) fits stops up to ${g.maxStop.toFixed(2)} at this balance and risk.
+                  Gold: max stop ${g.maxStop.toFixed(2)} at minimum lot.
                   {g.typicalStop != null && (short
-                    ? ` Your channels' typical stop is $${g.typicalStop.toFixed(2)}, so most gold signals are skipped until the balance reaches about $${g.needed}.`
-                    : ` Your channels' typical stop is $${g.typicalStop.toFixed(2)}, so gold signals fit.`)}
+                    ? ` Typical stop $${g.typicalStop.toFixed(2)}; most gold signals need ~$${g.needed}.`
+                    : ` Typical stop $${g.typicalStop.toFixed(2)}: fits.`)}
                 </div>
               );
             })()}
@@ -136,17 +136,17 @@ export default function BrokerPanel({ onData, flash }) {
 
       <div className="tx-broker">
         <div className="tx-set-row">
-          <div><b>Smart trailing stop</b><span>After TP1, the other positions&apos; SL follows the price in the style learned for that channel (ATR-based by default). Same rules as the paper trades.</span></div>
+          <div><b>Smart trailing stop</b><span>Trails the stop after TP1, per channel.</span></div>
           <button disabled={busy} className={`tx-switch ${data.settings.breakeven ? 'on' : ''}`} onClick={() => save({ breakeven: !data.settings.breakeven })} aria-label="Trailing stop"><i /></button>
         </div>
         <div className="tx-set-row">
-          <div><b>Luxe paper trades too</b><span>{data.settings.paper_too ? 'On: signals are also paper-traded here.' : 'Off: the MT5 demo accounts replace Luxe paper trading.'}</span></div>
+          <div><b>Paper trading</b><span>{data.settings.paper_too ? 'Runs alongside MT5.' : 'Replaced by MT5 demo accounts.'}</span></div>
           <button disabled={busy} className={`tx-switch ${data.settings.paper_too ? 'on' : ''}`} onClick={() => save({ paper_too: !data.settings.paper_too })} aria-label="Paper too"><i /></button>
         </div>
         <p className="tx-fine">
-          Each signal is split into one MT5 position per TP (MT5 allows one TP per position), all with the signal&apos;s SL. Lots = balance × base risk × the channel&apos;s lot multiplier from the report card. If the total is too small for every TP at 0.01 lots, only the first TPs are used. Limit orders that do not fill within 6 hours are cancelled. Real-money accounts are never traded unless you switch that on.
+          One position per take-profit, sharing the signal&apos;s stop. Unfilled limit orders expire after 6 hours.
         </p>
-        <button className="tx-link" disabled={busy} onClick={sync}>{busy ? 'Working…' : 'Check fills and closes now'}</button>
+        <button className="tx-link" disabled={busy} onClick={sync}>{busy ? 'Syncing…' : 'Sync now'}</button>
       </div>
 
       <div className="tx-sub" style={{ padding: '10px 14px 4px' }}>{realKeys.size ? 'Demo MT5 trades' : 'MT5 trades'}</div>
@@ -174,7 +174,7 @@ export default function BrokerPanel({ onData, flash }) {
           })}
           {g.legs.some((l) => l.error) && <div className="tx-muted" style={{ padding: '4px 14px', color: C.down }}>{g.legs.find((l) => l.error).error}</div>}
         </details>
-      )) : <div className="tx-empty">No MT5 trades yet. Switch an account on and the next signal will be placed there.</div>}
+      )) : <div className="tx-empty">No MT5 trades yet.</div>}
     </div>
   );
 }

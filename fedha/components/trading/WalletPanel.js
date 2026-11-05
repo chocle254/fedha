@@ -91,7 +91,7 @@ export default function WalletPanel({ onTrade }) {
         </div>
       ))}
       {!shown.length && <div className="tx-empty">No assets above $1.</div>}
-      <p className="tx-fine" style={{ padding: '10px 14px 14px' }}>Real Spot wallet, read-only: nothing here can trade or withdraw. Today&apos;s PnL is estimated from each coin&apos;s 24h price change. Funding and Futures wallets are not included.</p>
+      <p className="tx-fine" style={{ padding: '10px 14px 14px' }}>Spot wallet · read-only. Today&apos;s P&amp;L estimated from 24h change.</p>
     </div>
   );
 }
