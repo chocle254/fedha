@@ -4,6 +4,9 @@ import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import { NewMessage } from 'telegram/events/index.js';
 import { EditedMessage } from 'telegram/events/EditedMessage.js';
+import { Raw } from 'telegram/events/index.js';
+import { UpdateConnectionState } from 'telegram/network/index.js';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const { TG_API_ID, TG_API_HASH, TG_SESSION, INGEST_URL, INGEST_SECRET } = process.env;
 if (!TG_API_ID || !TG_API_HASH || !TG_SESSION || !INGEST_URL || !INGEST_SECRET) {
@@ -59,7 +62,22 @@ let seen = 0;
 let forwarded = 0;
 // Message ids already handled, so the live feed and the backup poll never send the same post twice.
 const handled = new Set();
-const lastId = new Map(); // chat id -> newest message id we have looked at
+// chat id -> newest message id we have looked at. Saved to disk so a restart catches up on posts
+// made while the listener was down instead of starting from "now" and missing them.
+const LAST_ID_FILE = new URL('./last-ids.json', import.meta.url);
+const lastId = new Map();
+try {
+  const saved = JSON.parse(readFileSync(LAST_ID_FILE, 'utf8'));
+  // Only catch up after a short outage (30 min); after a long one, old signals are stale, so start fresh.
+  if (Date.now() - saved.savedAt < 30 * 60 * 1000) for (const [k, v] of Object.entries(saved.ids || {})) lastId.set(k, Number(v));
+} catch {}
+function saveLastIds() {
+  try { writeFileSync(LAST_ID_FILE, JSON.stringify({ savedAt: Date.now(), ids: Object.fromEntries(lastId) })); } catch (e) { console.warn('could not save last ids: ' + e.message); }
+}
+// Any Telegram call can hang forever on a dead connection; never let one freeze the backup poll.
+function withTimeout(p, ms, what) {
+  return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + ' timed out')), ms))]);
+}
 
 // Shared by the live feed and the backup poll.
 // edited: the channel changed the post (many post "GOLD SELL 4057" first and add SL / TPs a few seconds later).
@@ -121,17 +139,17 @@ async function pollChats() {
   polling = true;
   try {
     // All chats (not just the 200 most recent), so a quiet channel's post can't slip past.
-    const dialogs = await client.getDialogs({ limit: 1000 });
+    const dialogs = await withTimeout(client.getDialogs({ limit: 1000 }), 30000, 'chat list');
     for (const d of dialogs) {
       if (!(d.isGroup || d.isChannel) || !d.message) continue;
       const chatId = String(d.id);
       const top = Number(d.message.id);
       const known = lastId.get(chatId);
-      if (known == null) { lastId.set(chatId, top); continue; } // first look: start from now, no backlog
+      if (known == null) { lastId.set(chatId, top); continue; } // brand-new chat: start from now, no backlog
       if (top <= known) continue;
       const title = d.title || 'Telegram group';
       if (watch.length && !watch.some((w) => title.toLowerCase().includes(w))) { lastId.set(chatId, top); continue; }
-      const msgs = await client.getMessages(d.entity, { minId: known, limit: 20 });
+      const msgs = await withTimeout(client.getMessages(d.entity, { minId: known, limit: 20 }), 20000, 'messages');
       for (const m of [...msgs].reverse()) {
         if (!m || (m.out && process.env.ALLOW_OWN === '0')) continue;
         seen++;
@@ -145,9 +163,19 @@ async function pollChats() {
     if (wait) await new Promise((r) => setTimeout(r, wait));
   } finally {
     polling = false;
+    saveLastIds();
   }
 }
 setTimeout(pollChats, 5000);
+
+// The phone's connection to Telegram drops now and then; posts made during the gap never arrive on the
+// live feed. As soon as the connection is back, run the backup poll so missed signals are fetched at once.
+client.addEventHandler((u) => {
+  if (u instanceof UpdateConnectionState && u.state === UpdateConnectionState.connected) {
+    console.log(new Date().toISOString(), 'reconnected, checking for missed posts');
+    setTimeout(pollChats, 1500);
+  }
+}, new Raw({}));
 setInterval(pollChats, POLL_MS);
 
 // Keep the process alive and make connection drops visible.
