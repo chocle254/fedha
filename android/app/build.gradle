@@ -48,7 +48,7 @@ dependencies {
     implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     // Luxe's own video player (PlayerActivity): libVLC, the engine inside VLC, so it plays almost any file.
-    implementation 'org.videolan.android:libvlc-all:3.7.7'
+    implementation 'org.videolan.android:libvlc-all:3.6.5'
 }
 
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
