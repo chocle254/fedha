@@ -5,7 +5,7 @@ import { StringSession } from 'telegram/sessions/index.js';
 import { NewMessage } from 'telegram/events/index.js';
 import { EditedMessage } from 'telegram/events/EditedMessage.js';
 import { Raw } from 'telegram/events/index.js';
-import { UpdateConnectionState } from 'telegram/network/index.js';
+import { UpdateConnectionState, ConnectionTCPObfuscated, ConnectionTCPFull } from 'telegram/network/index.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const { TG_API_ID, TG_API_HASH, TG_SESSION, INGEST_URL, INGEST_SECRET } = process.env;
@@ -51,7 +51,10 @@ async function tickTrades() {
 }
 setInterval(tickTrades, 60000);
 
-const client = new TelegramClient(new StringSession(TG_SESSION), Number(TG_API_ID), TG_API_HASH, { connectionRetries: Infinity, autoReconnect: true, useWSS: true });
+// Obfuscated transport (what the official Telegram app uses): plain MTProto is easy for mobile networks to spot
+// and throttle, which made the listener only connect over a VPN. TG_TRANSPORT=full switches back to the old one.
+const connection = process.env.TG_TRANSPORT === 'full' ? ConnectionTCPFull : ConnectionTCPObfuscated;
+const client = new TelegramClient(new StringSession(TG_SESSION), Number(TG_API_ID), TG_API_HASH, { connection, connectionRetries: Infinity, autoReconnect: true });
 await client.connect();
 await client.invoke(new Api.updates.GetState()).catch((e) => console.warn('GetState failed: ' + e.message));
 client.getDialogs({ limit: 300 }).then(() => console.log('Chats loaded')).catch((e) => console.warn('Could not load chats yet: ' + e.message)); // runs in the background so a slow connection cannot block startup
