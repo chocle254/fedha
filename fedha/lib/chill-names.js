@@ -18,7 +18,8 @@ export function parseName(file) {
   const s = raw.replace(/[._]+/g, ' ').replace(/\[[^\]]*\]|\([^)]*(?:rip|p\b|x26)[^)]*\)/gi, ' ').replace(/\s+/g, ' ').trim();
   const ep = s.match(/^(.*?)\s*-?\s*\bS(\d{1,2})\s?E(\d{1,3})(?:\s?-?\s?E?(\d{1,3}))?\b/i) || s.match(/^(.*?)\s+(\d{1,2})x(\d{2})\b/i);
   if (ep) {
-    const name = ep[1].replace(JUNK, '').replace(/[-\s]+$/, '').trim();
+    // A year after the name ("All.The.Queens.Men.2021.S05E01") is dropped so it groups with the files that leave it out.
+    const name = ep[1].replace(JUNK, '').replace(/[-\s]+$/, '').replace(/\s+\(?(19[3-9]\d|20[0-4]\d)\)?$/, '').trim();
     const show = ALIASES[name.toLowerCase().replace(/[^a-z]/g, '')] || titleCase(name || 'Unknown series');
     return { kind: 'episode', show, season: Number(ep[2]), episode: Number(ep[3]), episodeTo: ep[4] ? Number(ep[4]) : null };
   }
