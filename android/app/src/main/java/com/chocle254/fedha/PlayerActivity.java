@@ -1,22 +1,21 @@
 package com.chocle254.fedha;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ContentUris;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
-import android.media.audiofx.BassBoost;
-import android.media.audiofx.Equalizer;
-import android.media.audiofx.LoudnessEnhancer;
-import android.media.audiofx.Virtualizer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.util.TypedValue;
@@ -29,30 +28,30 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.media3.common.AudioAttributes;
-import androidx.media3.common.C;
-import androidx.media3.common.MediaItem;
-import androidx.media3.common.PlaybackException;
-import androidx.media3.common.Player;
-import androidx.media3.exoplayer.DefaultRenderersFactory;
-import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.ui.AspectRatioFrameLayout;
-import androidx.media3.ui.PlayerView;
-
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.videolan.libvlc.LibVLC;
+import org.videolan.libvlc.Media;
+import org.videolan.libvlc.MediaPlayer;
+import org.videolan.libvlc.util.VLCVideoLayout;
 
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Locale;
 
 // Luxe's own player, opened from the Chill Room (luxe://watch?q=<queue>&sound=theater|max|off).
-//   Theater: black, landscape, full screen, screen on, no system bars; controls only on a tap, gone after 2.5 s.
-//   Sound:   bass boost + a low-end equaliser curve + virtualiser + loudness lift on the player's audio session.
+//   Engine:  libVLC (the engine inside VLC), so almost any file plays: MKV/MP4/AVI/..., HEVC 10-bit, Dolby, DTS,
+//            and MKVs that keep their track list at the end of the file.
+//   Theater: black, landscape, full screen, screen on, no system bars; controls only on a tap, gone after 3 s.
+//   Sound:   VLC equaliser with a deep low end ("max" pushes it further), "off" leaves it flat.
 //   Netflix: resumes where you stopped; skips the intro at the exact second (IntroDB, TheIntroDB as backup, by the
 //            show's IMDb id + season + episode); when the credits start, "Next episode in 8" (tap to stay).
 //   Watched: only when you WATCH your way to the end credits (or 92%): a minute of real play before it, so dragging
@@ -64,9 +63,17 @@ public class PlayerActivity extends Activity {
     private static final String URL_WATCHED = "https://fedha.vercel.app/api/chill/watched";
     private final Handler h = new Handler(Looper.getMainLooper());
 
-    private ExoPlayer player;
-    private PlayerView view;
-    private TextView pill;
+    private LibVLC vlc;
+    private MediaPlayer mp;
+    private VLCVideoLayout video;
+    private ParcelFileDescriptor pfd; // the open file of the episode playing
+    private boolean started, attached;
+
+    private TextView pill, title, playBtn, timeNow, timeEnd;
+    private SeekBar bar;
+    private View controls, topBar, bottomBar, centerRow;
+    private boolean scrubbing;
+
     private JSONArray queue = new JSONArray();
     private int idx = 0;
     private String sound = "theater";
@@ -75,23 +82,17 @@ public class PlayerActivity extends Activity {
     private boolean introDone, watchedSent, nextArmed;
     private long lastTickPos = -1, runMs = 0; // continuous play since the last seek
     private int nextCountdown = -1;
-    private long lastSave = 0;
-    private long lastCount = 0;
-    private long lastReport = 0;
+    private long lastSave = 0, lastCount = 0, lastReport = 0;
 
-    // Gestures: pinch = fill / fit, vertical swipe right = volume, left = brightness, sideways = seek, double-tap edges = ±10 s.
+    // Gestures: tap = controls, pinch = fill / fit, vertical swipe right = volume, left = brightness,
+    // sideways = seek, double-tap edges = ±10 s, double-tap middle = pause.
     private GestureDetector gestures;
     private ScaleGestureDetector pinch;
     private AudioManager audio;
     private int swipe = 0; // 0 none, 1 volume, 2 brightness, 3 seek
-    private long seekFrom, seekTo;
     private float swipeStartY, swipeStartValue;
-    private boolean taken; // a gesture took over this touch (the controls don't get it)
-
-    private Equalizer eq;
-    private BassBoost bass;
-    private Virtualizer virt;
-    private LoudnessEnhancer loud;
+    private long seekFrom, seekTarget;
+    private boolean onControl;  // this touch started on a button, the seek bar or the pill
 
     @Override
     protected void onCreate(Bundle state) {
@@ -102,66 +103,174 @@ public class PlayerActivity extends Activity {
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
-        view = new PlayerView(this);
-        view.setBackgroundColor(Color.BLACK);
-        view.setShutterBackgroundColor(Color.BLACK);
-        view.setControllerShowTimeoutMs(2500);
-        view.setControllerHideOnTouch(true);
-        view.setShowNextButton(false);
-        view.setShowPreviousButton(false);
-        view.setShowSubtitleButton(true);
-        view.setKeepScreenOn(true);
-        root.addView(view, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        // Full screen puts the time bar on the bottom edge, where a sideways drag is Android's swipe-between-apps
-        // gesture. Lift the controls above that strip so the bar can be dragged.
-        View controls = view.findViewById(androidx.media3.ui.R.id.exo_controller);
-        if (controls != null) {
-            controls.setOnApplyWindowInsetsListener((v, in) -> {
-                int bottom = dp(28), side = 0;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    bottom = Math.max(bottom, in.getMandatorySystemGestureInsets().bottom + dp(8));
-                    side = Math.max(in.getSystemGestureInsets().left, in.getSystemGestureInsets().right);
-                }
-                v.setPadding(side, 0, side, bottom);
-                return in;
-            });
-            controls.setPadding(0, 0, 0, dp(28));
-        }
+        video = new VLCVideoLayout(this);
+        root.addView(video, new FrameLayout.LayoutParams(-1, -1));
+        buildControls(root);
 
-        // The only extra on screen: a small pill that flashes "Intro skipped" / "Next episode in 8".
         pill = new TextView(this);
         pill.setTextColor(Color.WHITE);
         pill.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        int px = dp(14), py = dp(8);
-        pill.setPadding(px, py, px, py);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(0xCC000000); g.setCornerRadius(dp(20)); g.setStroke(dp(1), 0x33FFFFFF);
-        pill.setBackground(g);
+        pill.setPadding(dp(14), dp(8), dp(14), dp(8));
+        pill.setBackground(round(0xCC000000, 20));
         pill.setVisibility(View.GONE);
         pill.setOnClickListener(v -> { if (nextCountdown >= 0) { nextCountdown = -1; nextArmed = false; hidePill(); showPill("Staying on this episode", 1500); } });
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.END);
-        lp.setMargins(0, 0, dp(28), dp(72));
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        lp.setMargins(0, dp(24), dp(28), 0);
         root.addView(pill, lp);
         setContentView(root);
 
-        // The phone's own decoders first; FFmpeg steps in for audio it can't decode (Dolby E-AC3/AC3, DTS, TrueHD).
-        DefaultRenderersFactory renderers = new DefaultRenderersFactory(this)
-                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
-                .setEnableDecoderFallback(true);
-        player = new ExoPlayer.Builder(this, renderers).setSeekBackIncrementMs(10_000).setSeekForwardIncrementMs(10_000).build();
-        player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true);
-        player.setHandleAudioBecomingNoisy(true); // headphones out: pause
-        view.setPlayer(player);
-        player.addListener(new Player.Listener() {
-            @Override public void onAudioSessionIdChanged(int sessionId) { attachSound(sessionId); }
-            @Override public void onPlaybackStateChanged(int s) { if (s == Player.STATE_ENDED) { if (runMs >= 60_000) markWatched(); if (hasNext()) playAt(idx + 1); else finish(); } }
-            @Override public void onPlayerError(PlaybackException e) { openElsewhere(); }
-        });
-        view.setResizeMode(getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("fill", false) ? AspectRatioFrameLayout.RESIZE_MODE_ZOOM : AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        ArrayList<String> opts = new ArrayList<>();
+        opts.add("--audio-time-stretch");
+        opts.add("--avcodec-skiploopfilter=1"); // keeps software HEVC 10-bit smooth on mid-range phones
+        opts.add("--freetype-rel-fontsize=16");
+        vlc = new LibVLC(this, opts);
+        mp = new MediaPlayer(vlc);
+        mp.setEventListener(this::onVlcEvent);
+        attachSound();
+        mp.setVideoScale(getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("fill", false) ? MediaPlayer.ScaleType.SURFACE_FIT_SCREEN : MediaPlayer.ScaleType.SURFACE_BEST_FIT);
+
         audio = (AudioManager) getSystemService(AUDIO_SERVICE);
         setupGestures();
-        playAt(0);
         h.post(tick);
+    }
+
+    // ── Controls: title + Subtitles / Audio on top, ⏮ ⏪ ⏸ ⏩ ⏭ in the middle, time + seek bar at the bottom ──
+    private void buildControls(FrameLayout root) {
+        FrameLayout c = new FrameLayout(this);
+        c.setBackgroundColor(0x66000000);
+        controls = c;
+
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(dp(20), dp(14), dp(20), dp(8));
+        title = text("", 16);
+        title.setSingleLine(true);
+        top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        top.addView(button("Subtitles", v -> pickTrack(true)));
+        top.addView(button("Audio", v -> pickTrack(false)));
+        topBar = top;
+        c.addView(top, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
+
+        LinearLayout mid = new LinearLayout(this);
+        mid.setGravity(Gravity.CENTER);
+        mid.addView(icon("⏮", 26, v -> { if (idx > 0) playAt(idx - 1); }));
+        mid.addView(icon("⏪", 26, v -> seekBy(-10_000)));
+        playBtn = icon("⏸", 40, v -> togglePlay());
+        mid.addView(playBtn);
+        mid.addView(icon("⏩", 26, v -> seekBy(10_000)));
+        mid.addView(icon("⏭", 26, v -> { if (hasNext()) playAt(idx + 1); }));
+        centerRow = mid;
+        c.addView(mid, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setGravity(Gravity.CENTER_VERTICAL);
+        bottom.setPadding(dp(20), dp(4), dp(20), dp(28));
+        timeNow = text("0:00", 13);
+        timeEnd = text("0:00", 13);
+        bar = new SeekBar(this);
+        bar.setPadding(dp(16), dp(14), dp(16), dp(14)); // a fat touch target
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar s, int p, boolean user) { if (user) { timeNow.setText(clock(p * 1000L)); keepControls(); } }
+            @Override public void onStartTrackingTouch(SeekBar s) { scrubbing = true; keepControls(); }
+            @Override public void onStopTrackingTouch(SeekBar s) { scrubbing = false; if (mp != null) mp.setTime(s.getProgress() * 1000L); runMs = 0; keepControls(); }
+        });
+        bottom.addView(timeNow);
+        bottom.addView(bar, new LinearLayout.LayoutParams(0, -2, 1));
+        bottom.addView(timeEnd);
+        bottomBar = bottom;
+        // Full screen puts the bottom bar on the bottom edge, where a sideways drag is Android's swipe-between-apps
+        // gesture: lift it above that strip so the seek bar can be dragged.
+        bottom.setOnApplyWindowInsetsListener((v, in) -> {
+            int b = dp(28), side = dp(20);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                b = Math.max(b, in.getMandatorySystemGestureInsets().bottom + dp(10));
+                side = Math.max(side, Math.max(in.getSystemGestureInsets().left, in.getSystemGestureInsets().right));
+            }
+            v.setPadding(side, dp(4), side, b);
+            return in;
+        });
+        c.addView(bottom, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+        c.setVisibility(View.GONE);
+        root.addView(c, new FrameLayout.LayoutParams(-1, -1));
+    }
+
+    private TextView text(String s, int sp) {
+        TextView t = new TextView(this);
+        t.setText(s); t.setTextColor(Color.WHITE); t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        return t;
+    }
+    private TextView button(String s, View.OnClickListener l) {
+        TextView t = text(s, 14);
+        t.setPadding(dp(14), dp(8), dp(14), dp(8));
+        t.setBackground(round(0x33FFFFFF, 18));
+        t.setOnClickListener(l);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        lp.setMargins(dp(8), 0, 0, 0);
+        t.setLayoutParams(lp);
+        return t;
+    }
+    private TextView icon(String s, int sp, View.OnClickListener l) {
+        TextView t = text(s, sp);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(18), dp(10), dp(18), dp(10));
+        t.setOnClickListener(l);
+        return t;
+    }
+    private GradientDrawable round(int color, int radius) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color); g.setCornerRadius(dp(radius)); g.setStroke(dp(1), 0x33FFFFFF);
+        return g;
+    }
+
+    private final Runnable hideControls = () -> { if (!scrubbing && controls != null) controls.setVisibility(View.GONE); };
+    private void showControls() { controls.setVisibility(View.VISIBLE); refreshBar(); keepControls(); }
+    private void keepControls() { h.removeCallbacks(hideControls); h.postDelayed(hideControls, 3000); }
+    private void toggleControls() { if (controls.getVisibility() == View.VISIBLE) controls.setVisibility(View.GONE); else showControls(); }
+
+    private void refreshBar() {
+        if (mp == null || scrubbing) return;
+        long len = Math.max(0, mp.getLength()), pos = Math.max(0, mp.getTime());
+        bar.setMax((int) (len / 1000));
+        bar.setProgress((int) (pos / 1000));
+        timeNow.setText(clock(pos));
+        timeEnd.setText(clock(len));
+        playBtn.setText(mp.isPlaying() ? "⏸" : "▶");
+    }
+
+    private void togglePlay() {
+        if (mp == null) return;
+        if (mp.isPlaying()) mp.pause(); else mp.play();
+        h.postDelayed(this::refreshBar, 150);
+        keepControls();
+    }
+    private void seekBy(long ms) {
+        if (mp == null) return;
+        long len = mp.getLength();
+        long to = Math.max(0, mp.getTime() + ms);
+        if (len > 0) to = Math.min(to, len - 1000);
+        mp.setTime(to);
+        runMs = 0;
+        showPill(ms < 0 ? "⏪ 10 s" : "10 s ⏩", 700);
+        refreshBar();
+    }
+
+    // Subtitles / audio language: VLC lists the file's tracks (and "Disable").
+    private void pickTrack(boolean subs) {
+        if (mp == null) return;
+        MediaPlayer.TrackDescription[] tracks = subs ? mp.getSpuTracks() : mp.getAudioTracks();
+        if (tracks == null || tracks.length == 0) { showPill(subs ? "No subtitles in this file" : "Only one audio track", 1500); return; }
+        int current = subs ? mp.getSpuTrack() : mp.getAudioTrack(), checked = -1;
+        String[] names = new String[tracks.length];
+        for (int i = 0; i < tracks.length; i++) { names[i] = tracks[i].name; if (tracks[i].id == current) checked = i; }
+        h.removeCallbacks(hideControls);
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(subs ? "Subtitles" : "Audio")
+                .setSingleChoiceItems(names, checked, (d, i) -> {
+                    if (subs) mp.setSpuTrack(tracks[i].id); else mp.setAudioTrack(tracks[i].id);
+                    d.dismiss();
+                })
+                .setOnDismissListener(d -> { immersive(); keepControls(); })
+                .show();
     }
 
     private void setupGestures() {
@@ -174,66 +283,71 @@ public class PlayerActivity extends Activity {
             }
         });
         gestures = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
-            @Override public boolean onDown(MotionEvent e) {
-                swipe = 0; swipeStartY = e.getY();
-                return false;
-            }
+            @Override public boolean onDown(MotionEvent e) { swipe = 0; swipeStartY = e.getY(); return false; }
+            @Override public boolean onSingleTapConfirmed(MotionEvent e) { toggleControls(); return true; }
             @Override public boolean onScroll(MotionEvent e1, MotionEvent e2, float dx, float dy) {
-                if (e1 == null || pinch.isInProgress()) return false;
+                if (e1 == null || pinch.isInProgress() || mp == null) return false;
                 float moved = e1.getY() - e2.getY(), across = e2.getX() - e1.getX();
-                // Sideways anywhere above the controls bar: seek (the whole width = 3 minutes, set on release).
-                if (swipe == 3 || (swipe == 0 && Math.abs(across) >= dp(24) && Math.abs(across) > Math.abs(moved) * 1.5f
-                        && e1.getY() < view.getHeight() * 0.78f && player.getDuration() > 0)) {
-                    if (swipe != 3) { swipe = 3; seekFrom = player.getCurrentPosition(); }
-                    long dur = player.getDuration();
-                    seekTo = Math.max(0, Math.min(dur, seekFrom + (long) (across / view.getWidth() * 180_000)));
-                    long diff = seekTo - seekFrom;
-                    showPill((diff < 0 ? "-" : "+") + clock(Math.abs(diff)) + "   " + clock(seekTo) + " / " + clock(dur), 1200);
+                float w = video.getWidth(), ht = video.getHeight();
+                // Sideways: seek (the whole width = 3 minutes, set on release).
+                if (swipe == 3 || (swipe == 0 && Math.abs(across) >= dp(24) && Math.abs(across) > Math.abs(moved) * 1.5f && mp.getLength() > 0)) {
+                    if (swipe != 3) { swipe = 3; seekFrom = mp.getTime(); }
+                    long len = mp.getLength();
+                    seekTarget = Math.max(0, Math.min(len - 1000, seekFrom + (long) (across / w * 180_000)));
+                    long diff = seekTarget - seekFrom;
+                    showPill((diff < 0 ? "-" : "+") + clock(Math.abs(diff)) + "   " + clock(seekTarget) + " / " + clock(len), 1200);
                     return true;
                 }
                 if (swipe == 0) {
                     if (Math.abs(moved) < dp(24) || Math.abs(moved) < Math.abs(across)) return false;
-                    boolean right = e1.getX() > view.getWidth() / 2f;
+                    boolean right = e1.getX() > w / 2f;
                     swipe = right ? 1 : 2;
                     swipeStartY = e2.getY();
                     swipeStartValue = right ? volumeFraction() : brightness();
                 }
-                float delta = (swipeStartY - e2.getY()) / (view.getHeight() * 0.7f);
+                float delta = (swipeStartY - e2.getY()) / (ht * 0.7f);
                 float v = Math.max(0f, Math.min(1f, swipeStartValue + delta));
                 if (swipe == 1) setVolume(v); else setBrightness(v);
                 return true;
             }
             @Override public boolean onDoubleTap(MotionEvent e) {
-                float x = e.getX(), w = view.getWidth();
-                if (x < w * 0.35f) { player.seekTo(Math.max(0, player.getCurrentPosition() - 10_000)); showPill("⏪ 10 s", 700); return true; }
-                if (x > w * 0.65f) { player.seekTo(player.getCurrentPosition() + 10_000); showPill("10 s ⏩", 700); return true; }
-                return false;
+                float x = e.getX(), w = video.getWidth();
+                if (x < w * 0.35f) seekBy(-10_000);
+                else if (x > w * 0.65f) seekBy(10_000);
+                else togglePlay();
+                return true;
             }
         });
     }
 
-    // Every touch goes past the gestures first; once a pinch or swipe takes over, the controls don't see the rest.
+    private boolean hits(View v, MotionEvent ev) {
+        if (v == null || v.getVisibility() != View.VISIBLE || !v.isShown()) return false;
+        Rect r = new Rect();
+        if (!v.getGlobalVisibleRect(r)) return false;
+        return r.contains((int) ev.getRawX(), (int) ev.getRawY());
+    }
+
+    // Touches on the buttons, seek bar and pill go straight to them; everything else is a gesture on the video.
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
         if (pinch == null) return super.dispatchTouchEvent(ev);
+        int a = ev.getActionMasked();
+        if (a == MotionEvent.ACTION_DOWN) onControl = hits(topBar, ev) || hits(bottomBar, ev) || hits(centerRow, ev) || hits(pill, ev);
+        if (onControl) {
+            if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) onControl = false;
+            return super.dispatchTouchEvent(ev);
+        }
         pinch.onTouchEvent(ev);
-        boolean g = gestures.onTouchEvent(ev);
-        if (!taken && (pinch.isInProgress() || swipe != 0 || ev.getPointerCount() > 1)) {
-            taken = true;
-            MotionEvent cancel = MotionEvent.obtain(ev); cancel.setAction(MotionEvent.ACTION_CANCEL);
-            super.dispatchTouchEvent(cancel); cancel.recycle();
+        gestures.onTouchEvent(ev);
+        if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
+            if (swipe == 3 && a == MotionEvent.ACTION_UP && mp != null) { mp.setTime(seekTarget); runMs = 0; refreshBar(); }
+            swipe = 0;
         }
-        if (ev.getActionMasked() == MotionEvent.ACTION_UP || ev.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-            if (swipe == 3 && ev.getActionMasked() == MotionEvent.ACTION_UP) player.seekTo(seekTo);
-            boolean was = taken; taken = false; swipe = 0;
-            if (was) return true;
-        }
-        if (taken || (g && ev.getActionMasked() != MotionEvent.ACTION_DOWN)) return true;
-        return super.dispatchTouchEvent(ev);
+        return true;
     }
 
     private void setFill(boolean fill) {
-        view.setResizeMode(fill ? AspectRatioFrameLayout.RESIZE_MODE_ZOOM : AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        mp.setVideoScale(fill ? MediaPlayer.ScaleType.SURFACE_FIT_SCREEN : MediaPlayer.ScaleType.SURFACE_BEST_FIT);
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("fill", fill).apply();
         showPill(fill ? "Fill screen" : "Fit to screen", 1000);
     }
@@ -273,24 +387,59 @@ public class PlayerActivity extends Activity {
 
     private boolean hasNext() { return idx + 1 < queue.length(); }
 
+    private Uri uriOf(JSONObject it) { return ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, it.optLong("id")); }
+
     private void playAt(int i) {
         JSONObject it = queue.optJSONObject(i);
         if (it == null) { finish(); return; }
-        if (i != idx) saveSpot();
+        if (started && i != idx) saveSpot();
         idx = i;
         introStart = introEnd = outroStart = -1;
         introDone = watchedSent = nextArmed = false;
         lastTickPos = -1; runMs = 0;
         nextCountdown = -1;
         hidePill();
-        Uri uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, it.optLong("id"));
-        player.setMediaItem(MediaItem.fromUri(uri));
+        mp.stop();
+        closeFile();
+        try {
+            pfd = getContentResolver().openFileDescriptor(uriOf(it), "r");
+        } catch (Exception e) { openElsewhere(); return; }
+        if (pfd == null) { openElsewhere(); return; }
+        Media m = new Media(vlc, pfd.getFileDescriptor());
+        m.setHWDecoderEnabled(true, false); // the phone's video chip when it can, VLC's own decoders when it can't
         long resume = getSharedPreferences(PREFS, MODE_PRIVATE).getLong("pos_" + it.optLong("id"), 0);
-        player.prepare();
-        if (resume > 30_000) { player.seekTo(resume); showPill("Resumed", 1200); }
-        player.play();
-        if (it.optString("t").length() > 0) showPill(it.optString("t"), 2500);
+        if (resume > 30_000) m.addOption(":start-time=" + (resume / 1000.0));
+        mp.setMedia(m);
+        m.release();
+        mp.play();
+        started = true;
+        String t = it.optString("t");
+        title.setText(t);
+        if (resume > 30_000) showPill("Resumed", 1200);
+        else if (t.length() > 0) showPill(t, 2500);
         fetchSegments(it);
+    }
+
+    private void onVlcEvent(MediaPlayer.Event ev) {
+        switch (ev.type) {
+            case MediaPlayer.Event.EndReached: {
+                if (runMs >= 60_000) markWatched();
+                JSONObject it = queue.optJSONObject(idx);
+                if (it != null) getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove("pos_" + it.optLong("id")).apply();
+                // Leave VLC's own callback before loading the next file.
+                h.post(() -> { if (hasNext()) playAt(idx + 1); else finish(); });
+                break;
+            }
+            case MediaPlayer.Event.EncounteredError:
+                h.post(this::openElsewhere);
+                break;
+            case MediaPlayer.Event.Playing:
+            case MediaPlayer.Event.Paused:
+            case MediaPlayer.Event.LengthChanged:
+                if (controls.getVisibility() == View.VISIBLE) refreshBar();
+                break;
+            default:
+        }
     }
 
     // Intro / credits times for this episode: IntroDB first, TheIntroDB if it has nothing.
@@ -333,31 +482,33 @@ public class PlayerActivity extends Activity {
     // Twice a second: skip the intro, arm "next episode" at the credits, keep the resume spot, mark watched.
     private final Runnable tick = new Runnable() {
         @Override public void run() {
-            if (player != null && player.getPlaybackState() == Player.STATE_READY) {
-                long pos = player.getCurrentPosition(), dur = player.getDuration();
+            if (mp != null && started && mp.getLength() > 0) {
+                long pos = mp.getTime(), dur = mp.getLength();
+                boolean playing = mp.isPlaying();
                 if (!introDone && introStart >= 0 && introEnd > introStart && pos >= introStart - 300 && pos < introEnd - 1500) {
                     introDone = true;
-                    player.seekTo(introEnd);
+                    mp.setTime(introEnd);
                     showPill("Intro skipped", 1500);
                 }
                 // A jump of more than 2.5 s between ticks is a seek: start counting real play again.
-                if (player.isPlaying()) { if (lastTickPos >= 0 && Math.abs(pos - lastTickPos) > 2500) runMs = 0; else runMs += 500; }
+                if (playing) { if (lastTickPos >= 0 && Math.abs(pos - lastTickPos) > 2500) runMs = 0; else runMs += 500; }
                 lastTickPos = pos;
-                boolean outroOk = outroStart > 0 && dur > 0 && outroStart > dur * 0.75;
-                boolean credits = (outroOk && pos >= outroStart) || (!outroOk && dur > 0 && dur - pos < 20_000);
+                boolean outroOk = outroStart > 0 && outroStart > dur * 0.75;
+                boolean credits = (outroOk && pos >= outroStart) || (!outroOk && dur - pos < 20_000);
                 boolean reallyWatched = runMs >= 60_000;
                 if (credits && reallyWatched) markWatched();
-                if (credits && hasNext() && !nextArmed && player.isPlaying()) { nextArmed = true; nextCountdown = 8; lastCount = System.currentTimeMillis(); }
-                if (dur > 0 && pos > dur * 0.92 && reallyWatched) markWatched();
+                if (credits && hasNext() && !nextArmed && playing) { nextArmed = true; nextCountdown = 8; lastCount = System.currentTimeMillis(); }
+                if (pos > dur * 0.92 && reallyWatched) markWatched();
                 if (System.currentTimeMillis() - lastSave > 5000) saveSpot();
-            }
-            if (nextCountdown >= 0 && player != null && player.isPlaying()) {
-                if (nextCountdown == 0) { nextCountdown = -1; playAt(idx + 1); }
-                else {
-                    JSONObject nx = queue.optJSONObject(idx + 1);
-                    showPill("Next: " + (nx == null ? "episode" : nx.optString("t", "episode")) + "  in " + nextCountdown + "   ·   tap to stay", 1100);
-                    long t = System.currentTimeMillis();
-                    if (t - lastCount >= 1000) { nextCountdown--; lastCount = t; }
+                if (controls.getVisibility() == View.VISIBLE) refreshBar();
+                if (nextCountdown >= 0 && playing) {
+                    if (nextCountdown == 0) { nextCountdown = -1; playAt(idx + 1); }
+                    else {
+                        JSONObject nx = queue.optJSONObject(idx + 1);
+                        showPill("Next: " + (nx == null ? "episode" : nx.optString("t", "episode")) + "  in " + nextCountdown + "   ·   tap to stay", 1100);
+                        long t = System.currentTimeMillis();
+                        if (t - lastCount >= 1000) { nextCountdown--; lastCount = t; }
+                    }
                 }
             }
             h.postDelayed(this, 500);
@@ -365,13 +516,14 @@ public class PlayerActivity extends Activity {
     };
 
     private void saveSpot() {
-        if (player == null) return;
+        if (mp == null || !started) return;
         JSONObject it = queue.optJSONObject(idx);
         if (it == null) return;
         lastSave = System.currentTimeMillis();
-        long pos = player.getCurrentPosition(), dur = player.getDuration();
+        long pos = mp.getTime(), dur = mp.getLength();
+        if (dur <= 0) return;
         SharedPreferences.Editor e = getSharedPreferences(PREFS, MODE_PRIVATE).edit();
-        if (dur > 0 && dur - pos < 60_000) e.remove("pos_" + it.optLong("id")); else e.putLong("pos_" + it.optLong("id"), pos);
+        if (dur - pos < 60_000) e.remove("pos_" + it.optLong("id")); else e.putLong("pos_" + it.optLong("id"), pos);
         e.apply();
         reportProgress(pos, dur, false);
     }
@@ -398,44 +550,36 @@ public class PlayerActivity extends Activity {
         new Thread(() -> SmsUploader.postJson(getApplicationContext(), URL_WATCHED, body)).start();
     }
 
-    // ── Sound: deep, wide, loud ────────────────────────────────────────────────
-    private void attachSound(int session) {
-        releaseSound();
-        if ("off".equals(sound) || session == C.AUDIO_SESSION_ID_UNSET) return;
+    // ── Sound: deep low end through VLC's equaliser (10 bands, 31 Hz … 16 kHz, in dB) ──
+    private void attachSound() {
+        if ("off".equals(sound)) return;
         boolean max = "max".equals(sound);
         try {
-            eq = new Equalizer(0, session);
-            short[] range = eq.getBandLevelRange(); // millibels, e.g. -1500..1500
-            for (short b = 0; b < eq.getNumberOfBands(); b++) {
-                int hz = eq.getCenterFreq(b) / 1000;
-                int level = hz <= 90 ? (max ? 1000 : 800) : hz <= 250 ? (max ? 700 : 500) : hz <= 1000 ? -100 : hz <= 4000 ? 100 : 300;
-                eq.setBandLevel(b, (short) Math.max(range[0], Math.min(range[1], level)));
+            MediaPlayer.Equalizer eq = MediaPlayer.Equalizer.create();
+            for (int b = 0; b < MediaPlayer.Equalizer.getBandCount(); b++) {
+                float hz = MediaPlayer.Equalizer.getBandFrequency(b);
+                float db = hz <= 90 ? (max ? 9f : 6f) : hz <= 250 ? (max ? 6f : 4f) : hz <= 1000 ? -1f : hz <= 4000 ? 1f : 3f;
+                eq.setAmp(b, db);
             }
-            eq.setEnabled(true);
+            eq.setPreAmp(max ? 3f : 1f);
+            mp.setEqualizer(eq);
         } catch (RuntimeException ignored) { }
-        try { bass = new BassBoost(0, session); bass.setStrength((short) (max ? 1000 : 750)); bass.setEnabled(true); } catch (RuntimeException ignored) { }
-        try { virt = new Virtualizer(0, session); virt.setStrength((short) (max ? 900 : 700)); virt.setEnabled(true); } catch (RuntimeException ignored) { }
-        try { loud = new LoudnessEnhancer(session); loud.setTargetGain(max ? 900 : 500); loud.setEnabled(true); } catch (RuntimeException ignored) { }
     }
 
-    private void releaseSound() {
-        try { if (eq != null) eq.release(); } catch (RuntimeException ignored) { }
-        try { if (bass != null) bass.release(); } catch (RuntimeException ignored) { }
-        try { if (virt != null) virt.release(); } catch (RuntimeException ignored) { }
-        try { if (loud != null) loud.release(); } catch (RuntimeException ignored) { }
-        eq = null; bass = null; virt = null; loud = null;
-    }
-
-    // A file neither the phone's decoders nor FFmpeg can play: hand it to another player instead.
+    // A file VLC itself can't open: hand it to another player instead.
     private void openElsewhere() {
         JSONObject it = queue.optJSONObject(idx);
         if (it == null) { finish(); return; }
-        Toast.makeText(this, "Luxe's player can't play this file's format. Opening it in another player.", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, "Luxe's player can't open this file. Opening it in another player.", Toast.LENGTH_LONG).show();
         try {
-            Uri uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, it.optLong("id"));
-            startActivity(Intent.createChooser(new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "video/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Watch with"));
+            startActivity(Intent.createChooser(new Intent(Intent.ACTION_VIEW).setDataAndType(uriOf(it), "video/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Watch with"));
         } catch (RuntimeException ignored) { }
         finish();
+    }
+
+    private void closeFile() {
+        try { if (pfd != null) pfd.close(); } catch (Exception ignored) { }
+        pfd = null;
     }
 
     private void showPill(String text, long ms) {
@@ -448,8 +592,8 @@ public class PlayerActivity extends Activity {
     private void hidePill() { if (pill != null) pill.setVisibility(View.GONE); }
 
     private static String clock(long ms) {
-        long t = ms / 1000, hh = t / 3600, mm = (t % 3600) / 60, ss = t % 60;
-        return hh > 0 ? String.format(java.util.Locale.US, "%d:%02d:%02d", hh, mm, ss) : String.format(java.util.Locale.US, "%d:%02d", mm, ss);
+        long t = Math.max(0, ms) / 1000, hh = t / 3600, mm = (t % 3600) / 60, ss = t % 60;
+        return hh > 0 ? String.format(Locale.US, "%d:%02d:%02d", hh, mm, ss) : String.format(Locale.US, "%d:%02d", mm, ss);
     }
 
     private int dp(int v) { return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics())); }
@@ -473,16 +617,28 @@ public class PlayerActivity extends Activity {
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) { super.onWindowFocusChanged(hasFocus); if (hasFocus) immersive(); }
+
+    // The video surface is attached while Luxe is on screen; the first episode starts once it is.
+    @Override protected void onStart() {
+        super.onStart();
+        if (mp != null && !attached) { mp.attachViews(video, null, true, false); attached = true; }
+        if (!started) playAt(0);
+    }
     @Override protected void onResume() { super.onResume(); immersive(); }
     @Override protected void onPause() {
         super.onPause();
-        if (player != null) { lastReport = 0; saveSpot(); player.pause(); }
+        if (mp != null) { lastReport = 0; saveSpot(); if (mp.isPlaying()) mp.pause(); }
+    }
+    @Override protected void onStop() {
+        super.onStop();
+        if (mp != null && attached) { mp.detachViews(); attached = false; }
     }
     @Override protected void onDestroy() {
         h.removeCallbacksAndMessages(null);
         saveSpot();
-        releaseSound();
-        if (player != null) { player.release(); player = null; }
+        if (mp != null) { mp.setEventListener(null); mp.stop(); mp.release(); mp = null; }
+        if (vlc != null) { vlc.release(); vlc = null; }
+        closeFile();
         super.onDestroy();
     }
 }
