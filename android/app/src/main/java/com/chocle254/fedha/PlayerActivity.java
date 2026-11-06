@@ -105,6 +105,10 @@ public class PlayerActivity extends Activity {
         root.setBackgroundColor(Color.BLACK);
         video = new VLCVideoLayout(this);
         root.addView(video, new FrameLayout.LayoutParams(-1, -1));
+        // VLC sizes the picture from the view: redo it whenever the view changes size (e.g. after turning landscape).
+        video.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (r - l != or - ol || b - t != ob - ot) h.post(this::applyScale);
+        });
         buildControls(root);
 
         pill = new TextView(this);
@@ -127,7 +131,6 @@ public class PlayerActivity extends Activity {
         mp = new MediaPlayer(vlc);
         mp.setEventListener(this::onVlcEvent);
         attachSound();
-        mp.setVideoScale(getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("fill", false) ? MediaPlayer.ScaleType.SURFACE_FIT_SCREEN : MediaPlayer.ScaleType.SURFACE_BEST_FIT);
 
         audio = (AudioManager) getSystemService(AUDIO_SERVICE);
         setupGestures();
@@ -148,6 +151,7 @@ public class PlayerActivity extends Activity {
         top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
         top.addView(button("Subtitles", v -> pickTrack(true)));
         top.addView(button("Audio", v -> pickTrack(false)));
+        top.addView(button("Fill / Fit", v -> setFill(!fill())));
         topBar = top;
         c.addView(top, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
 
@@ -346,10 +350,18 @@ public class PlayerActivity extends Activity {
         return true;
     }
 
+    // Fill (the default) crops the picture's edges to cover the whole screen; Fit shows all of it with black bars.
+    private boolean fill() { return getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("fill_screen", true); }
     private void setFill(boolean fill) {
-        mp.setVideoScale(fill ? MediaPlayer.ScaleType.SURFACE_FIT_SCREEN : MediaPlayer.ScaleType.SURFACE_BEST_FIT);
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("fill", fill).apply();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("fill_screen", fill).apply();
+        applyScale();
         showPill(fill ? "Fill screen" : "Fit to screen", 1000);
+    }
+    // Only works once the view is attached (VLC ignores it before), so it runs on attach, on resize and on pinch.
+    private void applyScale() {
+        if (mp == null || !attached) return;
+        mp.setVideoScale(fill() ? MediaPlayer.ScaleType.SURFACE_FIT_SCREEN : MediaPlayer.ScaleType.SURFACE_BEST_FIT);
+        mp.updateVideoSurfaces();
     }
 
     private float volumeFraction() {
@@ -432,6 +444,9 @@ public class PlayerActivity extends Activity {
             }
             case MediaPlayer.Event.EncounteredError:
                 h.post(this::openElsewhere);
+                break;
+            case MediaPlayer.Event.Vout:
+                h.post(this::applyScale);
                 break;
             case MediaPlayer.Event.Playing:
             case MediaPlayer.Event.Paused:
@@ -621,7 +636,7 @@ public class PlayerActivity extends Activity {
     // The video surface is attached while Luxe is on screen; the first episode starts once it is.
     @Override protected void onStart() {
         super.onStart();
-        if (mp != null && !attached) { mp.attachViews(video, null, true, false); attached = true; }
+        if (mp != null && !attached) { mp.attachViews(video, null, true, false); attached = true; applyScale(); }
         if (!started) playAt(0);
     }
     @Override protected void onResume() { super.onResume(); immersive(); }
