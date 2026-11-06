@@ -8,7 +8,7 @@ def ksPass = System.getenv('KEYSTORE_PASSWORD')
 
 android {
     namespace 'com.chocle254.fedha'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId 'com.chocle254.fedha'
@@ -46,8 +46,10 @@ dependencies {
     implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     // Luxe's own video player (PlayerActivity): ExoPlayer engine + its player view.
-    implementation 'androidx.media3:media3-exoplayer:1.4.1'
-    implementation 'androidx.media3:media3-ui:1.4.1'
+    implementation 'androidx.media3:media3-exoplayer:1.5.0'
+    implementation 'androidx.media3:media3-ui:1.5.0'
+    // FFmpeg audio decoders for formats the phone can't decode itself (Dolby E-AC3/AC3, DTS, TrueHD...).
+    implementation 'org.jellyfin.media3:media3-ffmpeg-decoder:1.5.0+1'
 }
 
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }

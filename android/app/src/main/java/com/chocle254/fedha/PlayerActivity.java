@@ -37,6 +37,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
@@ -78,11 +79,12 @@ public class PlayerActivity extends Activity {
     private long lastCount = 0;
     private long lastReport = 0;
 
-    // Gestures: pinch = fill / fit, vertical swipe right = volume, left = brightness, double-tap edges = ±10 s.
+    // Gestures: pinch = fill / fit, vertical swipe right = volume, left = brightness, sideways = seek, double-tap edges = ±10 s.
     private GestureDetector gestures;
     private ScaleGestureDetector pinch;
     private AudioManager audio;
-    private int swipe = 0; // 0 none, 1 volume, 2 brightness
+    private int swipe = 0; // 0 none, 1 volume, 2 brightness, 3 seek
+    private long seekFrom, seekTo;
     private float swipeStartY, swipeStartValue;
     private boolean taken; // a gesture took over this touch (the controls don't get it)
 
@@ -110,6 +112,21 @@ public class PlayerActivity extends Activity {
         view.setShowSubtitleButton(true);
         view.setKeepScreenOn(true);
         root.addView(view, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        // Full screen puts the time bar on the bottom edge, where a sideways drag is Android's swipe-between-apps
+        // gesture. Lift the controls above that strip so the bar can be dragged.
+        View controls = view.findViewById(androidx.media3.ui.R.id.exo_controller);
+        if (controls != null) {
+            controls.setOnApplyWindowInsetsListener((v, in) -> {
+                int bottom = dp(28), side = 0;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    bottom = Math.max(bottom, in.getMandatorySystemGestureInsets().bottom + dp(8));
+                    side = Math.max(in.getSystemGestureInsets().left, in.getSystemGestureInsets().right);
+                }
+                v.setPadding(side, 0, side, bottom);
+                return in;
+            });
+            controls.setPadding(0, 0, 0, dp(28));
+        }
 
         // The only extra on screen: a small pill that flashes "Intro skipped" / "Next episode in 8".
         pill = new TextView(this);
@@ -127,7 +144,11 @@ public class PlayerActivity extends Activity {
         root.addView(pill, lp);
         setContentView(root);
 
-        player = new ExoPlayer.Builder(this).setSeekBackIncrementMs(10_000).setSeekForwardIncrementMs(10_000).build();
+        // The phone's own decoders first; FFmpeg steps in for audio it can't decode (Dolby E-AC3/AC3, DTS, TrueHD).
+        DefaultRenderersFactory renderers = new DefaultRenderersFactory(this)
+                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+                .setEnableDecoderFallback(true);
+        player = new ExoPlayer.Builder(this, renderers).setSeekBackIncrementMs(10_000).setSeekForwardIncrementMs(10_000).build();
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true);
         player.setHandleAudioBecomingNoisy(true); // headphones out: pause
         view.setPlayer(player);
@@ -159,9 +180,19 @@ public class PlayerActivity extends Activity {
             }
             @Override public boolean onScroll(MotionEvent e1, MotionEvent e2, float dx, float dy) {
                 if (e1 == null || pinch.isInProgress()) return false;
-                float moved = e1.getY() - e2.getY();
+                float moved = e1.getY() - e2.getY(), across = e2.getX() - e1.getX();
+                // Sideways anywhere above the controls bar: seek (the whole width = 3 minutes, set on release).
+                if (swipe == 3 || (swipe == 0 && Math.abs(across) >= dp(24) && Math.abs(across) > Math.abs(moved) * 1.5f
+                        && e1.getY() < view.getHeight() * 0.78f && player.getDuration() > 0)) {
+                    if (swipe != 3) { swipe = 3; seekFrom = player.getCurrentPosition(); }
+                    long dur = player.getDuration();
+                    seekTo = Math.max(0, Math.min(dur, seekFrom + (long) (across / view.getWidth() * 180_000)));
+                    long diff = seekTo - seekFrom;
+                    showPill((diff < 0 ? "-" : "+") + clock(Math.abs(diff)) + "   " + clock(seekTo) + " / " + clock(dur), 1200);
+                    return true;
+                }
                 if (swipe == 0) {
-                    if (Math.abs(moved) < dp(24) || Math.abs(moved) < Math.abs(e2.getX() - e1.getX())) return false;
+                    if (Math.abs(moved) < dp(24) || Math.abs(moved) < Math.abs(across)) return false;
                     boolean right = e1.getX() > view.getWidth() / 2f;
                     swipe = right ? 1 : 2;
                     swipeStartY = e2.getY();
@@ -193,6 +224,7 @@ public class PlayerActivity extends Activity {
             super.dispatchTouchEvent(cancel); cancel.recycle();
         }
         if (ev.getActionMasked() == MotionEvent.ACTION_UP || ev.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+            if (swipe == 3 && ev.getActionMasked() == MotionEvent.ACTION_UP) player.seekTo(seekTo);
             boolean was = taken; taken = false; swipe = 0;
             if (was) return true;
         }
@@ -394,7 +426,7 @@ public class PlayerActivity extends Activity {
         eq = null; bass = null; virt = null; loud = null;
     }
 
-    // A file the built-in decoders can't play (rare codecs like DTS): hand it to another player instead.
+    // A file neither the phone's decoders nor FFmpeg can play: hand it to another player instead.
     private void openElsewhere() {
         JSONObject it = queue.optJSONObject(idx);
         if (it == null) { finish(); return; }
@@ -414,6 +446,11 @@ public class PlayerActivity extends Activity {
     }
     private final Runnable hide = this::hidePill;
     private void hidePill() { if (pill != null) pill.setVisibility(View.GONE); }
+
+    private static String clock(long ms) {
+        long t = ms / 1000, hh = t / 3600, mm = (t % 3600) / 60, ss = t % 60;
+        return hh > 0 ? String.format(java.util.Locale.US, "%d:%02d:%02d", hh, mm, ss) : String.format(java.util.Locale.US, "%d:%02d", mm, ss);
+    }
 
     private int dp(int v) { return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics())); }
 
