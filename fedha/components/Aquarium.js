@@ -11,14 +11,14 @@ import { useEffect, useRef } from 'react';
 const FISH_VERT = `
 uniform float uTime; uniform float uAmp; uniform float uFreq; uniform float uVert;
 attribute float aPart; attribute float aPhase; attribute float aSpeed;
-varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vPart;
+varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vPart; varying vec3 vObjN;
 #include <fog_pars_vertex>
 void main() {
   vec3 p = position;
   float s = clamp((0.15 - p.x) / 0.65, 0.0, 1.0);
   float bend = sin(uTime * uFreq * aSpeed + aPhase - p.x * 5.0) * uAmp * s * s;
   if (uVert > 0.5) p.y += bend; else p.z += bend;   // whales and dolphins beat their flukes up and down
-  vPos = position; vPart = aPart;
+  vPos = position; vPart = aPart; vObjN = normal;
   vec4 wp = modelMatrix * instanceMatrix * vec4(p, 1.0);
   vWorld = wp.xyz;
   vec4 mvPosition = viewMatrix * wp;
@@ -53,7 +53,7 @@ vec3 shade(vec3 col, vec3 n, vec3 view, vec3 world, float shine) {
 const FISH_FRAG = `
 uniform vec3 uBack; uniform vec3 uBelly; uniform vec3 uFin; uniform vec3 uAccent;
 uniform int uPattern; uniform float uH; uniform float uEye; uniform float uShine; uniform float uGlint;
-varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vPart;
+varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vPart; varying vec3 vObjN;
 ${COMMON_FRAG}
 #include <fog_pars_fragment>
 float band(float t, float c, float w) { return 1.0 - ss(w, w + 0.012, abs(t - c)); }
@@ -96,11 +96,13 @@ void main() {
   float shine = uShine;
   vec2 e = vec2(vPos.x - 0.36, vPos.y - uH * 0.12);
   float d = length(e);
-  bool eye = vPart < 0.5 && d < uEye;
-  if (eye) {                                                // eye with a wet highlight
-    col = mix(vec3(0.9, 0.75, 0.3), vec3(0.01), ss(uEye * 0.55, uEye * 0.45, d));
-    if (length(e - vec2(0.004, uEye * 0.3)) < uEye * 0.22) col = vec3(1.0);
-    shine = 1.2;
+  bool eye = vPart < 0.5 && d < uEye && abs(vObjN.z) > 0.55;  // only on the sides of the head
+  if (eye) {                                                // a dark, glossy eye with a thin iris ring
+    float r = d / uEye;
+    vec3 iris = mix(col * 0.55, vec3(0.55, 0.5, 0.36), 0.45);
+    vec3 eyeCol = mix(iris, vec3(0.012, 0.016, 0.024), ss(0.7, 0.58, r));
+    col = mix(eyeCol, col * 0.75, ss(0.86, 1.0, r));
+    shine = 1.6;
   }
   // Scales: each one tilted a little differently, so they flash one by one as the fish turns, with a rainbow
   // sheen at glancing angles.
@@ -127,7 +129,7 @@ void main() {
 const CEPH_VERT = `
 uniform float uTime; uniform float uPulse;
 attribute float aK; attribute float aArm; attribute float aPhase; attribute float aSpeed;
-varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vK;
+varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vK; varying vec3 vObjN;
 #include <fog_pars_vertex>
 void main() {
   vec3 p = position;
@@ -143,7 +145,7 @@ void main() {
   } else if (p.x > -0.1) {
     p.yz *= 1.0 + 0.07 * pulse;
   }
-  vPos = position; vK = aK;
+  vPos = position; vK = aK; vObjN = normal;
   vec4 wp = modelMatrix * instanceMatrix * vec4(p, 1.0);
   vWorld = wp.xyz;
   vec4 mvPosition = viewMatrix * wp;
@@ -155,7 +157,7 @@ void main() {
 
 const CEPH_FRAG = `
 uniform vec3 uBody; uniform vec3 uBelly; uniform float uEyeX; uniform float uEye; uniform float uShine;
-varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vK;
+varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vK; varying vec3 vObjN;
 ${COMMON_FRAG}
 #include <fog_pars_fragment>
 void main() {
@@ -168,9 +170,11 @@ void main() {
   }
   vec2 e = vec2(vPos.x - uEyeX, vPos.y);
   float shine = uShine;
-  if (vK < 0.01 && length(e) < uEye && abs(vPos.z) > uEye * 0.4) {
-    col = mix(vec3(0.85, 0.7, 0.3), vec3(0.01), ss(uEye * 0.5, uEye * 0.35, length(vec2(e.x, e.y * 2.2))));
-    shine = 1.4;
+  if (vK < 0.01 && length(e) < uEye && abs(vObjN.z) > 0.5) { // golden eye with a dark slit pupil
+    float r = length(e) / uEye;
+    vec3 eyeCol = mix(vec3(0.62, 0.5, 0.26), vec3(0.015), ss(0.5, 0.36, length(vec2(e.x, e.y * 2.6)) / uEye));
+    col = mix(eyeCol, col * 0.8, ss(0.85, 1.0, r));
+    shine = 1.6;
   }
   gl_FragColor = vec4(shade(col, vN, vView, vWorld, shine), 1.0);
   #include <fog_fragment>
@@ -332,19 +336,22 @@ void main() {
 
 // Species: body proportions (length 1), fins, colours and how they swim.
 // Fish: body proportions (length 1), fins, colours, how they swim and how much their scales flash (glint).
-// Big animals (far) start deep in the blue and swim in from the distance. ceph = octopus / squid.
+// resident: always about (a few reef fish, one sardine school). visit: arrives now and then from the distance,
+// stays a while, then swims off: gap = seconds between visits, stay = seconds it stays, w = how often it's picked.
+// big animals come one at a time; predators sometimes hunt the sardines; prey flee from them.
 const SPECIES = [
-  { key: 'tang', n: 5, len: [1.1, 1.5], h: 0.62, w: 0.15, blunt: 0.55, tail: [0.2, 0.2, 0.55], dorsal: [0.32, -0.38, 0.12], anal: [0.1, -0.36, 0.1], pattern: 2, back: '#1d4ed8', belly: '#3b82f6', fin: '#1e3a8a', accent: '#facc15', speed: 1.7, amp: 0.07, freq: 7, eye: 0.045, shine: 0.6, glint: 0.45 },
-  { key: 'clown', n: 4, len: [0.7, 0.95], h: 0.44, w: 0.2, blunt: 0.5, tail: [0.18, 0.15, 0.85], dorsal: [0.3, -0.35, 0.1], anal: [0.0, -0.3, 0.07], pattern: 1, back: '#f97316', belly: '#fb923c', fin: '#ea580c', speed: 1.1, amp: 0.09, freq: 9, eye: 0.05, shine: 0.7, glint: 0.35 },
-  { key: 'angel', n: 3, len: [1.3, 1.7], h: 0.72, w: 0.13, blunt: 0.5, tail: [0.16, 0.18, 0.95], dorsal: [0.25, -0.42, 0.1], anal: [0.15, -0.4, 0.09], pattern: 3, back: '#1e3a8a', belly: '#1e40af', fin: '#1e3a8a', accent: '#fde047', speed: 1.1, amp: 0.06, freq: 6, eye: 0.04, shine: 0.6, glint: 0.45 },
-  { key: 'grouper', n: 2, len: [2.6, 3.4], h: 0.36, w: 0.27, blunt: 0.65, tail: [0.18, 0.16, 0.9], dorsal: [0.3, -0.35, 0.07], anal: [0.0, -0.3, 0.05], pattern: 5, back: '#5b4636', belly: '#9a8268', fin: '#4a3a2c', speed: 0.9, amp: 0.05, freq: 4, eye: 0.03, shine: 0.3, glint: 0.12 },
-  { key: 'sardine', n: 48, school: 2, seg: [16, 10], len: [0.42, 0.55], h: 0.2, w: 0.1, blunt: 0.8, tail: [0.16, 0.13, 0.5], dorsal: [0.12, -0.06, 0.05], anal: null, pattern: 4, back: '#1e3a5f', belly: '#d1d5db', fin: '#94a3b8', speed: 3.0, amp: 0.08, freq: 14, eye: 0.04, shine: 1.0, glint: 1.0 },
-  { key: 'tuna', n: 10, school: 1, spread: 2.5, len: [1.8, 2.4], h: 0.28, w: 0.2, blunt: 0.72, tail: [0.2, 0.32, 0.35], dorsal: [0.12, -0.02, 0.1], anal: [0.0, -0.08, 0.07], finlets: true, pec: 0.13, pattern: 9, back: '#0b1f4a', belly: '#d6dde6', fin: '#1e3a5f', accent: '#facc15', speed: 4.5, amp: 0.05, freq: 9, eye: 0.03, shine: 0.9, glint: 0.9, far: true, zNear: -5, zIn: -85 },
-  { key: 'shark', n: 5, len: [6, 8], h: 0.19, w: 0.17, blunt: 0.9, tail: [0.24, 0.22, 0.45], shark: true, dorsal: [0.12, -0.08, 0.17], anal: null, pec: 0.16, pattern: 6, back: '#4b5563', belly: '#e5e7eb', fin: '#4b5563', speed: 2.4, amp: 0.05, freq: 2.2, eye: 0.012, shine: 0.25, glint: 0.04, far: true, zNear: -12, zIn: -90 },
-  { key: 'dolphin', n: 4, school: 1, spread: 2.2, len: [2.4, 3.0], h: 0.22, w: 0.2, blunt: 0.75, beak: true, flukes: true, tail: [0.16, 0.2, 0.6], dorsal: [0.08, -0.12, 0.13], curvedDorsal: true, anal: null, pec: 0.12, pattern: 7, back: '#374151', belly: '#e5e7eb', fin: '#374151', accent: '#9ca3af', speed: 4.2, amp: 0.06, freq: 3.5, eye: 0.012, shine: 0.55, glint: 0, far: true, zNear: -8, zIn: -80, y: [-6, 8] },
-  { key: 'whale', n: 2, seg: [40, 24], len: [13, 17], h: 0.24, w: 0.23, blunt: 0.7, flukes: true, tail: [0.13, 0.24, 0.55], dorsal: [-0.05, -0.12, 0.03], curvedDorsal: true, anal: null, pec: 0.32, pecAccent: true, pattern: 8, back: '#1f2937', belly: '#e5e7eb', fin: '#1f2937', accent: '#d1d5db', speed: 1.8, amp: 0.04, freq: 1.2, eye: 0.008, shine: 0.3, glint: 0, far: true, zNear: -30, zIn: -95, y: [-7, 6], turn: 0.35 },
-  { key: 'octopus', ceph: 'octopus', n: 3, len: [1.3, 2.0], body: '#b5472d', belly: '#f1c3a6', eyeX: -0.03, eye: 0.05, shine: 0.7, speed: 0.9, jet: 1.1, y: [-15, -9], zNear: 0, zIn: -50 },
-  { key: 'squid', ceph: 'squid', n: 6, school: 2, spread: 1.6, len: [1.1, 1.6], body: '#e9b8b0', belly: '#fbe7e2', eyeX: -0.27, eye: 0.045, shine: 0.9, speed: 2.0, jet: 2.0, y: [-9, 5], zNear: 2, zIn: -60 },
+  { key: 'tang', n: 3, resident: 3, prey: true, pauses: true, wander: 0.9, len: [1.1, 1.5], h: 0.62, w: 0.15, blunt: 0.55, tail: [0.2, 0.2, 0.55], dorsal: [0.32, -0.38, 0.12], anal: [0.1, -0.36, 0.1], pattern: 2, back: '#1d4ed8', belly: '#3b82f6', fin: '#1e3a8a', accent: '#facc15', speed: 1.5, amp: 0.07, freq: 7, eye: 0.04, shine: 0.6, glint: 0.45 },
+  { key: 'clown', n: 2, resident: 2, prey: true, pauses: true, wander: 1.0, len: [0.7, 0.95], h: 0.44, w: 0.2, blunt: 0.5, tail: [0.18, 0.15, 0.85], dorsal: [0.3, -0.35, 0.1], anal: [0.0, -0.3, 0.07], pattern: 1, back: '#f97316', belly: '#fb923c', fin: '#ea580c', speed: 1.0, amp: 0.09, freq: 9, eye: 0.045, shine: 0.7, glint: 0.35, zNear: 0, zIn: -40 },
+  { key: 'angel', n: 2, resident: 2, prey: true, pauses: true, wander: 0.8, len: [1.3, 1.7], h: 0.72, w: 0.13, blunt: 0.5, tail: [0.16, 0.18, 0.95], dorsal: [0.25, -0.42, 0.1], anal: [0.15, -0.4, 0.09], pattern: 3, back: '#1e3a8a', belly: '#1e40af', fin: '#1e3a8a', accent: '#fde047', speed: 1.0, amp: 0.06, freq: 6, eye: 0.035, shine: 0.6, glint: 0.45 },
+  { key: 'grouper', n: 1, resident: 1, pauses: true, wander: 0.6, len: [2.6, 3.4], h: 0.36, w: 0.27, blunt: 0.65, tail: [0.18, 0.16, 0.9], dorsal: [0.3, -0.35, 0.07], anal: [0.0, -0.3, 0.05], pattern: 5, back: '#5b4636', belly: '#9a8268', fin: '#4a3a2c', speed: 0.8, amp: 0.05, freq: 4, eye: 0.028, shine: 0.3, glint: 0.12, y: [-12, -2] },
+  { key: 'sardine', n: 24, school: 1, resident: 1, prey: true, wander: 0.7, seg: [16, 10], len: [0.42, 0.55], h: 0.2, w: 0.1, blunt: 0.8, tail: [0.16, 0.13, 0.5], dorsal: [0.12, -0.06, 0.05], anal: null, pattern: 4, back: '#1e3a5f', belly: '#d1d5db', fin: '#94a3b8', speed: 2.6, amp: 0.08, freq: 14, eye: 0.04, shine: 1.0, glint: 1.0 },
+  { key: 'tuna', n: 8, school: 1, spread: 2.5, predator: true, wander: 0.5, visit: { gap: [70, 150], stay: [25, 45], w: 1 }, len: [1.8, 2.4], h: 0.28, w: 0.2, blunt: 0.72, tail: [0.2, 0.32, 0.35], dorsal: [0.12, -0.02, 0.1], anal: [0.0, -0.08, 0.07], finlets: true, pec: 0.13, pattern: 9, back: '#0b1f4a', belly: '#d6dde6', fin: '#1e3a5f', accent: '#facc15', speed: 4.2, amp: 0.05, freq: 9, eye: 0.028, shine: 0.9, glint: 0.9, far: true, zNear: -5, zIn: -85 },
+  { key: 'shark', n: 2, big: true, predator: true, wander: 0.45, visit: { gap: [60, 150], stay: [40, 70], w: 1 }, close: 0.3, len: [6, 8], h: 0.19, w: 0.17, blunt: 0.9, tail: [0.24, 0.22, 0.45], shark: true, dorsal: [0.12, -0.08, 0.17], anal: null, pec: 0.16, pattern: 6, back: '#4b5563', belly: '#e5e7eb', fin: '#4b5563', speed: 2.3, amp: 0.05, freq: 2.2, eye: 0.012, shine: 0.25, glint: 0.04, far: true, zNear: -12, zIn: -90 },
+  { key: 'dolphin', n: 4, school: 1, spread: 2.2, big: true, predator: true, wander: 0.6, visit: { gap: [120, 240], stay: [30, 50], w: 1.6 }, close: 0.3, len: [2.4, 3.0], h: 0.22, w: 0.2, blunt: 0.75, beak: true, flukes: true, tail: [0.16, 0.2, 0.6], dorsal: [0.08, -0.12, 0.13], curvedDorsal: true, anal: null, pec: 0.12, pattern: 7, back: '#374151', belly: '#e5e7eb', fin: '#374151', accent: '#9ca3af', speed: 4.0, amp: 0.06, freq: 3.5, eye: 0.012, shine: 0.55, glint: 0, far: true, zNear: -8, zIn: -80, y: [-6, 8] },
+  { key: 'whale', n: 1, big: true, wander: 0.25, visit: { gap: [180, 420], stay: [60, 90], w: 4, first: true }, close: 0.25, seg: [40, 24], len: [13, 17], h: 0.24, w: 0.23, blunt: 0.7, flukes: true, tail: [0.13, 0.24, 0.55], dorsal: [-0.05, -0.12, 0.03], curvedDorsal: true, anal: null, pec: 0.32, pecAccent: true, pattern: 8, back: '#1f2937', belly: '#e5e7eb', fin: '#1f2937', accent: '#d1d5db', speed: 1.7, amp: 0.04, freq: 1.2, eye: 0.008, shine: 0.3, glint: 0, far: true, zNear: -30, zIn: -95, y: [-7, 6], turn: 0.35 },
+  { key: 'manta', manta: true, n: 2, big: true, wander: 0.4, visit: { gap: [100, 200], stay: [40, 70], w: 0.8 }, close: 0.3, len: [5, 7], speed: 1.6, far: true, y: [-8, 6] },
+  { key: 'octopus', ceph: 'octopus', n: 2, prey: true, pauses: true, wander: 0.8, visit: { gap: [60, 130], stay: [50, 90], w: 1 }, len: [1.3, 2.0], body: '#b5472d', belly: '#f1c3a6', eyeX: -0.03, eye: 0.05, shine: 0.7, speed: 0.9, jet: 1.1, y: [-15, -9], zNear: 0, zIn: -50 },
+  { key: 'squid', ceph: 'squid', n: 4, school: 1, spread: 1.6, prey: true, wander: 0.8, visit: { gap: [80, 160], stay: [30, 50], w: 1 }, len: [1.1, 1.6], body: '#e9b8b0', belly: '#fbe7e2', eyeX: -0.27, eye: 0.045, shine: 0.9, speed: 2.0, jet: 2.0, y: [-9, 5], zNear: 2, zIn: -60 },
 ];
 
 const BOUNDS = { x: 34, yLo: -13, yHi: 9, zNear: 5, zFar: -150 };
@@ -437,74 +444,100 @@ function start(THREE, host) {
   const snow = new THREE.Points(snowGeo, keep(new THREE.PointsMaterial({ color: 0xbfe6ff, size: 0.07, transparent: true, opacity: 0.55, depthWrite: false })));
   scene.add(snow);
 
-  // ── Fish ──
-  const creatures = [];
-  const groups = [];
+  // ── Sea life ──
+  // Residents are always about; visitors arrive now and then from the distance, stay a while and swim off into
+  // the blue. Never more than two visitors at once, one big animal at a time. Sometimes a predator hunts the
+  // sardines, which see it coming, bunch into a swirling ball and flee.
+  const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
+  const material = (sp) => (sp.ceph ? new THREE.ShaderMaterial({
+    vertexShader: CEPH_VERT, fragmentShader: CEPH_FRAG, fog: true, side: THREE.DoubleSide,
+    uniforms: { ...fogU(), uTime: time, uLight: light, uPulse: { value: sp.jet }, uBody: { value: new THREE.Color(sp.body) }, uBelly: { value: new THREE.Color(sp.belly) }, uEyeX: { value: sp.eyeX }, uEye: { value: sp.eye }, uShine: { value: sp.shine } },
+  }) : sp.manta ? new THREE.ShaderMaterial({
+    vertexShader: MANTA_VERT, fragmentShader: MANTA_FRAG, fog: true, side: THREE.DoubleSide, uniforms: { ...fogU(), uTime: time, uLight: light, uSpan: { value: 1 } },
+  }) : new THREE.ShaderMaterial({
+    vertexShader: FISH_VERT, fragmentShader: FISH_FRAG, fog: true, side: THREE.DoubleSide,
+    uniforms: {
+      ...fogU(), uTime: time, uLight: light, uAmp: { value: sp.amp }, uFreq: { value: sp.freq }, uVert: { value: sp.flukes ? 1 : 0 },
+      uBack: { value: new THREE.Color(sp.back) }, uBelly: { value: new THREE.Color(sp.belly) }, uFin: { value: new THREE.Color(sp.fin) },
+      uAccent: { value: new THREE.Color(sp.accent || sp.fin) }, uPattern: { value: sp.pattern }, uH: { value: sp.h }, uEye: { value: sp.eye }, uShine: { value: sp.shine }, uGlint: { value: sp.glint || 0 },
+    },
+  }));
+  const meshes = [];
+  const units = [];
   for (const sp of SPECIES) {
-    const geo = keep(sp.ceph ? cephGeometry(THREE, sp) : fishGeometry(THREE, sp));
+    const geo = keep(sp.ceph ? cephGeometry(THREE, sp) : sp.manta ? mantaGeometry(THREE) : fishGeometry(THREE, sp));
     const phases = new Float32Array(sp.n).map(() => Math.random() * 6.3);
     const speeds = new Float32Array(sp.n).map(() => 0.85 + Math.random() * 0.3);
-    const mat = keep(sp.ceph ? new THREE.ShaderMaterial({
-      vertexShader: CEPH_VERT, fragmentShader: CEPH_FRAG, fog: true, side: THREE.DoubleSide,
-      uniforms: {
-        ...fogU(), uTime: time, uLight: light, uPulse: { value: sp.jet },
-        uBody: { value: new THREE.Color(sp.body) }, uBelly: { value: new THREE.Color(sp.belly) }, uEyeX: { value: sp.eyeX }, uEye: { value: sp.eye }, uShine: { value: sp.shine },
-      },
-    }) : new THREE.ShaderMaterial({
-      vertexShader: FISH_VERT, fragmentShader: FISH_FRAG, fog: true, side: THREE.DoubleSide,
-      uniforms: {
-        ...fogU(), uTime: time, uLight: light, uAmp: { value: sp.amp }, uFreq: { value: sp.freq }, uVert: { value: sp.flukes ? 1 : 0 },
-        uBack: { value: new THREE.Color(sp.back) }, uBelly: { value: new THREE.Color(sp.belly) }, uFin: { value: new THREE.Color(sp.fin) },
-        uAccent: { value: new THREE.Color(sp.accent || sp.fin) }, uPattern: { value: sp.pattern }, uH: { value: sp.h }, uEye: { value: sp.eye }, uShine: { value: sp.shine }, uGlint: { value: sp.glint || 0 },
-      },
-    }));
-    const mesh = new THREE.InstancedMesh(geo, mat, sp.n);
+    const mesh = new THREE.InstancedMesh(geo, keep(material(sp)), sp.n);
     mesh.frustumCulled = false;
-    scene.add(mesh);
-    const group = { mesh, sp, list: [] };
-    groups.push(group);
-    if (sp.school) {
-      const per = Math.ceil(sp.n / sp.school);
-      for (let s = 0; s < sp.school; s++) {
-        const leader = spawn(THREE, sp, true);
-        leader.speed = sp.speed;
-        leader.phase = phases[s * per]; leader.ps = speeds[s * per];
-        const members = [];
-        const k = sp.spread || 1;
-        for (let i = s * per; i < Math.min(sp.n, (s + 1) * per); i++) {
-          phases[i] = leader.phase + (Math.random() - 0.5) * 0.3; speeds[i] = leader.ps; // a school jets together
-          members.push({ i, off: new THREE.Vector3((Math.random() - 0.5) * 3 * k, (Math.random() - 0.5) * 1.6 * k, (Math.random() - 0.5) * 3 * k), size: sp.len[0] + Math.random() * (sp.len[1] - sp.len[0]), ph: Math.random() * 6.3 });
-        }
-        group.list.push({ leader, members });
+    scene.add(mesh); meshes.push(mesh);
+    const per = sp.school ? Math.ceil(sp.n / sp.school) : 1;
+    for (let s = 0; s * per < sp.n; s++) {
+      const c = spawn(THREE, sp);
+      c.phase = phases[s * per]; c.ps = speeds[s * per];
+      const members = [];
+      const k = sp.spread || 1;
+      for (let i = s * per; i < Math.min(sp.n, (s + 1) * per); i++) {
+        if (sp.school) { phases[i] = c.phase + (Math.random() - 0.5) * 0.3; speeds[i] = c.ps; } // a school moves together
+        members.push({ i, off: new THREE.Vector3((Math.random() - 0.5) * 3 * k, (Math.random() - 0.5) * 1.6 * k, (Math.random() - 0.5) * 3 * k), size: sp.len[0] + Math.random() * (sp.len[1] - sp.len[0]), ph: Math.random() * 6.3 });
+        mesh.setMatrixAt(i, HIDDEN);
       }
-    } else {
-      for (let i = 0; i < sp.n; i++) {
-        const c = spawn(THREE, sp, true);
-        c.i = i; c.phase = phases[i]; c.ps = speeds[i];
-        creatures.push({ c, mesh });
-      }
+      units.push({ sp, mesh, c, members, active: false, resident: s < (sp.resident || 0), fear: 0, flee: new THREE.Vector3(), until: 0, huntUntil: 0 });
     }
     geo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phases, 1));
     geo.setAttribute('aSpeed', new THREE.InstancedBufferAttribute(speeds, 1));
   }
 
-  // ── Manta rays ──
-  const MANTA = 2;
-  const mantaGeo = keep(mantaGeometry(THREE));
-  mantaGeo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(new Float32Array(MANTA).map(() => Math.random() * 6.3), 1));
-  mantaGeo.setAttribute('aSpeed', new THREE.InstancedBufferAttribute(new Float32Array(MANTA).map(() => 0.9 + Math.random() * 0.2), 1));
-  const mantaMesh = new THREE.InstancedMesh(mantaGeo, keep(new THREE.ShaderMaterial({ vertexShader: MANTA_VERT, fragmentShader: MANTA_FRAG, fog: true, side: THREE.DoubleSide, uniforms: { ...fogU(), uTime: time, uLight: light, uSpan: { value: 1 } } })), MANTA);
-  mantaMesh.frustumCulled = false;
-  scene.add(mantaMesh);
-  const mantaSp = { len: [5, 7], speed: 1.7, far: true };
-  for (let i = 0; i < MANTA; i++) { const c = spawn(THREE, mantaSp, true); c.i = i; creatures.push({ c, mesh: mantaMesh, flat: true }); }
+  // When each visitor may next come by. The whale's first visit is a few minutes in.
+  const visits = new Map(SPECIES.filter((sp) => sp.visit).map((sp) => {
+    const gap = sp.visit.gap[0] + Math.random() * (sp.visit.gap[1] - sp.visit.gap[0]);
+    return [sp.key, { at: sp.visit.first ? gap : Math.random() * sp.visit.gap[0] * 0.6 }];
+  }));
+
+  const rand = (r) => r[0] + Math.random() * (r[1] - r[0]);
+  function activate(u, initial) {
+    const c = u.c;
+    c.pos.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), initial ? c.zNear - Math.random() * (c.zNear - c.zIn) : BOUNDS.zFar - 10 - Math.random() * 15);
+    newTarget(THREE, c, true);
+    c.dir.subVectors(c.target, c.pos).normalize();
+    c.speed = c.cruise; c.leaving = false; c.hunt = null; c.retarget = time.value + 10;
+    u.active = true; u.fear = 0;
+    u.until = u.resident ? Infinity : time.value + rand(u.sp.visit.stay);
+  }
+  function deactivate(u) {
+    u.active = false; u.c.hunt = null;
+    for (const m of u.members) u.mesh.setMatrixAt(m.i, HIDDEN);
+    for (const o of units) if (o.c.hunt === u.c) { o.c.hunt = null; o.c.leaving = true; o.c.target.set((Math.random() - 0.5) * 2 * BOUNDS.x, o.c.pos.y, BOUNDS.zFar - 40); }
+  }
+  for (const u of units) if (u.resident) activate(u, true);
+
+  let nextVisit = 15 + Math.random() * 20;
+  function director(t) {
+    if (t < nextVisit) return;
+    nextVisit = t + 10 + Math.random() * 25;
+    const out = units.filter((u) => u.active && !u.resident);
+    if (out.length >= 2) return;
+    const bigOut = out.some((u) => u.sp.big);
+    const pool = units.filter((u) => !u.active && !u.resident && u.sp.visit && t >= visits.get(u.sp.key).at && !(bigOut && u.sp.big) && !out.some((o) => o.sp === u.sp));
+    if (!pool.length) return;
+    let r = Math.random() * pool.reduce((sum, u) => sum + u.sp.visit.w, 0);
+    const u = pool.find((x) => (r -= x.sp.visit.w) <= 0) || pool[0];
+    activate(u, false);
+    visits.get(u.sp.key).at = t + rand(u.sp.visit.gap);
+    // A hunt: the predator comes in from the distance after the sardines.
+    const prey = units.find((x) => x.active && x.sp.key === 'sardine');
+    if (u.sp.predator && prey && Math.random() < 0.55) {
+      u.c.hunt = prey.c; u.huntUntil = t + 25 + Math.random() * 20;
+      u.c.pos.set(prey.c.pos.x + (Math.random() - 0.5) * 20, prey.c.pos.y, Math.min(prey.c.pos.z - 70, BOUNDS.zFar + 10));
+    }
+  }
 
   // ── Jellyfish ──
   const jellies = [];
   const bellGeo = keep(new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.55));
   const tentGeo = keep(tentacleGeometry(THREE));
-  const JCOL = ['#f0abfc', '#93c5fd', '#fda4af', '#a5f3fc', '#c4b5fd'];
-  for (let i = 0; i < 6; i++) {
+  const JCOL = ['#f0abfc', '#93c5fd', '#a5f3fc'];
+  for (let i = 0; i < 3; i++) {
     const color = new THREE.Color(JCOL[i % JCOL.length]);
     const uni = { uTime: time, uPhase: { value: Math.random() * 6.3 }, uColor: { value: color }, uDensity: { value: density } };
     const bell = new THREE.Mesh(bellGeo, keep(new THREE.ShaderMaterial({ vertexShader: JELLY_VERT, fragmentShader: JELLY_FRAG, uniforms: uni, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide })));
@@ -513,32 +546,43 @@ function start(THREE, host) {
     g.add(bell); g.add(tent);
     const s = 0.5 + Math.random() * 0.8;
     g.scale.set(s, s, s);
-    g.position.set((Math.random() - 0.5) * 50, BOUNDS.yLo + Math.random() * 20, -10 - Math.random() * 70);
+    g.position.set((Math.random() - 0.5) * 50, BOUNDS.yLo + Math.random() * 20, -15 - Math.random() * 70);
     g.userData = { drift: 0.25 + Math.random() * 0.3, sway: Math.random() * 6.3, tilt: (Math.random() - 0.5) * 0.4 };
     jellies.push(g); scene.add(g);
   }
 
   // ── Motion ──
   const up = new THREE.Vector3(0, 1, 0);
-  const fx = new THREE.Vector3(); const fy = new THREE.Vector3(); const fz = new THREE.Vector3(); const desired = new THREE.Vector3();
-  function steer(c, dt) {
+  const fx = new THREE.Vector3(); const fy = new THREE.Vector3(); const fz = new THREE.Vector3();
+  const desired = new THREE.Vector3(); const wv = new THREE.Vector3(); const tmp = new THREE.Vector3();
+  function steer(u, dt, t) {
+    const c = u.c;
+    if (c.hunt) c.target.copy(c.hunt.pos);
     desired.subVectors(c.target, c.pos);
-    const dist = desired.length();
-    if (dist < 2.5) newTarget(THREE, c);
+    if (!c.hunt && !c.leaving && (desired.length() < 2.5 || t > c.retarget)) { newTarget(THREE, c); c.retarget = t + 8 + Math.random() * 16; }
+    desired.normalize();
+    // Wander: a slow, smooth, never-repeating drift on top of where it's heading.
+    wv.set(Math.sin(t * c.f1 + c.p1) + 0.5 * Math.sin(t * c.f2 + c.p2), 0.35 * Math.sin(t * c.f3 + c.p3), Math.cos(t * c.f1 * 0.8 + c.p2) + 0.5 * Math.sin(t * c.f3 * 1.3 + c.p1));
+    desired.addScaledVector(wv, c.hunt ? 0.15 : c.wander);
+    if (u.fear > 0.01) desired.addScaledVector(u.flee, 3 * u.fear);
     desired.normalize();
     desired.y = Math.max(-0.35, Math.min(0.35, desired.y));
     desired.normalize();
-    c.dir.lerp(desired, Math.min(1, c.turn * dt)).normalize();
-    let cruise = c.cruise * (0.8 + 0.4 * Math.sin(time.value * 0.3 + c.seed));
+    c.dir.lerp(desired, Math.min(1, c.turn * (1 + 2.5 * u.fear) * dt)).normalize();
+    // Speed ebbs and flows; reef fish hang still now and then; bursts when fleeing or hunting.
+    let cruise = c.cruise * (0.7 + 0.3 * Math.sin(t * c.f2 * 0.7 + c.seed));
+    if (c.pauses && Math.sin(t * c.f4 + c.p4) > 0.8) cruise *= 0.12;
     // Octopus and squid shoot forward as their arms snap shut, then glide (in step with the shader's pulse).
-    if (c.jet) cruise *= 0.3 + 1.3 * Math.max(0, -Math.sin(time.value * c.jet * c.ps + c.phase));
-    c.speed += (cruise - c.speed) * Math.min(1, dt * (c.jet ? 4 : 1));
+    if (c.jet) cruise *= 0.3 + 1.3 * Math.max(0, -Math.sin(t * c.jet * c.ps + c.phase));
+    cruise *= 1 + 1.8 * u.fear + (c.hunt ? 0.45 : 0);
+    c.speed += (cruise - c.speed) * Math.min(1, dt * (c.jet ? 4 : 1.5));
     c.pos.addScaledVector(c.dir, c.speed * dt);
     // Stay in this animal's depth band (fast swimmers overshoot while turning, and the sand is below).
     if ((c.pos.y < c.yLo - 1 && c.dir.y < 0) || (c.pos.y > c.yHi + 1 && c.dir.y > 0)) { c.dir.y *= 0.9; c.dir.normalize(); }
     c.pos.y = Math.max(c.yLo - 2, Math.min(c.yHi + 2, c.pos.y));
-    // Gone into the blue: come back from far away, heading this way.
+    // Gone into the blue: residents come back from the distance, visitors are done.
     if (c.pos.z < BOUNDS.zFar - 25 || Math.abs(c.pos.x) > BOUNDS.x + 30) {
+      if (!u.resident) { deactivate(u); return; }
       c.pos.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), BOUNDS.zFar - 15);
       newTarget(THREE, c, true);
       c.dir.subVectors(c.target, c.pos).normalize();
@@ -555,7 +599,6 @@ function start(THREE, host) {
     mesh.setMatrixAt(i, m4);
   }
 
-  const tmp = new THREE.Vector3();
   let last = performance.now(); let raf = 0;
   const loop = (now) => {
     raf = requestAnimationFrame(loop);
@@ -563,34 +606,53 @@ function start(THREE, host) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     time.value += dt;
     const t = time.value;
+    director(t);
 
-    for (const { c, mesh, flat } of creatures) {
-      steer(c, dt);
-      place(mesh, c.i, c.pos, c.dir, c.size, flat ? -c.dir.y * 0.6 : 0);
-    }
-    for (const g of groups) {
-      for (const sch of g.list) {
-        steer(sch.leader, dt);
-        const L = sch.leader;
-        fx.copy(L.dir); fz.crossVectors(fx, up).normalize(); fy.crossVectors(fz, fx).normalize();
-        for (const m of sch.members) {
-          tmp.copy(L.pos)
-            .addScaledVector(fx, m.off.x + Math.sin(t * 0.7 + m.ph) * 0.25)
-            .addScaledVector(fy, m.off.y + Math.sin(t * 0.9 + m.ph * 2) * 0.15)
-            .addScaledVector(fz, m.off.z + Math.cos(t * 0.6 + m.ph) * 0.25);
-          desired.copy(L.dir).addScaledVector(fz, Math.sin(t * 1.3 + m.ph) * 0.12).normalize();
-          place(g.mesh, m.i, tmp, desired, m.size);
+    // Prey keep an eye out: a hunter within 30 m and they bolt the other way (and stay jumpy a while).
+    for (const u of units) if (u.active) u.fear = Math.max(0, u.fear - dt * 0.25);
+    for (const p of units) {
+      if (!p.active || !p.sp.predator) continue;
+      for (const u of units) {
+        if (!u.active || !u.sp.prey) continue;
+        const d = u.c.pos.distanceTo(p.c.pos);
+        if (d < 30) {
+          const f = Math.min(1, (30 - d) / 18);
+          if (f > u.fear) u.fear = f;
+          u.flee.subVectors(u.c.pos, p.c.pos).normalize();
+          u.flee.x -= (u.c.pos.x / BOUNDS.x) * 0.6; // don't flee off the edge of the world
+          u.flee.normalize();
         }
       }
-      g.mesh.instanceMatrix.needsUpdate = true;
     }
-    mantaMesh.instanceMatrix.needsUpdate = true;
+    for (const u of units) {
+      if (!u.active) continue;
+      const c = u.c;
+      if (c.hunt && t > u.huntUntil) { c.hunt = null; c.leaving = true; c.target.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.pos.y, BOUNDS.zFar - 40); }
+      if (!u.resident && !c.leaving && !c.hunt && t > u.until) { c.leaving = true; c.target.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), BOUNDS.zFar - 40); }
+      steer(u, dt, t);
+      if (!u.active) continue;
+      if (!u.sp.school) { place(u.mesh, u.members[0].i, c.pos, c.dir, u.members[0].size, u.sp.manta ? -c.dir.y * 0.6 : 0); continue; }
+      // A school: frightened, it packs tight and swirls into a bait ball.
+      fx.copy(c.dir); fz.crossVectors(fx, up).normalize(); fy.crossVectors(fz, fx).normalize();
+      const k = 1 - 0.55 * u.fear; const a = u.fear * t * 1.6;
+      const ca = Math.cos(a); const sa = Math.sin(a);
+      for (const m of u.members) {
+        const oy = m.off.y * ca - m.off.z * sa; const oz = m.off.y * sa + m.off.z * ca;
+        tmp.copy(c.pos)
+          .addScaledVector(fx, k * m.off.x + Math.sin(t * 0.7 + m.ph) * 0.25)
+          .addScaledVector(fy, k * oy + Math.sin(t * 0.9 + m.ph * 2) * 0.15)
+          .addScaledVector(fz, k * oz + Math.cos(t * 0.6 + m.ph) * 0.25);
+        desired.copy(c.dir).addScaledVector(fz, Math.sin(t * 1.3 + m.ph) * (0.12 + 0.3 * u.fear)).normalize();
+        place(u.mesh, m.i, tmp, desired, m.size);
+      }
+    }
+    for (const m of meshes) m.instanceMatrix.needsUpdate = true;
     for (const j of jellies) {
       const u = j.userData;
       j.position.y += (u.drift * (0.6 + 0.4 * Math.sin(t * 1.8 + u.sway))) * dt * 0.6;
       j.position.x += Math.sin(t * 0.2 + u.sway) * dt * 0.15;
       j.rotation.z = u.tilt + Math.sin(t * 0.4 + u.sway) * 0.08;
-      if (j.position.y > BOUNDS.yHi + 6) { j.position.y = BOUNDS.yLo - 6; j.position.x = (Math.random() - 0.5) * 50; j.position.z = -10 - Math.random() * 70; }
+      if (j.position.y > BOUNDS.yHi + 6) { j.position.y = BOUNDS.yLo - 6; j.position.x = (Math.random() - 0.5) * 50; j.position.z = -15 - Math.random() * 70; }
     }
     for (const sh of shafts) sh.rotation.z = sh.userData.base + Math.sin(t * 0.15 + sh.position.x) * 0.04;
     const sp = snowGeo.attributes.position.array;
@@ -621,31 +683,33 @@ function start(THREE, host) {
   };
 }
 
-function spawn(THREE, sp, initial) {
+function spawn(THREE, sp) {
   const far = sp.far;
   const yLo = sp.y ? sp.y[0] : BOUNDS.yLo + 2; const yHi = sp.y ? sp.y[1] : BOUNDS.yHi - 1;
+  const r = (lo, hi) => lo + Math.random() * (hi - lo);
   const c = {
-    // Big animals start deep in the blue, so the first thing you see is them swimming in.
-    pos: new THREE.Vector3((Math.random() - 0.5) * 2 * BOUNDS.x, yLo + Math.random() * (yHi - yLo), far ? -70 - Math.random() * 70 : (initial ? 2 - Math.random() * 70 : BOUNDS.zFar)),
-    dir: new THREE.Vector3(Math.random() - 0.5, (Math.random() - 0.5) * 0.2, Math.random() - 0.5).normalize(),
-    target: new THREE.Vector3(),
-    size: sp.len[0] + Math.random() * (sp.len[1] - sp.len[0]),
-    cruise: sp.speed * (0.8 + Math.random() * 0.4), speed: sp.speed,
-    turn: (0.6 + Math.random() * 0.5) * (sp.turn || 1), seed: Math.random() * 10, far,
-    yLo, yHi, zNear: sp.zNear ?? (far ? -35 : BOUNDS.zNear), zIn: sp.zIn ?? (far ? -110 : -70),
-    jet: sp.jet || 0, phase: 0, ps: 1,
+    pos: new THREE.Vector3(), dir: new THREE.Vector3(1, 0, 0), target: new THREE.Vector3(),
+    cruise: sp.speed * r(0.8, 1.2), speed: sp.speed,
+    turn: r(0.6, 1.1) * (sp.turn || 1), seed: Math.random() * 10, far,
+    yLo, yHi, zNear: sp.zNear ?? (far ? -35 : BOUNDS.zNear), zIn: sp.zIn ?? (far ? -110 : -70), close: sp.close || 0,
+    jet: sp.jet || 0, phase: 0, ps: 1, pauses: !!sp.pauses, wander: sp.wander ?? 0.6,
+    // Each animal's own wander rhythm (slow, overlapping waves, so its path never repeats).
+    f1: r(0.05, 0.15), f2: r(0.1, 0.25), f3: r(0.07, 0.2), f4: r(0.04, 0.1),
+    p1: r(0, 6.3), p2: r(0, 6.3), p3: r(0, 6.3), p4: r(0, 6.3),
+    leaving: false, hunt: null, retarget: 0,
   };
-  newTarget(THREE, c);
   return c;
 }
 
-// Somewhere new to swim: mostly within view, sometimes far off into the blue (where the water hides it).
+// Somewhere new to swim: mostly within view, sometimes far off into the blue (where the water hides it), and
+// now and then a big animal passes close to the screen.
 function newTarget(THREE, c, stayIn = false) {
-  const away = !stayIn && Math.random() < 0.15;
+  const away = !stayIn && Math.random() < 0.12;
+  const close = !away && c.close && Math.random() < c.close;
   c.target.set(
     (Math.random() - 0.5) * 2 * BOUNDS.x,
     c.yLo + Math.random() * (c.yHi - c.yLo),
-    away ? BOUNDS.zFar - 40 : c.zNear - Math.random() * (c.zNear - c.zIn),
+    away ? BOUNDS.zFar - 40 : close ? -6 - Math.random() * 8 : c.zNear - Math.random() * (c.zNear - c.zIn),
   );
 }
 

@@ -49,8 +49,9 @@ export default function TierSync() {
   }, [holiday?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   const mood = holiday ? { glows: holiday.glows, emit: holiday.emit } : MOODS[tier.key];
   const moodKey = holiday ? `h-${holiday.key}` : tier.key;
-  // The holiday's motion runs on every screen (the whole app dresses up); a tier's only on money screens.
-  const motion = mood && (money || holiday) ? <>{holiday?.scene && <HolidayScene kind={holiday.scene} />}<TierMotion moodKey={moodKey} mood={mood} /></> : null;
+  // The holiday's motion runs on every screen (the whole app dresses up); a tier's only on money screens,
+  // except Sapphire's aquarium, which is the background everywhere.
+  const motion = mood && (money || holiday || mood.aquarium) ? <>{holiday?.scene && <HolidayScene kind={holiday.scene} />}<TierMotion moodKey={moodKey} mood={mood} /></> : null;
 
   // Holiday skin, app-wide: html[data-holiday] styles cards, numbers, buttons and the nav (styles/globals.css),
   // the holiday accent wins over the section's, and only today's display font is downloaded.

@@ -8,6 +8,7 @@ import MiniPlayer from '../components/MiniPlayer';
 import WelcomeIntro from '../components/WelcomeIntro';
 import Ambience from '../components/Ambience';
 import PowerSaver from '../components/PowerSaver';
+import TierSync from '../components/TierSync';
 import { isSupabaseEnabled, getSession, onAuthChange } from '../lib/supabase';
 import '../styles/globals.css';
 import { installApiAuth } from '../lib/api-auth-client';
@@ -288,6 +289,9 @@ function AppBody({ Component, pageProps }) {
 
   return (
     <AppProvider>
+      {/* Here rather than in each page's Layout, so the moving background is built once and keeps going
+          from page to page instead of restarting on every page. */}
+      <TierSync />
       <NotificationScheduler />
       <MusicProvider>
         <Component {...pageProps} />

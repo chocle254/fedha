@@ -9,7 +9,6 @@ import SmsAutoRecorder from './SmsAutoRecorder';
 import ServiceWalletWatch from './ServiceWalletWatch';
 import SmsCategoryPrompt from './SmsCategoryPrompt';
 import ZiidiInterest from './ZiidiInterest';
-import TierSync from './TierSync';
 import EasterHunt from './EasterHunt';
 import LuxeBanner from './LuxeBanner';
 import LuxeMark from './LuxeMark';
@@ -275,7 +274,6 @@ export default function Layout({ children, fab, onFab }) {
       <ServiceWalletWatch />
       <SmsCategoryPrompt />
       <ZiidiInterest />
-      <TierSync />
       <EasterHunt />
       <LuxeBanner />
 
