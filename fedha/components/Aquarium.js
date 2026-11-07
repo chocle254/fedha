@@ -658,7 +658,12 @@ function start(THREE, host) {
       const k = sp.spread || 1;
       for (let i = s * per; i < Math.min(sp.n, (s + 1) * per); i++) {
         if (sp.school) { phases[i] = c.phase + (Math.random() - 0.5) * 0.3; speeds[i] = c.ps; } // a school moves together
-        members.push({ i, off: new THREE.Vector3((Math.random() - 0.5) * 3 * k, (Math.random() - 0.5) * 1.6 * k, (Math.random() - 0.5) * 3 * k), size: sp.len[0] + Math.random() * (sp.len[1] - sp.len[0]), ph: Math.random() * 6.3 });
+        // Sardines form a broad, shallow shoal rather than a spherical cloud.
+        // The loose spacing leaves room for each fish to turn while the group still reads as one school.
+        const off = sp.key === 'sardine'
+          ? new THREE.Vector3((Math.random() - 0.5) * 5.8 * k, (Math.random() - 0.5) * 1.25 * k, (Math.random() - 0.5) * 2.8 * k)
+          : new THREE.Vector3((Math.random() - 0.5) * 3 * k, (Math.random() - 0.5) * 1.6 * k, (Math.random() - 0.5) * 3 * k);
+        members.push({ i, off, size: sp.len[0] + Math.random() * (sp.len[1] - sp.len[0]), ph: Math.random() * 6.3 });
         mesh.setMatrixAt(i, HIDDEN);
       }
       units.push({ sp, mesh, c, members, active: false, resident: s < (sp.resident || 0), fear: 0, flee: new THREE.Vector3(), until: 0, huntUntil: 0 });
