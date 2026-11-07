@@ -1750,6 +1750,7 @@ html[data-tier-level="7"] .lx-ambience::after, html[data-tier-level="8"] .lx-amb
 @media (prefers-reduced-motion: reduce) { html[data-tier] .lx-ambience::after { animation: none; display: none; } }
 
 /* Living background (components/TierMotion.js): only the current tier's or holiday's mood. Transform/opacity only. */
+.aq, .aq canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .tm { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; contain: strict; animation: lxWallIn 1.4s ease both; }
 .tm-glow { position: absolute; left: var(--gx); top: var(--gy); width: 70vmax; height: 70vmax; margin: -35vmax 0 0 -35vmax; border-radius: 50%;
   background: radial-gradient(circle, rgba(var(--rgb), .2) 0, transparent 62%); animation: tmDrift var(--d) ease-in-out infinite alternate; will-change: transform; }
@@ -2085,10 +2086,7 @@ html[data-holiday="vice"] .bottom-nav { background: rgba(14,2,30,.94) !important
 .lab-term { margin: 8px 0 0; padding: 10px; border-radius: 8px; background: #000; color: #86EFAC; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; max-height: 260px; overflow-y: auto; }
 
 /* ═══ KEEPING COOL (components/PowerSaver.js) ═══
-   lx-still: background motion freezes a few seconds after a page opens and while scrolling.
    lx-saver: low battery, no background motion at all. Loaders and buttons keep their animations. */
-html.lx-still .tm, html.lx-still .tm *, html.lx-still .hs, html.lx-still .hs *, html.lx-still .lx-ambience::after,
-html.lx-still [class^="hd-"], html.lx-still [class*=" hd-"], html.lx-still .lx-networth, html.lx-still .bh-box, html.lx-still .eh-egg,
 html.lx-saver [class^="hd-"], html.lx-saver [class*=" hd-"], html.lx-saver .lx-networth { animation-play-state: paused !important; }
 html.lx-saver .tm, html.lx-saver .hs, html.lx-saver .lx-ambience::after, html.lx-saver .hs-flash { display: none !important; }
 

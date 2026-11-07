@@ -1,34 +1,11 @@
 import { useEffect } from 'react';
-import { useRouter } from 'next/router';
 
-// Keeps Luxe cool on the phone. Invisible; switches two classes on <html> (styles/globals.css):
-//   lx-still  background motion (tier particles, holiday scenes, the tier shine) plays for a few seconds when a
-//             page opens, then freezes on a nice frame. It also freezes while you scroll. Moving layers drawn all
-//             the time were the main thing keeping the GPU busy and the phone warm.
+// Keeps Luxe cool on the phone. Invisible; switches a class on <html> (styles/globals.css). Background motion
+// otherwise runs all the time (Luxe is on the phone's game-mode list, so it has the power for it).
 //   lx-saver  battery low and not charging (30 % or less, or 15 % or less even when charging): no background
 //             motion at all and slower live counters. Says so once when it turns on.
 // Also, once a week at most: a tip about using bypass charging when Luxe is busy on the charger.
-const PLAY_MS = 8000;
-
 export default function PowerSaver() {
-  const router = useRouter();
-
-  // Motion plays after each page change, then stops.
-  useEffect(() => {
-    const root = document.documentElement;
-    root.classList.remove('lx-still');
-    const t = setTimeout(() => root.classList.add('lx-still'), PLAY_MS);
-    return () => clearTimeout(t);
-  }, [router.asPath]);
-
-  // Scrolling: freeze straight away (smooth scrolling beats moving decorations).
-  useEffect(() => {
-    const root = document.documentElement;
-    const onScroll = () => root.classList.add('lx-still');
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-
   // Battery saver, from Chrome's battery status.
   useEffect(() => {
     if (!navigator.getBattery) return undefined;

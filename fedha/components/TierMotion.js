@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Aquarium from './Aquarium';
 
 // The living background on the money screens: ONLY the current mood is built (your tier's, or today's holiday,
 // which takes over the motion for the day). A mood is one or two soft glows plus a few emitters of real-looking
-// things: Sapphire bubbles and drops, Amethyst crystals, Rose Gold petals and roses, Gold coins and dust,
+// things: Sapphire's 3D aquarium and bubbles, Amethyst crystals, Rose Gold petals and roses, Gold coins and dust,
 // Platinum chrome coins and beams, Black Card falling black cards and gold glints, Diamond gems and sparkles,
 // Royal crowns and glitter, Imperial embers and coins. Holidays: lib/holidays.js.
 // Only transform and opacity animate, about 15-25 things on screen, nothing when motion is reduced.
 export const MOODS = {
-  sapphire: { glows: ['59,130,246'], emit: [{ shape: 'bubble', motion: 'rise', n: 12, size: [8, 22] }, { emoji: ['💧'], motion: 'fall', n: 5, size: [12, 18], slow: true }] },
+  // Sapphire is an aquarium: real 3D sea life behind the screen (components/Aquarium.js) with bubbles rising.
+  sapphire: { aquarium: true, glows: [], emit: [{ shape: 'bubble', motion: 'rise', n: 10, size: [6, 18] }] },
   amethyst: { glows: ['139,92,246'], emit: [{ shape: 'crystal', motion: 'float', n: 8, size: [12, 24], colors: ['#A78BFA', '#C4B5FD', '#7C3AED'] }, { shape: 'sparkle', n: 10, size: [6, 12], colors: ['#DDD6FE'] }] },
   rosegold: { glows: ['244,114,182'], emit: [{ shape: 'petal', motion: 'fall', n: 12, size: [10, 18], colors: ['#FBCFE8', '#F9A8D4', '#E8A0A8'] }, { emoji: ['🌹'], motion: 'fall', n: 3, size: [16, 22], slow: true }] },
   gold: { glows: ['245,196,81'], emit: [{ shape: 'coin', motion: 'flip', n: 8, size: [14, 24] }, { shape: 'dust', motion: 'rise', n: 12, size: [2, 4], colors: ['#FDE047'] }] },
@@ -55,6 +57,7 @@ export default function TierMotion({ moodKey, mood }) {
   useEffect(() => { setHost(document.body); }, []);
   const layer = useMemo(() => (mood ? (
     <div key={moodKey} className={`tm tm-${moodKey}`} aria-hidden="true">
+      {mood.aquarium && <Aquarium />}
       {(mood.glows || []).slice(0, 2).map((g, i) => <b key={g} className="tm-glow" style={{ '--rgb': g, '--gx': i ? '80%' : '18%', '--gy': i ? '75%' : '12%', '--d': `${24 + i * 10}s` }} />)}
       {mood.spot && <b className="tm-spot" />}
       {mood.emit.map((e, k) => build(e, k + 1))}
