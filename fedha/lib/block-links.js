@@ -9,7 +9,6 @@ export function blockLink(block, ctx = {}) {
   const label = String(block.label || '');
   const type = block.type;
 
-  if (id === 'money_hunt') return { href: '/discover', text: '💼 Open Business' };
   if (/^(series|movies)/.test(id)) return { href: '/chill', text: '🍿 Open Chill Room' };
   if (id.startsWith('startup_')) {
     const s = (ctx.startups || []).find((x) => id.startsWith(`startup_${x.id}_`));

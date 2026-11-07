@@ -166,7 +166,7 @@ export default function DiscoverPage() {
   const [activities, setActivities] = useState([]);
   const [opportunities, setOpportunities] = useState([]);
   const [pending, setPendingState] = useState([]);
-  // Claimed gigs are saved, so they survive a reload and the planner's Money Hunt block can name them.
+  // Claimed gigs are saved, so they survive a reload.
   useEffect(() => { getEarnPending().then(setPendingState); }, []);
   const setPending = (fn) => setPendingState((prev) => { const next = typeof fn === 'function' ? fn(prev) : fn; saveEarnPending(next); return next; });
   const [location, setLocation] = useState(null);
