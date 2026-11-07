@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 
 // Sapphire's living background: a deep-water aquarium in real 3D (three.js, loaded only for this tier).
-// Every creature is built in code, no downloads: blue tangs, clownfish, emperor angelfish, groupers, sardine and
-// tuna schools, sharks, a dolphin pod, humpback whales, octopuses, squid, manta rays and glowing jellyfish.
+// Marine life is scheduled as sparse, species-specific encounters: reef fish, butterflyfish, parrotfish,
+// barracuda, mackerel and sardine schools, tuna, sharks, dolphins, whales, cephalopods, manta rays and jellyfish.
 // Each swims its own path through the water (tails and bodies bend, flukes beat, mantas flap, octopus and squid
 // jet, jellies pulse); scales flash as fish turn. Some head off into the blue until the water swallows them,
 // then come back from the distance, and the big animals start far off and swim in. Light shafts, caustics on the fish and the sand,
@@ -124,6 +124,27 @@ void main() {
     float lobe = ss(0.18, 0.21, t) * ss(0.43, 0.4, t) * ss(lobeTop + 0.03, lobeTop - 0.03, vV);
     col = mix(uBack, uBelly, clamp(max(max(eyeP, belly), max(chin, lobe)), 0.0, 1.0));
     col = mix(col, uAccent, 0.75 * ss(0.36, 0.39, t) * ss(0.49, 0.46, t) * ss(0.68, 0.8, vV));   // grey saddle
+  } else if (uPattern == 14) {                              // butterflyfish: golden body, dark eye band and tail bar
+    float eyeBand = 1.0 - ss(0.035, 0.055, abs(t - 0.82));
+    float tailBar = 1.0 - ss(0.025, 0.045, abs(t - 0.12));
+    col = mix(col, vec3(0.035, 0.045, 0.055), clamp(max(eyeBand, tailBar), 0.0, 1.0));
+    col = mix(col, vec3(0.98, 0.9, 0.58), ss(0.05, 0.12, t) * ss(0.16, 0.1, t));
+  } else if (uPattern == 15) {                              // parrotfish: turquoise scales with warm face and mottled plates
+    float mosaic = noise(vec2(t * 34.0, up * 23.0));
+    col = mix(uBack, uAccent, 0.34 * ss(0.48, 0.72, mosaic));
+    col = mix(col, vec3(0.92, 0.48, 0.3), ss(0.82, 0.95, t) * 0.8);
+    col += 0.08 * sin(vec3(0.0, 2.0, 4.0) + t * 90.0 + up * 24.0);
+  } else if (uPattern == 16) {                              // barracuda: polished silver flank and dark vertical bars
+    float bars = 0.0;
+    for (int i = 0; i < 9; i++) bars += 1.0 - ss(0.018, 0.035, abs(t - (0.24 + float(i) * 0.065 + 0.012 * sin(up * 5.0))));
+    col = mix(col, uBack * 0.55, clamp(bars, 0.0, 0.7) * ss(0.3, 0.55, up));
+    col = mix(col, uBelly * 1.15, 0.42 * ss(0.12, 0.38, up));
+    col += vec3(0.16, 0.19, 0.2) * pow(scales, 4.0);
+  } else if (uPattern == 17) {                              // mackerel: blue-green back with tiger-like wavy bars
+    float bars = 0.0;
+    for (int i = 0; i < 11; i++) bars += 1.0 - ss(0.012, 0.028, abs(up - (0.55 + 0.34 * sin(t * 17.0 + float(i) * 0.56))));
+    col = mix(col, uBack * 0.55, clamp(bars, 0.0, 0.82) * ss(0.45, 0.65, up));
+    col = mix(col, uBelly, 0.65 * ss(0.22, 0.48, up));
   } else if (uPattern == 9) {                               // tuna: navy back, silver flanks, gold stripe
     col += 0.1 * ss(0.3, 0.2, length(fract(vec2(t * 30.0, up * 10.0)) - 0.5)) * ss(0.45, 0.25, up) * ss(0.2, 0.35, t);
   }
@@ -422,34 +443,39 @@ void main() {
 // big animals come one at a time; predators sometimes hunt the sardines; prey flee from them.
 // yaw = how fast it can turn (radians a second): whales swing round over half a minute, reef fish in a few seconds.
 const SPECIES = [
-  { key: 'tang', yaw: 1.0, n: 3, resident: 3, prey: true, pauses: true, wander: 0.9, len: [1.1, 1.5], h: 0.62, w: 0.15, blunt: 0.55, tail: [0.2, 0.2, 0.55], dorsal: [0.32, -0.38, 0.12], anal: [0.1, -0.36, 0.1], pattern: 2, back: '#1d4ed8', belly: '#3b82f6', fin: '#1e3a8a', accent: '#facc15', speed: 1.5, amp: 0.07, freq: 7, eye: 0.04, shine: 0.6, glint: 0.45 },
-  { key: 'clown', yaw: 1.2, n: 2, resident: 2, prey: true, pauses: true, wander: 1.0, len: [0.7, 0.95], h: 0.44, w: 0.2, blunt: 0.5, tail: [0.18, 0.15, 0.85], dorsal: [0.3, -0.35, 0.1], anal: [0.0, -0.3, 0.07], pattern: 1, back: '#f97316', belly: '#fb923c', fin: '#ea580c', speed: 1.0, amp: 0.09, freq: 9, eye: 0.045, shine: 0.7, glint: 0.35, zNear: 0, zIn: -40 },
-  { key: 'angel', yaw: 0.9, n: 2, resident: 2, prey: true, pauses: true, wander: 0.8, len: [1.3, 1.7], h: 0.72, w: 0.13, blunt: 0.5, tail: [0.16, 0.18, 0.95], dorsal: [0.25, -0.42, 0.1], anal: [0.15, -0.4, 0.09], pattern: 3, back: '#1e3a8a', belly: '#1e40af', fin: '#1e3a8a', accent: '#fde047', speed: 1.0, amp: 0.06, freq: 6, eye: 0.035, shine: 0.6, glint: 0.45 },
-  { key: 'grouper', yaw: 0.5, n: 1, resident: 1, pauses: true, wander: 0.6, len: [2.6, 3.4], h: 0.36, w: 0.27, blunt: 0.65, tail: [0.18, 0.16, 0.9], dorsal: [0.3, -0.35, 0.07], anal: [0.0, -0.3, 0.05], pattern: 5, back: '#5b4636', belly: '#9a8268', fin: '#4a3a2c', speed: 0.8, amp: 0.05, freq: 4, eye: 0.028, shine: 0.3, glint: 0.12, y: [-12, -2] },
-  { key: 'sardine', yaw: 1.2, n: 24, school: 1, resident: 1, prey: true, wander: 0.7, seg: [16, 10], len: [0.42, 0.55], h: 0.2, w: 0.1, blunt: 0.8, tail: [0.16, 0.13, 0.5], dorsal: [0.12, -0.06, 0.05], anal: null, pattern: 4, back: '#1e3a5f', belly: '#d1d5db', fin: '#94a3b8', speed: 2.6, amp: 0.08, freq: 14, eye: 0.04, shine: 1.0, glint: 1.0 },
+  { key: 'tang', yaw: 1.0, n: 3, school: 1, visit: { gap: [55, 105], stay: [24, 42], w: 1.5 }, prey: true, pauses: true, wander: 0.9, len: [1.1, 1.5], h: 0.62, w: 0.15, blunt: 0.55, tail: [0.2, 0.2, 0.55], dorsal: [0.32, -0.38, 0.12], anal: [0.1, -0.36, 0.1], pattern: 2, back: '#1d4ed8', belly: '#3b82f6', fin: '#1e3a8a', accent: '#facc15', speed: 1.5, amp: 0.07, freq: 7, eye: 0.04, shine: 0.6, glint: 0.45 },
+  { key: 'clown', yaw: 1.2, n: 2, school: 1, visit: { gap: [85, 150], stay: [22, 38], w: 0.8 }, prey: true, pauses: true, wander: 1.0, len: [0.7, 0.95], h: 0.44, w: 0.2, blunt: 0.5, tail: [0.18, 0.15, 0.85], dorsal: [0.3, -0.35, 0.1], anal: [0.0, -0.3, 0.07], pattern: 1, back: '#f97316', belly: '#fb923c', fin: '#ea580c', speed: 1.0, amp: 0.09, freq: 9, eye: 0.045, shine: 0.7, glint: 0.35, zNear: 0, zIn: -40 },
+  { key: 'angel', yaw: 0.9, n: 2, school: 1, visit: { gap: [75, 145], stay: [24, 40], w: 1.0 }, prey: true, pauses: true, wander: 0.8, len: [1.3, 1.7], h: 0.72, w: 0.13, blunt: 0.5, tail: [0.16, 0.18, 0.95], dorsal: [0.25, -0.42, 0.1], anal: [0.15, -0.4, 0.09], pattern: 3, back: '#1e3a8a', belly: '#1e40af', fin: '#1e3a8a', accent: '#fde047', speed: 1.0, amp: 0.06, freq: 6, eye: 0.035, shine: 0.6, glint: 0.45 },
+  { key: 'grouper', yaw: 0.5, n: 1, visit: { gap: [110, 190], stay: [35, 55], w: 0.55 }, pauses: true, wander: 0.6, len: [2.6, 3.4], h: 0.36, w: 0.27, blunt: 0.65, tail: [0.18, 0.16, 0.9], dorsal: [0.3, -0.35, 0.07], anal: [0.0, -0.3, 0.05], pattern: 5, back: '#5b4636', belly: '#9a8268', fin: '#4a3a2c', speed: 0.8, amp: 0.05, freq: 4, eye: 0.028, shine: 0.3, glint: 0.12, y: [-12, -2] },
+  { key: 'sardine', yaw: 1.2, n: 72, school: 1, spread: 2.2, visit: { gap: [75, 135], stay: [25, 42], w: 1.1 }, prey: true, wander: 0.7, seg: [16, 10], len: [0.42, 0.55], h: 0.2, w: 0.1, blunt: 0.8, tail: [0.16, 0.13, 0.5], dorsal: [0.12, -0.06, 0.05], anal: null, pattern: 4, back: '#1e3a5f', belly: '#d1d5db', fin: '#94a3b8', speed: 2.6, amp: 0.08, freq: 14, eye: 0.04, shine: 1.0, glint: 1.0 },
   { key: 'tuna', yaw: 0.7, n: 8, school: 1, spread: 2.5, predator: true, wander: 0.5, visit: { gap: [70, 150], stay: [25, 45], w: 1 }, len: [1.8, 2.4], h: 0.28, w: 0.2, blunt: 0.72, tail: [0.2, 0.32, 0.35], dorsal: [0.12, -0.02, 0.1], anal: [0.0, -0.08, 0.07], finlets: true, pec: 0.13, pattern: 9, back: '#0b1f4a', belly: '#d6dde6', fin: '#1e3a5f', accent: '#c9a227', speed: 4.2, amp: 0.05, freq: 9, eye: 0.028, shine: 0.9, glint: 0.9, far: true, zNear: -5, zIn: -85 },
   { key: 'shark', yaw: 0.35, n: 2, big: true, predator: true, wander: 0.45, visit: { gap: [60, 150], stay: [40, 70], w: 1 }, close: 0.3, len: [6, 8], h: 0.2, w: 0.18, blunt: 0.75, tail: [0.24, 0.22, 0.45], shark: true, dorsal: [0.12, -0.08, 0.17], anal: null, pec: 0.16, pattern: 6, back: '#4b5563', belly: '#e5e7eb', fin: '#4b5563', speed: 2.3, amp: 0.05, freq: 2.2, eye: 0.012, shine: 0.25, glint: 0.04, far: true, zNear: -12, zIn: -90 },
   { key: 'dolphin', yaw: 0.6, n: 4, school: 1, spread: 2.2, big: true, predator: true, wander: 0.6, visit: { gap: [120, 240], stay: [30, 50], w: 1.6 }, close: 0.3, len: [2.4, 3.0], h: 0.22, w: 0.2, blunt: 0.75, beak: true, flukes: true, tail: [0.16, 0.2, 0.6], dorsal: [0.08, -0.12, 0.13], curvedDorsal: true, anal: null, pec: 0.12, pattern: 7, back: '#374151', belly: '#e5e7eb', fin: '#374151', accent: '#9ca3af', speed: 4.0, amp: 0.06, freq: 3.5, eye: 0.012, shine: 0.55, glint: 0, far: true, zNear: -8, zIn: -80, y: [-6, 8] },
   // Whales share one visit timer, so only now and then does one come by: humpback, blue, sperm, or an orca pod.
-  { key: 'humpback', kind: 'whale', group: 'whale', yaw: 0.12, n: 1, big: true, wander: 0.25, visit: { gap: [180, 420], stay: [60, 90], w: 1.3, first: true }, close: 0.25, len: [13, 16],
+  { key: 'humpback', kind: 'whale', group: 'whale', yaw: 0.12, n: 1, big: true, wander: 0.25, visit: { gap: [90, 150], stay: [85, 115], w: 1.8, first: true }, close: 0.25, len: [13, 16],
     st: [[0, 0.012, 0.012, 0.008, 0, 2], [0.08, 0.03, 0.03, 0.018, 0, 2], [0.2, 0.06, 0.062, 0.045, 0, 2], [0.35, 0.085, 0.092, 0.08, 0, 2], [0.5, 0.1, 0.11, 0.1, 0, 2], [0.62, 0.1, 0.115, 0.105, -0.005, 2], [0.75, 0.088, 0.105, 0.1, -0.01, 2.2], [0.86, 0.068, 0.09, 0.085, -0.02, 2.3], [0.94, 0.044, 0.064, 0.06, -0.03, 2.3], [0.985, 0.02, 0.034, 0.03, -0.035, 2], [1, 0, 0, 0, -0.035, 2]],
     eyeAt: [0.8, -0.12], dorsalFin: [-0.17, 0.03, 0.05, 'hump'], flipper: { at: 0.72, len: 0.31, w: 0.05, knobs: true, accent: true }, flukeShape: { span: 0.16, sweep: 0.08, notch: 0.035, serr: 0.006 },
     pattern: 10, back: '#1c2636', belly: '#e8ecef', fin: '#1c2636', accent: '#eef1f3', flukeUnder: '#d9dee2', speed: 1.6, amp: 0.04, freq: 1.1, eye: 0.009, shine: 0.45, glint: 0, far: true, zNear: -30, zIn: -95, y: [-7, 6] },
-  { key: 'bluewhale', kind: 'whale', group: 'whale', yaw: 0.1, n: 1, big: true, wander: 0.2, visit: { gap: [180, 420], stay: [60, 90], w: 0.9, first: true }, close: 0.15, len: [20, 24],
+  { key: 'bluewhale', kind: 'whale', group: 'whale', yaw: 0.1, n: 1, big: true, wander: 0.2, visit: { gap: [90, 150], stay: [85, 115], w: 1.5, first: true }, close: 0.15, len: [20, 24],
     st: [[0, 0.008, 0.008, 0.006, 0, 2], [0.1, 0.022, 0.022, 0.016, 0, 2], [0.25, 0.045, 0.046, 0.04, 0, 2], [0.45, 0.064, 0.07, 0.064, 0, 2], [0.6, 0.068, 0.075, 0.07, 0, 2], [0.75, 0.062, 0.07, 0.07, -0.003, 2.2], [0.86, 0.042, 0.06, 0.07, -0.008, 2.7], [0.95, 0.024, 0.04, 0.055, -0.012, 2.7], [0.99, 0.01, 0.02, 0.03, -0.014, 2], [1, 0, 0, 0, -0.014, 2]],
     eyeAt: [0.83, -0.15], dorsalFin: [-0.27, 0.014, 0.025, 'falcate'], flipper: { at: 0.74, len: 0.12, w: 0.025 }, flukeShape: { span: 0.12, sweep: 0.07, notch: 0.03, serr: 0 },
     pattern: 11, back: '#4a6687', belly: '#8ea4bb', fin: '#3e5878', accent: '#a9bfd6', flukeUnder: '#53708f', speed: 1.8, amp: 0.035, freq: 0.9, eye: 0.006, shine: 0.45, glint: 0, far: true, zNear: -35, zIn: -110, y: [-6, 6] },
-  { key: 'sperm', kind: 'whale', group: 'whale', yaw: 0.12, n: 1, big: true, wander: 0.25, visit: { gap: [180, 420], stay: [60, 90], w: 0.9, first: true }, close: 0.2, len: [14, 17],
+  { key: 'sperm', kind: 'whale', group: 'whale', yaw: 0.12, n: 1, big: true, wander: 0.25, visit: { gap: [90, 150], stay: [85, 115], w: 1.5, first: true }, close: 0.2, len: [14, 17],
     st: [[0, 0.012, 0.012, 0.008, 0, 2], [0.1, 0.035, 0.035, 0.022, 0, 2], [0.25, 0.07, 0.07, 0.06, 0, 2], [0.45, 0.1, 0.1, 0.095, 0, 2], [0.6, 0.11, 0.11, 0.108, 0, 2.2], [0.68, 0.115, 0.108, 0.105, 0.002, 2.8], [0.8, 0.12, 0.1, 0.1, 0.004, 3.5], [0.93, 0.12, 0.09, 0.095, 0.006, 4], [0.99, 0.112, 0.075, 0.085, 0.008, 4], [1, 0, 0, 0, 0.008, 2]],
     knuckles: true, eyeAt: [0.7, -0.35], jaw: true, flipper: { at: 0.66, len: 0.07, w: 0.035 }, flukeShape: { span: 0.14, sweep: 0.075, notch: 0.02, serr: 0 },
     pattern: 12, back: '#3b4149', belly: '#6b7179', fin: '#353a41', accent: '#c9ced3', flukeUnder: '#3b4149', speed: 1.5, amp: 0.04, freq: 1.0, eye: 0.008, shine: 0.35, glint: 0, far: true, zNear: -30, zIn: -100, y: [-12, 3] },
-  { key: 'orca', kind: 'whale', group: 'whale', yaw: 0.35, n: 3, school: 1, spread: 3, big: true, predator: true, wander: 0.4, visit: { gap: [180, 420], stay: [40, 70], w: 1.1, first: true }, close: 0.3, len: [6.5, 8.5],
+  { key: 'orca', kind: 'whale', group: 'whale', yaw: 0.35, n: 3, school: 1, spread: 3, big: true, predator: true, wander: 0.4, visit: { gap: [90, 150], stay: [65, 95], w: 1.7, first: true }, close: 0.3, len: [6.5, 8.5],
     st: [[0, 0.012, 0.012, 0.008, 0, 2], [0.1, 0.04, 0.04, 0.025, 0, 2], [0.25, 0.085, 0.09, 0.075, 0, 2], [0.45, 0.115, 0.12, 0.11, 0, 2], [0.6, 0.115, 0.12, 0.115, 0, 2], [0.75, 0.1, 0.11, 0.105, 0, 2], [0.87, 0.075, 0.085, 0.085, -0.005, 2], [0.95, 0.045, 0.055, 0.055, -0.008, 2], [0.99, 0.018, 0.022, 0.022, -0.008, 2], [1, 0, 0, 0, -0.008, 2]],
     eyeAt: [0.885, 0.02], dorsalFin: [0.02, 0.15, 0.09, 'tall'], flipper: { at: 0.7, len: 0.13, w: 0.07, paddle: true }, flukeShape: { span: 0.13, sweep: 0.06, notch: 0.025, serr: 0 },
     pattern: 13, back: '#0a0c0f', belly: '#f2f2ef', fin: '#0a0c0f', accent: '#7d848d', flukeUnder: '#e9eaea', speed: 3.4, amp: 0.05, freq: 2.2, eye: 0.008, shine: 0.7, glint: 0, far: true, zNear: -10, zIn: -85, y: [-6, 8] },
   { key: 'manta', yaw: 0.3, manta: true, n: 2, big: true, wander: 0.4, visit: { gap: [100, 200], stay: [40, 70], w: 0.8 }, close: 0.3, len: [5, 7], speed: 1.6, far: true, y: [-8, 6] },
   { key: 'octopus', yaw: 0.8, ceph: 'octopus', n: 2, prey: true, pauses: true, wander: 0.8, visit: { gap: [60, 130], stay: [50, 90], w: 1 }, len: [1.3, 2.0], body: '#b5472d', belly: '#f1c3a6', eyeX: -0.03, eye: 0.05, shine: 0.7, speed: 0.9, jet: 1.1, y: [-15, -9], zNear: 0, zIn: -50 },
   { key: 'squid', yaw: 0.9, ceph: 'squid', n: 4, school: 1, spread: 1.6, prey: true, wander: 0.8, visit: { gap: [80, 160], stay: [30, 50], w: 1 }, len: [1.1, 1.6], body: '#e9b8b0', belly: '#fbe7e2', eyeX: -0.27, eye: 0.045, shine: 0.9, speed: 2.0, jet: 2.0, y: [-9, 5], zNear: 2, zIn: -60 },
+  // Additional reef visitors: these appear as occasional small encounters, never as a permanent crowd.
+  { key: 'butterflyfish', yaw: 1.0, n: 2, school: 1, visit: { gap: [95, 175], stay: [22, 38], w: 0.9 }, prey: true, wander: 0.85, len: [0.75, 0.95], h: 0.58, w: 0.17, blunt: 0.48, tail: [0.15, 0.14, 0.9], dorsal: [0.28, -0.34, 0.08], anal: [0.08, -0.3, 0.06], pattern: 14, back: '#f4c84a', belly: '#f5dc83', fin: '#e9ad32', accent: '#171923', speed: 1.05, amp: 0.055, freq: 7, eye: 0.035, shine: 0.65, glint: 0.35 },
+  { key: 'parrotfish', yaw: 0.8, n: 1, visit: { gap: [125, 210], stay: [30, 48], w: 0.65 }, prey: true, wander: 0.7, len: [1.5, 1.9], h: 0.62, w: 0.2, blunt: 0.55, tail: [0.19, 0.18, 0.6], dorsal: [0.3, -0.4, 0.11], anal: [0.05, -0.34, 0.08], pattern: 15, back: '#168c86', belly: '#58b6a4', fin: '#126b72', accent: '#e68a45', speed: 1.25, amp: 0.06, freq: 6, eye: 0.034, shine: 0.55, glint: 0.3 },
+  { key: 'barracuda', yaw: 0.55, n: 2, school: 1, visit: { gap: [140, 230], stay: [25, 42], w: 0.45 }, predator: true, wander: 0.45, len: [2.8, 3.4], h: 0.18, w: 0.12, blunt: 0.95, tail: [0.22, 0.19, 0.28], dorsal: [0.12, -0.06, 0.07], anal: [0.0, -0.08, 0.05], pattern: 16, back: '#647b83', belly: '#c7d1d1', fin: '#516a73', accent: '#aab8b8', speed: 3.0, amp: 0.045, freq: 8, eye: 0.022, shine: 0.7, glint: 0.5, far: true, zNear: -8, zIn: -75 },
+  { key: 'mackerel', yaw: 1.0, n: 12, school: 1, spread: 2.8, visit: { gap: [115, 190], stay: [22, 36], w: 0.7 }, prey: true, wander: 0.65, len: [0.65, 0.85], h: 0.22, w: 0.12, blunt: 0.85, tail: [0.18, 0.15, 0.35], dorsal: [0.16, -0.04, 0.05], anal: [0.02, -0.05, 0.04], pattern: 17, back: '#234b66', belly: '#c6d5d9', fin: '#668b9c', accent: '#b4c8ce', speed: 3.1, amp: 0.07, freq: 12, eye: 0.024, shine: 0.8, glint: 0.75, far: true, zNear: -12, zIn: -85 },
 ];
 
 const BOUNDS = { x: 34, yLo: -13, yHi: 9, zNear: 5, zFar: -150 };
@@ -597,9 +623,9 @@ function start(THREE, host) {
   }
 
   // ── Sea life ──
-  // Residents are always about; visitors arrive now and then from the distance, stay a while and swim off into
-  // the blue. Never more than two visitors at once, one big animal at a time. Sometimes a predator hunts the
-  // sardines, which see it coming, bunch into a swirling ball and flee.
+  // No permanent crowd: small reef groups and schools arrive in staggered encounters, linger, then leave into
+  // the blue. Never more than two encounters at once and only one large animal. Predators may trigger a brief
+  // flight response in nearby prey, rather than keeping every species on screen together.
   const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
   const material = (sp) => (sp.ceph ? new THREE.ShaderMaterial({
     vertexShader: CEPH_VERT, fragmentShader: CEPH_FRAG, fog: true, side: THREE.DoubleSide,
@@ -632,7 +658,12 @@ function start(THREE, host) {
       const k = sp.spread || 1;
       for (let i = s * per; i < Math.min(sp.n, (s + 1) * per); i++) {
         if (sp.school) { phases[i] = c.phase + (Math.random() - 0.5) * 0.3; speeds[i] = c.ps; } // a school moves together
-        members.push({ i, off: new THREE.Vector3((Math.random() - 0.5) * 3 * k, (Math.random() - 0.5) * 1.6 * k, (Math.random() - 0.5) * 3 * k), size: sp.len[0] + Math.random() * (sp.len[1] - sp.len[0]), ph: Math.random() * 6.3 });
+        // Sardines form a broad, shallow shoal rather than a spherical cloud.
+        // The loose spacing leaves room for each fish to turn while the group still reads as one school.
+        const off = sp.key === 'sardine'
+          ? new THREE.Vector3((Math.random() - 0.5) * 5.8 * k, (Math.random() - 0.5) * 1.25 * k, (Math.random() - 0.5) * 2.8 * k)
+          : new THREE.Vector3((Math.random() - 0.5) * 3 * k, (Math.random() - 0.5) * 1.6 * k, (Math.random() - 0.5) * 3 * k);
+        members.push({ i, off, size: sp.len[0] + Math.random() * (sp.len[1] - sp.len[0]), ph: Math.random() * 6.3 });
         mesh.setMatrixAt(i, HIDDEN);
       }
       units.push({ sp, mesh, c, members, active: false, resident: s < (sp.resident || 0), fear: 0, flee: new THREE.Vector3(), until: 0, huntUntil: 0 });
@@ -645,13 +676,18 @@ function start(THREE, host) {
   const visitKey = (sp) => sp.group || sp.key;
   const visits = new Map(SPECIES.filter((sp) => sp.visit).map((sp) => {
     const gap = sp.visit.gap[0] + Math.random() * (sp.visit.gap[1] - sp.visit.gap[0]);
-    return [visitKey(sp), { at: sp.visit.first ? gap : Math.random() * sp.visit.gap[0] * 0.6 }];
+    return [visitKey(sp), { at: sp.visit.first ? Math.min(gap, 25 + Math.random() * 15) : Math.random() * Math.min(8, sp.visit.gap[0] * 0.15) }];
   }));
 
   const rand = (r) => r[0] + Math.random() * (r[1] - r[0]);
   function activate(u, initial) {
     const c = u.c;
-    c.pos.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), initial ? c.zNear - Math.random() * (c.zNear - c.zIn) : BOUNDS.zFar - 10 - Math.random() * 15);
+    const entryZ = initial
+      ? c.zNear - Math.random() * (c.zNear - c.zIn)
+      : u.sp.big
+        ? c.zIn - 8 - Math.random() * 12
+        : BOUNDS.zFar - 10 - Math.random() * 15;
+    c.pos.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), entryZ);
     newTarget(THREE, c, true);
     c.dir.subVectors(c.target, c.pos).normalize();
     c.speed = c.cruise; c.leaving = false; c.hunt = null; c.retarget = time.value + 10; c.rate = 0;
@@ -666,10 +702,10 @@ function start(THREE, host) {
   }
   for (const u of units) if (u.resident) activate(u, true);
 
-  let nextVisit = 15 + Math.random() * 20;
+  let nextVisit = 2 + Math.random() * 3;
   function director(t) {
     if (t < nextVisit) return;
-    nextVisit = t + 10 + Math.random() * 25;
+    nextVisit = t + 10 + Math.random() * 12;
     const out = units.filter((u) => u.active && !u.resident);
     if (out.length >= 2) return;
     const bigOut = out.some((u) => u.sp.big);
@@ -692,7 +728,7 @@ function start(THREE, host) {
   const bellGeo = keep(new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.55));
   const tentGeo = keep(tentacleGeometry(THREE));
   const JCOL = ['#f0abfc', '#93c5fd', '#a5f3fc'];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 1 + Math.floor(Math.random() * 2); i++) {
     const color = new THREE.Color(JCOL[i % JCOL.length]);
     const uni = { uTime: time, uPhase: { value: Math.random() * 6.3 }, uColor: { value: color }, uDensity: { value: density } };
     const bell = new THREE.Mesh(bellGeo, keep(new THREE.ShaderMaterial({ vertexShader: JELLY_VERT, fragmentShader: JELLY_FRAG, uniforms: uni, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide })));
@@ -896,42 +932,89 @@ function newTarget(THREE, c, stayIn = false) {
 // A fish, length 1 along +x (nose at +0.5): an ellipsoid shaped into a body, with tail, dorsal, anal and
 // pectoral fins. aPart marks fins (1) so the shader colours them apart from the body.
 function fishGeometry(THREE, sp) {
-  const body = new THREE.SphereGeometry(1, sp.seg ? sp.seg[0] : 30, sp.seg ? sp.seg[1] : 18);
+  // Each species gets its own silhouette: body depth, shoulder, peduncle and snout are
+  // deliberately different rather than scaling the same generic fish for every species.
+  const body = new THREE.SphereGeometry(1, sp.seg ? Math.max(24, sp.seg[0]) : 40, sp.seg ? Math.max(16, sp.seg[1]) : 26);
   body.rotateZ(-Math.PI / 2);
   const p = body.attributes.position;
   const sm = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
   const prof = (x) => {
     const t = Math.min(1, Math.max(0, x + 0.5));
-    let f = Math.max(0.08, Math.pow(Math.sin(Math.PI * Math.pow(t, 1.4)), sp.blunt));
-    if (sp.beak) f *= 1 - 0.6 * sm(0.84, 0.95, t); // a dolphin's beak
-    return Math.max(0.05, f);
+    let f = Math.max(0.035, Math.pow(Math.sin(Math.PI * Math.pow(t, 1.4)), sp.blunt));
+    if (sp.beak) f *= 1 - 0.6 * sm(0.84, 0.95, t);
+    return f;
   };
   const av = new Float32Array(p.count); const aa = new Float32Array(p.count);
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i) * 0.5;
-    const f = prof(x);
-    av[i] = p.getY(i); aa[i] = Math.atan2(p.getY(i), p.getZ(i));
-    p.setXYZ(i, x, p.getY(i) * f * sp.h * 0.5, p.getZ(i) * f * sp.w * 0.5);
+    const t = x + 0.5;
+    const radialY = p.getY(i);
+    const radialZ = p.getZ(i);
+    let depth = 1; let width = 1; let crown = 1;
+    if (sp.key === 'butterflyfish') {
+      depth = 1.18; width = 0.78; crown = 1.0;
+    } else if (sp.key === 'angel') {
+      depth = 1.32; width = 0.7; crown = 1.02;
+    } else if (sp.key === 'parrotfish') {
+      depth = 1.08 + 0.12 * sm(0.62, 0.92, t); width = 1.05;
+    } else if (sp.key === 'barracuda') {
+      depth = 0.62; width = 0.76;
+    } else if (sp.key === 'mackerel' || sp.key === 'sardine') {
+      depth = 0.78; width = 0.82;
+    } else if (sp.key === 'tuna') {
+      depth = 1.04; width = 1.02;
+    } else if (sp.key === 'clown') {
+      depth = 1.12; width = 0.96;
+    } else if (sp.key === 'tang') {
+      depth = 1.08; width = 0.82;
+    }
+    // A raised shoulder and a pinched tail wrist give the body a more natural fish profile.
+    const shoulder = 1 + 0.12 * Math.exp(-Math.pow((t - 0.58) / 0.2, 2));
+    const peduncle = 1 - 0.28 * sm(0.12, 0.28, t) * (1 - sm(0.02, 0.12, t));
+    let y = radialY * prof(x) * sp.h * 0.5 * depth * shoulder;
+    let z = radialZ * prof(x) * sp.w * 0.5 * width * peduncle;
+    if (sp.key === 'parrotfish' && t > 0.88) y *= 0.78; // blunt, beak-like forehead
+    if (sp.key === 'barracuda' && t > 0.84) y *= 1 - 0.48 * sm(0.84, 1.0, t); // pointed jaw
+    y *= crown;
+    av[i] = radialY; aa[i] = Math.atan2(radialY, radialZ);
+    p.setXYZ(i, x, y, z);
   }
   body.setAttribute('aV', new THREE.BufferAttribute(av, 1));
   body.setAttribute('aA', new THREE.BufferAttribute(aa, 1));
   body.computeVertexNormals();
   const parts = [[body, 0]];
-  const shape = (pts) => { const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]); return new THREE.ShapeGeometry(s); };
+  // Extruded fins have real thickness and softened edges instead of paper-thin flat polygons.
+  const shape = (pts) => {
+    const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]);
+    const g = new THREE.ExtrudeGeometry(s, { depth: 0.018, bevelEnabled: true, bevelSegments: 2, steps: 1, bevelSize: 0.006, bevelThickness: 0.006 });
+    g.translate(0, 0, -0.009);
+    return g;
+  };
   const [tl, th, fork] = sp.tail;
   let tail;
-  if (sp.flukes) { // whales and dolphins: a crescent lying flat
+  if (sp.flukes) {
     tail = shape([[0.04, 0.02], [-tl * 0.7, th], [-tl, th * 0.95], [-tl * fork, 0], [-tl, -th * 0.95], [-tl * 0.7, -th], [0.04, -0.02]]);
     tail.rotateX(Math.PI / 2);
-  } else if (sp.shark) tail = shape([[0.03, 0.01], [-tl * 0.9, th * 1.4], [-tl * 0.55, 0.0], [-tl * 0.45, -th * 0.7], [0.03, -0.01]]);
-  else tail = shape([[0.04, 0.02], [-tl, th], [-tl * fork, 0], [-tl, -th], [0.04, -0.02]]);
+  } else if (sp.shark) {
+    tail = shape([[0.03, 0.01], [-tl * 0.9, th * 1.4], [-tl * 0.55, 0.0], [-tl * 0.45, -th * 0.7], [0.03, -0.01]]);
+  } else if (sp.key === 'tuna' || sp.key === 'mackerel' || sp.key === 'barracuda' || sp.key === 'sardine') {
+    tail = shape([[0.04, 0.02], [-tl * 0.35, th * 0.25], [-tl, th], [-tl * fork, 0], [-tl, -th], [-tl * 0.35, -th * 0.25], [0.04, -0.02]]);
+  } else {
+    tail = shape([[0.04, 0.02], [-tl, th], [-tl * fork, 0], [-tl, -th], [0.04, -0.02]]);
+  }
   tail.translate(-0.47, 0, 0);
   parts.push([tail, 1]);
   const topAt = (x) => prof(x) * sp.h * 0.5 * 0.92;
   if (sp.dorsal) {
     const [x1, x2, dh] = sp.dorsal;
     const yb = topAt((x1 + x2) / 2);
-    parts.push([shape([[x1, 0], [x1 - (x1 - x2) * (sp.shark || sp.curvedDorsal ? 0.45 : 0.25), dh], [x2 - 0.04, dh * 0.35], [x2, 0]]).translate(0, yb - 0.01, 0), 1]);
+    const finPts = sp.key === 'butterflyfish'
+      ? [[x1, 0], [x1 - 0.05, dh * 0.7], [x2 + 0.03, dh], [x2, 0]]
+      : sp.key === 'parrotfish'
+        ? [[x1, 0], [x1 - 0.08, dh * 0.55], [x2 + 0.04, dh * 0.72], [x2, 0]]
+        : [[x1, 0], [x1 - (x1 - x2) * (sp.shark || sp.curvedDorsal ? 0.45 : 0.25), dh], [x2 - 0.04, dh * 0.35], [x2, 0]];
+    parts.push([shape(finPts).translate(0, yb - 0.01, 0), 1]);
   }
   if (sp.anal) {
     const [x1, x2, dh] = sp.anal;
@@ -939,15 +1022,70 @@ function fishGeometry(THREE, sp) {
     parts.push([shape([[x1, 0], [x2, 0], [x2 - 0.04, -dh * 0.4], [x1 - (x1 - x2) * 0.3, -dh]]).translate(0, -yb + 0.01, 0), 1]);
   }
   for (const side of [1, -1]) {
-    const len = sp.pec || 0.1;
-    const pec = sp.pecAccent // a humpback's long white flipper
+    const len = sp.pec || (sp.key === 'butterflyfish' || sp.key === 'parrotfish' ? 0.15 : 0.1);
+    const pec = sp.pecAccent
       ? shape([[0.02, 0], [-len * 0.45, -len], [-len * 0.25, -len * 0.95], [-0.04, 0]])
       : shape([[0, 0], [-len, -len * 0.9], [-len * 0.6, -len * 0.2]]);
-    pec.rotateX(-side * 0.9); // angled out from the body
+    pec.rotateX(-side * 0.9);
     pec.translate(0.22, -sp.h * 0.12, side * sp.w * 0.42);
     parts.push([pec, sp.pecAccent ? 2 : 1]);
   }
-  if (sp.finlets) { // tuna: little yellow finlets along the back and belly towards the tail
+  // A raised gill-cover seam and short gill slits are visible on both flanks.
+  for (const side of [1, -1]) {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.22, 0.055, side * sp.w * 0.49),
+      new THREE.Vector3(0.17, 0.015, side * sp.w * 0.51),
+      new THREE.Vector3(0.16, -0.055, side * sp.w * 0.49),
+      new THREE.Vector3(0.21, -0.09, side * sp.w * 0.44),
+    ]);
+    parts.push([new THREE.TubeGeometry(curve, 14, 0.0045, 5, false), 2]);
+    for (let k = 0; k < 3; k++) {
+      const x = 0.13 - k * 0.018;
+      const slit = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(x, 0.045, side * sp.w * 0.49),
+        new THREE.Vector3(x - 0.012, 0, side * sp.w * 0.52),
+        new THREE.Vector3(x, -0.045, side * sp.w * 0.49),
+      ]);
+      parts.push([new THREE.TubeGeometry(slit, 8, 0.0025, 4, false), 2]);
+    }
+  }
+  // A fine lateral-line canal runs from behind the gill cover towards the tail.
+  // It follows the body surface, so it reads as a feature of the fish rather than a floating stripe.
+  const lineWidth = sp.key === 'butterflyfish' || sp.key === 'tang' ? 0.82
+    : sp.key === 'angel' ? 0.7
+      : sp.key === 'parrotfish' || sp.key === 'tuna' || sp.key === 'clown' ? 1.0
+        : sp.key === 'barracuda' || sp.key === 'mackerel' || sp.key === 'sardine' ? 0.82 : 1.0;
+  for (const side of [1, -1]) {
+    const linePts = [];
+    for (let k = 0; k <= 18; k++) {
+      const x = 0.08 - k * 0.024;
+      const t = Math.min(1, Math.max(0, x + 0.5));
+      const surface = prof(x) * sp.w * 0.5 * lineWidth * (1 - 0.28 * sm(0.12, 0.28, t) * (1 - sm(0.02, 0.12, t)));
+      const y = 0.012 + 0.008 * Math.sin(k / 18 * Math.PI);
+      linePts.push(new THREE.Vector3(x, y, side * (surface + 0.002)));
+    }
+    const lateral = new THREE.CatmullRomCurve3(linePts);
+    parts.push([new THREE.TubeGeometry(lateral, 28, 0.0028, 5, false), 1]);
+  }
+  // A small, slightly downturned mouth gives the head a readable endpoint in profile.
+  for (const side of [1, -1]) {
+    const mouth = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.485, -0.018, side * 0.018),
+      new THREE.Vector3(0.465, -0.026, side * 0.035),
+      new THREE.Vector3(0.438, -0.025, side * 0.045),
+    ]);
+    parts.push([new THREE.TubeGeometry(mouth, 8, 0.0035, 5, false), 1]);
+  }
+  // Fine rays in the tail fan catch the light when the fish turns.
+  for (let side = -1; side <= 1; side++) {
+    const ray = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-0.49, 0, side * 0.004),
+      new THREE.Vector3(-0.47 - tl * 0.45, side * th * 0.42, side * 0.006),
+      new THREE.Vector3(-0.47 - tl * fork * 0.88, side * th * 0.82, side * 0.004),
+    ]);
+    parts.push([new THREE.TubeGeometry(ray, 10, 0.0022, 4, false), 2]);
+  }
+  if (sp.finlets) {
     for (let k = 0; k < 6; k++) {
       const x = -0.2 - k * 0.04; const y = topAt(x);
       parts.push([shape([[x + 0.012, 0], [x - 0.02, 0.028], [x - 0.012, 0]]).translate(0, y - 0.004, 0), 2]);
@@ -956,7 +1094,6 @@ function fishGeometry(THREE, sp) {
   }
   return merge(THREE, parts, ['aV', 'aA']);
 }
-
 function merge(THREE, parts, extra = []) {
   const pos = []; const nor = []; const part = []; const more = extra.map(() => []);
   for (const [g0, flag] of parts) {
