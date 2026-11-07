@@ -682,13 +682,22 @@ function start(THREE, host) {
   const rand = (r) => r[0] + Math.random() * (r[1] - r[0]);
   function activate(u, initial) {
     const c = u.c;
-    const entryZ = initial
-      ? c.zNear - Math.random() * 12
-      : c.zNear - (u.sp.big ? 8 : 6) - Math.random() * (u.sp.big ? 12 : 10);
-    c.pos.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), entryZ);
-    newTarget(THREE, c, true);
+    const isWhale = u.sp.kind === 'whale';
+    if (isWhale) {
+      // Whales enter from beyond one side of the viewing area and make one long, calm pass.
+      const side = c.side;
+      const entryZ = c.zIn + (Math.random() - 0.5) * 10;
+      c.pos.set(-side * (BOUNDS.x + 9), c.yLo + 2 + Math.random() * (c.yHi - c.yLo - 4), entryZ);
+      c.target.set(side * (BOUNDS.x + 52), c.pos.y + (Math.random() - 0.5) * 3, entryZ + (Math.random() - 0.5) * 5);
+    } else {
+      const entryZ = initial
+        ? c.zNear - Math.random() * 12
+        : c.zNear - (u.sp.big ? 8 : 6) - Math.random() * (u.sp.big ? 12 : 10);
+      c.pos.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), entryZ);
+      newTarget(THREE, c, true);
+    }
     c.dir.subVectors(c.target, c.pos).normalize();
-    c.speed = c.cruise; c.leaving = false; c.hunt = null; c.retarget = time.value + 10; c.rate = 0;
+    c.speed = c.cruise; c.leaving = false; c.hunt = null; c.retarget = time.value + (isWhale ? 75 : 10); c.rate = 0;
     for (const m of u.members) m.pos = null;
     u.active = true; u.fear = 0;
     u.until = u.resident ? Infinity : time.value + rand(u.sp.visit.stay);
@@ -905,7 +914,7 @@ function spawn(THREE, sp) {
     cruise: sp.speed * r(0.8, 1.2), speed: sp.speed,
     seed: Math.random() * 10, far,
     yLo, yHi, zNear: sp.zNear ?? (far ? -35 : BOUNDS.zNear), zIn: sp.zIn ?? (far ? -110 : -70), close: sp.close || 0,
-    jet: sp.jet || 0, phase: 0, ps: 1, pauses: !!sp.pauses, wander: sp.wander ?? 0.6,
+    jet: sp.jet || 0, phase: 0, ps: 1, pauses: !!sp.pauses, wander: sp.kind === 'whale' ? 0.045 : (sp.wander ?? 0.6),
     // Each animal's own wander rhythm (slow, overlapping waves, so its path never repeats).
     f1: r(0.05, 0.15), f2: r(0.1, 0.25), f3: r(0.07, 0.2), f4: r(0.04, 0.1),
     p1: r(0, 6.3), p2: r(0, 6.3), p3: r(0, 6.3), p4: r(0, 6.3),
