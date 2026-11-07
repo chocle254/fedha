@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 
 // Sapphire's living background: a deep-water aquarium in real 3D (three.js, loaded only for this tier).
-// Every creature is built in code, no downloads: blue tangs, clownfish, emperor angelfish, groupers, sardine and
-// tuna schools, sharks, a dolphin pod, humpback whales, octopuses, squid, manta rays and glowing jellyfish.
+// Marine life is scheduled as sparse, species-specific encounters: reef fish, butterflyfish, parrotfish,
+// barracuda, mackerel and sardine schools, tuna, sharks, dolphins, whales, cephalopods, manta rays and jellyfish.
 // Each swims its own path through the water (tails and bodies bend, flukes beat, mantas flap, octopus and squid
 // jet, jellies pulse); scales flash as fish turn. Some head off into the blue until the water swallows them,
 // then come back from the distance, and the big animals start far off and swim in. Light shafts, caustics on the fish and the sand,
@@ -602,9 +602,9 @@ function start(THREE, host) {
   }
 
   // ── Sea life ──
-  // Residents are always about; visitors arrive now and then from the distance, stay a while and swim off into
-  // the blue. Never more than two visitors at once, one big animal at a time. Sometimes a predator hunts the
-  // sardines, which see it coming, bunch into a swirling ball and flee.
+  // No permanent crowd: small reef groups and schools arrive in staggered encounters, linger, then leave into
+  // the blue. Never more than two encounters at once and only one large animal. Predators may trigger a brief
+  // flight response in nearby prey, rather than keeping every species on screen together.
   const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
   const material = (sp) => (sp.ceph ? new THREE.ShaderMaterial({
     vertexShader: CEPH_VERT, fragmentShader: CEPH_FRAG, fog: true, side: THREE.DoubleSide,
