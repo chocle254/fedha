@@ -443,7 +443,7 @@ void main() {
 // big animals come one at a time; predators sometimes hunt the sardines; prey flee from them.
 // yaw = how fast it can turn (radians a second): whales swing round over half a minute, reef fish in a few seconds.
 const SPECIES = [
-  { key: 'tang', yaw: 1.0, n: 3, school: 1, visit: { gap: [55, 105], stay: [24, 42], w: 1.5 }, prey: true, pauses: true, wander: 0.9, len: [1.1, 1.5], h: 0.62, w: 0.15, blunt: 0.55, tail: [0.2, 0.2, 0.55], dorsal: [0.32, -0.38, 0.12], anal: [0.1, -0.36, 0.1], pattern: 2, back: '#1d4ed8', belly: '#3b82f6', fin: '#1e3a8a', accent: '#facc15', speed: 1.5, amp: 0.07, freq: 7, eye: 0.04, shine: 0.6, glint: 0.45 },
+  { key: 'tang', yaw: 1.0, n: 3, school: 1, resident: 1, visit: { gap: [55, 105], stay: [24, 42], w: 1.5 }, prey: true, pauses: true, wander: 0.9, len: [1.1, 1.5], h: 0.62, w: 0.15, blunt: 0.55, tail: [0.2, 0.2, 0.55], dorsal: [0.32, -0.38, 0.12], anal: [0.1, -0.36, 0.1], pattern: 2, back: '#1d4ed8', belly: '#3b82f6', fin: '#1e3a8a', accent: '#facc15', speed: 1.5, amp: 0.07, freq: 7, eye: 0.04, shine: 0.6, glint: 0.45 },
   { key: 'clown', yaw: 1.2, n: 2, school: 1, visit: { gap: [85, 150], stay: [22, 38], w: 0.8 }, prey: true, pauses: true, wander: 1.0, len: [0.7, 0.95], h: 0.44, w: 0.2, blunt: 0.5, tail: [0.18, 0.15, 0.85], dorsal: [0.3, -0.35, 0.1], anal: [0.0, -0.3, 0.07], pattern: 1, back: '#f97316', belly: '#fb923c', fin: '#ea580c', speed: 1.0, amp: 0.09, freq: 9, eye: 0.045, shine: 0.7, glint: 0.35, zNear: 0, zIn: -40 },
   { key: 'angel', yaw: 0.9, n: 2, school: 1, visit: { gap: [75, 145], stay: [24, 40], w: 1.0 }, prey: true, pauses: true, wander: 0.8, len: [1.3, 1.7], h: 0.72, w: 0.13, blunt: 0.5, tail: [0.16, 0.18, 0.95], dorsal: [0.25, -0.42, 0.1], anal: [0.15, -0.4, 0.09], pattern: 3, back: '#1e3a8a', belly: '#1e40af', fin: '#1e3a8a', accent: '#fde047', speed: 1.0, amp: 0.06, freq: 6, eye: 0.035, shine: 0.6, glint: 0.45 },
   { key: 'grouper', yaw: 0.5, n: 1, visit: { gap: [110, 190], stay: [35, 55], w: 0.55 }, pauses: true, wander: 0.6, len: [2.6, 3.4], h: 0.36, w: 0.27, blunt: 0.65, tail: [0.18, 0.16, 0.9], dorsal: [0.3, -0.35, 0.07], anal: [0.0, -0.3, 0.05], pattern: 5, back: '#5b4636', belly: '#9a8268', fin: '#4a3a2c', speed: 0.8, amp: 0.05, freq: 4, eye: 0.028, shine: 0.3, glint: 0.12, y: [-12, -2] },
@@ -683,10 +683,8 @@ function start(THREE, host) {
   function activate(u, initial) {
     const c = u.c;
     const entryZ = initial
-      ? c.zNear - Math.random() * (c.zNear - c.zIn)
-      : u.sp.big
-        ? c.zIn - 8 - Math.random() * 12
-        : BOUNDS.zFar - 10 - Math.random() * 15;
+      ? c.zNear - Math.random() * 12
+      : c.zNear - (u.sp.big ? 8 : 6) - Math.random() * (u.sp.big ? 12 : 10);
     c.pos.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), entryZ);
     newTarget(THREE, c, true);
     c.dir.subVectors(c.target, c.pos).normalize();
@@ -925,7 +923,7 @@ function newTarget(THREE, c, stayIn = false) {
   c.target.set(
     (Math.random() - 0.5) * 2 * BOUNDS.x,
     c.yLo + Math.random() * (c.yHi - c.yLo),
-    away ? BOUNDS.zFar - 40 : close ? -6 - Math.random() * 8 : c.zNear - Math.random() * (c.zNear - c.zIn),
+    away ? BOUNDS.zFar - 40 : close ? -6 - Math.random() * 8 : stayIn ? c.zNear - Math.random() * 18 : c.zNear - Math.random() * (c.zNear - c.zIn), 
   );
 }
 
