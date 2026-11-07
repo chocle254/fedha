@@ -1,21 +1,23 @@
 import { useEffect, useRef } from 'react';
 
 // Sapphire's living background: a deep-water aquarium in real 3D (three.js, loaded only for this tier).
-// Every creature is built in code, no downloads: blue tangs, clownfish, emperor angelfish, groupers, two sardine
-// schools, sharks cruising far off, manta rays and glowing jellyfish. Each swims its own path through the
-// water (tail and body bend as it swims, mantas flap, jellies pulse) and some head off into the blue until the
-// water swallows them, then come back from the distance. Light shafts, caustics on the fish and the sand,
+// Every creature is built in code, no downloads: blue tangs, clownfish, emperor angelfish, groupers, sardine and
+// tuna schools, sharks, a dolphin pod, humpback whales, octopuses, squid, manta rays and glowing jellyfish.
+// Each swims its own path through the water (tails and bodies bend, flukes beat, mantas flap, octopus and squid
+// jet, jellies pulse); scales flash as fish turn. Some head off into the blue until the water swallows them,
+// then come back from the distance, and the big animals start far off and swim in. Light shafts, caustics on the fish and the sand,
 // swaying kelp and drifting marine snow. Pauses on low battery (html.lx-saver) and when the app is hidden.
 
 const FISH_VERT = `
-uniform float uTime; uniform float uAmp; uniform float uFreq;
+uniform float uTime; uniform float uAmp; uniform float uFreq; uniform float uVert;
 attribute float aPart; attribute float aPhase; attribute float aSpeed;
 varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vPart;
 #include <fog_pars_vertex>
 void main() {
   vec3 p = position;
   float s = clamp((0.15 - p.x) / 0.65, 0.0, 1.0);
-  p.z += sin(uTime * uFreq * aSpeed + aPhase - p.x * 5.0) * uAmp * s * s;
+  float bend = sin(uTime * uFreq * aSpeed + aPhase - p.x * 5.0) * uAmp * s * s;
+  if (uVert > 0.5) p.y += bend; else p.z += bend;   // whales and dolphins beat their flukes up and down
   vPos = position; vPart = aPart;
   vec4 wp = modelMatrix * instanceMatrix * vec4(p, 1.0);
   vWorld = wp.xyz;
@@ -50,7 +52,7 @@ vec3 shade(vec3 col, vec3 n, vec3 view, vec3 world, float shine) {
 
 const FISH_FRAG = `
 uniform vec3 uBack; uniform vec3 uBelly; uniform vec3 uFin; uniform vec3 uAccent;
-uniform int uPattern; uniform float uH; uniform float uEye; uniform float uShine;
+uniform int uPattern; uniform float uH; uniform float uEye; uniform float uShine; uniform float uGlint;
 varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vPart;
 ${COMMON_FRAG}
 #include <fog_pars_fragment>
@@ -77,16 +79,98 @@ void main() {
     col += vec3(0.25, 0.3, 0.35) * pow(scales, 3.0) * (1.0 - up);
   } else if (uPattern == 5) {                               // grouper: mottled blotches
     col *= 0.65 + 0.5 * ss(0.35, 0.65, noise(vec2(t * 9.0, up * 6.0)));
+  } else if (uPattern == 7) {                               // dolphin: dark cape, grey flanks, pale belly
+    col = mix(uBelly, uAccent, ss(0.3, 0.38, up));
+    col = mix(col, uBack, ss(0.62, 0.68, up + 0.05 * sin(t * 8.0)));
+  } else if (uPattern == 8) {                               // humpback: dark back, pale grooved throat, knobbly head
+    col = mix(uBelly, uBack, ss(0.25, 0.42, up + 0.06 * sin(t * 5.0)));
+    if (up < 0.42 && t > 0.6) col *= 0.8 + 0.2 * sin(vPos.z * 500.0);
+    if (t > 0.84 && up > 0.6) col = mix(col, uAccent * 0.6, ss(0.72, 0.8, noise(vec2(t * 60.0, vPos.z * 200.0))));
+  } else if (uPattern == 9) {                               // tuna: navy back, silver flanks, gold stripe
+    col = mix(col, uAccent * 0.85, 0.45 * band(up, 0.56, 0.025) * ss(0.2, 0.4, t) * ss(0.9, 0.75, t));
+    col += 0.07 * step(0.5, fract(t * 18.0)) * (1.0 - up);
   }
   col *= 0.9 + 0.12 * scales;
-  if (vPart > 0.5) col = mix(uFin, uFin * 0.7, 0.5 + 0.5 * sin(vPos.y * 60.0 + vPos.x * 20.0));
+  if (vPart > 1.5) col = uAccent;
+  else if (vPart > 0.5) col = mix(uFin, uFin * 0.7, 0.5 + 0.5 * sin(vPos.y * 60.0 + vPos.x * 20.0));
   float shine = uShine;
   vec2 e = vec2(vPos.x - 0.36, vPos.y - uH * 0.12);
   float d = length(e);
-  if (vPart < 0.5 && d < uEye) {                            // eye with a wet highlight
+  bool eye = vPart < 0.5 && d < uEye;
+  if (eye) {                                                // eye with a wet highlight
     col = mix(vec3(0.9, 0.75, 0.3), vec3(0.01), ss(uEye * 0.55, uEye * 0.45, d));
     if (length(e - vec2(0.004, uEye * 0.3)) < uEye * 0.22) col = vec3(1.0);
     shine = 1.2;
+  }
+  // Scales: each one tilted a little differently, so they flash one by one as the fish turns, with a rainbow
+  // sheen at glancing angles.
+  float glint = 0.0;
+  if (!eye && vPart < 0.5 && uGlint > 0.0) {
+    vec2 sc = vec2(t * 46.0, up * 18.0);
+    sc.y += floor(sc.x) * 0.5;
+    vec2 cid = floor(sc); vec2 cf = fract(sc) - 0.5;
+    col *= 1.0 - 0.22 * uGlint * ss(0.28, 0.5, length(cf));
+    vec3 Nn = normalize(vN);
+    vec3 jit = vec3(hash(cid), hash(cid + 7.1), hash(cid + 3.7)) - 0.5;
+    vec3 Ng = normalize(Nn + jit * 0.8);
+    vec3 Lv = normalize((viewMatrix * vec4(uLight, 0.0)).xyz);
+    glint = pow(max(dot(reflect(-Lv, Ng), normalize(vView)), 0.0), 60.0) * uGlint * 3.0;
+    float fr = 1.0 - abs(dot(Nn, normalize(vView)));
+    col += uGlint * 0.22 * fr * (0.5 + 0.5 * sin(fr * 9.0 + vec3(0.0, 2.1, 4.2)));
+  }
+  gl_FragColor = vec4(shade(col, vN, vView, vWorld, shine) + glint * vec3(1.0, 0.97, 0.88), 1.0);
+  #include <fog_fragment>
+}`;
+
+// Octopus and squid: body plus arms; aK runs 0 at an arm's base to 1 at its tip, aArm is its angle around the
+// body. Arms open, then snap shut (the jet that pushes the animal along), and curl at the tips.
+const CEPH_VERT = `
+uniform float uTime; uniform float uPulse;
+attribute float aK; attribute float aArm; attribute float aPhase; attribute float aSpeed;
+varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vK;
+#include <fog_pars_vertex>
+void main() {
+  vec3 p = position;
+  float pulse = sin(uTime * uPulse * aSpeed + aPhase);
+  float open = pulse * 0.5 + 0.5;
+  if (aK > 0.0) {
+    vec2 r = vec2(cos(aArm), sin(aArm));
+    float spread = (0.08 + 0.4 * open) * aK;
+    p.y += r.x * spread; p.z += r.y * spread;
+    float w = sin(uTime * 2.2 + aArm * 3.0 - aK * 7.0 + aPhase) * 0.12 * aK * aK;
+    p.y -= r.y * w; p.z += r.x * w;
+    p.x += (1.0 - open) * 0.08 * aK;
+  } else if (p.x > -0.1) {
+    p.yz *= 1.0 + 0.07 * pulse;
+  }
+  vPos = position; vK = aK;
+  vec4 wp = modelMatrix * instanceMatrix * vec4(p, 1.0);
+  vWorld = wp.xyz;
+  vec4 mvPosition = viewMatrix * wp;
+  vN = normalize(mat3(viewMatrix) * mat3(modelMatrix) * mat3(instanceMatrix) * normal);
+  vView = -mvPosition.xyz;
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`;
+
+const CEPH_FRAG = `
+uniform vec3 uBody; uniform vec3 uBelly; uniform float uEyeX; uniform float uEye; uniform float uShine;
+varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vK;
+${COMMON_FRAG}
+#include <fog_pars_fragment>
+void main() {
+  vec3 col = uBody * (0.7 + 0.45 * noise(vPos.xy * 28.0 + vPos.z * 13.0));
+  col = mix(col, uBelly, 0.35 * ss(0.0, -0.1, vPos.y));
+  if (vK > 0.02) {
+    float s = ss(0.3, 0.12, abs(fract(vK * 26.0) - 0.5));   // rows of suckers
+    col = mix(col, uBelly, s * 0.45);
+    col *= 1.0 - 0.25 * vK;
+  }
+  vec2 e = vec2(vPos.x - uEyeX, vPos.y);
+  float shine = uShine;
+  if (vK < 0.01 && length(e) < uEye && abs(vPos.z) > uEye * 0.4) {
+    col = mix(vec3(0.85, 0.7, 0.3), vec3(0.01), ss(uEye * 0.5, uEye * 0.35, length(vec2(e.x, e.y * 2.2))));
+    shine = 1.4;
   }
   gl_FragColor = vec4(shade(col, vN, vView, vWorld, shine), 1.0);
   #include <fog_fragment>
@@ -247,13 +331,20 @@ void main() {
 }`;
 
 // Species: body proportions (length 1), fins, colours and how they swim.
+// Fish: body proportions (length 1), fins, colours, how they swim and how much their scales flash (glint).
+// Big animals (far) start deep in the blue and swim in from the distance. ceph = octopus / squid.
 const SPECIES = [
-  { key: 'tang', n: 5, len: [1.1, 1.5], h: 0.62, w: 0.15, blunt: 0.55, tail: [0.2, 0.2, 0.55], dorsal: [0.32, -0.38, 0.12], anal: [0.1, -0.36, 0.1], pattern: 2, back: '#1d4ed8', belly: '#3b82f6', fin: '#1e3a8a', accent: '#facc15', speed: 1.7, amp: 0.07, freq: 7, eye: 0.045, shine: 0.6 },
-  { key: 'clown', n: 4, len: [0.7, 0.95], h: 0.44, w: 0.2, blunt: 0.5, tail: [0.18, 0.15, 0.85], dorsal: [0.3, -0.35, 0.1], anal: [0.0, -0.3, 0.07], pattern: 1, back: '#f97316', belly: '#fb923c', fin: '#ea580c', speed: 1.1, amp: 0.09, freq: 9, eye: 0.05, shine: 0.7 },
-  { key: 'angel', n: 3, len: [1.3, 1.7], h: 0.72, w: 0.13, blunt: 0.5, tail: [0.16, 0.18, 0.95], dorsal: [0.25, -0.42, 0.1], anal: [0.15, -0.4, 0.09], pattern: 3, back: '#1e3a8a', belly: '#1e40af', fin: '#1e3a8a', accent: '#fde047', speed: 1.1, amp: 0.06, freq: 6, eye: 0.04, shine: 0.6 },
-  { key: 'grouper', n: 2, len: [2.6, 3.4], h: 0.36, w: 0.27, blunt: 0.65, tail: [0.18, 0.16, 0.9], dorsal: [0.3, -0.35, 0.07], anal: [0.0, -0.3, 0.05], pattern: 5, back: '#5b4636', belly: '#9a8268', fin: '#4a3a2c', speed: 0.9, amp: 0.05, freq: 4, eye: 0.03, shine: 0.3 },
-  { key: 'shark', n: 2, len: [6, 8], h: 0.19, w: 0.17, blunt: 0.9, tail: [0.24, 0.22, 0.45], shark: true, dorsal: [0.12, -0.08, 0.17], anal: null, pattern: 6, back: '#4b5563', belly: '#e5e7eb', fin: '#4b5563', speed: 2.4, amp: 0.05, freq: 2.2, eye: 0.012, shine: 0.25, far: true },
-  { key: 'sardine', n: 48, len: [0.42, 0.55], h: 0.2, w: 0.1, blunt: 0.8, tail: [0.16, 0.13, 0.5], dorsal: [0.12, -0.06, 0.05], anal: null, pattern: 4, back: '#1e3a5f', belly: '#d1d5db', fin: '#94a3b8', speed: 3.0, amp: 0.08, freq: 14, eye: 0.04, shine: 1.0, school: 2 },
+  { key: 'tang', n: 5, len: [1.1, 1.5], h: 0.62, w: 0.15, blunt: 0.55, tail: [0.2, 0.2, 0.55], dorsal: [0.32, -0.38, 0.12], anal: [0.1, -0.36, 0.1], pattern: 2, back: '#1d4ed8', belly: '#3b82f6', fin: '#1e3a8a', accent: '#facc15', speed: 1.7, amp: 0.07, freq: 7, eye: 0.045, shine: 0.6, glint: 0.45 },
+  { key: 'clown', n: 4, len: [0.7, 0.95], h: 0.44, w: 0.2, blunt: 0.5, tail: [0.18, 0.15, 0.85], dorsal: [0.3, -0.35, 0.1], anal: [0.0, -0.3, 0.07], pattern: 1, back: '#f97316', belly: '#fb923c', fin: '#ea580c', speed: 1.1, amp: 0.09, freq: 9, eye: 0.05, shine: 0.7, glint: 0.35 },
+  { key: 'angel', n: 3, len: [1.3, 1.7], h: 0.72, w: 0.13, blunt: 0.5, tail: [0.16, 0.18, 0.95], dorsal: [0.25, -0.42, 0.1], anal: [0.15, -0.4, 0.09], pattern: 3, back: '#1e3a8a', belly: '#1e40af', fin: '#1e3a8a', accent: '#fde047', speed: 1.1, amp: 0.06, freq: 6, eye: 0.04, shine: 0.6, glint: 0.45 },
+  { key: 'grouper', n: 2, len: [2.6, 3.4], h: 0.36, w: 0.27, blunt: 0.65, tail: [0.18, 0.16, 0.9], dorsal: [0.3, -0.35, 0.07], anal: [0.0, -0.3, 0.05], pattern: 5, back: '#5b4636', belly: '#9a8268', fin: '#4a3a2c', speed: 0.9, amp: 0.05, freq: 4, eye: 0.03, shine: 0.3, glint: 0.12 },
+  { key: 'sardine', n: 48, school: 2, seg: [16, 10], len: [0.42, 0.55], h: 0.2, w: 0.1, blunt: 0.8, tail: [0.16, 0.13, 0.5], dorsal: [0.12, -0.06, 0.05], anal: null, pattern: 4, back: '#1e3a5f', belly: '#d1d5db', fin: '#94a3b8', speed: 3.0, amp: 0.08, freq: 14, eye: 0.04, shine: 1.0, glint: 1.0 },
+  { key: 'tuna', n: 10, school: 1, spread: 2.5, len: [1.8, 2.4], h: 0.28, w: 0.2, blunt: 0.72, tail: [0.2, 0.32, 0.35], dorsal: [0.12, -0.02, 0.1], anal: [0.0, -0.08, 0.07], finlets: true, pec: 0.13, pattern: 9, back: '#0b1f4a', belly: '#d6dde6', fin: '#1e3a5f', accent: '#facc15', speed: 4.5, amp: 0.05, freq: 9, eye: 0.03, shine: 0.9, glint: 0.9, far: true, zNear: -5, zIn: -85 },
+  { key: 'shark', n: 5, len: [6, 8], h: 0.19, w: 0.17, blunt: 0.9, tail: [0.24, 0.22, 0.45], shark: true, dorsal: [0.12, -0.08, 0.17], anal: null, pec: 0.16, pattern: 6, back: '#4b5563', belly: '#e5e7eb', fin: '#4b5563', speed: 2.4, amp: 0.05, freq: 2.2, eye: 0.012, shine: 0.25, glint: 0.04, far: true, zNear: -12, zIn: -90 },
+  { key: 'dolphin', n: 4, school: 1, spread: 2.2, len: [2.4, 3.0], h: 0.22, w: 0.2, blunt: 0.75, beak: true, flukes: true, tail: [0.16, 0.2, 0.6], dorsal: [0.08, -0.12, 0.13], curvedDorsal: true, anal: null, pec: 0.12, pattern: 7, back: '#374151', belly: '#e5e7eb', fin: '#374151', accent: '#9ca3af', speed: 4.2, amp: 0.06, freq: 3.5, eye: 0.012, shine: 0.55, glint: 0, far: true, zNear: -8, zIn: -80, y: [-6, 8] },
+  { key: 'whale', n: 2, seg: [40, 24], len: [13, 17], h: 0.24, w: 0.23, blunt: 0.7, flukes: true, tail: [0.13, 0.24, 0.55], dorsal: [-0.05, -0.12, 0.03], curvedDorsal: true, anal: null, pec: 0.32, pecAccent: true, pattern: 8, back: '#1f2937', belly: '#e5e7eb', fin: '#1f2937', accent: '#d1d5db', speed: 1.8, amp: 0.04, freq: 1.2, eye: 0.008, shine: 0.3, glint: 0, far: true, zNear: -30, zIn: -95, y: [-7, 6], turn: 0.35 },
+  { key: 'octopus', ceph: 'octopus', n: 3, len: [1.3, 2.0], body: '#b5472d', belly: '#f1c3a6', eyeX: -0.03, eye: 0.05, shine: 0.7, speed: 0.9, jet: 1.1, y: [-15, -9], zNear: 0, zIn: -50 },
+  { key: 'squid', ceph: 'squid', n: 6, school: 2, spread: 1.6, len: [1.1, 1.6], body: '#e9b8b0', belly: '#fbe7e2', eyeX: -0.27, eye: 0.045, shine: 0.9, speed: 2.0, jet: 2.0, y: [-9, 5], zNear: 2, zIn: -60 },
 ];
 
 const BOUNDS = { x: 34, yLo: -13, yHi: 9, zNear: 5, zFar: -150 };
@@ -350,15 +441,21 @@ function start(THREE, host) {
   const creatures = [];
   const groups = [];
   for (const sp of SPECIES) {
-    const geo = keep(fishGeometry(THREE, sp));
-    geo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(new Float32Array(sp.n).map(() => Math.random() * 6.3), 1));
-    geo.setAttribute('aSpeed', new THREE.InstancedBufferAttribute(new Float32Array(sp.n).map(() => 0.85 + Math.random() * 0.3), 1));
-    const mat = keep(new THREE.ShaderMaterial({
+    const geo = keep(sp.ceph ? cephGeometry(THREE, sp) : fishGeometry(THREE, sp));
+    const phases = new Float32Array(sp.n).map(() => Math.random() * 6.3);
+    const speeds = new Float32Array(sp.n).map(() => 0.85 + Math.random() * 0.3);
+    const mat = keep(sp.ceph ? new THREE.ShaderMaterial({
+      vertexShader: CEPH_VERT, fragmentShader: CEPH_FRAG, fog: true, side: THREE.DoubleSide,
+      uniforms: {
+        ...fogU(), uTime: time, uLight: light, uPulse: { value: sp.jet },
+        uBody: { value: new THREE.Color(sp.body) }, uBelly: { value: new THREE.Color(sp.belly) }, uEyeX: { value: sp.eyeX }, uEye: { value: sp.eye }, uShine: { value: sp.shine },
+      },
+    }) : new THREE.ShaderMaterial({
       vertexShader: FISH_VERT, fragmentShader: FISH_FRAG, fog: true, side: THREE.DoubleSide,
       uniforms: {
-        ...fogU(), uTime: time, uLight: light, uAmp: { value: sp.amp }, uFreq: { value: sp.freq },
+        ...fogU(), uTime: time, uLight: light, uAmp: { value: sp.amp }, uFreq: { value: sp.freq }, uVert: { value: sp.flukes ? 1 : 0 },
         uBack: { value: new THREE.Color(sp.back) }, uBelly: { value: new THREE.Color(sp.belly) }, uFin: { value: new THREE.Color(sp.fin) },
-        uAccent: { value: new THREE.Color(sp.accent || sp.fin) }, uPattern: { value: sp.pattern }, uH: { value: sp.h }, uEye: { value: sp.eye }, uShine: { value: sp.shine },
+        uAccent: { value: new THREE.Color(sp.accent || sp.fin) }, uPattern: { value: sp.pattern }, uH: { value: sp.h }, uEye: { value: sp.eye }, uShine: { value: sp.shine }, uGlint: { value: sp.glint || 0 },
       },
     }));
     const mesh = new THREE.InstancedMesh(geo, mat, sp.n);
@@ -371,19 +468,24 @@ function start(THREE, host) {
       for (let s = 0; s < sp.school; s++) {
         const leader = spawn(THREE, sp, true);
         leader.speed = sp.speed;
+        leader.phase = phases[s * per]; leader.ps = speeds[s * per];
         const members = [];
+        const k = sp.spread || 1;
         for (let i = s * per; i < Math.min(sp.n, (s + 1) * per); i++) {
-          members.push({ i, off: new THREE.Vector3((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 1.6, (Math.random() - 0.5) * 3), size: sp.len[0] + Math.random() * (sp.len[1] - sp.len[0]), ph: Math.random() * 6.3 });
+          phases[i] = leader.phase + (Math.random() - 0.5) * 0.3; speeds[i] = leader.ps; // a school jets together
+          members.push({ i, off: new THREE.Vector3((Math.random() - 0.5) * 3 * k, (Math.random() - 0.5) * 1.6 * k, (Math.random() - 0.5) * 3 * k), size: sp.len[0] + Math.random() * (sp.len[1] - sp.len[0]), ph: Math.random() * 6.3 });
         }
         group.list.push({ leader, members });
       }
     } else {
       for (let i = 0; i < sp.n; i++) {
         const c = spawn(THREE, sp, true);
-        c.i = i;
+        c.i = i; c.phase = phases[i]; c.ps = speeds[i];
         creatures.push({ c, mesh });
       }
     }
+    geo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phases, 1));
+    geo.setAttribute('aSpeed', new THREE.InstancedBufferAttribute(speeds, 1));
   }
 
   // ── Manta rays ──
@@ -427,12 +529,18 @@ function start(THREE, host) {
     desired.y = Math.max(-0.35, Math.min(0.35, desired.y));
     desired.normalize();
     c.dir.lerp(desired, Math.min(1, c.turn * dt)).normalize();
-    c.speed += (c.cruise * (0.8 + 0.4 * Math.sin(time.value * 0.3 + c.seed)) - c.speed) * Math.min(1, dt);
+    let cruise = c.cruise * (0.8 + 0.4 * Math.sin(time.value * 0.3 + c.seed));
+    // Octopus and squid shoot forward as their arms snap shut, then glide (in step with the shader's pulse).
+    if (c.jet) cruise *= 0.3 + 1.3 * Math.max(0, -Math.sin(time.value * c.jet * c.ps + c.phase));
+    c.speed += (cruise - c.speed) * Math.min(1, dt * (c.jet ? 4 : 1));
     c.pos.addScaledVector(c.dir, c.speed * dt);
+    // Stay in this animal's depth band (fast swimmers overshoot while turning, and the sand is below).
+    if ((c.pos.y < c.yLo - 1 && c.dir.y < 0) || (c.pos.y > c.yHi + 1 && c.dir.y > 0)) { c.dir.y *= 0.9; c.dir.normalize(); }
+    c.pos.y = Math.max(c.yLo - 2, Math.min(c.yHi + 2, c.pos.y));
     // Gone into the blue: come back from far away, heading this way.
     if (c.pos.z < BOUNDS.zFar - 25 || Math.abs(c.pos.x) > BOUNDS.x + 30) {
-      c.pos.set((Math.random() - 0.5) * 2 * BOUNDS.x, BOUNDS.yLo + 3 + Math.random() * (BOUNDS.yHi - BOUNDS.yLo - 4), BOUNDS.zFar - 15);
-      c.target.set((Math.random() - 0.5) * BOUNDS.x, BOUNDS.yLo + 3 + Math.random() * 12, -10 - Math.random() * 40);
+      c.pos.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), BOUNDS.zFar - 15);
+      newTarget(THREE, c, true);
       c.dir.subVectors(c.target, c.pos).normalize();
     }
   }
@@ -515,36 +623,45 @@ function start(THREE, host) {
 
 function spawn(THREE, sp, initial) {
   const far = sp.far;
+  const yLo = sp.y ? sp.y[0] : BOUNDS.yLo + 2; const yHi = sp.y ? sp.y[1] : BOUNDS.yHi - 1;
   const c = {
-    pos: new THREE.Vector3((Math.random() - 0.5) * 2 * BOUNDS.x, BOUNDS.yLo + 2 + Math.random() * (BOUNDS.yHi - BOUNDS.yLo - 3), far ? -40 - Math.random() * 80 : (initial ? 2 - Math.random() * 70 : BOUNDS.zFar)),
+    // Big animals start deep in the blue, so the first thing you see is them swimming in.
+    pos: new THREE.Vector3((Math.random() - 0.5) * 2 * BOUNDS.x, yLo + Math.random() * (yHi - yLo), far ? -70 - Math.random() * 70 : (initial ? 2 - Math.random() * 70 : BOUNDS.zFar)),
     dir: new THREE.Vector3(Math.random() - 0.5, (Math.random() - 0.5) * 0.2, Math.random() - 0.5).normalize(),
     target: new THREE.Vector3(),
     size: sp.len[0] + Math.random() * (sp.len[1] - sp.len[0]),
     cruise: sp.speed * (0.8 + Math.random() * 0.4), speed: sp.speed,
-    turn: 0.6 + Math.random() * 0.5, seed: Math.random() * 10, far,
+    turn: (0.6 + Math.random() * 0.5) * (sp.turn || 1), seed: Math.random() * 10, far,
+    yLo, yHi, zNear: sp.zNear ?? (far ? -35 : BOUNDS.zNear), zIn: sp.zIn ?? (far ? -110 : -70),
+    jet: sp.jet || 0, phase: 0, ps: 1,
   };
   newTarget(THREE, c);
   return c;
 }
 
 // Somewhere new to swim: mostly within view, sometimes far off into the blue (where the water hides it).
-function newTarget(THREE, c) {
-  const away = Math.random() < 0.15;
-  const zNear = c.far ? -35 : BOUNDS.zNear;
+function newTarget(THREE, c, stayIn = false) {
+  const away = !stayIn && Math.random() < 0.15;
   c.target.set(
     (Math.random() - 0.5) * 2 * BOUNDS.x,
-    BOUNDS.yLo + 2 + Math.random() * (BOUNDS.yHi - BOUNDS.yLo - 3),
-    away ? BOUNDS.zFar - 40 : zNear - Math.random() * (zNear - (c.far ? -110 : -70)),
+    c.yLo + Math.random() * (c.yHi - c.yLo),
+    away ? BOUNDS.zFar - 40 : c.zNear - Math.random() * (c.zNear - c.zIn),
   );
 }
 
 // A fish, length 1 along +x (nose at +0.5): an ellipsoid shaped into a body, with tail, dorsal, anal and
 // pectoral fins. aPart marks fins (1) so the shader colours them apart from the body.
 function fishGeometry(THREE, sp) {
-  const body = new THREE.SphereGeometry(1, 30, 18);
+  const body = new THREE.SphereGeometry(1, sp.seg ? sp.seg[0] : 30, sp.seg ? sp.seg[1] : 18);
   body.rotateZ(-Math.PI / 2);
   const p = body.attributes.position;
-  const prof = (x) => { const t = Math.min(1, Math.max(0, x + 0.5)); return Math.max(0.08, Math.pow(Math.sin(Math.PI * Math.pow(t, 1.4)), sp.blunt)); };
+  const sm = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
+  const prof = (x) => {
+    const t = Math.min(1, Math.max(0, x + 0.5));
+    let f = Math.max(0.08, Math.pow(Math.sin(Math.PI * Math.pow(t, 1.4)), sp.blunt));
+    if (sp.beak) f *= 1 - 0.6 * sm(0.84, 0.95, t); // a dolphin's beak
+    return Math.max(0.05, f);
+  };
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i) * 0.5;
     const f = prof(x);
@@ -554,16 +671,19 @@ function fishGeometry(THREE, sp) {
   const parts = [[body, 0]];
   const shape = (pts) => { const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]); return new THREE.ShapeGeometry(s); };
   const [tl, th, fork] = sp.tail;
-  const tail = sp.shark
-    ? shape([[0.03, 0.01], [-tl * 0.9, th * 1.4], [-tl * 0.55, 0.0], [-tl * 0.45, -th * 0.7], [0.03, -0.01]])
-    : shape([[0.04, 0.02], [-tl, th], [-tl * fork, 0], [-tl, -th], [0.04, -0.02]]);
+  let tail;
+  if (sp.flukes) { // whales and dolphins: a crescent lying flat
+    tail = shape([[0.04, 0.02], [-tl * 0.7, th], [-tl, th * 0.95], [-tl * fork, 0], [-tl, -th * 0.95], [-tl * 0.7, -th], [0.04, -0.02]]);
+    tail.rotateX(Math.PI / 2);
+  } else if (sp.shark) tail = shape([[0.03, 0.01], [-tl * 0.9, th * 1.4], [-tl * 0.55, 0.0], [-tl * 0.45, -th * 0.7], [0.03, -0.01]]);
+  else tail = shape([[0.04, 0.02], [-tl, th], [-tl * fork, 0], [-tl, -th], [0.04, -0.02]]);
   tail.translate(-0.47, 0, 0);
   parts.push([tail, 1]);
   const topAt = (x) => prof(x) * sp.h * 0.5 * 0.92;
   if (sp.dorsal) {
     const [x1, x2, dh] = sp.dorsal;
     const yb = topAt((x1 + x2) / 2);
-    parts.push([shape([[x1, 0], [x1 - (x1 - x2) * (sp.shark ? 0.45 : 0.25), dh], [x2 - 0.04, dh * 0.35], [x2, 0]]).translate(0, yb - 0.01, 0), 1]);
+    parts.push([shape([[x1, 0], [x1 - (x1 - x2) * (sp.shark || sp.curvedDorsal ? 0.45 : 0.25), dh], [x2 - 0.04, dh * 0.35], [x2, 0]]).translate(0, yb - 0.01, 0), 1]);
   }
   if (sp.anal) {
     const [x1, x2, dh] = sp.anal;
@@ -571,29 +691,81 @@ function fishGeometry(THREE, sp) {
     parts.push([shape([[x1, 0], [x2, 0], [x2 - 0.04, -dh * 0.4], [x1 - (x1 - x2) * 0.3, -dh]]).translate(0, -yb + 0.01, 0), 1]);
   }
   for (const side of [1, -1]) {
-    const len = sp.shark ? 0.16 : 0.1;
-    const pec = shape([[0, 0], [-len, -len * 0.9], [-len * 0.6, -len * 0.2]]);
+    const len = sp.pec || 0.1;
+    const pec = sp.pecAccent // a humpback's long white flipper
+      ? shape([[0.02, 0], [-len * 0.45, -len], [-len * 0.25, -len * 0.95], [-0.04, 0]])
+      : shape([[0, 0], [-len, -len * 0.9], [-len * 0.6, -len * 0.2]]);
     pec.rotateX(side * 0.9);
     pec.translate(0.22, -sp.h * 0.12, side * sp.w * 0.42);
-    parts.push([pec, 1]);
+    parts.push([pec, sp.pecAccent ? 2 : 1]);
+  }
+  if (sp.finlets) { // tuna: little yellow finlets along the back and belly towards the tail
+    for (let k = 0; k < 6; k++) {
+      const x = -0.2 - k * 0.04; const y = topAt(x);
+      parts.push([shape([[x + 0.012, 0], [x - 0.02, 0.028], [x - 0.012, 0]]).translate(0, y - 0.004, 0), 2]);
+      parts.push([shape([[x + 0.012, 0], [x - 0.012, 0], [x - 0.02, -0.028]]).translate(0, -y + 0.004, 0), 2]);
+    }
   }
   return merge(THREE, parts);
 }
 
-function merge(THREE, parts) {
-  const pos = []; const nor = []; const part = [];
+function merge(THREE, parts, extra = []) {
+  const pos = []; const nor = []; const part = []; const more = extra.map(() => []);
   for (const [g0, flag] of parts) {
     const g = g0.index ? g0.toNonIndexed() : g0;
     const a = g.attributes.position.array; const n = g.attributes.normal.array;
     for (let i = 0; i < a.length; i++) { pos.push(a[i]); nor.push(n[i]); }
-    for (let i = 0; i < a.length / 3; i++) part.push(flag);
+    const count = a.length / 3;
+    for (let i = 0; i < count; i++) part.push(flag);
+    extra.forEach((name, j) => { const src = g.attributes[name]; for (let i = 0; i < count; i++) more[j].push(src ? src.array[i] : 0); });
     g.dispose(); if (g !== g0) g0.dispose();
   }
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   out.setAttribute('aPart', new THREE.Float32BufferAttribute(part, 1));
+  extra.forEach((name, j) => out.setAttribute(name, new THREE.Float32BufferAttribute(more[j], 1)));
   return out;
+}
+
+// Octopus (round mantle, eight long arms) or squid (long pointed mantle with fins, short arms and two long
+// tentacles), length about 1.5 along +x: mantle first, arms trailing, the way they jet through the water.
+function cephGeometry(THREE, sp) {
+  const parts = [];
+  const blob = (cx, rx, ry, rz, point = 0) => {
+    const g = new THREE.SphereGeometry(1, 20, 12);
+    g.rotateZ(-Math.PI / 2);
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i); const taper = point && x > 0 ? 1 - point * Math.pow(x, 1.5) : 1;
+      p.setXYZ(i, cx + x * rx, p.getY(i) * ry * taper, p.getZ(i) * rz * taper);
+    }
+    g.computeVertexNormals();
+    return g;
+  };
+  const arm = (x0, r0, len, rb, rt, a) => {
+    const g = new THREE.CylinderGeometry(rt, rb, len, 6, 12, false);
+    g.rotateZ(Math.PI / 2); // tip towards -x
+    g.translate(x0 - len / 2, r0 * Math.cos(a), r0 * Math.sin(a));
+    const p = g.attributes.position;
+    const k = new Float32Array(p.count); const ang = new Float32Array(p.count).fill(a);
+    for (let i = 0; i < p.count; i++) k[i] = Math.min(1, Math.max(0.001, (x0 - p.getX(i)) / len));
+    g.setAttribute('aK', new THREE.BufferAttribute(k, 1));
+    g.setAttribute('aArm', new THREE.BufferAttribute(ang, 1));
+    return g;
+  };
+  if (sp.ceph === 'octopus') {
+    parts.push([blob(0.22, 0.32, 0.26, 0.26), 0], [blob(-0.05, 0.17, 0.15, 0.17), 0]);
+    for (let i = 0; i < 8; i++) parts.push([arm(-0.12, 0.1, 0.9, 0.055, 0.008, (i / 8) * Math.PI * 2 + 0.2), 0]);
+  } else {
+    parts.push([blob(0.18, 0.42, 0.1, 0.1, 0.65), 0], [blob(-0.28, 0.1, 0.085, 0.09), 0]);
+    const fin = new THREE.Shape(); fin.moveTo(0.62, 0); fin.lineTo(0.45, 0.17); fin.lineTo(0.3, 0); fin.lineTo(0.45, -0.17); fin.lineTo(0.62, 0);
+    const fg = new THREE.ShapeGeometry(fin); fg.rotateX(Math.PI / 2);
+    parts.push([fg, 0]);
+    for (let i = 0; i < 8; i++) parts.push([arm(-0.36, 0.05, 0.28, 0.025, 0.004, (i / 8) * Math.PI * 2), 0]);
+    for (const a of [0.4, Math.PI + 0.4]) parts.push([arm(-0.36, 0.03, 0.75, 0.012, 0.007, a), 0]);
+  }
+  return merge(THREE, parts, ['aK', 'aArm']);
 }
 
 // A manta ray, length 1 along +x, wingspan ±1 in z: swept-back wings, a raised body, flapping in the shader.
