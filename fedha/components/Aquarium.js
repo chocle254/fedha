@@ -682,22 +682,17 @@ function start(THREE, host) {
   const rand = (r) => r[0] + Math.random() * (r[1] - r[0]);
   function activate(u, initial) {
     const c = u.c;
-    const isWhale = u.sp.kind === 'whale';
-    if (isWhale) {
-      // Whales enter from beyond one side of the viewing area and make one long, calm pass.
-      const side = c.side;
-      const entryZ = c.zIn + (Math.random() - 0.5) * 10;
-      c.pos.set(-side * (BOUNDS.x + 9), c.yLo + 2 + Math.random() * (c.yHi - c.yLo - 4), entryZ);
-      c.target.set(side * (BOUNDS.x + 52), c.pos.y + (Math.random() - 0.5) * 3, entryZ + (Math.random() - 0.5) * 5);
-    } else {
-      const entryZ = initial
-        ? c.zNear - Math.random() * 12
-        : c.zNear - (u.sp.big ? 8 : 6) - Math.random() * (u.sp.big ? 12 : 10);
-      c.pos.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), entryZ);
-      newTarget(THREE, c, true);
-    }
+    // Every animal enters from outside the viewing area and swims across it, rather than popping
+    // into the camera's face and immediately choosing a random direction.
+    const side = c.side;
+    const depth = c.far
+      ? c.zNear + (c.zIn - c.zNear) * 0.5
+      : c.zIn + (Math.random() - 0.5) * 12;
+    const entryZ = depth + (Math.random() - 0.5) * 5;
+    c.pos.set(-side * (BOUNDS.x + 9), c.yLo + 2 + Math.random() * (c.yHi - c.yLo - 4), entryZ);
+    c.target.set(side * (BOUNDS.x + 52), c.pos.y + (Math.random() - 0.5) * 3, entryZ + (Math.random() - 0.5) * 4);
     c.dir.subVectors(c.target, c.pos).normalize();
-    c.speed = c.cruise; c.leaving = false; c.hunt = null; c.retarget = time.value + (isWhale ? 75 : 10); c.rate = 0;
+    c.speed = c.cruise; c.leaving = false; c.hunt = null; c.retarget = time.value + 65; c.rate = 0;
     for (const m of u.members) m.pos = null;
     u.active = true; u.fear = 0;
     u.until = u.resident ? Infinity : time.value + rand(u.sp.visit.stay);
@@ -758,11 +753,11 @@ function start(THREE, host) {
     const c = u.c;
     if (c.hunt) c.target.copy(c.hunt.pos);
     desired.subVectors(c.target, c.pos);
-    if (!c.hunt && !c.leaving && (desired.length() < 2.5 || t > c.retarget)) { newTarget(THREE, c); c.retarget = t + 8 + Math.random() * 16; }
+    if (!c.hunt && !c.leaving && (desired.length() < 3.5 || t > c.retarget)) { newTarget(THREE, c); c.retarget = t + 35 + Math.random() * 25; }
     desired.normalize();
     // Wander: a slow, smooth, never-repeating drift on top of where it's heading.
     wv.set(Math.sin(t * c.f1 + c.p1) + 0.5 * Math.sin(t * c.f2 + c.p2), 0.35 * Math.sin(t * c.f3 + c.p3), Math.cos(t * c.f1 * 0.8 + c.p2) + 0.5 * Math.sin(t * c.f3 * 1.3 + c.p1));
-    desired.addScaledVector(wv, c.hunt ? 0.15 : c.wander);
+    desired.addScaledVector(wv, c.hunt ? 0.08 : c.wander);
     if (u.fear > 0.01) desired.addScaledVector(u.flee, 3 * u.fear);
     desired.normalize();
     desired.y = Math.max(-0.35, Math.min(0.35, desired.y));
@@ -773,8 +768,8 @@ function start(THREE, host) {
     axis.crossVectors(c.dir, desired);
     if (axis.lengthSq() < 1e-6) axis.set(0, c.side, 0);
     axis.normalize();
-    const want = Math.min(ang * 1.2, c.yaw * (1 + 0.6 * u.fear));
-    c.rate += (want - c.rate) * Math.min(1, dt * 1.5);
+    const want = Math.min(ang * 0.55, c.yaw * (0.28 + 0.25 * u.fear));
+    c.rate += (want - c.rate) * Math.min(1, dt * 0.7);
     c.dir.applyAxisAngle(axis, Math.min(ang, c.rate * dt)).normalize();
     c.yawRate = c.rate * axis.y;
     // Speed ebbs and flows; reef fish hang still now and then; bursts when fleeing or hunting.
@@ -791,9 +786,12 @@ function start(THREE, host) {
     // Gone into the blue: residents come back from the distance, visitors are done.
     if (c.pos.z < BOUNDS.zFar - 25 || Math.abs(c.pos.x) > BOUNDS.x + 30) {
       if (!u.resident) { deactivate(u); return; }
-      c.pos.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), BOUNDS.zFar - 15);
-      newTarget(THREE, c, true);
-      c.dir.subVectors(c.target, c.pos).normalize();
+      // Residents loop around outside the frame at the same depth, never teleport from the deep background.
+      const forward = Math.sign(c.dir.x) || c.side;
+      c.pos.set(-forward * (BOUNDS.x + 9), c.pos.y, c.pos.z);
+      c.target.set(forward * (BOUNDS.x + 52), c.pos.y + (Math.random() - 0.5) * 3, c.pos.z + (Math.random() - 0.5) * 4);
+      c.dir.set(forward, c.dir.y * 0.15, c.dir.z * 0.15).normalize();
+      c.retarget = t + 65;
     }
   }
   function place(mesh, i, pos, dir, size, roll = 0) {
@@ -914,7 +912,7 @@ function spawn(THREE, sp) {
     cruise: sp.speed * r(0.8, 1.2), speed: sp.speed,
     seed: Math.random() * 10, far,
     yLo, yHi, zNear: sp.zNear ?? (far ? -35 : BOUNDS.zNear), zIn: sp.zIn ?? (far ? -110 : -70), close: sp.close || 0,
-    jet: sp.jet || 0, phase: 0, ps: 1, pauses: !!sp.pauses, wander: sp.kind === 'whale' ? 0.045 : (sp.wander ?? 0.6),
+    jet: sp.jet || 0, phase: 0, ps: 1, pauses: !!sp.pauses, wander: (sp.wander ?? 0.6) * 0.18,
     // Each animal's own wander rhythm (slow, overlapping waves, so its path never repeats).
     f1: r(0.05, 0.15), f2: r(0.1, 0.25), f3: r(0.07, 0.2), f4: r(0.04, 0.1),
     p1: r(0, 6.3), p2: r(0, 6.3), p3: r(0, 6.3), p4: r(0, 6.3),
@@ -927,12 +925,13 @@ function spawn(THREE, sp) {
 // Somewhere new to swim: mostly within view, sometimes far off into the blue (where the water hides it), and
 // now and then a big animal passes close to the screen.
 function newTarget(THREE, c, stayIn = false) {
-  const away = !stayIn && Math.random() < 0.12;
-  const close = !away && c.close && Math.random() < c.close;
+  // Pick a gentle waypoint ahead of the current heading. Small depth/height changes keep
+  // movement organic without making the animal spin back toward the camera.
+  const forward = Math.abs(c.dir.x) > 0.2 ? Math.sign(c.dir.x) : c.side;
   c.target.set(
-    (Math.random() - 0.5) * 2 * BOUNDS.x,
-    c.yLo + Math.random() * (c.yHi - c.yLo),
-    away ? BOUNDS.zFar - 40 : close ? -6 - Math.random() * 8 : stayIn ? c.zNear - Math.random() * 18 : c.zNear - Math.random() * (c.zNear - c.zIn), 
+    c.pos.x + forward * (22 + Math.random() * 20),
+    Math.max(c.yLo, Math.min(c.yHi, c.pos.y + (Math.random() - 0.5) * 5)),
+    c.pos.z + (Math.random() - 0.5) * 7,
   );
 }
 
