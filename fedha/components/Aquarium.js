@@ -339,19 +339,20 @@ void main() {
 // resident: always about (a few reef fish, one sardine school). visit: arrives now and then from the distance,
 // stays a while, then swims off: gap = seconds between visits, stay = seconds it stays, w = how often it's picked.
 // big animals come one at a time; predators sometimes hunt the sardines; prey flee from them.
+// yaw = how fast it can turn (radians a second): whales swing round over half a minute, reef fish in a few seconds.
 const SPECIES = [
-  { key: 'tang', n: 3, resident: 3, prey: true, pauses: true, wander: 0.9, len: [1.1, 1.5], h: 0.62, w: 0.15, blunt: 0.55, tail: [0.2, 0.2, 0.55], dorsal: [0.32, -0.38, 0.12], anal: [0.1, -0.36, 0.1], pattern: 2, back: '#1d4ed8', belly: '#3b82f6', fin: '#1e3a8a', accent: '#facc15', speed: 1.5, amp: 0.07, freq: 7, eye: 0.04, shine: 0.6, glint: 0.45 },
-  { key: 'clown', n: 2, resident: 2, prey: true, pauses: true, wander: 1.0, len: [0.7, 0.95], h: 0.44, w: 0.2, blunt: 0.5, tail: [0.18, 0.15, 0.85], dorsal: [0.3, -0.35, 0.1], anal: [0.0, -0.3, 0.07], pattern: 1, back: '#f97316', belly: '#fb923c', fin: '#ea580c', speed: 1.0, amp: 0.09, freq: 9, eye: 0.045, shine: 0.7, glint: 0.35, zNear: 0, zIn: -40 },
-  { key: 'angel', n: 2, resident: 2, prey: true, pauses: true, wander: 0.8, len: [1.3, 1.7], h: 0.72, w: 0.13, blunt: 0.5, tail: [0.16, 0.18, 0.95], dorsal: [0.25, -0.42, 0.1], anal: [0.15, -0.4, 0.09], pattern: 3, back: '#1e3a8a', belly: '#1e40af', fin: '#1e3a8a', accent: '#fde047', speed: 1.0, amp: 0.06, freq: 6, eye: 0.035, shine: 0.6, glint: 0.45 },
-  { key: 'grouper', n: 1, resident: 1, pauses: true, wander: 0.6, len: [2.6, 3.4], h: 0.36, w: 0.27, blunt: 0.65, tail: [0.18, 0.16, 0.9], dorsal: [0.3, -0.35, 0.07], anal: [0.0, -0.3, 0.05], pattern: 5, back: '#5b4636', belly: '#9a8268', fin: '#4a3a2c', speed: 0.8, amp: 0.05, freq: 4, eye: 0.028, shine: 0.3, glint: 0.12, y: [-12, -2] },
-  { key: 'sardine', n: 24, school: 1, resident: 1, prey: true, wander: 0.7, seg: [16, 10], len: [0.42, 0.55], h: 0.2, w: 0.1, blunt: 0.8, tail: [0.16, 0.13, 0.5], dorsal: [0.12, -0.06, 0.05], anal: null, pattern: 4, back: '#1e3a5f', belly: '#d1d5db', fin: '#94a3b8', speed: 2.6, amp: 0.08, freq: 14, eye: 0.04, shine: 1.0, glint: 1.0 },
-  { key: 'tuna', n: 8, school: 1, spread: 2.5, predator: true, wander: 0.5, visit: { gap: [70, 150], stay: [25, 45], w: 1 }, len: [1.8, 2.4], h: 0.28, w: 0.2, blunt: 0.72, tail: [0.2, 0.32, 0.35], dorsal: [0.12, -0.02, 0.1], anal: [0.0, -0.08, 0.07], finlets: true, pec: 0.13, pattern: 9, back: '#0b1f4a', belly: '#d6dde6', fin: '#1e3a5f', accent: '#facc15', speed: 4.2, amp: 0.05, freq: 9, eye: 0.028, shine: 0.9, glint: 0.9, far: true, zNear: -5, zIn: -85 },
-  { key: 'shark', n: 2, big: true, predator: true, wander: 0.45, visit: { gap: [60, 150], stay: [40, 70], w: 1 }, close: 0.3, len: [6, 8], h: 0.19, w: 0.17, blunt: 0.9, tail: [0.24, 0.22, 0.45], shark: true, dorsal: [0.12, -0.08, 0.17], anal: null, pec: 0.16, pattern: 6, back: '#4b5563', belly: '#e5e7eb', fin: '#4b5563', speed: 2.3, amp: 0.05, freq: 2.2, eye: 0.012, shine: 0.25, glint: 0.04, far: true, zNear: -12, zIn: -90 },
-  { key: 'dolphin', n: 4, school: 1, spread: 2.2, big: true, predator: true, wander: 0.6, visit: { gap: [120, 240], stay: [30, 50], w: 1.6 }, close: 0.3, len: [2.4, 3.0], h: 0.22, w: 0.2, blunt: 0.75, beak: true, flukes: true, tail: [0.16, 0.2, 0.6], dorsal: [0.08, -0.12, 0.13], curvedDorsal: true, anal: null, pec: 0.12, pattern: 7, back: '#374151', belly: '#e5e7eb', fin: '#374151', accent: '#9ca3af', speed: 4.0, amp: 0.06, freq: 3.5, eye: 0.012, shine: 0.55, glint: 0, far: true, zNear: -8, zIn: -80, y: [-6, 8] },
-  { key: 'whale', n: 1, big: true, wander: 0.25, visit: { gap: [180, 420], stay: [60, 90], w: 4, first: true }, close: 0.25, seg: [40, 24], len: [13, 17], h: 0.24, w: 0.23, blunt: 0.7, flukes: true, tail: [0.13, 0.24, 0.55], dorsal: [-0.05, -0.12, 0.03], curvedDorsal: true, anal: null, pec: 0.32, pecAccent: true, pattern: 8, back: '#1f2937', belly: '#e5e7eb', fin: '#1f2937', accent: '#d1d5db', speed: 1.7, amp: 0.04, freq: 1.2, eye: 0.008, shine: 0.3, glint: 0, far: true, zNear: -30, zIn: -95, y: [-7, 6], turn: 0.35 },
-  { key: 'manta', manta: true, n: 2, big: true, wander: 0.4, visit: { gap: [100, 200], stay: [40, 70], w: 0.8 }, close: 0.3, len: [5, 7], speed: 1.6, far: true, y: [-8, 6] },
-  { key: 'octopus', ceph: 'octopus', n: 2, prey: true, pauses: true, wander: 0.8, visit: { gap: [60, 130], stay: [50, 90], w: 1 }, len: [1.3, 2.0], body: '#b5472d', belly: '#f1c3a6', eyeX: -0.03, eye: 0.05, shine: 0.7, speed: 0.9, jet: 1.1, y: [-15, -9], zNear: 0, zIn: -50 },
-  { key: 'squid', ceph: 'squid', n: 4, school: 1, spread: 1.6, prey: true, wander: 0.8, visit: { gap: [80, 160], stay: [30, 50], w: 1 }, len: [1.1, 1.6], body: '#e9b8b0', belly: '#fbe7e2', eyeX: -0.27, eye: 0.045, shine: 0.9, speed: 2.0, jet: 2.0, y: [-9, 5], zNear: 2, zIn: -60 },
+  { key: 'tang', yaw: 1.0, n: 3, resident: 3, prey: true, pauses: true, wander: 0.9, len: [1.1, 1.5], h: 0.62, w: 0.15, blunt: 0.55, tail: [0.2, 0.2, 0.55], dorsal: [0.32, -0.38, 0.12], anal: [0.1, -0.36, 0.1], pattern: 2, back: '#1d4ed8', belly: '#3b82f6', fin: '#1e3a8a', accent: '#facc15', speed: 1.5, amp: 0.07, freq: 7, eye: 0.04, shine: 0.6, glint: 0.45 },
+  { key: 'clown', yaw: 1.2, n: 2, resident: 2, prey: true, pauses: true, wander: 1.0, len: [0.7, 0.95], h: 0.44, w: 0.2, blunt: 0.5, tail: [0.18, 0.15, 0.85], dorsal: [0.3, -0.35, 0.1], anal: [0.0, -0.3, 0.07], pattern: 1, back: '#f97316', belly: '#fb923c', fin: '#ea580c', speed: 1.0, amp: 0.09, freq: 9, eye: 0.045, shine: 0.7, glint: 0.35, zNear: 0, zIn: -40 },
+  { key: 'angel', yaw: 0.9, n: 2, resident: 2, prey: true, pauses: true, wander: 0.8, len: [1.3, 1.7], h: 0.72, w: 0.13, blunt: 0.5, tail: [0.16, 0.18, 0.95], dorsal: [0.25, -0.42, 0.1], anal: [0.15, -0.4, 0.09], pattern: 3, back: '#1e3a8a', belly: '#1e40af', fin: '#1e3a8a', accent: '#fde047', speed: 1.0, amp: 0.06, freq: 6, eye: 0.035, shine: 0.6, glint: 0.45 },
+  { key: 'grouper', yaw: 0.5, n: 1, resident: 1, pauses: true, wander: 0.6, len: [2.6, 3.4], h: 0.36, w: 0.27, blunt: 0.65, tail: [0.18, 0.16, 0.9], dorsal: [0.3, -0.35, 0.07], anal: [0.0, -0.3, 0.05], pattern: 5, back: '#5b4636', belly: '#9a8268', fin: '#4a3a2c', speed: 0.8, amp: 0.05, freq: 4, eye: 0.028, shine: 0.3, glint: 0.12, y: [-12, -2] },
+  { key: 'sardine', yaw: 1.2, n: 24, school: 1, resident: 1, prey: true, wander: 0.7, seg: [16, 10], len: [0.42, 0.55], h: 0.2, w: 0.1, blunt: 0.8, tail: [0.16, 0.13, 0.5], dorsal: [0.12, -0.06, 0.05], anal: null, pattern: 4, back: '#1e3a5f', belly: '#d1d5db', fin: '#94a3b8', speed: 2.6, amp: 0.08, freq: 14, eye: 0.04, shine: 1.0, glint: 1.0 },
+  { key: 'tuna', yaw: 0.7, n: 8, school: 1, spread: 2.5, predator: true, wander: 0.5, visit: { gap: [70, 150], stay: [25, 45], w: 1 }, len: [1.8, 2.4], h: 0.28, w: 0.2, blunt: 0.72, tail: [0.2, 0.32, 0.35], dorsal: [0.12, -0.02, 0.1], anal: [0.0, -0.08, 0.07], finlets: true, pec: 0.13, pattern: 9, back: '#0b1f4a', belly: '#d6dde6', fin: '#1e3a5f', accent: '#facc15', speed: 4.2, amp: 0.05, freq: 9, eye: 0.028, shine: 0.9, glint: 0.9, far: true, zNear: -5, zIn: -85 },
+  { key: 'shark', yaw: 0.35, n: 2, big: true, predator: true, wander: 0.45, visit: { gap: [60, 150], stay: [40, 70], w: 1 }, close: 0.3, len: [6, 8], h: 0.19, w: 0.17, blunt: 0.9, tail: [0.24, 0.22, 0.45], shark: true, dorsal: [0.12, -0.08, 0.17], anal: null, pec: 0.16, pattern: 6, back: '#4b5563', belly: '#e5e7eb', fin: '#4b5563', speed: 2.3, amp: 0.05, freq: 2.2, eye: 0.012, shine: 0.25, glint: 0.04, far: true, zNear: -12, zIn: -90 },
+  { key: 'dolphin', yaw: 0.6, n: 4, school: 1, spread: 2.2, big: true, predator: true, wander: 0.6, visit: { gap: [120, 240], stay: [30, 50], w: 1.6 }, close: 0.3, len: [2.4, 3.0], h: 0.22, w: 0.2, blunt: 0.75, beak: true, flukes: true, tail: [0.16, 0.2, 0.6], dorsal: [0.08, -0.12, 0.13], curvedDorsal: true, anal: null, pec: 0.12, pattern: 7, back: '#374151', belly: '#e5e7eb', fin: '#374151', accent: '#9ca3af', speed: 4.0, amp: 0.06, freq: 3.5, eye: 0.012, shine: 0.55, glint: 0, far: true, zNear: -8, zIn: -80, y: [-6, 8] },
+  { key: 'whale', yaw: 0.12, n: 1, big: true, wander: 0.25, visit: { gap: [180, 420], stay: [60, 90], w: 4, first: true }, close: 0.25, seg: [40, 24], len: [13, 17], h: 0.24, w: 0.23, blunt: 0.7, flukes: true, tail: [0.13, 0.24, 0.55], dorsal: [-0.05, -0.12, 0.03], curvedDorsal: true, anal: null, pec: 0.32, pecAccent: true, pattern: 8, back: '#1f2937', belly: '#e5e7eb', fin: '#1f2937', accent: '#d1d5db', speed: 1.7, amp: 0.04, freq: 1.2, eye: 0.008, shine: 0.3, glint: 0, far: true, zNear: -30, zIn: -95, y: [-7, 6] },
+  { key: 'manta', yaw: 0.3, manta: true, n: 2, big: true, wander: 0.4, visit: { gap: [100, 200], stay: [40, 70], w: 0.8 }, close: 0.3, len: [5, 7], speed: 1.6, far: true, y: [-8, 6] },
+  { key: 'octopus', yaw: 0.8, ceph: 'octopus', n: 2, prey: true, pauses: true, wander: 0.8, visit: { gap: [60, 130], stay: [50, 90], w: 1 }, len: [1.3, 2.0], body: '#b5472d', belly: '#f1c3a6', eyeX: -0.03, eye: 0.05, shine: 0.7, speed: 0.9, jet: 1.1, y: [-15, -9], zNear: 0, zIn: -50 },
+  { key: 'squid', yaw: 0.9, ceph: 'squid', n: 4, school: 1, spread: 1.6, prey: true, wander: 0.8, visit: { gap: [80, 160], stay: [30, 50], w: 1 }, len: [1.1, 1.6], body: '#e9b8b0', belly: '#fbe7e2', eyeX: -0.27, eye: 0.045, shine: 0.9, speed: 2.0, jet: 2.0, y: [-9, 5], zNear: 2, zIn: -60 },
 ];
 
 const BOUNDS = { x: 34, yLo: -13, yHi: 9, zNear: 5, zFar: -150 };
@@ -500,13 +501,14 @@ function start(THREE, host) {
     c.pos.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), initial ? c.zNear - Math.random() * (c.zNear - c.zIn) : BOUNDS.zFar - 10 - Math.random() * 15);
     newTarget(THREE, c, true);
     c.dir.subVectors(c.target, c.pos).normalize();
-    c.speed = c.cruise; c.leaving = false; c.hunt = null; c.retarget = time.value + 10;
+    c.speed = c.cruise; c.leaving = false; c.hunt = null; c.retarget = time.value + 10; c.rate = 0;
+    for (const m of u.members) m.pos = null;
     u.active = true; u.fear = 0;
     u.until = u.resident ? Infinity : time.value + rand(u.sp.visit.stay);
   }
   function deactivate(u) {
     u.active = false; u.c.hunt = null;
-    for (const m of u.members) u.mesh.setMatrixAt(m.i, HIDDEN);
+    for (const m of u.members) { u.mesh.setMatrixAt(m.i, HIDDEN); m.pos = null; }
     for (const o of units) if (o.c.hunt === u.c) { o.c.hunt = null; o.c.leaving = true; o.c.target.set((Math.random() - 0.5) * 2 * BOUNDS.x, o.c.pos.y, BOUNDS.zFar - 40); }
   }
   for (const u of units) if (u.resident) activate(u, true);
@@ -555,6 +557,7 @@ function start(THREE, host) {
   const up = new THREE.Vector3(0, 1, 0);
   const fx = new THREE.Vector3(); const fy = new THREE.Vector3(); const fz = new THREE.Vector3();
   const desired = new THREE.Vector3(); const wv = new THREE.Vector3(); const tmp = new THREE.Vector3();
+  const axis = new THREE.Vector3(); const prev = new THREE.Vector3(); const vel = new THREE.Vector3();
   function steer(u, dt, t) {
     const c = u.c;
     if (c.hunt) c.target.copy(c.hunt.pos);
@@ -568,7 +571,16 @@ function start(THREE, host) {
     desired.normalize();
     desired.y = Math.max(-0.35, Math.min(0.35, desired.y));
     desired.normalize();
-    c.dir.lerp(desired, Math.min(1, c.turn * (1 + 2.5 * u.fear) * dt)).normalize();
+    // Turn like a real animal: never faster than its own turn speed, easing into and out of each turn, so a
+    // change of mind becomes a wide curve, not a flip. A goal straight behind means swinging round one way.
+    const ang = Math.acos(Math.max(-1, Math.min(1, c.dir.dot(desired))));
+    axis.crossVectors(c.dir, desired);
+    if (axis.lengthSq() < 1e-6) axis.set(0, c.side, 0);
+    axis.normalize();
+    const want = Math.min(ang * 1.2, c.yaw * (1 + 0.6 * u.fear));
+    c.rate += (want - c.rate) * Math.min(1, dt * 1.5);
+    c.dir.applyAxisAngle(axis, Math.min(ang, c.rate * dt)).normalize();
+    c.yawRate = c.rate * axis.y;
     // Speed ebbs and flows; reef fish hang still now and then; bursts when fleeing or hunting.
     let cruise = c.cruise * (0.7 + 0.3 * Math.sin(t * c.f2 * 0.7 + c.seed));
     if (c.pauses && Math.sin(t * c.f4 + c.p4) > 0.8) cruise *= 0.12;
@@ -631,7 +643,8 @@ function start(THREE, host) {
       if (!u.resident && !c.leaving && !c.hunt && t > u.until) { c.leaving = true; c.target.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), BOUNDS.zFar - 40); }
       steer(u, dt, t);
       if (!u.active) continue;
-      if (!u.sp.school) { place(u.mesh, u.members[0].i, c.pos, c.dir, u.members[0].size, u.sp.manta ? -c.dir.y * 0.6 : 0); continue; }
+      const bank = Math.max(-0.45, Math.min(0.45, -c.yawRate * 0.6)); // lean into the turn
+      if (!u.sp.school) { place(u.mesh, u.members[0].i, c.pos, c.dir, u.members[0].size, bank + (u.sp.manta ? -c.dir.y * 0.6 : 0)); continue; }
       // A school: frightened, it packs tight and swirls into a bait ball.
       fx.copy(c.dir); fz.crossVectors(fx, up).normalize(); fy.crossVectors(fz, fx).normalize();
       const k = 1 - 0.55 * u.fear; const a = u.fear * t * 1.6;
@@ -642,8 +655,20 @@ function start(THREE, host) {
           .addScaledVector(fx, k * m.off.x + Math.sin(t * 0.7 + m.ph) * 0.25)
           .addScaledVector(fy, k * oy + Math.sin(t * 0.9 + m.ph * 2) * 0.15)
           .addScaledVector(fz, k * oz + Math.cos(t * 0.6 + m.ph) * 0.25);
-        desired.copy(c.dir).addScaledVector(fz, Math.sin(t * 1.3 + m.ph) * (0.12 + 0.3 * u.fear)).normalize();
-        place(u.mesh, m.i, tmp, desired, m.size);
+        // Each fish follows its spot in the school with a little lag, heading the way it's actually moving.
+        if (!m.pos) { m.pos = tmp.clone(); m.dir = c.dir.clone(); }
+        prev.copy(m.pos);
+        m.pos.lerp(tmp, Math.min(1, dt * (1.6 + 2 * u.fear)));
+        // Its heading: mostly the school's, nudged by how it's drifting, and turned no faster than the leader can.
+        vel.subVectors(m.pos, prev);
+        const drift = vel.length() / Math.max(dt, 1e-3);
+        desired.copy(c.dir);
+        if (drift > 0.05) desired.addScaledVector(vel.normalize(), Math.min(0.5, drift / (c.cruise * 4)));
+        desired.normalize();
+        const ma = Math.acos(Math.max(-1, Math.min(1, m.dir.dot(desired))));
+        if (ma > 1e-4) { axis.crossVectors(m.dir, desired); if (axis.lengthSq() < 1e-6) axis.set(0, 1, 0); m.dir.applyAxisAngle(axis.normalize(), Math.min(ma, c.yaw * 1.3 * dt)).normalize(); }
+        desired.copy(m.dir).addScaledVector(fz, Math.sin(t * 1.3 + m.ph) * (0.08 + 0.2 * u.fear)).normalize();
+        place(u.mesh, m.i, m.pos, desired, m.size, bank * 0.6);
       }
     }
     for (const m of meshes) m.instanceMatrix.needsUpdate = true;
@@ -690,13 +715,14 @@ function spawn(THREE, sp) {
   const c = {
     pos: new THREE.Vector3(), dir: new THREE.Vector3(1, 0, 0), target: new THREE.Vector3(),
     cruise: sp.speed * r(0.8, 1.2), speed: sp.speed,
-    turn: r(0.6, 1.1) * (sp.turn || 1), seed: Math.random() * 10, far,
+    seed: Math.random() * 10, far,
     yLo, yHi, zNear: sp.zNear ?? (far ? -35 : BOUNDS.zNear), zIn: sp.zIn ?? (far ? -110 : -70), close: sp.close || 0,
     jet: sp.jet || 0, phase: 0, ps: 1, pauses: !!sp.pauses, wander: sp.wander ?? 0.6,
     // Each animal's own wander rhythm (slow, overlapping waves, so its path never repeats).
     f1: r(0.05, 0.15), f2: r(0.1, 0.25), f3: r(0.07, 0.2), f4: r(0.04, 0.1),
     p1: r(0, 6.3), p2: r(0, 6.3), p3: r(0, 6.3), p4: r(0, 6.3),
     leaving: false, hunt: null, retarget: 0,
+    yaw: (sp.yaw || 0.6) * r(0.8, 1.2), rate: 0, yawRate: 0, side: Math.random() < 0.5 ? 1 : -1,
   };
   return c;
 }
