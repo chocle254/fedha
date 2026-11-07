@@ -124,6 +124,27 @@ void main() {
     float lobe = ss(0.18, 0.21, t) * ss(0.43, 0.4, t) * ss(lobeTop + 0.03, lobeTop - 0.03, vV);
     col = mix(uBack, uBelly, clamp(max(max(eyeP, belly), max(chin, lobe)), 0.0, 1.0));
     col = mix(col, uAccent, 0.75 * ss(0.36, 0.39, t) * ss(0.49, 0.46, t) * ss(0.68, 0.8, vV));   // grey saddle
+  } else if (uPattern == 14) {                              // butterflyfish: golden body, dark eye band and tail bar
+    float eyeBand = 1.0 - ss(0.035, 0.055, abs(t - 0.82));
+    float tailBar = 1.0 - ss(0.025, 0.045, abs(t - 0.12));
+    col = mix(col, vec3(0.035, 0.045, 0.055), clamp(max(eyeBand, tailBar), 0.0, 1.0));
+    col = mix(col, vec3(0.98, 0.9, 0.58), ss(0.05, 0.12, t) * ss(0.16, 0.1, t));
+  } else if (uPattern == 15) {                              // parrotfish: turquoise scales with warm face and mottled plates
+    float mosaic = noise(vec2(t * 34.0, up * 23.0));
+    col = mix(uBack, uAccent, 0.34 * ss(0.48, 0.72, mosaic));
+    col = mix(col, vec3(0.92, 0.48, 0.3), ss(0.82, 0.95, t) * 0.8);
+    col += 0.08 * sin(vec3(0.0, 2.0, 4.0) + t * 90.0 + up * 24.0);
+  } else if (uPattern == 16) {                              // barracuda: polished silver flank and dark vertical bars
+    float bars = 0.0;
+    for (int i = 0; i < 9; i++) bars += 1.0 - ss(0.018, 0.035, abs(t - (0.24 + float(i) * 0.065 + 0.012 * sin(up * 5.0))));
+    col = mix(col, uBack * 0.55, clamp(bars, 0.0, 0.7) * ss(0.3, 0.55, up));
+    col = mix(col, uBelly * 1.15, 0.42 * ss(0.12, 0.38, up));
+    col += vec3(0.16, 0.19, 0.2) * pow(scales, 4.0);
+  } else if (uPattern == 17) {                              // mackerel: blue-green back with tiger-like wavy bars
+    float bars = 0.0;
+    for (int i = 0; i < 11; i++) bars += 1.0 - ss(0.012, 0.028, abs(up - (0.55 + 0.34 * sin(t * 17.0 + float(i) * 0.56))));
+    col = mix(col, uBack * 0.55, clamp(bars, 0.0, 0.82) * ss(0.45, 0.65, up));
+    col = mix(col, uBelly, 0.65 * ss(0.22, 0.48, up));
   } else if (uPattern == 9) {                               // tuna: navy back, silver flanks, gold stripe
     col += 0.1 * ss(0.3, 0.2, length(fract(vec2(t * 30.0, up * 10.0)) - 0.5)) * ss(0.45, 0.25, up) * ss(0.2, 0.35, t);
   }
@@ -451,10 +472,10 @@ const SPECIES = [
   { key: 'octopus', yaw: 0.8, ceph: 'octopus', n: 2, prey: true, pauses: true, wander: 0.8, visit: { gap: [60, 130], stay: [50, 90], w: 1 }, len: [1.3, 2.0], body: '#b5472d', belly: '#f1c3a6', eyeX: -0.03, eye: 0.05, shine: 0.7, speed: 0.9, jet: 1.1, y: [-15, -9], zNear: 0, zIn: -50 },
   { key: 'squid', yaw: 0.9, ceph: 'squid', n: 4, school: 1, spread: 1.6, prey: true, wander: 0.8, visit: { gap: [80, 160], stay: [30, 50], w: 1 }, len: [1.1, 1.6], body: '#e9b8b0', belly: '#fbe7e2', eyeX: -0.27, eye: 0.045, shine: 0.9, speed: 2.0, jet: 2.0, y: [-9, 5], zNear: 2, zIn: -60 },
   // Additional reef visitors: these appear as occasional small encounters, never as a permanent crowd.
-  { key: 'butterflyfish', yaw: 1.0, n: 2, school: 1, visit: { gap: [95, 175], stay: [22, 38], w: 0.9 }, prey: true, wander: 0.85, len: [0.75, 0.95], h: 0.58, w: 0.17, blunt: 0.48, tail: [0.15, 0.14, 0.9], dorsal: [0.28, -0.34, 0.08], anal: [0.08, -0.3, 0.06], pattern: 5, back: '#f4c84a', belly: '#f5dc83', fin: '#e9ad32', accent: '#171923', speed: 1.05, amp: 0.055, freq: 7, eye: 0.035, shine: 0.65, glint: 0.35 },
-  { key: 'parrotfish', yaw: 0.8, n: 1, visit: { gap: [125, 210], stay: [30, 48], w: 0.65 }, prey: true, wander: 0.7, len: [1.5, 1.9], h: 0.62, w: 0.2, blunt: 0.55, tail: [0.19, 0.18, 0.6], dorsal: [0.3, -0.4, 0.11], anal: [0.05, -0.34, 0.08], pattern: 5, back: '#168c86', belly: '#58b6a4', fin: '#126b72', accent: '#e68a45', speed: 1.25, amp: 0.06, freq: 6, eye: 0.034, shine: 0.55, glint: 0.3 },
-  { key: 'barracuda', yaw: 0.55, n: 2, school: 1, visit: { gap: [140, 230], stay: [25, 42], w: 0.45 }, predator: true, wander: 0.45, len: [2.8, 3.4], h: 0.18, w: 0.12, blunt: 0.95, tail: [0.22, 0.19, 0.28], dorsal: [0.12, -0.06, 0.07], anal: [0.0, -0.08, 0.05], pattern: 4, back: '#647b83', belly: '#c7d1d1', fin: '#516a73', accent: '#aab8b8', speed: 3.0, amp: 0.045, freq: 8, eye: 0.022, shine: 0.7, glint: 0.5, far: true, zNear: -8, zIn: -75 },
-  { key: 'mackerel', yaw: 1.0, n: 12, school: 1, spread: 2.8, visit: { gap: [115, 190], stay: [22, 36], w: 0.7 }, prey: true, wander: 0.65, len: [0.65, 0.85], h: 0.22, w: 0.12, blunt: 0.85, tail: [0.18, 0.15, 0.35], dorsal: [0.16, -0.04, 0.05], anal: [0.02, -0.05, 0.04], pattern: 4, back: '#234b66', belly: '#c6d5d9', fin: '#668b9c', accent: '#b4c8ce', speed: 3.1, amp: 0.07, freq: 12, eye: 0.024, shine: 0.8, glint: 0.75, far: true, zNear: -12, zIn: -85 },
+  { key: 'butterflyfish', yaw: 1.0, n: 2, school: 1, visit: { gap: [95, 175], stay: [22, 38], w: 0.9 }, prey: true, wander: 0.85, len: [0.75, 0.95], h: 0.58, w: 0.17, blunt: 0.48, tail: [0.15, 0.14, 0.9], dorsal: [0.28, -0.34, 0.08], anal: [0.08, -0.3, 0.06], pattern: 14, back: '#f4c84a', belly: '#f5dc83', fin: '#e9ad32', accent: '#171923', speed: 1.05, amp: 0.055, freq: 7, eye: 0.035, shine: 0.65, glint: 0.35 },
+  { key: 'parrotfish', yaw: 0.8, n: 1, visit: { gap: [125, 210], stay: [30, 48], w: 0.65 }, prey: true, wander: 0.7, len: [1.5, 1.9], h: 0.62, w: 0.2, blunt: 0.55, tail: [0.19, 0.18, 0.6], dorsal: [0.3, -0.4, 0.11], anal: [0.05, -0.34, 0.08], pattern: 15, back: '#168c86', belly: '#58b6a4', fin: '#126b72', accent: '#e68a45', speed: 1.25, amp: 0.06, freq: 6, eye: 0.034, shine: 0.55, glint: 0.3 },
+  { key: 'barracuda', yaw: 0.55, n: 2, school: 1, visit: { gap: [140, 230], stay: [25, 42], w: 0.45 }, predator: true, wander: 0.45, len: [2.8, 3.4], h: 0.18, w: 0.12, blunt: 0.95, tail: [0.22, 0.19, 0.28], dorsal: [0.12, -0.06, 0.07], anal: [0.0, -0.08, 0.05], pattern: 16, back: '#647b83', belly: '#c7d1d1', fin: '#516a73', accent: '#aab8b8', speed: 3.0, amp: 0.045, freq: 8, eye: 0.022, shine: 0.7, glint: 0.5, far: true, zNear: -8, zIn: -75 },
+  { key: 'mackerel', yaw: 1.0, n: 12, school: 1, spread: 2.8, visit: { gap: [115, 190], stay: [22, 36], w: 0.7 }, prey: true, wander: 0.65, len: [0.65, 0.85], h: 0.22, w: 0.12, blunt: 0.85, tail: [0.18, 0.15, 0.35], dorsal: [0.16, -0.04, 0.05], anal: [0.02, -0.05, 0.04], pattern: 17, back: '#234b66', belly: '#c6d5d9', fin: '#668b9c', accent: '#b4c8ce', speed: 3.1, amp: 0.07, freq: 12, eye: 0.024, shine: 0.8, glint: 0.75, far: true, zNear: -12, zIn: -85 },
 ];
 
 const BOUNDS = { x: 34, yLo: -13, yHi: 9, zNear: 5, zFar: -150 };
@@ -901,42 +922,89 @@ function newTarget(THREE, c, stayIn = false) {
 // A fish, length 1 along +x (nose at +0.5): an ellipsoid shaped into a body, with tail, dorsal, anal and
 // pectoral fins. aPart marks fins (1) so the shader colours them apart from the body.
 function fishGeometry(THREE, sp) {
-  const body = new THREE.SphereGeometry(1, sp.seg ? sp.seg[0] : 30, sp.seg ? sp.seg[1] : 18);
+  // Each species gets its own silhouette: body depth, shoulder, peduncle and snout are
+  // deliberately different rather than scaling the same generic fish for every species.
+  const body = new THREE.SphereGeometry(1, sp.seg ? Math.max(24, sp.seg[0]) : 40, sp.seg ? Math.max(16, sp.seg[1]) : 26);
   body.rotateZ(-Math.PI / 2);
   const p = body.attributes.position;
   const sm = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
   const prof = (x) => {
     const t = Math.min(1, Math.max(0, x + 0.5));
-    let f = Math.max(0.08, Math.pow(Math.sin(Math.PI * Math.pow(t, 1.4)), sp.blunt));
-    if (sp.beak) f *= 1 - 0.6 * sm(0.84, 0.95, t); // a dolphin's beak
-    return Math.max(0.05, f);
+    let f = Math.max(0.035, Math.pow(Math.sin(Math.PI * Math.pow(t, 1.4)), sp.blunt));
+    if (sp.beak) f *= 1 - 0.6 * sm(0.84, 0.95, t);
+    return f;
   };
   const av = new Float32Array(p.count); const aa = new Float32Array(p.count);
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i) * 0.5;
-    const f = prof(x);
-    av[i] = p.getY(i); aa[i] = Math.atan2(p.getY(i), p.getZ(i));
-    p.setXYZ(i, x, p.getY(i) * f * sp.h * 0.5, p.getZ(i) * f * sp.w * 0.5);
+    const t = x + 0.5;
+    const radialY = p.getY(i);
+    const radialZ = p.getZ(i);
+    let depth = 1; let width = 1; let crown = 1;
+    if (sp.key === 'butterflyfish') {
+      depth = 1.18; width = 0.78; crown = 1.0;
+    } else if (sp.key === 'angel') {
+      depth = 1.32; width = 0.7; crown = 1.02;
+    } else if (sp.key === 'parrotfish') {
+      depth = 1.08 + 0.12 * sm(0.62, 0.92, t); width = 1.05;
+    } else if (sp.key === 'barracuda') {
+      depth = 0.62; width = 0.76;
+    } else if (sp.key === 'mackerel' || sp.key === 'sardine') {
+      depth = 0.78; width = 0.82;
+    } else if (sp.key === 'tuna') {
+      depth = 1.04; width = 1.02;
+    } else if (sp.key === 'clown') {
+      depth = 1.12; width = 0.96;
+    } else if (sp.key === 'tang') {
+      depth = 1.08; width = 0.82;
+    }
+    // A raised shoulder and a pinched tail wrist give the body a more natural fish profile.
+    const shoulder = 1 + 0.12 * Math.exp(-Math.pow((t - 0.58) / 0.2, 2));
+    const peduncle = 1 - 0.28 * sm(0.12, 0.28, t) * (1 - sm(0.02, 0.12, t));
+    let y = radialY * prof(x) * sp.h * 0.5 * depth * shoulder;
+    let z = radialZ * prof(x) * sp.w * 0.5 * width * peduncle;
+    if (sp.key === 'parrotfish' && t > 0.88) y *= 0.78; // blunt, beak-like forehead
+    if (sp.key === 'barracuda' && t > 0.84) y *= 1 - 0.48 * sm(0.84, 1.0, t); // pointed jaw
+    y *= crown;
+    av[i] = radialY; aa[i] = Math.atan2(radialY, radialZ);
+    p.setXYZ(i, x, y, z);
   }
   body.setAttribute('aV', new THREE.BufferAttribute(av, 1));
   body.setAttribute('aA', new THREE.BufferAttribute(aa, 1));
   body.computeVertexNormals();
   const parts = [[body, 0]];
-  const shape = (pts) => { const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]); return new THREE.ShapeGeometry(s); };
+  // Extruded fins have real thickness and softened edges instead of paper-thin flat polygons.
+  const shape = (pts) => {
+    const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]);
+    const g = new THREE.ExtrudeGeometry(s, { depth: 0.018, bevelEnabled: true, bevelSegments: 2, steps: 1, bevelSize: 0.006, bevelThickness: 0.006 });
+    g.translate(0, 0, -0.009);
+    return g;
+  };
   const [tl, th, fork] = sp.tail;
   let tail;
-  if (sp.flukes) { // whales and dolphins: a crescent lying flat
+  if (sp.flukes) {
     tail = shape([[0.04, 0.02], [-tl * 0.7, th], [-tl, th * 0.95], [-tl * fork, 0], [-tl, -th * 0.95], [-tl * 0.7, -th], [0.04, -0.02]]);
     tail.rotateX(Math.PI / 2);
-  } else if (sp.shark) tail = shape([[0.03, 0.01], [-tl * 0.9, th * 1.4], [-tl * 0.55, 0.0], [-tl * 0.45, -th * 0.7], [0.03, -0.01]]);
-  else tail = shape([[0.04, 0.02], [-tl, th], [-tl * fork, 0], [-tl, -th], [0.04, -0.02]]);
+  } else if (sp.shark) {
+    tail = shape([[0.03, 0.01], [-tl * 0.9, th * 1.4], [-tl * 0.55, 0.0], [-tl * 0.45, -th * 0.7], [0.03, -0.01]]);
+  } else if (sp.key === 'tuna' || sp.key === 'mackerel' || sp.key === 'barracuda' || sp.key === 'sardine') {
+    tail = shape([[0.04, 0.02], [-tl * 0.35, th * 0.25], [-tl, th], [-tl * fork, 0], [-tl, -th], [-tl * 0.35, -th * 0.25], [0.04, -0.02]]);
+  } else {
+    tail = shape([[0.04, 0.02], [-tl, th], [-tl * fork, 0], [-tl, -th], [0.04, -0.02]]);
+  }
   tail.translate(-0.47, 0, 0);
   parts.push([tail, 1]);
   const topAt = (x) => prof(x) * sp.h * 0.5 * 0.92;
   if (sp.dorsal) {
     const [x1, x2, dh] = sp.dorsal;
     const yb = topAt((x1 + x2) / 2);
-    parts.push([shape([[x1, 0], [x1 - (x1 - x2) * (sp.shark || sp.curvedDorsal ? 0.45 : 0.25), dh], [x2 - 0.04, dh * 0.35], [x2, 0]]).translate(0, yb - 0.01, 0), 1]);
+    const finPts = sp.key === 'butterflyfish'
+      ? [[x1, 0], [x1 - 0.05, dh * 0.7], [x2 + 0.03, dh], [x2, 0]]
+      : sp.key === 'parrotfish'
+        ? [[x1, 0], [x1 - 0.08, dh * 0.55], [x2 + 0.04, dh * 0.72], [x2, 0]]
+        : [[x1, 0], [x1 - (x1 - x2) * (sp.shark || sp.curvedDorsal ? 0.45 : 0.25), dh], [x2 - 0.04, dh * 0.35], [x2, 0]];
+    parts.push([shape(finPts).translate(0, yb - 0.01, 0), 1]);
   }
   if (sp.anal) {
     const [x1, x2, dh] = sp.anal;
@@ -944,15 +1012,34 @@ function fishGeometry(THREE, sp) {
     parts.push([shape([[x1, 0], [x2, 0], [x2 - 0.04, -dh * 0.4], [x1 - (x1 - x2) * 0.3, -dh]]).translate(0, -yb + 0.01, 0), 1]);
   }
   for (const side of [1, -1]) {
-    const len = sp.pec || 0.1;
-    const pec = sp.pecAccent // a humpback's long white flipper
+    const len = sp.pec || (sp.key === 'butterflyfish' || sp.key === 'parrotfish' ? 0.15 : 0.1);
+    const pec = sp.pecAccent
       ? shape([[0.02, 0], [-len * 0.45, -len], [-len * 0.25, -len * 0.95], [-0.04, 0]])
       : shape([[0, 0], [-len, -len * 0.9], [-len * 0.6, -len * 0.2]]);
-    pec.rotateX(-side * 0.9); // angled out from the body
+    pec.rotateX(-side * 0.9);
     pec.translate(0.22, -sp.h * 0.12, side * sp.w * 0.42);
     parts.push([pec, sp.pecAccent ? 2 : 1]);
   }
-  if (sp.finlets) { // tuna: little yellow finlets along the back and belly towards the tail
+  // A raised gill-cover seam and short gill slits are visible on both flanks.
+  for (const side of [1, -1]) {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.22, 0.055, side * sp.w * 0.49),
+      new THREE.Vector3(0.17, 0.015, side * sp.w * 0.51),
+      new THREE.Vector3(0.16, -0.055, side * sp.w * 0.49),
+      new THREE.Vector3(0.21, -0.09, side * sp.w * 0.44),
+    ]);
+    parts.push([new THREE.TubeGeometry(curve, 14, 0.0045, 5, false), 2]);
+    for (let k = 0; k < 3; k++) {
+      const x = 0.13 - k * 0.018;
+      const slit = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(x, 0.045, side * sp.w * 0.49),
+        new THREE.Vector3(x - 0.012, 0, side * sp.w * 0.52),
+        new THREE.Vector3(x, -0.045, side * sp.w * 0.49),
+      ]);
+      parts.push([new THREE.TubeGeometry(slit, 8, 0.0025, 4, false), 2]);
+    }
+  }
+  if (sp.finlets) {
     for (let k = 0; k < 6; k++) {
       const x = -0.2 - k * 0.04; const y = topAt(x);
       parts.push([shape([[x + 0.012, 0], [x - 0.02, 0.028], [x - 0.012, 0]]).translate(0, y - 0.004, 0), 2]);
@@ -961,7 +1048,6 @@ function fishGeometry(THREE, sp) {
   }
   return merge(THREE, parts, ['aV', 'aA']);
 }
-
 function merge(THREE, parts, extra = []) {
   const pos = []; const nor = []; const part = []; const more = extra.map(() => []);
   for (const [g0, flag] of parts) {
