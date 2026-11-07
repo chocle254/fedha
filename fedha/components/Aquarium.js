@@ -682,7 +682,12 @@ function start(THREE, host) {
   const rand = (r) => r[0] + Math.random() * (r[1] - r[0]);
   function activate(u, initial) {
     const c = u.c;
-    c.pos.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), initial ? c.zNear - Math.random() * (c.zNear - c.zIn) : BOUNDS.zFar - 10 - Math.random() * 15);
+    const entryZ = initial
+      ? c.zNear - Math.random() * (c.zNear - c.zIn)
+      : u.sp.big
+        ? c.zIn - 8 - Math.random() * 12
+        : BOUNDS.zFar - 10 - Math.random() * 15;
+    c.pos.set((Math.random() - 0.5) * 2 * BOUNDS.x, c.yLo + Math.random() * (c.yHi - c.yLo), entryZ);
     newTarget(THREE, c, true);
     c.dir.subVectors(c.target, c.pos).normalize();
     c.speed = c.cruise; c.leaving = false; c.hunt = null; c.retarget = time.value + 10; c.rate = 0;
