@@ -1039,6 +1039,38 @@ function fishGeometry(THREE, sp) {
       parts.push([new THREE.TubeGeometry(slit, 8, 0.0025, 4, false), 2]);
     }
   }
+  // A fine lateral-line canal runs from behind the gill cover towards the tail.
+  // It follows the body surface, so it reads as a feature of the fish rather than a floating stripe.
+  for (const side of [1, -1]) {
+    const linePts = [];
+    for (let k = 0; k <= 18; k++) {
+      const x = 0.08 - k * 0.024;
+      const t = Math.min(1, Math.max(0, x + 0.5));
+      const surface = prof(x) * sp.w * 0.5 * width * (1 - 0.28 * sm(0.12, 0.28, t) * (1 - sm(0.02, 0.12, t)));
+      const y = 0.012 + 0.008 * Math.sin(k / 18 * Math.PI);
+      linePts.push(new THREE.Vector3(x, y, side * (surface + 0.002)));
+    }
+    const lateral = new THREE.CatmullRomCurve3(linePts);
+    parts.push([new THREE.TubeGeometry(lateral, 28, 0.0028, 5, false), 1]);
+  }
+  // A small, slightly downturned mouth gives the head a readable endpoint in profile.
+  for (const side of [1, -1]) {
+    const mouth = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.485, -0.018, side * 0.018),
+      new THREE.Vector3(0.465, -0.026, side * 0.035),
+      new THREE.Vector3(0.438, -0.025, side * 0.045),
+    ]);
+    parts.push([new THREE.TubeGeometry(mouth, 8, 0.0035, 5, false), 1]);
+  }
+  // Fine rays in the tail fan catch the light when the fish turns.
+  for (let side = -1; side <= 1; side++) {
+    const ray = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-0.49, 0, side * 0.004),
+      new THREE.Vector3(-0.47 - tl * 0.45, side * th * 0.42, side * 0.006),
+      new THREE.Vector3(-0.47 - tl * fork * 0.88, side * th * 0.82, side * 0.004),
+    ]);
+    parts.push([new THREE.TubeGeometry(ray, 10, 0.0022, 4, false), 2]);
+  }
   if (sp.finlets) {
     for (let k = 0; k < 6; k++) {
       const x = -0.2 - k * 0.04; const y = topAt(x);
