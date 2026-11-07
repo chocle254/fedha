@@ -650,7 +650,7 @@ function start(THREE, host) {
   const visitKey = (sp) => sp.group || sp.key;
   const visits = new Map(SPECIES.filter((sp) => sp.visit).map((sp) => {
     const gap = sp.visit.gap[0] + Math.random() * (sp.visit.gap[1] - sp.visit.gap[0]);
-    return [visitKey(sp), { at: sp.visit.first ? gap : Math.random() * sp.visit.gap[0] * 0.6 }];
+    return [visitKey(sp), { at: sp.visit.first ? gap : Math.random() * Math.min(8, sp.visit.gap[0] * 0.15) }];
   }));
 
   const rand = (r) => r[0] + Math.random() * (r[1] - r[0]);
