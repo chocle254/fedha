@@ -10,15 +10,15 @@ import { useEffect, useRef } from 'react';
 
 const FISH_VERT = `
 uniform float uTime; uniform float uAmp; uniform float uFreq; uniform float uVert;
-attribute float aPart; attribute float aPhase; attribute float aSpeed;
-varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vPart; varying vec3 vObjN;
+attribute float aPart; attribute float aPhase; attribute float aSpeed; attribute float aV; attribute float aA;
+varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vPart; varying vec3 vObjN; varying float vV; varying float vA;
 #include <fog_pars_vertex>
 void main() {
   vec3 p = position;
   float s = clamp((0.15 - p.x) / 0.65, 0.0, 1.0);
   float bend = sin(uTime * uFreq * aSpeed + aPhase - p.x * 5.0) * uAmp * s * s;
   if (uVert > 0.5) p.y += bend; else p.z += bend;   // whales and dolphins beat their flukes up and down
-  vPos = position; vPart = aPart; vObjN = normal;
+  vPos = position; vPart = aPart; vObjN = normal; vV = aV; vA = aA;
   vec4 wp = modelMatrix * instanceMatrix * vec4(p, 1.0);
   vWorld = wp.xyz;
   vec4 mvPosition = viewMatrix * wp;
@@ -53,13 +53,14 @@ vec3 shade(vec3 col, vec3 n, vec3 view, vec3 world, float shine) {
 const FISH_FRAG = `
 uniform vec3 uBack; uniform vec3 uBelly; uniform vec3 uFin; uniform vec3 uAccent;
 uniform int uPattern; uniform float uH; uniform float uEye; uniform float uShine; uniform float uGlint;
-varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vPart; varying vec3 vObjN;
+uniform vec2 uEyeXY; uniform vec3 uFlukeUnder;
+varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld; varying float vPart; varying vec3 vObjN; varying float vV; varying float vA;
 ${COMMON_FRAG}
 #include <fog_pars_fragment>
 float band(float t, float c, float w) { return 1.0 - ss(w, w + 0.012, abs(t - c)); }
 void main() {
   float t = vPos.x + 0.5;                                   // 0 tail .. 1 nose
-  float up = clamp(vPos.y / uH + 0.5, 0.0, 1.0);            // 0 belly .. 1 back
+  float up = clamp(vV * 0.5 + 0.5, 0.0, 1.0);               // 0 belly .. 1 back (around the body)
   vec3 col = mix(uBelly, uBack, ss(0.3, 0.7, up));
   float scales = noise(vec2(t * 70.0, up * 36.0));
   if (uPattern == 1) {                                      // clownfish: white bands edged in black
@@ -79,22 +80,61 @@ void main() {
     col += vec3(0.25, 0.3, 0.35) * pow(scales, 3.0) * (1.0 - up);
   } else if (uPattern == 5) {                               // grouper: mottled blotches
     col *= 0.65 + 0.5 * ss(0.35, 0.65, noise(vec2(t * 9.0, up * 6.0)));
+  } else if (uPattern == 6) {                               // great white: sharp wavy grey/white line, gill slits
+    col = mix(uBelly, uBack, ss(0.4, 0.44, up + 0.04 * sin(t * 26.0) + 0.03 * sin(t * 61.0)));
+    float g = 0.0;
+    for (int i = 0; i < 5; i++) g += 1.0 - ss(0.0, 0.004, abs(t - (0.705 + float(i) * 0.016)));
+    col *= 1.0 - 0.55 * clamp(g, 0.0, 1.0) * ss(0.25, 0.35, up) * ss(0.72, 0.62, up);
   } else if (uPattern == 7) {                               // dolphin: dark cape, grey flanks, pale belly
     col = mix(uBelly, uAccent, ss(0.3, 0.38, up));
-    col = mix(col, uBack, ss(0.62, 0.68, up + 0.05 * sin(t * 8.0)));
-  } else if (uPattern == 8) {                               // humpback: dark back, pale grooved throat, knobbly head
-    col = mix(uBelly, uBack, ss(0.25, 0.42, up + 0.06 * sin(t * 5.0)));
-    if (up < 0.42 && t > 0.6) col *= 0.8 + 0.2 * sin(vPos.z * 500.0);
-    if (t > 0.84 && up > 0.6) col = mix(col, uAccent * 0.6, ss(0.72, 0.8, noise(vec2(t * 60.0, vPos.z * 200.0))));
+    float dip = 0.12 * exp(-pow((t - 0.45) / 0.12, 2.0));    // the cape's edge dips below the dorsal fin
+    col = mix(col, uBack, ss(0.62, 0.68, up + dip + 0.03 * sin(t * 8.0)));
+    col = mix(col, uBelly, ss(0.965, 0.985, t));
+  } else if (uPattern == 10) {                              // humpback: dark back, white belly, grooved throat, knobs
+    float under = ss(-0.12, -0.35, vV + 0.08 * sin(t * 14.0) + 0.12 * (noise(vec2(t * 10.0, vA * 3.0)) - 0.5));
+    col = mix(uBack, uBelly, under);
+    col = mix(col, uBack * 1.7, 0.3 * ss(0.62, 0.82, noise(vec2(t * 32.0, vA * 9.0))) * (1.0 - under));
+    if (vV < -0.25 && t > 0.5) col *= 0.72 + 0.28 * sin(vA * 95.0);
+    if (t > 0.79 && abs(vV - (-0.1 - (1.0 - t) * 0.8)) < 0.018) col *= 0.3;           // mouth line
+    if (t > 0.8 && (vV > 0.25 || abs(vV + 0.22) < 0.1)) {                              // knobs on head and jaw
+      vec2 kc = fract(vec2(t * 70.0, vA * 9.0)) - 0.5;
+      float kd = length(kc);
+      col = mix(col, col * 0.55, ss(0.3, 0.22, kd) - ss(0.18, 0.1, kd));
+      col = mix(col, uAccent * 0.9, ss(0.12, 0.05, kd) * 0.6);
+    }
+  } else if (uPattern == 11) {                              // blue whale: blue-grey with pale mottling, long pleats
+    float m = noise(vec2(t * 46.0, vA * 11.0));
+    col = mix(uBack, uAccent, 0.5 * ss(0.55, 0.78, m));
+    col = mix(col, col * 0.7, 0.4 * ss(0.32, 0.12, m));
+    col = mix(col, uBelly, 0.4 * ss(-0.3, -0.75, vV));
+    if (vV < -0.3 && t > 0.5) col *= 0.8 + 0.2 * sin(vA * 120.0);
+    if (t > 0.82 && abs(vV - (-0.12 - (1.0 - t) * 0.6)) < 0.014) col *= 0.35;
+  } else if (uPattern == 12) {                              // sperm whale: dark wrinkled skin, pale scars on the head
+    col = uBack * (0.8 + 0.35 * noise(vec2(t * 170.0, vA * 26.0)));
+    if (t < 0.66) col *= 0.88 + 0.14 * sin(t * 300.0 + noise(vec2(t * 20.0, vA * 4.0)) * 6.0);
+    float scar = abs(noise(vec2(t * 22.0, vA * 6.0)) - 0.5);
+    col = mix(col, uAccent, 0.45 * ss(0.025, 0.0, scar) * ss(0.62, 0.7, t));
+    col = mix(col, uBelly, 0.25 * ss(-0.5, -0.85, vV));
+  } else if (uPattern == 13) {                              // orca: black and white
+    float side = abs(cos(vA));
+    float eyeP = (1.0 - ss(0.8, 1.0, length(vec2((t - 0.835) / 0.055, (vV - 0.22) / 0.15)))) * ss(0.35, 0.6, side);
+    float belly = ss(-0.48, -0.62, vV) * ss(0.24, 0.32, t);
+    float chin = ss(-0.12, -0.3, vV) * ss(0.86, 0.92, t);
+    float lobeTop = -0.05 + 0.3 * sin(clamp((t - 0.18) / 0.24, 0.0, 1.0) * 3.14159);
+    float lobe = ss(0.18, 0.21, t) * ss(0.43, 0.4, t) * ss(lobeTop + 0.03, lobeTop - 0.03, vV);
+    col = mix(uBack, uBelly, clamp(max(max(eyeP, belly), max(chin, lobe)), 0.0, 1.0));
+    col = mix(col, uAccent, 0.75 * ss(0.36, 0.39, t) * ss(0.49, 0.46, t) * ss(0.68, 0.8, vV));   // grey saddle
   } else if (uPattern == 9) {                               // tuna: navy back, silver flanks, gold stripe
-    col = mix(col, uAccent * 0.85, 0.45 * band(up, 0.56, 0.025) * ss(0.2, 0.4, t) * ss(0.9, 0.75, t));
-    col += 0.07 * step(0.5, fract(t * 18.0)) * (1.0 - up);
+    col += 0.1 * ss(0.3, 0.2, length(fract(vec2(t * 30.0, up * 10.0)) - 0.5)) * ss(0.45, 0.25, up) * ss(0.2, 0.35, t);
   }
   col *= 0.9 + 0.12 * scales;
   if (vPart > 1.5) col = uAccent;
-  else if (vPart > 0.5) col = mix(uFin, uFin * 0.7, 0.5 + 0.5 * sin(vPos.y * 60.0 + vPos.x * 20.0));
+  else if (vPart > 0.5) {
+    col = mix(uFin, uFin * 0.7, 0.5 + 0.5 * sin(vPos.y * 60.0 + vPos.x * 20.0));
+    if (vObjN.y < -0.5) col = uFlukeUnder;                  // underside of flukes (white on humpbacks and orcas)
+  }
   float shine = uShine;
-  vec2 e = vec2(vPos.x - 0.36, vPos.y - uH * 0.12);
+  vec2 e = vec2(vPos.x - uEyeXY.x, vPos.y - uEyeXY.y);
   float d = length(e);
   bool eye = vPart < 0.5 && d < uEye && abs(vObjN.z) > 0.55;  // only on the sides of the head
   if (eye) {                                                // a dark, glossy eye with a thin iris ring
@@ -204,8 +244,16 @@ varying vec3 vPos; varying vec3 vN; varying vec3 vView; varying vec3 vWorld;
 ${COMMON_FRAG}
 #include <fog_pars_fragment>
 void main() {
-  vec3 top = vec3(0.07, 0.09, 0.12) * (0.75 + 0.5 * noise(vPos.xz * 4.0));
-  vec3 col = gl_FrontFacing ? top : vec3(0.85, 0.88, 0.9) - 0.4 * ss(0.6, 0.3, noise(vPos.xz * 5.0)) * 0.3;
+  float az = abs(vPos.z);
+  vec3 top = vec3(0.05, 0.06, 0.08) * (0.8 + 0.4 * noise(vPos.xz * 4.0));
+  // white shoulder patches, leaving a black "T" down the middle
+  float shoulder = ss(0.1, 0.16, az) * ss(0.55, 0.42, az) * ss(-0.05, 0.05, vPos.x) * ss(0.32, 0.22, vPos.x - az * 0.25);
+  top = mix(top, vec3(0.85, 0.87, 0.88), shoulder * ss(0.3, 0.5, noise(vPos.xz * 6.0) + 0.3));
+  vec3 belly = vec3(0.9, 0.91, 0.92);
+  belly = mix(belly, vec3(0.08), ss(0.36, 0.3, length(fract(vPos.xz * vec2(9.0, 7.0)) - 0.5)) * step(0.62, noise(vPos.xz * 3.0)) * ss(0.3, 0.15, az));
+  belly = mix(belly, vec3(0.25, 0.27, 0.3), ss(0.7, 0.95, az));          // dusky wing edges
+  vec3 col = gl_FrontFacing ? top : belly;
+  if (vPos.x > 0.38) col = vec3(0.06, 0.07, 0.09);                        // cephalic lobes and mouth
   gl_FragColor = vec4(shade(col, vN, vView, vWorld, 0.35), 1.0);
   #include <fog_fragment>
 }`;
@@ -379,10 +427,26 @@ const SPECIES = [
   { key: 'angel', yaw: 0.9, n: 2, resident: 2, prey: true, pauses: true, wander: 0.8, len: [1.3, 1.7], h: 0.72, w: 0.13, blunt: 0.5, tail: [0.16, 0.18, 0.95], dorsal: [0.25, -0.42, 0.1], anal: [0.15, -0.4, 0.09], pattern: 3, back: '#1e3a8a', belly: '#1e40af', fin: '#1e3a8a', accent: '#fde047', speed: 1.0, amp: 0.06, freq: 6, eye: 0.035, shine: 0.6, glint: 0.45 },
   { key: 'grouper', yaw: 0.5, n: 1, resident: 1, pauses: true, wander: 0.6, len: [2.6, 3.4], h: 0.36, w: 0.27, blunt: 0.65, tail: [0.18, 0.16, 0.9], dorsal: [0.3, -0.35, 0.07], anal: [0.0, -0.3, 0.05], pattern: 5, back: '#5b4636', belly: '#9a8268', fin: '#4a3a2c', speed: 0.8, amp: 0.05, freq: 4, eye: 0.028, shine: 0.3, glint: 0.12, y: [-12, -2] },
   { key: 'sardine', yaw: 1.2, n: 24, school: 1, resident: 1, prey: true, wander: 0.7, seg: [16, 10], len: [0.42, 0.55], h: 0.2, w: 0.1, blunt: 0.8, tail: [0.16, 0.13, 0.5], dorsal: [0.12, -0.06, 0.05], anal: null, pattern: 4, back: '#1e3a5f', belly: '#d1d5db', fin: '#94a3b8', speed: 2.6, amp: 0.08, freq: 14, eye: 0.04, shine: 1.0, glint: 1.0 },
-  { key: 'tuna', yaw: 0.7, n: 8, school: 1, spread: 2.5, predator: true, wander: 0.5, visit: { gap: [70, 150], stay: [25, 45], w: 1 }, len: [1.8, 2.4], h: 0.28, w: 0.2, blunt: 0.72, tail: [0.2, 0.32, 0.35], dorsal: [0.12, -0.02, 0.1], anal: [0.0, -0.08, 0.07], finlets: true, pec: 0.13, pattern: 9, back: '#0b1f4a', belly: '#d6dde6', fin: '#1e3a5f', accent: '#facc15', speed: 4.2, amp: 0.05, freq: 9, eye: 0.028, shine: 0.9, glint: 0.9, far: true, zNear: -5, zIn: -85 },
-  { key: 'shark', yaw: 0.35, n: 2, big: true, predator: true, wander: 0.45, visit: { gap: [60, 150], stay: [40, 70], w: 1 }, close: 0.3, len: [6, 8], h: 0.19, w: 0.17, blunt: 0.9, tail: [0.24, 0.22, 0.45], shark: true, dorsal: [0.12, -0.08, 0.17], anal: null, pec: 0.16, pattern: 6, back: '#4b5563', belly: '#e5e7eb', fin: '#4b5563', speed: 2.3, amp: 0.05, freq: 2.2, eye: 0.012, shine: 0.25, glint: 0.04, far: true, zNear: -12, zIn: -90 },
+  { key: 'tuna', yaw: 0.7, n: 8, school: 1, spread: 2.5, predator: true, wander: 0.5, visit: { gap: [70, 150], stay: [25, 45], w: 1 }, len: [1.8, 2.4], h: 0.28, w: 0.2, blunt: 0.72, tail: [0.2, 0.32, 0.35], dorsal: [0.12, -0.02, 0.1], anal: [0.0, -0.08, 0.07], finlets: true, pec: 0.13, pattern: 9, back: '#0b1f4a', belly: '#d6dde6', fin: '#1e3a5f', accent: '#c9a227', speed: 4.2, amp: 0.05, freq: 9, eye: 0.028, shine: 0.9, glint: 0.9, far: true, zNear: -5, zIn: -85 },
+  { key: 'shark', yaw: 0.35, n: 2, big: true, predator: true, wander: 0.45, visit: { gap: [60, 150], stay: [40, 70], w: 1 }, close: 0.3, len: [6, 8], h: 0.2, w: 0.18, blunt: 0.75, tail: [0.24, 0.22, 0.45], shark: true, dorsal: [0.12, -0.08, 0.17], anal: null, pec: 0.16, pattern: 6, back: '#4b5563', belly: '#e5e7eb', fin: '#4b5563', speed: 2.3, amp: 0.05, freq: 2.2, eye: 0.012, shine: 0.25, glint: 0.04, far: true, zNear: -12, zIn: -90 },
   { key: 'dolphin', yaw: 0.6, n: 4, school: 1, spread: 2.2, big: true, predator: true, wander: 0.6, visit: { gap: [120, 240], stay: [30, 50], w: 1.6 }, close: 0.3, len: [2.4, 3.0], h: 0.22, w: 0.2, blunt: 0.75, beak: true, flukes: true, tail: [0.16, 0.2, 0.6], dorsal: [0.08, -0.12, 0.13], curvedDorsal: true, anal: null, pec: 0.12, pattern: 7, back: '#374151', belly: '#e5e7eb', fin: '#374151', accent: '#9ca3af', speed: 4.0, amp: 0.06, freq: 3.5, eye: 0.012, shine: 0.55, glint: 0, far: true, zNear: -8, zIn: -80, y: [-6, 8] },
-  { key: 'whale', yaw: 0.12, n: 1, big: true, wander: 0.25, visit: { gap: [180, 420], stay: [60, 90], w: 4, first: true }, close: 0.25, seg: [40, 24], len: [13, 17], h: 0.24, w: 0.23, blunt: 0.7, flukes: true, tail: [0.13, 0.24, 0.55], dorsal: [-0.05, -0.12, 0.03], curvedDorsal: true, anal: null, pec: 0.32, pecAccent: true, pattern: 8, back: '#1f2937', belly: '#e5e7eb', fin: '#1f2937', accent: '#d1d5db', speed: 1.7, amp: 0.04, freq: 1.2, eye: 0.008, shine: 0.3, glint: 0, far: true, zNear: -30, zIn: -95, y: [-7, 6] },
+  // Whales share one visit timer, so only now and then does one come by: humpback, blue, sperm, or an orca pod.
+  { key: 'humpback', kind: 'whale', group: 'whale', yaw: 0.12, n: 1, big: true, wander: 0.25, visit: { gap: [180, 420], stay: [60, 90], w: 1.3, first: true }, close: 0.25, len: [13, 16],
+    st: [[0, 0.012, 0.012, 0.008, 0, 2], [0.08, 0.03, 0.03, 0.018, 0, 2], [0.2, 0.06, 0.062, 0.045, 0, 2], [0.35, 0.085, 0.092, 0.08, 0, 2], [0.5, 0.1, 0.11, 0.1, 0, 2], [0.62, 0.1, 0.115, 0.105, -0.005, 2], [0.75, 0.088, 0.105, 0.1, -0.01, 2.2], [0.86, 0.068, 0.09, 0.085, -0.02, 2.3], [0.94, 0.044, 0.064, 0.06, -0.03, 2.3], [0.985, 0.02, 0.034, 0.03, -0.035, 2], [1, 0, 0, 0, -0.035, 2]],
+    eyeAt: [0.8, -0.12], dorsalFin: [-0.17, 0.03, 0.05, 'hump'], flipper: { at: 0.72, len: 0.31, w: 0.05, knobs: true, accent: true }, flukeShape: { span: 0.16, sweep: 0.08, notch: 0.035, serr: 0.006 },
+    pattern: 10, back: '#1c2636', belly: '#e8ecef', fin: '#1c2636', accent: '#eef1f3', flukeUnder: '#d9dee2', speed: 1.6, amp: 0.04, freq: 1.1, eye: 0.009, shine: 0.45, glint: 0, far: true, zNear: -30, zIn: -95, y: [-7, 6] },
+  { key: 'bluewhale', kind: 'whale', group: 'whale', yaw: 0.1, n: 1, big: true, wander: 0.2, visit: { gap: [180, 420], stay: [60, 90], w: 0.9, first: true }, close: 0.15, len: [20, 24],
+    st: [[0, 0.008, 0.008, 0.006, 0, 2], [0.1, 0.022, 0.022, 0.016, 0, 2], [0.25, 0.045, 0.046, 0.04, 0, 2], [0.45, 0.064, 0.07, 0.064, 0, 2], [0.6, 0.068, 0.075, 0.07, 0, 2], [0.75, 0.062, 0.07, 0.07, -0.003, 2.2], [0.86, 0.042, 0.06, 0.07, -0.008, 2.7], [0.95, 0.024, 0.04, 0.055, -0.012, 2.7], [0.99, 0.01, 0.02, 0.03, -0.014, 2], [1, 0, 0, 0, -0.014, 2]],
+    eyeAt: [0.83, -0.15], dorsalFin: [-0.27, 0.014, 0.025, 'falcate'], flipper: { at: 0.74, len: 0.12, w: 0.025 }, flukeShape: { span: 0.12, sweep: 0.07, notch: 0.03, serr: 0 },
+    pattern: 11, back: '#4a6687', belly: '#8ea4bb', fin: '#3e5878', accent: '#a9bfd6', flukeUnder: '#53708f', speed: 1.8, amp: 0.035, freq: 0.9, eye: 0.006, shine: 0.45, glint: 0, far: true, zNear: -35, zIn: -110, y: [-6, 6] },
+  { key: 'sperm', kind: 'whale', group: 'whale', yaw: 0.12, n: 1, big: true, wander: 0.25, visit: { gap: [180, 420], stay: [60, 90], w: 0.9, first: true }, close: 0.2, len: [14, 17],
+    st: [[0, 0.012, 0.012, 0.008, 0, 2], [0.1, 0.035, 0.035, 0.022, 0, 2], [0.25, 0.07, 0.07, 0.06, 0, 2], [0.45, 0.1, 0.1, 0.095, 0, 2], [0.6, 0.11, 0.11, 0.108, 0, 2.2], [0.68, 0.115, 0.108, 0.105, 0.002, 2.8], [0.8, 0.12, 0.1, 0.1, 0.004, 3.5], [0.93, 0.12, 0.09, 0.095, 0.006, 4], [0.99, 0.112, 0.075, 0.085, 0.008, 4], [1, 0, 0, 0, 0.008, 2]],
+    knuckles: true, eyeAt: [0.7, -0.35], jaw: true, flipper: { at: 0.66, len: 0.07, w: 0.035 }, flukeShape: { span: 0.14, sweep: 0.075, notch: 0.02, serr: 0 },
+    pattern: 12, back: '#3b4149', belly: '#6b7179', fin: '#353a41', accent: '#c9ced3', flukeUnder: '#3b4149', speed: 1.5, amp: 0.04, freq: 1.0, eye: 0.008, shine: 0.35, glint: 0, far: true, zNear: -30, zIn: -100, y: [-12, 3] },
+  { key: 'orca', kind: 'whale', group: 'whale', yaw: 0.35, n: 3, school: 1, spread: 3, big: true, predator: true, wander: 0.4, visit: { gap: [180, 420], stay: [40, 70], w: 1.1, first: true }, close: 0.3, len: [6.5, 8.5],
+    st: [[0, 0.012, 0.012, 0.008, 0, 2], [0.1, 0.04, 0.04, 0.025, 0, 2], [0.25, 0.085, 0.09, 0.075, 0, 2], [0.45, 0.115, 0.12, 0.11, 0, 2], [0.6, 0.115, 0.12, 0.115, 0, 2], [0.75, 0.1, 0.11, 0.105, 0, 2], [0.87, 0.075, 0.085, 0.085, -0.005, 2], [0.95, 0.045, 0.055, 0.055, -0.008, 2], [0.99, 0.018, 0.022, 0.022, -0.008, 2], [1, 0, 0, 0, -0.008, 2]],
+    eyeAt: [0.885, 0.02], dorsalFin: [0.02, 0.15, 0.09, 'tall'], flipper: { at: 0.7, len: 0.13, w: 0.07, paddle: true }, flukeShape: { span: 0.13, sweep: 0.06, notch: 0.025, serr: 0 },
+    pattern: 13, back: '#0a0c0f', belly: '#f2f2ef', fin: '#0a0c0f', accent: '#7d848d', flukeUnder: '#e9eaea', speed: 3.4, amp: 0.05, freq: 2.2, eye: 0.008, shine: 0.7, glint: 0, far: true, zNear: -10, zIn: -85, y: [-6, 8] },
   { key: 'manta', yaw: 0.3, manta: true, n: 2, big: true, wander: 0.4, visit: { gap: [100, 200], stay: [40, 70], w: 0.8 }, close: 0.3, len: [5, 7], speed: 1.6, far: true, y: [-8, 6] },
   { key: 'octopus', yaw: 0.8, ceph: 'octopus', n: 2, prey: true, pauses: true, wander: 0.8, visit: { gap: [60, 130], stay: [50, 90], w: 1 }, len: [1.3, 2.0], body: '#b5472d', belly: '#f1c3a6', eyeX: -0.03, eye: 0.05, shine: 0.7, speed: 0.9, jet: 1.1, y: [-15, -9], zNear: 0, zIn: -50 },
   { key: 'squid', yaw: 0.9, ceph: 'squid', n: 4, school: 1, spread: 1.6, prey: true, wander: 0.8, visit: { gap: [80, 160], stay: [30, 50], w: 1 }, len: [1.1, 1.6], body: '#e9b8b0', belly: '#fbe7e2', eyeX: -0.27, eye: 0.045, shine: 0.9, speed: 2.0, jet: 2.0, y: [-9, 5], zNear: 2, zIn: -60 },
@@ -547,13 +611,14 @@ function start(THREE, host) {
     uniforms: {
       ...fogU(), uTime: time, uLight: light, uAmp: { value: sp.amp }, uFreq: { value: sp.freq }, uVert: { value: sp.flukes ? 1 : 0 },
       uBack: { value: new THREE.Color(sp.back) }, uBelly: { value: new THREE.Color(sp.belly) }, uFin: { value: new THREE.Color(sp.fin) },
-      uAccent: { value: new THREE.Color(sp.accent || sp.fin) }, uPattern: { value: sp.pattern }, uH: { value: sp.h }, uEye: { value: sp.eye }, uShine: { value: sp.shine }, uGlint: { value: sp.glint || 0 },
+      uAccent: { value: new THREE.Color(sp.accent || sp.fin) }, uPattern: { value: sp.pattern }, uH: { value: sp.h || 0.2 }, uEye: { value: sp.eye }, uShine: { value: sp.shine }, uGlint: { value: sp.glint || 0 },
+      uEyeXY: { value: new THREE.Vector2(...eyeXY(sp)) }, uFlukeUnder: { value: new THREE.Color(sp.flukeUnder || sp.fin) },
     },
   }));
   const meshes = [];
   const units = [];
   for (const sp of SPECIES) {
-    const geo = keep(sp.ceph ? cephGeometry(THREE, sp) : sp.manta ? mantaGeometry(THREE) : fishGeometry(THREE, sp));
+    const geo = keep(sp.ceph ? cephGeometry(THREE, sp) : sp.manta ? mantaGeometry(THREE) : sp.kind === 'whale' ? whaleGeometry(THREE, sp) : fishGeometry(THREE, sp));
     const phases = new Float32Array(sp.n).map(() => Math.random() * 6.3);
     const speeds = new Float32Array(sp.n).map(() => 0.85 + Math.random() * 0.3);
     const mesh = new THREE.InstancedMesh(geo, keep(material(sp)), sp.n);
@@ -577,9 +642,10 @@ function start(THREE, host) {
   }
 
   // When each visitor may next come by. The whale's first visit is a few minutes in.
+  const visitKey = (sp) => sp.group || sp.key;
   const visits = new Map(SPECIES.filter((sp) => sp.visit).map((sp) => {
     const gap = sp.visit.gap[0] + Math.random() * (sp.visit.gap[1] - sp.visit.gap[0]);
-    return [sp.key, { at: sp.visit.first ? gap : Math.random() * sp.visit.gap[0] * 0.6 }];
+    return [visitKey(sp), { at: sp.visit.first ? gap : Math.random() * sp.visit.gap[0] * 0.6 }];
   }));
 
   const rand = (r) => r[0] + Math.random() * (r[1] - r[0]);
@@ -607,12 +673,12 @@ function start(THREE, host) {
     const out = units.filter((u) => u.active && !u.resident);
     if (out.length >= 2) return;
     const bigOut = out.some((u) => u.sp.big);
-    const pool = units.filter((u) => !u.active && !u.resident && u.sp.visit && t >= visits.get(u.sp.key).at && !(bigOut && u.sp.big) && !out.some((o) => o.sp === u.sp));
+    const pool = units.filter((u) => !u.active && !u.resident && u.sp.visit && t >= visits.get(visitKey(u.sp)).at && !(bigOut && u.sp.big) && !out.some((o) => visitKey(o.sp) === visitKey(u.sp)));
     if (!pool.length) return;
     let r = Math.random() * pool.reduce((sum, u) => sum + u.sp.visit.w, 0);
     const u = pool.find((x) => (r -= x.sp.visit.w) <= 0) || pool[0];
     activate(u, false);
-    visits.get(u.sp.key).at = t + rand(u.sp.visit.gap);
+    visits.get(visitKey(u.sp)).at = t + rand(u.sp.visit.gap);
     // A hunt: the predator comes in from the distance after the sardines.
     const prey = units.find((x) => x.active && x.sp.key === 'sardine');
     if (u.sp.predator && prey && Math.random() < 0.55) {
@@ -840,11 +906,15 @@ function fishGeometry(THREE, sp) {
     if (sp.beak) f *= 1 - 0.6 * sm(0.84, 0.95, t); // a dolphin's beak
     return Math.max(0.05, f);
   };
+  const av = new Float32Array(p.count); const aa = new Float32Array(p.count);
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i) * 0.5;
     const f = prof(x);
+    av[i] = p.getY(i); aa[i] = Math.atan2(p.getY(i), p.getZ(i));
     p.setXYZ(i, x, p.getY(i) * f * sp.h * 0.5, p.getZ(i) * f * sp.w * 0.5);
   }
+  body.setAttribute('aV', new THREE.BufferAttribute(av, 1));
+  body.setAttribute('aA', new THREE.BufferAttribute(aa, 1));
   body.computeVertexNormals();
   const parts = [[body, 0]];
   const shape = (pts) => { const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]); return new THREE.ShapeGeometry(s); };
@@ -873,7 +943,7 @@ function fishGeometry(THREE, sp) {
     const pec = sp.pecAccent // a humpback's long white flipper
       ? shape([[0.02, 0], [-len * 0.45, -len], [-len * 0.25, -len * 0.95], [-0.04, 0]])
       : shape([[0, 0], [-len, -len * 0.9], [-len * 0.6, -len * 0.2]]);
-    pec.rotateX(side * 0.9);
+    pec.rotateX(-side * 0.9); // angled out from the body
     pec.translate(0.22, -sp.h * 0.12, side * sp.w * 0.42);
     parts.push([pec, sp.pecAccent ? 2 : 1]);
   }
@@ -884,7 +954,7 @@ function fishGeometry(THREE, sp) {
       parts.push([shape([[x + 0.012, 0], [x - 0.012, 0], [x - 0.02, -0.028]]).translate(0, -y + 0.004, 0), 2]);
     }
   }
-  return merge(THREE, parts);
+  return merge(THREE, parts, ['aV', 'aA']);
 }
 
 function merge(THREE, parts, extra = []) {
@@ -904,6 +974,105 @@ function merge(THREE, parts, extra = []) {
   out.setAttribute('aPart', new THREE.Float32BufferAttribute(part, 1));
   extra.forEach((name, j) => out.setAttribute(name, new THREE.Float32BufferAttribute(more[j], 1)));
   return out;
+}
+
+// Where the eye sits (object space): whales from their body stations, fish just behind the snout.
+function eyeXY(sp) {
+  if (sp.kind !== 'whale') return [0.36, (sp.h || 0.2) * 0.12];
+  const [t, v] = sp.eyeAt; const [, top, bot, , yc] = station(sp.st, t);
+  return [t - 0.5, yc + v * (v > 0 ? top : bot)];
+}
+
+// Body shape between stations [t, top, bottom, half-width, centre height, squareness] (t: 0 tail .. 1 snout),
+// smoothly (Catmull-Rom), so the outline flows like a real animal's.
+function station(st, t) {
+  let i = 0;
+  while (i < st.length - 2 && t > st[i + 1][0]) i++;
+  const p0 = st[Math.max(0, i - 1)]; const p1 = st[i]; const p2 = st[i + 1]; const p3 = st[Math.min(st.length - 1, i + 2)];
+  const k = Math.min(1, Math.max(0, (t - p1[0]) / (p2[0] - p1[0])));
+  const k2 = k * k; const k3 = k2 * k;
+  return p1.map((_, j) => 0.5 * (2 * p1[j] + (-p0[j] + p2[j]) * k + (2 * p0[j] - 5 * p1[j] + 4 * p2[j] - p3[j]) * k2 + (-p0[j] + 3 * p1[j] - 3 * p2[j] + p3[j]) * k3));
+}
+
+// A whale, length 1 along +x (snout at +0.5): the body lofted through its stations (superellipse rings, so a
+// sperm whale's head can be square), with flippers, dorsal fin or hump, knuckles, lower jaw and flukes.
+function whaleGeometry(THREE, sp) {
+  const N = 90; const M = 30;
+  const pos = []; const av = []; const aa = []; const idx = [];
+  for (let i = 0; i <= N; i++) {
+    const t = 0.5 - 0.5 * Math.cos((Math.PI * i) / N); // rings bunch up at the snout and the tail
+    let [, top, bot, w, yc, n] = station(sp.st, t);
+    top = Math.max(0, top); bot = Math.max(0, bot); w = Math.max(0, w);
+    if (sp.knuckles) { // sperm whale: a hump two-thirds back, then a row of knuckles to the tail
+      top += 0.022 * Math.exp(-(((t - 0.34) / 0.035) ** 2));
+      if (t > 0.06 && t < 0.3) top += 0.008 * Math.max(0, Math.cos(((t - 0.06) / 0.04) * Math.PI * 2));
+    }
+    for (let j = 0; j <= M; j++) {
+      const a = (j / M) * Math.PI * 2; const sn = Math.sin(a); const cs = Math.cos(a);
+      const ys = Math.sign(sn) * Math.abs(sn) ** (2 / n); const zs = Math.sign(cs) * Math.abs(cs) ** (2 / n);
+      pos.push(t - 0.5, yc + ys * (sn >= 0 ? top : bot), zs * w);
+      av.push(sn); aa.push(a);
+    }
+  }
+  for (let i = 0; i < N; i++) for (let j = 0; j < M; j++) {
+    const a = i * (M + 1) + j; const b = a + M + 1;
+    idx.push(a, b, a + 1, a + 1, b, b + 1);
+  }
+  const body = new THREE.BufferGeometry();
+  body.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  body.setAttribute('aV', new THREE.Float32BufferAttribute(av, 1));
+  body.setAttribute('aA', new THREE.Float32BufferAttribute(aa, 1));
+  body.setIndex(idx);
+  body.computeVertexNormals();
+  const parts = [[body, 0]];
+  const shape = (pts) => { const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]); return new THREE.ShapeGeometry(s); };
+  const at = (t) => station(sp.st, t);
+
+  // Flukes: a wide, swept-back pair lying flat, notched in the middle (a humpback's trailing edge is serrated).
+  const fs = sp.flukeShape; const half = [];
+  half.push([0.03, 0.006], [-fs.sweep * 0.35, fs.span * 0.55], [-fs.sweep, fs.span]);
+  for (let k = 1; k <= 10; k++) { const u = k / 10; half.push([-fs.sweep + (fs.sweep - fs.notch) * u * 0.6 - (fs.notch * u * 0.4) + fs.serr * Math.sin(u * Math.PI * 9), fs.span * (1 - u) * 0.98]); }
+  const outline = [...half, ...half.slice().reverse().map(([x, y]) => [x, -y])];
+  const fl = shape(outline); fl.rotateX(Math.PI / 2); fl.translate(-0.495, at(0.01)[4], 0);
+  parts.push([fl, 1]);
+
+  // Dorsal fin or hump.
+  if (sp.dorsalFin) {
+    const [x, h, base, kind] = sp.dorsalFin; const t = x + 0.5; const [, top, , , yc] = at(t);
+    const pts = kind === 'tall' ? [[base * 0.6, 0], [-base * 0.1, h], [-base * 0.3, h * 0.94], [-base * 0.45, 0]]
+      : kind === 'falcate' ? [[base * 0.5, 0], [-base * 0.35, h], [-base * 0.55, h * 0.8], [-base * 0.3, h * 0.3], [-base * 0.5, 0]]
+        : [[base * 0.7, 0], [0, h * 0.6], [-base * 0.3, h], [-base * 0.5, h * 0.5], [-base * 0.6, 0]];
+    parts.push([shape(pts).translate(x, yc + top - 0.006, 0), 1]);
+  }
+
+  // Flippers: long, white and knobbly on a humpback; slim on a blue whale; paddles on sperm whales and orcas.
+  const fp = sp.flipper; const [, , bot, w, yc] = at(fp.at);
+  for (const side of [1, -1]) {
+    const L = fp.len; const W = fp.w; const lead = []; const trail = [];
+    for (let k = 0; k <= 12; k++) {
+      const u = k / 12;
+      const width = fp.paddle ? W * Math.sin(Math.PI * Math.min(1, u * 0.9 + 0.1)) : W * (1 - u * 0.85);
+      const bump = fp.knobs ? 0.005 * Math.abs(Math.sin(u * Math.PI * 10)) : 0;
+      lead.push([width * 0.55 + bump, -L * u]);
+      trail.push([-width * 0.45, -L * u]);
+    }
+    const g = shape([...lead, ...trail.reverse()]);
+    g.rotateZ(-0.75);                  // swept back
+    g.rotateX(-side * 0.65);           // and out from the body
+    g.translate(fp.at - 0.5, yc - bot * 0.45, side * w * 0.85);
+    parts.push([g, fp.accent ? 2 : 1]);
+  }
+
+  // Sperm whale: the narrow lower jaw tucked under the huge head.
+  if (sp.jaw) {
+    const jaw = new THREE.CylinderGeometry(0.018, 0.026, 0.3, 10, 4);
+    jaw.rotateZ(Math.PI / 2);
+    jaw.scale(1, 0.7, 1);
+    const [, , b2, , y2] = at(0.86);
+    jaw.translate(0.33, y2 - b2 + 0.004, 0);
+    parts.push([jaw, 2]);
+  }
+  return merge(THREE, parts, ['aV', 'aA']);
 }
 
 // Octopus (round mantle, eight long arms) or squid (long pointed mantle with fins, short arms and two long
@@ -955,7 +1124,9 @@ function mantaGeometry(THREE) {
     const u = p.getX(i); const v = p.getZ(i);
     const span = u > 0 ? 1 - (1 - 0.16) * Math.pow(u, 1.3) : 1 - (1 - 0.05) * Math.pow(-u, 0.8);
     const z = v * span;
-    const x = u * 0.42 - Math.pow(Math.abs(v), 2) * 0.22;
+    // the two cephalic lobes either side of the mouth, curling forward
+    const lobe = u > 0.75 && Math.abs(v) > 0.45 ? 0.22 * ((u - 0.75) / 0.25) * Math.min(1, (Math.abs(v) - 0.45) / 0.3) : 0;
+    const x = u * 0.42 - Math.pow(Math.abs(v), 2) * 0.22 + lobe;
     const y = 0.07 * (1 - v * v) * (1 - u * u) * (1 - Math.abs(v));
     p.setXYZ(i, x, y, z);
   }
