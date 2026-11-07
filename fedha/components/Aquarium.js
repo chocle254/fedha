@@ -452,19 +452,19 @@ const SPECIES = [
   { key: 'shark', yaw: 0.35, n: 2, big: true, predator: true, wander: 0.45, visit: { gap: [60, 150], stay: [40, 70], w: 1 }, close: 0.3, len: [6, 8], h: 0.2, w: 0.18, blunt: 0.75, tail: [0.24, 0.22, 0.45], shark: true, dorsal: [0.12, -0.08, 0.17], anal: null, pec: 0.16, pattern: 6, back: '#4b5563', belly: '#e5e7eb', fin: '#4b5563', speed: 2.3, amp: 0.05, freq: 2.2, eye: 0.012, shine: 0.25, glint: 0.04, far: true, zNear: -12, zIn: -90 },
   { key: 'dolphin', yaw: 0.6, n: 4, school: 1, spread: 2.2, big: true, predator: true, wander: 0.6, visit: { gap: [120, 240], stay: [30, 50], w: 1.6 }, close: 0.3, len: [2.4, 3.0], h: 0.22, w: 0.2, blunt: 0.75, beak: true, flukes: true, tail: [0.16, 0.2, 0.6], dorsal: [0.08, -0.12, 0.13], curvedDorsal: true, anal: null, pec: 0.12, pattern: 7, back: '#374151', belly: '#e5e7eb', fin: '#374151', accent: '#9ca3af', speed: 4.0, amp: 0.06, freq: 3.5, eye: 0.012, shine: 0.55, glint: 0, far: true, zNear: -8, zIn: -80, y: [-6, 8] },
   // Whales share one visit timer, so only now and then does one come by: humpback, blue, sperm, or an orca pod.
-  { key: 'humpback', kind: 'whale', group: 'whale', yaw: 0.12, n: 1, big: true, wander: 0.25, visit: { gap: [180, 420], stay: [60, 90], w: 1.3, first: true }, close: 0.25, len: [13, 16],
+  { key: 'humpback', kind: 'whale', group: 'whale', yaw: 0.12, n: 1, big: true, wander: 0.25, visit: { gap: [90, 150], stay: [85, 115], w: 1.8, first: true }, close: 0.25, len: [13, 16],
     st: [[0, 0.012, 0.012, 0.008, 0, 2], [0.08, 0.03, 0.03, 0.018, 0, 2], [0.2, 0.06, 0.062, 0.045, 0, 2], [0.35, 0.085, 0.092, 0.08, 0, 2], [0.5, 0.1, 0.11, 0.1, 0, 2], [0.62, 0.1, 0.115, 0.105, -0.005, 2], [0.75, 0.088, 0.105, 0.1, -0.01, 2.2], [0.86, 0.068, 0.09, 0.085, -0.02, 2.3], [0.94, 0.044, 0.064, 0.06, -0.03, 2.3], [0.985, 0.02, 0.034, 0.03, -0.035, 2], [1, 0, 0, 0, -0.035, 2]],
     eyeAt: [0.8, -0.12], dorsalFin: [-0.17, 0.03, 0.05, 'hump'], flipper: { at: 0.72, len: 0.31, w: 0.05, knobs: true, accent: true }, flukeShape: { span: 0.16, sweep: 0.08, notch: 0.035, serr: 0.006 },
     pattern: 10, back: '#1c2636', belly: '#e8ecef', fin: '#1c2636', accent: '#eef1f3', flukeUnder: '#d9dee2', speed: 1.6, amp: 0.04, freq: 1.1, eye: 0.009, shine: 0.45, glint: 0, far: true, zNear: -30, zIn: -95, y: [-7, 6] },
-  { key: 'bluewhale', kind: 'whale', group: 'whale', yaw: 0.1, n: 1, big: true, wander: 0.2, visit: { gap: [180, 420], stay: [60, 90], w: 0.9, first: true }, close: 0.15, len: [20, 24],
+  { key: 'bluewhale', kind: 'whale', group: 'whale', yaw: 0.1, n: 1, big: true, wander: 0.2, visit: { gap: [90, 150], stay: [85, 115], w: 1.5, first: true }, close: 0.15, len: [20, 24],
     st: [[0, 0.008, 0.008, 0.006, 0, 2], [0.1, 0.022, 0.022, 0.016, 0, 2], [0.25, 0.045, 0.046, 0.04, 0, 2], [0.45, 0.064, 0.07, 0.064, 0, 2], [0.6, 0.068, 0.075, 0.07, 0, 2], [0.75, 0.062, 0.07, 0.07, -0.003, 2.2], [0.86, 0.042, 0.06, 0.07, -0.008, 2.7], [0.95, 0.024, 0.04, 0.055, -0.012, 2.7], [0.99, 0.01, 0.02, 0.03, -0.014, 2], [1, 0, 0, 0, -0.014, 2]],
     eyeAt: [0.83, -0.15], dorsalFin: [-0.27, 0.014, 0.025, 'falcate'], flipper: { at: 0.74, len: 0.12, w: 0.025 }, flukeShape: { span: 0.12, sweep: 0.07, notch: 0.03, serr: 0 },
     pattern: 11, back: '#4a6687', belly: '#8ea4bb', fin: '#3e5878', accent: '#a9bfd6', flukeUnder: '#53708f', speed: 1.8, amp: 0.035, freq: 0.9, eye: 0.006, shine: 0.45, glint: 0, far: true, zNear: -35, zIn: -110, y: [-6, 6] },
-  { key: 'sperm', kind: 'whale', group: 'whale', yaw: 0.12, n: 1, big: true, wander: 0.25, visit: { gap: [180, 420], stay: [60, 90], w: 0.9, first: true }, close: 0.2, len: [14, 17],
+  { key: 'sperm', kind: 'whale', group: 'whale', yaw: 0.12, n: 1, big: true, wander: 0.25, visit: { gap: [90, 150], stay: [85, 115], w: 1.5, first: true }, close: 0.2, len: [14, 17],
     st: [[0, 0.012, 0.012, 0.008, 0, 2], [0.1, 0.035, 0.035, 0.022, 0, 2], [0.25, 0.07, 0.07, 0.06, 0, 2], [0.45, 0.1, 0.1, 0.095, 0, 2], [0.6, 0.11, 0.11, 0.108, 0, 2.2], [0.68, 0.115, 0.108, 0.105, 0.002, 2.8], [0.8, 0.12, 0.1, 0.1, 0.004, 3.5], [0.93, 0.12, 0.09, 0.095, 0.006, 4], [0.99, 0.112, 0.075, 0.085, 0.008, 4], [1, 0, 0, 0, 0.008, 2]],
     knuckles: true, eyeAt: [0.7, -0.35], jaw: true, flipper: { at: 0.66, len: 0.07, w: 0.035 }, flukeShape: { span: 0.14, sweep: 0.075, notch: 0.02, serr: 0 },
     pattern: 12, back: '#3b4149', belly: '#6b7179', fin: '#353a41', accent: '#c9ced3', flukeUnder: '#3b4149', speed: 1.5, amp: 0.04, freq: 1.0, eye: 0.008, shine: 0.35, glint: 0, far: true, zNear: -30, zIn: -100, y: [-12, 3] },
-  { key: 'orca', kind: 'whale', group: 'whale', yaw: 0.35, n: 3, school: 1, spread: 3, big: true, predator: true, wander: 0.4, visit: { gap: [180, 420], stay: [40, 70], w: 1.1, first: true }, close: 0.3, len: [6.5, 8.5],
+  { key: 'orca', kind: 'whale', group: 'whale', yaw: 0.35, n: 3, school: 1, spread: 3, big: true, predator: true, wander: 0.4, visit: { gap: [90, 150], stay: [65, 95], w: 1.7, first: true }, close: 0.3, len: [6.5, 8.5],
     st: [[0, 0.012, 0.012, 0.008, 0, 2], [0.1, 0.04, 0.04, 0.025, 0, 2], [0.25, 0.085, 0.09, 0.075, 0, 2], [0.45, 0.115, 0.12, 0.11, 0, 2], [0.6, 0.115, 0.12, 0.115, 0, 2], [0.75, 0.1, 0.11, 0.105, 0, 2], [0.87, 0.075, 0.085, 0.085, -0.005, 2], [0.95, 0.045, 0.055, 0.055, -0.008, 2], [0.99, 0.018, 0.022, 0.022, -0.008, 2], [1, 0, 0, 0, -0.008, 2]],
     eyeAt: [0.885, 0.02], dorsalFin: [0.02, 0.15, 0.09, 'tall'], flipper: { at: 0.7, len: 0.13, w: 0.07, paddle: true }, flukeShape: { span: 0.13, sweep: 0.06, notch: 0.025, serr: 0 },
     pattern: 13, back: '#0a0c0f', belly: '#f2f2ef', fin: '#0a0c0f', accent: '#7d848d', flukeUnder: '#e9eaea', speed: 3.4, amp: 0.05, freq: 2.2, eye: 0.008, shine: 0.7, glint: 0, far: true, zNear: -10, zIn: -85, y: [-6, 8] },
@@ -676,7 +676,7 @@ function start(THREE, host) {
   const visitKey = (sp) => sp.group || sp.key;
   const visits = new Map(SPECIES.filter((sp) => sp.visit).map((sp) => {
     const gap = sp.visit.gap[0] + Math.random() * (sp.visit.gap[1] - sp.visit.gap[0]);
-    return [visitKey(sp), { at: sp.visit.first ? gap : Math.random() * Math.min(8, sp.visit.gap[0] * 0.15) }];
+    return [visitKey(sp), { at: sp.visit.first ? Math.min(gap, 25 + Math.random() * 15) : Math.random() * Math.min(8, sp.visit.gap[0] * 0.15) }];
   }));
 
   const rand = (r) => r[0] + Math.random() * (r[1] - r[0]);
@@ -697,10 +697,10 @@ function start(THREE, host) {
   }
   for (const u of units) if (u.resident) activate(u, true);
 
-  let nextVisit = 3 + Math.random() * 5;
+  let nextVisit = 2 + Math.random() * 3;
   function director(t) {
     if (t < nextVisit) return;
-    nextVisit = t + 22 + Math.random() * 38;
+    nextVisit = t + 10 + Math.random() * 12;
     const out = units.filter((u) => u.active && !u.resident);
     if (out.length >= 2) return;
     const bigOut = out.some((u) => u.sp.big);
