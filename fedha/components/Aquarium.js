@@ -422,11 +422,11 @@ void main() {
 // big animals come one at a time; predators sometimes hunt the sardines; prey flee from them.
 // yaw = how fast it can turn (radians a second): whales swing round over half a minute, reef fish in a few seconds.
 const SPECIES = [
-  { key: 'tang', yaw: 1.0, n: 3, resident: 3, prey: true, pauses: true, wander: 0.9, len: [1.1, 1.5], h: 0.62, w: 0.15, blunt: 0.55, tail: [0.2, 0.2, 0.55], dorsal: [0.32, -0.38, 0.12], anal: [0.1, -0.36, 0.1], pattern: 2, back: '#1d4ed8', belly: '#3b82f6', fin: '#1e3a8a', accent: '#facc15', speed: 1.5, amp: 0.07, freq: 7, eye: 0.04, shine: 0.6, glint: 0.45 },
-  { key: 'clown', yaw: 1.2, n: 2, resident: 2, prey: true, pauses: true, wander: 1.0, len: [0.7, 0.95], h: 0.44, w: 0.2, blunt: 0.5, tail: [0.18, 0.15, 0.85], dorsal: [0.3, -0.35, 0.1], anal: [0.0, -0.3, 0.07], pattern: 1, back: '#f97316', belly: '#fb923c', fin: '#ea580c', speed: 1.0, amp: 0.09, freq: 9, eye: 0.045, shine: 0.7, glint: 0.35, zNear: 0, zIn: -40 },
-  { key: 'angel', yaw: 0.9, n: 2, resident: 2, prey: true, pauses: true, wander: 0.8, len: [1.3, 1.7], h: 0.72, w: 0.13, blunt: 0.5, tail: [0.16, 0.18, 0.95], dorsal: [0.25, -0.42, 0.1], anal: [0.15, -0.4, 0.09], pattern: 3, back: '#1e3a8a', belly: '#1e40af', fin: '#1e3a8a', accent: '#fde047', speed: 1.0, amp: 0.06, freq: 6, eye: 0.035, shine: 0.6, glint: 0.45 },
-  { key: 'grouper', yaw: 0.5, n: 1, resident: 1, pauses: true, wander: 0.6, len: [2.6, 3.4], h: 0.36, w: 0.27, blunt: 0.65, tail: [0.18, 0.16, 0.9], dorsal: [0.3, -0.35, 0.07], anal: [0.0, -0.3, 0.05], pattern: 5, back: '#5b4636', belly: '#9a8268', fin: '#4a3a2c', speed: 0.8, amp: 0.05, freq: 4, eye: 0.028, shine: 0.3, glint: 0.12, y: [-12, -2] },
-  { key: 'sardine', yaw: 1.2, n: 24, school: 1, resident: 1, prey: true, wander: 0.7, seg: [16, 10], len: [0.42, 0.55], h: 0.2, w: 0.1, blunt: 0.8, tail: [0.16, 0.13, 0.5], dorsal: [0.12, -0.06, 0.05], anal: null, pattern: 4, back: '#1e3a5f', belly: '#d1d5db', fin: '#94a3b8', speed: 2.6, amp: 0.08, freq: 14, eye: 0.04, shine: 1.0, glint: 1.0 },
+  { key: 'tang', yaw: 1.0, n: 3, school: 1, visit: { gap: [55, 105], stay: [24, 42], w: 1.5 }, prey: true, pauses: true, wander: 0.9, len: [1.1, 1.5], h: 0.62, w: 0.15, blunt: 0.55, tail: [0.2, 0.2, 0.55], dorsal: [0.32, -0.38, 0.12], anal: [0.1, -0.36, 0.1], pattern: 2, back: '#1d4ed8', belly: '#3b82f6', fin: '#1e3a8a', accent: '#facc15', speed: 1.5, amp: 0.07, freq: 7, eye: 0.04, shine: 0.6, glint: 0.45 },
+  { key: 'clown', yaw: 1.2, n: 2, school: 1, visit: { gap: [85, 150], stay: [22, 38], w: 0.8 }, prey: true, pauses: true, wander: 1.0, len: [0.7, 0.95], h: 0.44, w: 0.2, blunt: 0.5, tail: [0.18, 0.15, 0.85], dorsal: [0.3, -0.35, 0.1], anal: [0.0, -0.3, 0.07], pattern: 1, back: '#f97316', belly: '#fb923c', fin: '#ea580c', speed: 1.0, amp: 0.09, freq: 9, eye: 0.045, shine: 0.7, glint: 0.35, zNear: 0, zIn: -40 },
+  { key: 'angel', yaw: 0.9, n: 2, school: 1, visit: { gap: [75, 145], stay: [24, 40], w: 1.0 }, prey: true, pauses: true, wander: 0.8, len: [1.3, 1.7], h: 0.72, w: 0.13, blunt: 0.5, tail: [0.16, 0.18, 0.95], dorsal: [0.25, -0.42, 0.1], anal: [0.15, -0.4, 0.09], pattern: 3, back: '#1e3a8a', belly: '#1e40af', fin: '#1e3a8a', accent: '#fde047', speed: 1.0, amp: 0.06, freq: 6, eye: 0.035, shine: 0.6, glint: 0.45 },
+  { key: 'grouper', yaw: 0.5, n: 1, visit: { gap: [110, 190], stay: [35, 55], w: 0.55 }, pauses: true, wander: 0.6, len: [2.6, 3.4], h: 0.36, w: 0.27, blunt: 0.65, tail: [0.18, 0.16, 0.9], dorsal: [0.3, -0.35, 0.07], anal: [0.0, -0.3, 0.05], pattern: 5, back: '#5b4636', belly: '#9a8268', fin: '#4a3a2c', speed: 0.8, amp: 0.05, freq: 4, eye: 0.028, shine: 0.3, glint: 0.12, y: [-12, -2] },
+  { key: 'sardine', yaw: 1.2, n: 16, school: 1, visit: { gap: [75, 135], stay: [25, 42], w: 1.1 }, prey: true, wander: 0.7, seg: [16, 10], len: [0.42, 0.55], h: 0.2, w: 0.1, blunt: 0.8, tail: [0.16, 0.13, 0.5], dorsal: [0.12, -0.06, 0.05], anal: null, pattern: 4, back: '#1e3a5f', belly: '#d1d5db', fin: '#94a3b8', speed: 2.6, amp: 0.08, freq: 14, eye: 0.04, shine: 1.0, glint: 1.0 },
   { key: 'tuna', yaw: 0.7, n: 8, school: 1, spread: 2.5, predator: true, wander: 0.5, visit: { gap: [70, 150], stay: [25, 45], w: 1 }, len: [1.8, 2.4], h: 0.28, w: 0.2, blunt: 0.72, tail: [0.2, 0.32, 0.35], dorsal: [0.12, -0.02, 0.1], anal: [0.0, -0.08, 0.07], finlets: true, pec: 0.13, pattern: 9, back: '#0b1f4a', belly: '#d6dde6', fin: '#1e3a5f', accent: '#c9a227', speed: 4.2, amp: 0.05, freq: 9, eye: 0.028, shine: 0.9, glint: 0.9, far: true, zNear: -5, zIn: -85 },
   { key: 'shark', yaw: 0.35, n: 2, big: true, predator: true, wander: 0.45, visit: { gap: [60, 150], stay: [40, 70], w: 1 }, close: 0.3, len: [6, 8], h: 0.2, w: 0.18, blunt: 0.75, tail: [0.24, 0.22, 0.45], shark: true, dorsal: [0.12, -0.08, 0.17], anal: null, pec: 0.16, pattern: 6, back: '#4b5563', belly: '#e5e7eb', fin: '#4b5563', speed: 2.3, amp: 0.05, freq: 2.2, eye: 0.012, shine: 0.25, glint: 0.04, far: true, zNear: -12, zIn: -90 },
   { key: 'dolphin', yaw: 0.6, n: 4, school: 1, spread: 2.2, big: true, predator: true, wander: 0.6, visit: { gap: [120, 240], stay: [30, 50], w: 1.6 }, close: 0.3, len: [2.4, 3.0], h: 0.22, w: 0.2, blunt: 0.75, beak: true, flukes: true, tail: [0.16, 0.2, 0.6], dorsal: [0.08, -0.12, 0.13], curvedDorsal: true, anal: null, pec: 0.12, pattern: 7, back: '#374151', belly: '#e5e7eb', fin: '#374151', accent: '#9ca3af', speed: 4.0, amp: 0.06, freq: 3.5, eye: 0.012, shine: 0.55, glint: 0, far: true, zNear: -8, zIn: -80, y: [-6, 8] },
@@ -450,6 +450,11 @@ const SPECIES = [
   { key: 'manta', yaw: 0.3, manta: true, n: 2, big: true, wander: 0.4, visit: { gap: [100, 200], stay: [40, 70], w: 0.8 }, close: 0.3, len: [5, 7], speed: 1.6, far: true, y: [-8, 6] },
   { key: 'octopus', yaw: 0.8, ceph: 'octopus', n: 2, prey: true, pauses: true, wander: 0.8, visit: { gap: [60, 130], stay: [50, 90], w: 1 }, len: [1.3, 2.0], body: '#b5472d', belly: '#f1c3a6', eyeX: -0.03, eye: 0.05, shine: 0.7, speed: 0.9, jet: 1.1, y: [-15, -9], zNear: 0, zIn: -50 },
   { key: 'squid', yaw: 0.9, ceph: 'squid', n: 4, school: 1, spread: 1.6, prey: true, wander: 0.8, visit: { gap: [80, 160], stay: [30, 50], w: 1 }, len: [1.1, 1.6], body: '#e9b8b0', belly: '#fbe7e2', eyeX: -0.27, eye: 0.045, shine: 0.9, speed: 2.0, jet: 2.0, y: [-9, 5], zNear: 2, zIn: -60 },
+  // Additional reef visitors: these appear as occasional small encounters, never as a permanent crowd.
+  { key: 'butterflyfish', yaw: 1.0, n: 2, school: 1, visit: { gap: [95, 175], stay: [22, 38], w: 0.9 }, prey: true, wander: 0.85, len: [0.75, 0.95], h: 0.58, w: 0.17, blunt: 0.48, tail: [0.15, 0.14, 0.9], dorsal: [0.28, -0.34, 0.08], anal: [0.08, -0.3, 0.06], pattern: 5, back: '#f4c84a', belly: '#f5dc83', fin: '#e9ad32', accent: '#171923', speed: 1.05, amp: 0.055, freq: 7, eye: 0.035, shine: 0.65, glint: 0.35 },
+  { key: 'parrotfish', yaw: 0.8, n: 1, visit: { gap: [125, 210], stay: [30, 48], w: 0.65 }, prey: true, wander: 0.7, len: [1.5, 1.9], h: 0.62, w: 0.2, blunt: 0.55, tail: [0.19, 0.18, 0.6], dorsal: [0.3, -0.4, 0.11], anal: [0.05, -0.34, 0.08], pattern: 5, back: '#168c86', belly: '#58b6a4', fin: '#126b72', accent: '#e68a45', speed: 1.25, amp: 0.06, freq: 6, eye: 0.034, shine: 0.55, glint: 0.3 },
+  { key: 'barracuda', yaw: 0.55, n: 2, school: 1, visit: { gap: [140, 230], stay: [25, 42], w: 0.45 }, predator: true, wander: 0.45, len: [2.8, 3.4], h: 0.18, w: 0.12, blunt: 0.95, tail: [0.22, 0.19, 0.28], dorsal: [0.12, -0.06, 0.07], anal: [0.0, -0.08, 0.05], pattern: 4, back: '#647b83', belly: '#c7d1d1', fin: '#516a73', accent: '#aab8b8', speed: 3.0, amp: 0.045, freq: 8, eye: 0.022, shine: 0.7, glint: 0.5, far: true, zNear: -8, zIn: -75 },
+  { key: 'mackerel', yaw: 1.0, n: 12, school: 1, spread: 2.8, visit: { gap: [115, 190], stay: [22, 36], w: 0.7 }, prey: true, wander: 0.65, len: [0.65, 0.85], h: 0.22, w: 0.12, blunt: 0.85, tail: [0.18, 0.15, 0.35], dorsal: [0.16, -0.04, 0.05], anal: [0.02, -0.05, 0.04], pattern: 4, back: '#234b66', belly: '#c6d5d9', fin: '#668b9c', accent: '#b4c8ce', speed: 3.1, amp: 0.07, freq: 12, eye: 0.024, shine: 0.8, glint: 0.75, far: true, zNear: -12, zIn: -85 },
 ];
 
 const BOUNDS = { x: 34, yLo: -13, yHi: 9, zNear: 5, zFar: -150 };
@@ -666,10 +671,10 @@ function start(THREE, host) {
   }
   for (const u of units) if (u.resident) activate(u, true);
 
-  let nextVisit = 15 + Math.random() * 20;
+  let nextVisit = 3 + Math.random() * 5;
   function director(t) {
     if (t < nextVisit) return;
-    nextVisit = t + 10 + Math.random() * 25;
+    nextVisit = t + 22 + Math.random() * 38;
     const out = units.filter((u) => u.active && !u.resident);
     if (out.length >= 2) return;
     const bigOut = out.some((u) => u.sp.big);
@@ -692,7 +697,7 @@ function start(THREE, host) {
   const bellGeo = keep(new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.55));
   const tentGeo = keep(tentacleGeometry(THREE));
   const JCOL = ['#f0abfc', '#93c5fd', '#a5f3fc'];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 1 + Math.floor(Math.random() * 2); i++) {
     const color = new THREE.Color(JCOL[i % JCOL.length]);
     const uni = { uTime: time, uPhase: { value: Math.random() * 6.3 }, uColor: { value: color }, uDensity: { value: density } };
     const bell = new THREE.Mesh(bellGeo, keep(new THREE.ShaderMaterial({ vertexShader: JELLY_VERT, fragmentShader: JELLY_FRAG, uniforms: uni, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide })));
