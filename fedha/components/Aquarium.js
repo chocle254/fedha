@@ -310,6 +310,39 @@ void main() {
   #include <fog_vertex>
 }`;
 
+// Air bubbles: see-through with a bright rim and a sharp highlight from above. Small ones stay round; bigger ones
+// flatten into wobbling caps with a flatter bottom, like real bubbles rising through water.
+const BUBBLE_VERT = `
+uniform float uTime;
+attribute float aFlat; attribute float aPhase;
+varying vec3 vN; varying vec3 vView; varying float vFog;
+void main() {
+  vec3 p = position;
+  float w = sin(uTime * (7.0 + 5.0 * aFlat) + aPhase);
+  p.y *= 1.0 - aFlat * (0.32 + 0.1 * w);
+  if (p.y < 0.0) p.y *= 1.0 - aFlat * 0.55;
+  p.x *= 1.0 + aFlat * 0.14 * w;
+  p.z *= 1.0 - aFlat * 0.14 * w;
+  vec4 mvPosition = viewMatrix * modelMatrix * instanceMatrix * vec4(p, 1.0);
+  vN = normalize(mat3(viewMatrix) * mat3(modelMatrix) * mat3(instanceMatrix) * normal);
+  vView = -mvPosition.xyz; vFog = -mvPosition.z;
+  gl_Position = projectionMatrix * mvPosition;
+}`;
+
+const BUBBLE_FRAG = `
+uniform vec3 uLight; uniform float uDensity; uniform vec3 uFogColor;
+varying vec3 vN; varying vec3 vView; varying float vFog;
+void main() {
+  vec3 N = normalize(vN); vec3 V = normalize(vView);
+  float f = pow(1.0 - abs(dot(N, V)), 2.2);
+  vec3 L = normalize((viewMatrix * vec4(uLight, 0.0)).xyz);
+  float spec = pow(max(dot(reflect(-L, N), V), 0.0), 90.0);
+  float edge = smoothstep(0.55, 0.8, f) * (1.0 - smoothstep(0.9, 1.0, f));  // the darker refraction ring
+  vec3 col = mix(vec3(0.7, 0.88, 1.0) * (0.1 + 0.95 * f), vec3(0.05, 0.15, 0.22), edge * 0.35) + spec * 1.3;
+  float fog = exp(-uDensity * uDensity * vFog * vFog);
+  gl_FragColor = vec4(mix(uFogColor, col, fog), clamp((0.04 + 0.8 * f + spec) * fog, 0.0, 1.0));
+}`;
+
 const SKY_VERT = `varying vec3 vDir; void main() { vDir = normalize((modelMatrix * vec4(position, 1.0)).xyz - cameraPosition); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const SKY_FRAG = `
 uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uDeep;
@@ -444,6 +477,60 @@ function start(THREE, host) {
   snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
   const snow = new THREE.Points(snowGeo, keep(new THREE.PointsMaterial({ color: 0xbfe6ff, size: 0.07, transparent: true, opacity: 0.55, depthWrite: false })));
   scene.add(snow);
+
+  // ── Bubbles ──
+  // Streams rise in bursts from vents in the sand, and loose bubbles drift up close past the screen. Small ones
+  // rise slowly and straight, medium ones zig-zag and spiral, big ones rise fastest and wobble; all grow a
+  // little as they near the surface.
+  const BUB = 150;
+  const bubGeo = keep(new THREE.SphereGeometry(1, 14, 10));
+  const flats = new Float32Array(BUB); const bphase = new Float32Array(BUB).map(() => Math.random() * 6.3);
+  bubGeo.setAttribute('aFlat', new THREE.InstancedBufferAttribute(flats, 1));
+  bubGeo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(bphase, 1));
+  const bubMesh = new THREE.InstancedMesh(bubGeo, keep(new THREE.ShaderMaterial({
+    vertexShader: BUBBLE_VERT, fragmentShader: BUBBLE_FRAG, transparent: true, depthWrite: false,
+    uniforms: { uTime: time, uLight: light, uDensity: { value: density }, uFogColor: { value: FOG.clone() } },
+  })), BUB);
+  bubMesh.frustumCulled = false;
+  scene.add(bubMesh);
+  const vents = Array.from({ length: 4 }, () => ({ x: (Math.random() - 0.5) * 44, z: -15 - Math.random() * 55, next: Math.random() * 3 }));
+  const bubbles = Array.from({ length: BUB }, () => ({ on: false, pos: new THREE.Vector3(), r: 0, rise: 0, amp: 0, f: 0, ph: 0, x0: 0, z0: 0 }));
+  const zeroM = new THREE.Matrix4().makeScale(0, 0, 0);
+  for (let i = 0; i < BUB; i++) bubMesh.setMatrixAt(i, zeroM);
+  function blow(x, y, z, near) {
+    const b = bubbles.find((q) => !q.on);
+    if (!b) return;
+    const i = bubbles.indexOf(b);
+    const big = Math.random();
+    b.r = near ? 0.03 + big * big * 0.12 : 0.04 + big * big * big * 0.22;
+    b.rise = 0.7 + b.r * 9 + Math.random() * 0.3;
+    b.amp = b.r > 0.06 ? b.r * (1.5 + Math.random() * 2.5) : b.r * 0.4; // medium and big ones zig-zag
+    b.f = 2 + Math.random() * 3; b.ph = Math.random() * 6.3;
+    b.x0 = x; b.z0 = z; b.pos.set(x, y, z); b.on = true;
+    flats[i] = Math.min(1, Math.max(0, (b.r - 0.06) / 0.14));
+  }
+  function bubbleStep(dt, t) {
+    for (const v of vents) if (t > v.next) { // a burst from this vent
+      const n = 2 + Math.floor(Math.random() * 5);
+      for (let k = 0; k < n; k++) blow(v.x + (Math.random() - 0.5) * 0.4, -18 - k * 0.35, v.z + (Math.random() - 0.5) * 0.4, false);
+      v.next = t + 1.5 + Math.random() * 4.5;
+    }
+    if (Math.random() < dt * 0.6) blow((Math.random() - 0.5) * 16, -14, 2 - Math.random() * 12, true); // close to the screen
+    for (let i = 0; i < BUB; i++) {
+      const b = bubbles[i];
+      if (!b.on) continue;
+      b.pos.y += b.rise * dt;
+      const grow = 1 + Math.max(0, b.pos.y + 18) * 0.012;
+      const x = b.x0 + Math.sin(t * b.f + b.ph) * b.amp; const z = b.z0 + Math.cos(t * b.f * 0.9 + b.ph) * b.amp * 0.8;
+      b.x0 += Math.sin(t * 0.3 + i) * dt * 0.08; // the current nudges the stream
+      if (b.pos.y > BOUNDS.yHi + 10) { b.on = false; bubMesh.setMatrixAt(i, zeroM); continue; }
+      const rr = b.r * grow;
+      m4.makeScale(rr, rr, rr).setPosition(x, b.pos.y, z);
+      bubMesh.setMatrixAt(i, m4);
+    }
+    bubMesh.instanceMatrix.needsUpdate = true;
+    bubGeo.attributes.aFlat.needsUpdate = true;
+  }
 
   // ── Sea life ──
   // Residents are always about; visitors arrive now and then from the distance, stay a while and swim off into
@@ -619,6 +706,7 @@ function start(THREE, host) {
     time.value += dt;
     const t = time.value;
     director(t);
+    bubbleStep(dt, t);
 
     // Prey keep an eye out: a hunter within 30 m and they bolt the other way (and stay jumpy a while).
     for (const u of units) if (u.active) u.fear = Math.max(0, u.fear - dt * 0.25);
