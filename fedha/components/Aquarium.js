@@ -1041,12 +1041,16 @@ function fishGeometry(THREE, sp) {
   }
   // A fine lateral-line canal runs from behind the gill cover towards the tail.
   // It follows the body surface, so it reads as a feature of the fish rather than a floating stripe.
+  const lineWidth = sp.key === 'butterflyfish' || sp.key === 'tang' ? 0.82
+    : sp.key === 'angel' ? 0.7
+      : sp.key === 'parrotfish' || sp.key === 'tuna' || sp.key === 'clown' ? 1.0
+        : sp.key === 'barracuda' || sp.key === 'mackerel' || sp.key === 'sardine' ? 0.82 : 1.0;
   for (const side of [1, -1]) {
     const linePts = [];
     for (let k = 0; k <= 18; k++) {
       const x = 0.08 - k * 0.024;
       const t = Math.min(1, Math.max(0, x + 0.5));
-      const surface = prof(x) * sp.w * 0.5 * width * (1 - 0.28 * sm(0.12, 0.28, t) * (1 - sm(0.02, 0.12, t)));
+      const surface = prof(x) * sp.w * 0.5 * lineWidth * (1 - 0.28 * sm(0.12, 0.28, t) * (1 - sm(0.02, 0.12, t)));
       const y = 0.012 + 0.008 * Math.sin(k / 18 * Math.PI);
       linePts.push(new THREE.Vector3(x, y, side * (surface + 0.002)));
     }
