@@ -268,6 +268,8 @@ export default function Dashboard() {
                 <div style={{ height: 4, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${tier.pct}%`, borderRadius: 3, background: 'linear-gradient(90deg, var(--accent), var(--accent-2))', boxShadow: '0 0 8px var(--accent-glow)', transition: 'width 1.2s var(--ease-out)' }} />
                 </div>
+                {/* A 20-second look at the world one step up (components/TierSync.js). Only the next one: the rest stay a secret. */}
+                <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('luxe-tier-peek', { detail: { key: tier.next.key, seconds: 20 } }))} style={{ all: 'unset', cursor: 'pointer', marginTop: 7, fontSize: 11.5, fontWeight: 700, color: 'var(--accent)' }}>👀 Peek at the {tier.next.name} world</button>
               </div>
             )}
             <div style={{ display: 'flex', gap: 10 }}>

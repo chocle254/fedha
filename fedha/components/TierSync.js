@@ -47,11 +47,22 @@ export default function TierSync() {
     }, 2500);
     return () => clearTimeout(t);
   }, [holiday?.key]); // eslint-disable-line react-hooks/exhaustive-deps
-  const mood = holiday ? { glows: holiday.glows, emit: holiday.emit } : MOODS[tier.key];
-  const moodKey = holiday ? `h-${holiday.key}` : tier.key;
+  // A peek: Home's "Peek at the next world" button shows the world one tier up for 20 seconds, then yours returns.
+  // (Opening any page with ?peek=gold, ?peek=imperial… does the same for a minute, for checking a world.)
+  const [peek, setPeek] = useState(null);
+  useEffect(() => {
+    let timer = 0;
+    const show = (key, seconds) => { if (!MOODS[key]) return; clearTimeout(timer); setPeek(key); timer = setTimeout(() => setPeek(null), Math.max(5, Math.min(120, Number(seconds) || 20)) * 1000); };
+    const onPeek = (e) => show(e.detail?.key, e.detail?.seconds);
+    window.addEventListener('luxe-tier-peek', onPeek);
+    try { const q = new URLSearchParams(window.location.search).get('peek'); if (q) show(q, 60); } catch { /* no URL */ }
+    return () => { clearTimeout(timer); window.removeEventListener('luxe-tier-peek', onPeek); };
+  }, []);
+  const mood = peek ? MOODS[peek] : holiday ? { glows: holiday.glows, emit: holiday.emit } : MOODS[tier.key];
+  const moodKey = peek ? `peek-${peek}` : holiday ? `h-${holiday.key}` : tier.key;
   // The holiday's motion runs on every screen (the whole app dresses up); a tier's only on money screens,
   // except the 3D worlds (Sapphire's aquarium and every tier above it), which are the background everywhere.
-  const motion = mood && (money || holiday || mood.aquarium || mood.world) ? <>{holiday?.scene && <HolidayScene kind={holiday.scene} />}<TierMotion moodKey={moodKey} mood={mood} /></> : null;
+  const motion = mood && (money || holiday || mood.aquarium || mood.world) ? <>{holiday?.scene && !peek && <HolidayScene kind={holiday.scene} />}<TierMotion moodKey={moodKey} mood={mood} /></> : null;
 
   // Holiday skin, app-wide: html[data-holiday] styles cards, numbers, buttons and the nav (styles/globals.css),
   // the holiday accent wins over the section's, and only today's display font is downloaded.
