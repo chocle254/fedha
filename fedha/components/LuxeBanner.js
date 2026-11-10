@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { holidayFor } from '../lib/holidays';
+import { playSound } from '../lib/sounds';
 
 // Luxe's own notification banner while the app is open (lib/notifications.js sends here instead of the system
 // tray when Luxe is on screen). Slides down from the top in the current look (tier accent, or the holiday's
 // skin: gothic violet at Halloween, snow and red at Christmas, party pink on your birthday, gold at New Year),
-// plays the matching sound (the same files the Android app uses: public/sounds), buzzes, auto-hides after a
+// plays the matching sound (lib/sounds.js), buzzes, auto-hides after a
 // few seconds, swipe up to dismiss, tap to open. 🔕 on a banner mutes banner sounds (localStorage).
 const KINDS = {
-  money: { color: '#22C55E', icon: '💰', label: 'MONEY IN', sound: 'n-success' },
-  alert: { color: '#EF4444', icon: '⚠️', label: 'ALERT', sound: 'n-alert' },
-  trade: { color: '#3B82F6', icon: '🚀', label: 'TRADE', sound: 'n-entry' },
-  planner: { color: '#8B5CF6', icon: '🗓️', label: 'PLANNER', sound: 'n-planner' },
-  study: { color: '#818CF8', icon: '🎓', label: 'STUDY', sound: 'n-planner' },
-  other: { color: '#64748B', icon: '🔔', label: 'LUXE', sound: 'n-jarvis' },
+  money: { color: '#22C55E', icon: '💰', label: 'MONEY IN', sound: 'x-money' },
+  alert: { color: '#EF4444', icon: '⚠️', label: 'ALERT', sound: 'x-alert' },
+  trade: { color: '#3B82F6', icon: '🚀', label: 'TRADE', sound: 'x-trade' },
+  win: { color: '#22C55E', icon: '🎯', label: 'TARGET HIT', sound: 'x-win' },
+  loss: { color: '#F97316', icon: '🛑', label: 'STOPPED OUT', sound: 'x-loss' },
+  planner: { color: '#8B5CF6', icon: '🗓️', label: 'PLANNER', sound: 'x-planner' },
+  study: { color: '#818CF8', icon: '🎓', label: 'STUDY', sound: 'x-study' },
+  other: { color: '#64748B', icon: '🔔', label: 'LUXE', sound: 'x-luxe' },
 };
 const HOLIDAY_SOUND = { halloween: 'h-halloween', christmas: 'h-christmas', birthday: 'h-birthday', newyear: 'h-newyear', vice: 'h-vice' };
 const MUTE = 'luxe_banner_mute';
@@ -21,21 +24,15 @@ const MUTE = 'luxe_banner_mute';
 // Same sorting as the Android app (LuxeDelegationService.kindOf), from the tag and title.
 export function kindOf(tag = '', title = '') {
   const g = String(tag), t = String(title);
-  if (g.includes('upesipay') || t.startsWith('Withdrawal failed') || t.startsWith('🛑')) return 'alert';
+  // A trade that closed: its own sound for a target and for a stop, so you know which without looking.
+  if ((g.includes('trade-') || g.includes('broker-close')) && t.startsWith('🛑')) return 'loss';
+  if ((g.includes('trade-') || g.includes('broker-close')) && (t.startsWith('🎯') || t.startsWith('✅'))) return 'win';
+  if (g.includes('upesipay') || t.startsWith('Withdrawal failed') || t.startsWith('🛑') || t.startsWith('⚠️')) return 'alert';
   if (g.includes('earn-') || g.includes('startup-pay') || g.includes('sms-in-') || g.includes('nestlink') || t.startsWith('💸')) return 'money';
   if (t.startsWith('🚀') || t.startsWith('🎯') || t.startsWith('✅') || t.startsWith('📥')) return 'trade';
   if (g.includes('study') || t.startsWith('🍅') || t.startsWith('🎓')) return 'study';
   if (g.includes('block_') || g.includes('meal_') || g.includes('planner') || g.includes('break')) return 'planner';
   return 'other';
-}
-
-const audio = {};
-function playSound(name) {
-  try {
-    if (localStorage.getItem(MUTE) === '1') return;
-    const a = audio[name] || (audio[name] = new Audio(`/sounds/${name}.wav`)); // loaded the first time it's needed
-    a.currentTime = 0; a.volume = 0.8; a.play().catch(() => {});
-  } catch { /* no audio */ }
 }
 
 export default function LuxeBanner() {
@@ -57,7 +54,7 @@ export default function LuxeBanner() {
     setWaiting(queue.current.length);
     setList([n]);
     // Holiday sound for everyday news; trades and alerts keep theirs (same rule as the Android app).
-    playSound(n.hol && HOLIDAY_SOUND[n.hol] && !['alert', 'trade'].includes(n.kind) ? HOLIDAY_SOUND[n.hol] : n.k.sound);
+    playSound(n.hol && HOLIDAY_SOUND[n.hol] && !['alert', 'trade', 'win', 'loss'].includes(n.kind) ? HOLIDAY_SOUND[n.hol] : n.k.sound);
     try { navigator.vibrate?.(n.vibrate || [120, 60, 120]); } catch { /* not supported */ }
     setTimeout(() => closeRef.current(n.id), n.requireInteraction ? 10000 : 4500);
   }, []);
@@ -94,7 +91,7 @@ export default function LuxeBanner() {
   return (
     <div className="lb-stack" role="region" aria-label="Notifications">
       {list.map((n) => {
-        const hol = n.hol && ['halloween', 'christmas', 'birthday', 'newyear', 'vice'].includes(n.hol) && !['alert', 'trade'].includes(n.kind) ? n.hol : null;
+        const hol = n.hol && ['halloween', 'christmas', 'birthday', 'newyear', 'vice'].includes(n.hol) && !['alert', 'trade', 'win', 'loss'].includes(n.kind) ? n.hol : null;
         const holIcon = { halloween: '🦇', christmas: '🎄', birthday: '🎂', newyear: '🎆', vice: '🌴' }[hol];
         return (
           <div key={n.id} className={`lb ${hol ? `lb-${hol}` : ''}`} style={{ '--k': n.k.color }}

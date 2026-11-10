@@ -7,6 +7,7 @@ import { fireConfetti } from '../lib/confetti';
 import { themeKeyFor, applyTheme } from '../lib/themes';
 import { formatCurrency, formatShort } from '../lib/utils';
 import TierMotion, { MOODS } from './TierMotion';
+import { playSound } from '../lib/sounds';
 import HolidayScene from './HolidayScene';
 import { holidayFor } from '../lib/holidays';
 
@@ -29,7 +30,7 @@ export default function TierSync() {
   useEffect(() => {
     if (loading || tier.index === 0) return;
     getSetting('wealth_tier_best', 0).then((best) => {
-      if (tier.index > (Number(best) || 0)) { setSetting('wealth_tier_best', tier.index); setPop(tier); fireConfetti(); }
+      if (tier.index > (Number(best) || 0)) { setSetting('wealth_tier_best', tier.index); setPop(tier); fireConfetti(); playSound('x-tier', 0.9); }
     }).catch(() => {});
   }, [loading, tier.index]); // eslint-disable-line react-hooks/exhaustive-deps
 
