@@ -5,7 +5,7 @@ import { useMusic, SOUND_LABEL } from '../context/MusicContext';
 import { GENRES, trending, search } from '../lib/audius';
 import { searchTracks, findArtist, artistTop, related, chart } from '../lib/popular';
 import { dailyMixes, releaseRadar, lyricsFor, daylistName } from '../lib/music-mixes';
-import { forYou, fetchCharts, kenyaNow } from '../lib/music-foryou';
+import { forYou, discover, fetchCharts, kenyaNow, daypartNow } from '../lib/music-foryou';
 import { PRESETS } from '../lib/mix';
 
 // Music Room, Spotify-style.
@@ -80,7 +80,9 @@ export default function Music() {
     const artists = { ...(m.plays || {}) };
     for (const l of m.likes || []) if (l.artist) artists[l.artist] = (artists[l.artist] || 0) + 2;
     const recent = new Set(Object.values(m.tracksPlayed || {}).filter((x) => Date.now() - x.last < 2 * 864e5).map((x) => x.t.id));
-    forYou({ artists, skips: m.skips, recent, liked: new Set((m.likes || []).map((l) => l.id)) }).then((list) => setHome((h) => ({ ...h, forYou: list }))).catch(() => setHome((h) => ({ ...h, forYou: [] })));
+    forYou({ artists, skips: m.skips, dayparts: m.dayparts, recent, liked: new Set((m.likes || []).map((l) => l.id)) }).then((list) => setHome((h) => ({ ...h, forYou: list }))).catch(() => setHome((h) => ({ ...h, forYou: [] })));
+    // Discover: artists near yours that you have never played (lib/music-foryou.js).
+    discover({ artists, skips: m.skips }).then((list) => setHome((h) => ({ ...h, discover: list }))).catch(() => {});
   }, [tasteReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onRepeat = useMemo(() => Object.values(m.tracksPlayed || {}).filter((x) => x.n >= 2).sort((a, b) => b.n - a.n).slice(0, 20).map((x) => x.t), [m.tracksPlayed]);
@@ -240,7 +242,8 @@ export default function Music() {
               </div>
             </section>
             {home.forYou === null && <div className="mr-note">Building For You from YouTube, Apple Music, Spotify and your taste…</div>}
-            <Row title="For You" items={home.forYou} onPlay={playing(home.forYou || [])} sub={(x) => x.why || x.artist} />
+            <Row title={`For You · ${daypartNow()}`} items={home.forYou} onPlay={playing(home.forYou || [])} sub={(x) => x.why || x.artist} />
+            <Row title="Discover: new to you" items={home.discover} onPlay={playing(home.discover || [])} sub={(x) => `${x.artist} · ${x.why || ''}`} />
             <Row title="🇰🇪 Kenya right now" items={home.kenya} onPlay={playing(home.kenya)} sub={(x) => `${x.artist}${x.on?.length > 1 ? ' · YouTube + Apple' : x.on?.[0] === 'apple' ? ' · Apple Music' : ' · YouTube'}`} />
             <Row title="Spotify charts" items={home.spotify} onPlay={playing(home.spotify)} />
             <Row title="Release Radar" items={home.radar} onPlay={playing(home.radar)} sub={(x) => `${x.artist}${x.released ? ` · ${x.released.slice(0, 7)}` : ''}`} />

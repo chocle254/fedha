@@ -3,6 +3,7 @@ import { streamUrl } from '../lib/audius';
 import { videoFor, findArtist, related, artistTop, bpmFor } from '../lib/popular';
 import { planMix, flowOrder, PRESETS } from '../lib/mix';
 import { songRadio } from '../lib/music-mixes';
+import { daypartNow, songKey } from '../lib/music-foryou';
 import { Decks, speak, stopDjVoice } from '../lib/yt-decks';
 import { warmByte } from '../lib/byte-voice';
 import { getSetting, setSetting } from '../lib/db';
@@ -56,7 +57,8 @@ export function MusicProvider({ children }) {
   const planRef = useRef(null);
   const [tracksPlayed, setTracksPlayed] = useState({}); // id -> { t, n, last }: On Repeat, Recently played
   const [sleepAt, setSleepAt] = useState(null); // ms timestamp, or 'end' (end of this song)
-  const [skips, setSkips] = useState({ artists: {} }); // artists you skip early (For You sinks them)
+  const [skips, setSkips] = useState({ artists: {} }); // artists (and single songs) you skip early (For You sinks them)
+  const [dayparts, setDayparts] = useState({}); // what you play at each time of day: { morning: { artist: n }, ... }
   const resumeAt = useRef(0); // seconds to start from the next time this track loads (restored session)
   const loadedId = useRef(null); // the track actually loaded into a player (null after a restore)
   const wasPlaying = useRef(false); // playing when the app went to the background
@@ -71,6 +73,7 @@ export function MusicProvider({ children }) {
     getSetting('music_plays', {}).then((p) => setPlays(p && typeof p === 'object' ? p : {})).catch(() => {});
     getSetting('music_tracks', {}).then((p) => setTracksPlayed(p && typeof p === 'object' ? p : {})).catch(() => {});
     getSetting('music_skips', { artists: {} }).then((p) => setSkips(p && p.artists ? p : { artists: {} })).catch(() => {});
+    getSetting('music_dayparts', {}).then((p) => setDayparts(p && typeof p === 'object' ? p : {})).catch(() => {});
     // Pick up where you stopped: the queue, the song and the second (saved every few seconds, below).
     try {
       const ses = JSON.parse(localStorage.getItem(SESSION) || 'null');
@@ -91,6 +94,14 @@ export function MusicProvider({ children }) {
   const countPlay = useCallback((t) => {
     if (!t?.artist) return;
     setPlays((p) => { const n = { ...p, [t.artist]: (p[t.artist] || 0) + 1 }; setSetting('music_plays', n).catch(() => {}); return n; });
+    // The time of day too: what you want at 7 in the morning is not what you want at midnight (top 80 artists each).
+    setDayparts((p) => {
+      const part = daypartNow();
+      const a = { ...(p[part] || {}), [t.artist]: ((p[part] || {})[t.artist] || 0) + 1 };
+      const n = { ...p, [part]: Object.fromEntries(Object.entries(a).sort((x, y) => y[1] - x[1]).slice(0, 80)) };
+      setSetting('music_dayparts', n).catch(() => {});
+      return n;
+    });
     setTracksPlayed((p) => {
       const { dj: _dj, smart: _s, ...lean } = t;
       const n = { ...p, [t.id]: { t: lean, n: (p[t.id]?.n || 0) + 1, last: Date.now() } };
@@ -279,7 +290,15 @@ export function MusicProvider({ children }) {
     const t = state.current.track;
     const cur = t?.source === 'yt' ? decks.current?.time()?.cur : audio.current?.currentTime;
     if (t?.artist && cur != null && cur < 30) {
-      setSkips((p) => { const a = { ...(p.artists || {}), [t.artist]: ((p.artists || {})[t.artist] || 0) + 1 }; const trimmed = { artists: Object.fromEntries(Object.entries(a).sort((x, y) => y[1] - x[1]).slice(0, 300)) }; setSetting('music_skips', trimmed).catch(() => {}); return trimmed; });
+      setSkips((p) => {
+        const a = { ...(p.artists || {}), [t.artist]: ((p.artists || {})[t.artist] || 0) + 1 };
+        // The song itself as well: one you keep skipping stops being suggested, even if you like the artist.
+        const k = songKey(t); const tr = { ...(p.tracks || {}), [k]: ((p.tracks || {})[k] || 0) + 1 };
+        const top = (o) => Object.fromEntries(Object.entries(o).sort((x, y) => y[1] - x[1]).slice(0, 300));
+        const trimmed = { artists: top(a), tracks: top(tr) };
+        setSetting('music_skips', trimmed).catch(() => {});
+        return trimmed;
+      });
     }
     advance(1, 2);
   }, [advance]);
@@ -452,7 +471,7 @@ export function MusicProvider({ children }) {
 
   const yt = track?.source === 'yt';
   return (
-    <Ctx.Provider value={{ queue, idx, track, playing, time, sound, setSound, shuffle, setShuffle, likes, like, playList, next, prev, toggle, seek, dj, startDj, stopDj, smartShuffle, note, topArtists, playNext, addToQueue, removeFromQueue, startRadio, mixPlan, sleepAt, setSleep, tracksPlayed, plays, skips, stop }}>
+    <Ctx.Provider value={{ queue, idx, track, playing, time, sound, setSound, shuffle, setShuffle, likes, like, playList, next, prev, toggle, seek, dj, startDj, stopDj, smartShuffle, note, topArtists, playNext, addToQueue, removeFromQueue, startRadio, mixPlan, sleepAt, setSleep, tracksPlayed, plays, skips, dayparts, stop }}>
       {children}
       {/* The YouTube decks: a small floating card while popular music plays (YouTube requires it to be visible). */}
       <div style={{ position: 'fixed', right: 16, bottom: 'calc(84px + env(safe-area-inset-bottom))', width: 88, height: 50, zIndex: 46, borderRadius: 10, overflow: 'hidden', opacity: yt ? 1 : 0, pointerEvents: 'none', background: '#000', transition: 'opacity 0.3s' }}>

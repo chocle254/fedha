@@ -3,6 +3,9 @@
 //   daily charts (global and Nigeria). A song hot on two or three of them scores higher (they agree).
 //   You: your artists' radios and their circle (Deezer, like Spotify's radio), weighted by likes (×2) and plays;
 //   artists you keep skipping sink, songs you played in the last 2 days wait their turn, max 2 songs per artist.
+//   Time of day: the artists you play at THIS time of day (morning, afternoon, evening, night) count extra and
+//   seed the radios, so mornings and midnights get different lists. A song you skipped early twice is left out.
+// discover(): one song each from artists close to yours that you have NEVER played (like Discover Weekly).
 import { findArtist, artistRadio, related, artistTop } from './popular';
 
 let chartsP = null;
@@ -10,6 +13,10 @@ export function fetchCharts() {
   if (!chartsP) chartsP = fetch('/api/music/charts').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
   return chartsP;
 }
+
+// Morning / afternoon / evening / night, by the phone's clock.
+export function daypartNow(d = new Date()) { const h = d.getHours(); return h >= 5 && h < 12 ? 'morning' : h < 17 ? 'afternoon' : h < 22 ? 'evening' : 'night'; }
+export const songKey = (t) => keyOf(t);
 
 const keyOf = (t) => `${String(t.artist).toLowerCase().split(/,|&| feat/)[0].trim()}|${String(t.title).toLowerCase().replace(/\s*\(.*\)/, '').trim()}`;
 const shuffle = (a) => { const b = [...a]; for (let i = b.length - 1; i > 0; i--) { const k = Math.floor(Math.random() * (i + 1)); [b[i], b[k]] = [b[k], b[i]]; } return b; };
@@ -37,8 +44,12 @@ export async function forYou(taste) {
     for (const t of list || []) add(t, 1.2 * (1 - (t.pos - 1) / 60), name);
   }
   // Your circle: radio of your top 3 artists + 2 related artists each.
-  const top = Object.entries(taste.artists || {}).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([a]) => a);
+  // Seeds: your overall favourites, pulled towards what you play at this time of day.
+  const nowPlays = taste.dayparts?.[daypartNow()] || {};
+  const nowTop = Math.max(1, ...Object.values(nowPlays));
   const weight = Math.max(1, ...Object.values(taste.artists || {}));
+  const seedScore = (a) => (taste.artists?.[a] || 0) / weight + 1.2 * ((nowPlays[a] || 0) / nowTop);
+  const top = [...new Set([...Object.keys(taste.artists || {}), ...Object.keys(nowPlays)])].sort((a, b) => seedScore(b) - seedScore(a)).slice(0, 3);
   await Promise.all(top.map(async (name) => {
     try {
       const a = await findArtist(name); if (!a) return;
@@ -54,14 +65,39 @@ export async function forYou(taste) {
     const affinity = (taste.artists?.[x.t.artist] || 0) / weight; // 0..1
     let s = x.s + affinity * 1.5 + (x.plat.size >= 2 ? 0.8 * (x.plat.size - 1) : 0);
     s -= Math.min(2, (skips[x.t.artist] || 0) * 0.35);
+    s += 0.9 * ((nowPlays[x.t.artist] || 0) / nowTop); // right for this time of day
+    if ((taste.skips?.tracks?.[keyOf(x.t)] || 0) >= 2) s -= 50; // you keep skipping this very song
     if (taste.recent?.has(x.t.id)) s -= 1.5;
     if (taste.liked?.has(x.t.id)) s -= 0.4; // For You is for finding new things too
     const why = x.plat.size >= 2 ? `Hot on ${[...x.plat].join(' + ')}` : [...x.why][0];
     return { ...x.t, why, score: s + Math.random() * 0.25 };
-  }).sort((a, b) => b.score - a.score);
+  }).filter((x) => x.score > -10).sort((a, b) => b.score - a.score);
   const per = {}; const out = [];
   for (const t of scored) { if ((per[t.artist] = (per[t.artist] || 0) + 1) > 2) continue; out.push(t); if (out.length >= 40) break; }
   // no two songs by the same artist back to back
   for (let i = 1; i < out.length; i++) if (out[i].artist === out[i - 1].artist) { const j = out.findIndex((t, k) => k > i && t.artist !== out[i - 1].artist); if (j > 0) [out[i], out[j]] = [out[j], out[i]]; }
+  return out;
+}
+
+// Discover: artists near the ones you love that you have never played, one of their best songs each.
+// taste.artists = every artist you have played or liked. Different each visit (the circle is shuffled).
+export async function discover(taste) {
+  const known = new Set(Object.keys(taste.artists || {}).map((a) => a.toLowerCase()));
+  const top = Object.entries(taste.artists || {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([a]) => a);
+  if (!top.length) return [];
+  const found = new Map();
+  await Promise.all(top.map(async (name) => {
+    try {
+      const a = await findArtist(name); if (!a) return;
+      for (const c of await related(a.id, 12)) if (!known.has(String(c.name).toLowerCase()) && !found.has(c.id)) found.set(c.id, { c, via: name });
+    } catch { /* skip that artist */ }
+  }));
+  const picks = shuffle([...found.values()]).slice(0, 14);
+  const lists = await Promise.all(picks.map((p) => artistTop(p.c.id, 3).catch(() => [])));
+  const out = [];
+  lists.forEach((list, i) => {
+    const t = list.find((x) => (taste.skips?.tracks?.[keyOf(x)] || 0) < 2) || null;
+    if (t) out.push({ ...t, why: `New to you · fans of ${picks[i].via} play this` });
+  });
   return out;
 }
