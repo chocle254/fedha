@@ -236,8 +236,13 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
     const fin = () => { if (finished) return; finished = true; speaker.current = null; setLevel(0); done?.(); };
     const words = text.split(/\s+/).length;
     if (voiceRef.current === 'off') { later(fin, Math.max(2600, words * 330 + 900)); return; }
-    speaker.current = speakByte(speakable(text), { mood, voice: voiceRef.current, onLevel: setLevel, onEnd: fin });
-    later(fin, words * 650 + 9000); // safety net if audio never reports the end
+    // Safety net if the audio never reports its end. It also silences the line, so a voice that loaded late can
+    // never start talking over the next one. The clock for the line itself only starts when sound does.
+    let sp = null; let net = 0;
+    const giveUp = () => { if (finished) return; if (speaker.current === sp) sp?.stop(); fin(); };
+    sp = speakByte(speakable(text), { mood, voice: voiceRef.current, onLevel: setLevel, onEnd: fin, onStart: () => { clearTimeout(net); net = later(giveUp, words * 650 + 9000); } });
+    speaker.current = sp;
+    net = later(giveUp, voiceRef.current === 'phone' ? words * 650 + 9000 : 50000); // waiting for the voice to load (a cold start can take a while)
   };
 
   // Plays scene s of answer i, then moves on by itself. When the answer ends, the class decides what comes next.
@@ -255,7 +260,7 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
     setIdle(null); setCur({ i, s, done: false }); setTalking(true); setTyped('');
     // Get the next line's voice ready while this one plays, so there is no gap between lines.
     const nxt = a.scenes[s + 1] || (a.kind === 'lecture' ? preVal.current[K.current.stepKey(planRef.current, a.step + 1)]?.scenes?.[0] : null);
-    if (nxt) warmByte(nxt.say, { mood: nxt.mood, voice: voiceRef.current });
+    if (nxt) warmByte(speakable(nxt.say), { mood: nxt.mood, voice: voiceRef.current });
     const text = scene.say;
     // The words only appear on screen when captions are on (or his voice is off): he talks, you listen.
     if (captionsRef.current || voiceRef.current === 'off') {

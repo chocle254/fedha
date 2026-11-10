@@ -340,7 +340,8 @@ export default function HackathonCoach() {
   // project alone, one request each, and the verdicts are combined in code.
   const askJudge = async (type, payload) => {
     try { return await coachAsk(type, payload); } catch (e) {
-      if (e.status !== 429) throw e;
+      // A judge whose answer failed for another reason gets one more go before the panel carries on without them.
+      if (e.status !== 429) { await new Promise((r) => setTimeout(r, 2500)); return coachAsk(type, payload); }
       // Free AI tier: pause and try this judge once more rather than failing the whole panel.
       for (let s = 20; s > 0; s--) { setJudgeStep(`Rate limited by the free AI tier, retrying in ${s}s…`); await new Promise((r) => setTimeout(r, 1000)); }
       return coachAsk(type, payload);
@@ -400,9 +401,12 @@ export default function HackathonCoach() {
             reviewing.delete(j.title); showStep();
           }
         }));
-        if (!results.length) throw lastErr || new Error('No judge could score it right now. Try again in a minute.');
         // Only the current panel's judges are remembered (keeps the saved data small).
         saveCoach({ judge_memory: Object.fromEntries(panel.judges.filter((j) => memory[j.key]).map((j) => [j.key, memory[j.key]])) });
+        if (!results.length) throw lastErr || new Error('No judge could score it right now. Try again in a minute.');
+        // One judge is not a panel: no verdict from a single review. The reviews that did come in are kept, so
+        // the next run only asks the judges who are missing.
+        if (results.length < Math.min(2, panel.judges.length)) throw new Error(`Only ${results.length} of ${panel.judges.length} judges could score it just now${lastErr?.status === 429 ? ' (the free AI tier is rate limited)' : ''}. Their reviews are saved: tap Judge my project again in a minute and only the missing judges will run.`);
         // The deliberation room: the judges discuss each other's reviews and agree on one verdict.
         // Same reviews = same discussion (remembered, no AI call).
         let raw = combinePanel(panel, results);

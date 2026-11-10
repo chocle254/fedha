@@ -18,7 +18,7 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
   const units = useMemo(() => unitsOf(course), [course]);
   const unit = units.find((u) => u.section === section) || units[0];
   const [lab, setLab] = useState(() => labOf(projects, course.id, unit?.section));
-  const [phase, setPhase] = useState('start'); // start | explain | designing | bench
+  const [phase, setPhase] = useState('start'); // start | explain | designing | failed | bench
   const [line, setLine] = useState('');
   const [talking, setTalking] = useState(false);
   const [level, setLevel] = useState(0);
@@ -72,7 +72,10 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
         all.push(...j.questions.map((q) => ({ ...q, lesson: l })));
       }
       setQs(all);
-    } catch (e) { setErr(e.message); } finally { setBusy(''); }
+    } catch {
+      // He could not write his questions (the free AI is busy): the lab opens anyway, never a dead end.
+      openBench();
+    } finally { setBusy(''); }
   }
   async function markAnswers() {
     setBusy('Marking…');
@@ -99,12 +102,16 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
   async function openBench() {
     if (lab) {
       setPhase('bench');
+      // Remember which skipped lessons were answered for, so he does not ask again every time the lab opens.
+      const known = lab.lab.explained || [];
+      const fresh = explainedRef.current.filter((id) => !known.includes(id));
+      if (fresh.length) { const kept = { ...lab, lab: { ...lab.lab, explained: [...known, ...fresh] } }; setLab(kept); onSave(kept); }
       const n = (lab.lab.milestones || []).filter((m) => m.done).length;
       const next = lab.lab.milestones.find((m) => !m.done);
       say(next ? (n ? `Welcome back to the lab. ${n} milestone${n === 1 ? '' : 's'} done. Next up: ${next.title}.` : `Lab is open. Mission: ${lab.title}. First milestone: ${next.title}.`) : `This lab is finished. Ship it, or open the next unit.`, 'excited');
       return;
     }
-    setPhase('designing');
+    setPhase('designing'); setErr('');
     say(`Unit ${unit.index + 1} done. Lab time. Give me a moment, I am setting up the bench.`, 'excited');
     try {
       const notes = [];
@@ -117,7 +124,10 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
       setLab(p); await onSave(p);
       setPhase('bench');
       say(`Here is the mission: ${j.brief} Start with milestone one: ${j.milestones[0].title}.`, 'excited');
-    } catch (e) { setErr(e.message); setPhase('start'); }
+    } catch (e) {
+      setErr(e.message); setPhase('failed');
+      say('The bench would not set up, the free AI is busy. Tap Try again in a moment.', 'surprised');
+    }
   }
 
   // Keep the code saved as you type (every 2 s).
@@ -215,7 +225,17 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
             ))}
             {qs && !verdict && <button className="lab-btn" disabled={!!busy} onClick={markAnswers}>Submit my explanation</button>}
             {verdict?.pass && <button className="lab-btn" onClick={openBench}>Enter the lab →</button>}
-            {verdict && !verdict.pass && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{missed.map((l) => <button key={l.id} className="lab-btn" onClick={() => onStudyLesson(l.id)}>Study “{l.title}” now</button>)}</div>}
+            {verdict && !verdict.pass && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{missed.map((l) => <button key={l.id} className="lab-btn" onClick={() => onStudyLesson(l.id)}>Study “{l.title}” now</button>)}
+              <button className="lab-btn ghost" disabled={!!busy} onClick={() => { setVerdict(null); setAnswers({}); setQs(null); askMissed(missed); }}>Try again</button>
+              <button className="lab-btn ghost" onClick={() => { explainedRef.current = missed.map((l) => l.id); openBench(); }}>Start the lab anyway</button></div>}
+            {!qs && !busy && !verdict && <button className="lab-btn ghost" onClick={openBench}>Start the lab</button>}
+          </div>
+        )}
+
+        {phase === 'failed' && (
+          <div className="lab-card">
+            <div style={{ fontSize: 13, color: '#D1D5DB', marginBottom: 8 }}>Byte could not set up this lab just now.</div>
+            <button className="lab-btn" onClick={openBench}>Try again</button>
           </div>
         )}
 

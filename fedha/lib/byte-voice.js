@@ -106,22 +106,38 @@ async function envelope(blob) {
 
 // Speaks a line. Returns { stop }. onLevel(0..1) gives mouth movement; onStart fires when sound begins.
 // persona 'dj' = DJ Luxe's own voice (pages/api/byte-voice.js).
+// One voice at a time. A new line from the same speaker silences his last one (even one still loading, which used
+// to start late and talk over the next line). Professor Byte has the floor over DJ Luxe: the DJ is cut off when
+// Byte starts, and stays quiet while Byte is teaching.
+const live = { byte: null, dj: null };
+let byteLast = 0; // when Byte last made a sound or finished a line
+export const byteIsTalking = () => !!live.byte || Date.now() - byteLast < 4000;
+
 export function speakByte(text, { mood = 'happy', voice = getByteVoice(), persona = null, onStart, onEnd, onLevel } = {}) {
-  let stopped = false, ended = false, audio = null, raf = 0, started = false, fails = 0;
+  let stopped = false, ended = false, audio = null, raf = 0, started = false, fails = 0, onPhone = false;
+  const who = persona === 'dj' ? 'dj' : 'byte';
   const ctrl = new AbortController();
+  const me = {};
+  const release = () => { if (live[who] === me) live[who] = null; if (who === 'byte') byteLast = Date.now(); };
   const begin = () => { if (!started) { started = true; onStart?.(); } };
-  const finish = () => { if (ended) return; ended = true; cancelAnimationFrame(raf); onLevel?.(0); onEnd?.(); };
-  const stop = () => { stopped = true; ctrl.abort(); try { audio?.pause(); } catch { /* none */ } stopSpeaking(); cancelAnimationFrame(raf); onLevel?.(0); };
+  const finish = () => { if (ended) return; ended = true; release(); cancelAnimationFrame(raf); onLevel?.(0); onEnd?.(); };
+  const stop = () => { stopped = true; release(); ctrl.abort(); try { audio?.pause(); } catch { /* none */ } if (onPhone) stopSpeaking(); cancelAnimationFrame(raf); onLevel?.(0); };
+  me.stop = stop; me.finish = finish;
+  if (who === 'dj' && voice !== 'off' && byteIsTalking()) { setTimeout(finish, 10); return { stop }; } // Byte is teaching: the DJ skips this line
+  live[who]?.stop();
+  if (who === 'byte' && live.dj) { const dj = live.dj; dj.stop(); dj.finish(); } // ends the DJ's line properly, so the music comes back up
+  if (voice !== 'off') live[who] = me;
 
   // The phone's own voice, for a piece of the line (or all of it). Calls then() when that piece is done.
   const phone = (t, then) => {
     if (stopped) return;
-    lastWho = 'phone';
+    lastWho = 'phone'; onPhone = true;
     const v = pickByteVoice();
     const male = v && /\bmale\b|daniel|david|george|guy|ryan|thomas|fred|alex\b|rishi|aaron|arthur|oliver|gbb|gbd|iom|tpd|rjs/i.test(`${v.name} ${v.voiceURI || ''}`);
     let busy = true;
     const tick = () => { if (stopped || ended || !busy) return; onLevel?.(Math.random() < 0.15 ? 0 : 0.3 + Math.random() * 0.7); raf = requestAnimationFrame(() => setTimeout(tick, 80)); };
-    speak(t, { voice: v, rate: 1.06, pitch: male ? 1.0 : 0.72, onStart: () => { begin(); tick(); }, onEnd: () => { busy = false; cancelAnimationFrame(raf); if (!stopped) then(); } });
+    let over = false; // the phone reports the end of a line more than once on some phones
+    speak(t, { voice: v, rate: 1.06, pitch: male ? 1.0 : 0.72, onStart: () => { begin(); tick(); }, onEnd: () => { if (over) return; over = true; busy = false; cancelAnimationFrame(raf); if (!stopped) then(); } });
   };
   if (voice === 'off') { setTimeout(() => { if (!stopped) { onStart?.(); finish(); } }, 10); return { stop }; }
   if (voice === 'phone' || Date.now() < neuralDownUntil || typeof window === 'undefined') { phone(text, finish); return { stop }; }
@@ -134,7 +150,10 @@ export function speakByte(text, { mood = 'happy', voice = getByteVoice(), person
     if (stopped) return;
     if (i >= parts.length) { finish(); return; }
     // Every neural voice failed for this chunk: the phone says just this chunk, then neural gets another go.
+    let rescued = false;
     const rescue = () => {
+      if (rescued || stopped) return; // a clip that fails reports it twice (the element and play()): one rescue
+      rescued = true;
       fails += 1;
       if (fails >= 2) neuralDownUntil = Date.now() + 45000;
       phone(parts[i], () => playPart(i + 1));
@@ -166,7 +185,7 @@ export function speakByte(text, { mood = 'happy', voice = getByteVoice(), person
       tick = setTimeout(meter, 50);
     };
     audio.onplay = () => { begin(); meter(); };
-    audio.onended = () => { URL.revokeObjectURL(url); clearTimeout(tick); onLevel?.(0); playPart(i + 1); };
+    audio.onended = () => { URL.revokeObjectURL(url); clearTimeout(tick); onLevel?.(0); if (!rescued) playPart(i + 1); };
     audio.onerror = () => { URL.revokeObjectURL(url); clearTimeout(tick); rescue(); };
     audio.play().catch(() => { if (!stopped) rescue(); });
   };

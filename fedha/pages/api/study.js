@@ -130,7 +130,7 @@ Return JSON: {"projects":[{"title":"","goal":"","milestones":["",""]}]}` };
         business: 'A practical tool or analysis for the business idea in the unit, as code or a structured model.',
         other: 'A practical project that makes the learner apply the unit.',
       };
-      return { json: true, max: 6000, temp: 0.55, text: `${mat}You are Professor Byte designing the PROJECT LAB that follows a finished unit. The learner just completed: course "${clip(b.course, 160)}", unit ${Number(b.unit) || 1}: "${clip(b.section, 120)}" (lessons: ${clip((b.lessons || []).join('; '), 1200)}).
+      return { json: true, max: 7000, temp: 0.55, effort: 'low', text: `${mat}You are Professor Byte designing the PROJECT LAB for a unit. The learner is working through: course "${clip(b.course, 160)}", unit ${Number(b.unit) || 1}: "${clip(b.section, 120)}" (lessons: ${clip((b.lessons || []).join('; '), 1200)}).
 ${DOM[b.domain] || DOM.other}
 ${b.previous?.length ? `Labs they already built (make this one build on them, a step harder): ${clip(b.previous.join('; '), 600)}\n` : ''}${b.weak?.length ? `Their weak spots to work on: ${clip(b.weak.join('; '), 400)}\n` : ''}It must use exactly what this unit taught, take 1-3 hours in total, ${b.domain === 'design' ? 'be doable on a phone or on paper (no code: the deliverables are photos and screenshots), ' : ''}run on a phone (Python with the standard library plus numpy, pandas, scikit-learn or matplotlib if needed, which install automatically; no network, files outside the lab or shell commands; or plain JavaScript), and feel like a real project with a mission.
 Return JSON: {"title":"","brief":"the mission in 2-3 sentences, exciting and concrete","why":"what real skill this proves","domain":"${clip(b.domain, 20) || 'other'}","lang":"python","files":[{"name":"main.py","content":"starter code with TODO comments, runnable"},{"name":"data.csv","content":"small synthetic data if needed"}],"milestones":[{"title":"","goal":"what must work","criteria":["a checkable requirement"],"hint":"a nudge, not the answer"}],"stretch":["a harder extra for later"]}
@@ -229,14 +229,14 @@ Return JSON: {"title":"short session title","mode":"concept","lang":"","pipeline
         extra = `\nGRADE THE HOMEWORK. Assignment: "${clip(hw.title, 100)}": ${clip(hw.task, 400)} (show: ${clip(hw.deliverable, 200)}).\n${work}\nThen say you are moving on to today's lesson. 1-3 scenes. Also return "grade":{"done":true,"score":0,"ai_suspect":false,"note":"one line on the verdict"} with score 0-10.`;
       }
       const live = b.live && !lecture ? `\nTHIS IS A LIVE VOICE CLASS: they hear you, so speak naturally and never read lists aloud. Answer what they said in 1-3 scenes, each under 35 words, then stop. Do not quiz them. React like a person: delighted when they are right, cheeky when they are wrong. Their words come from speech recognition, so forgive small transcription errors.` : '';
-      return { json: true, max: lecture ? (slow ? 6000 : 4200) : 3000, temp: lecture || b.level === 'reteach' ? 0.5 : 0.75, system: byteSystem(b.sass), text: `${mat}Topic: ${topic}\n${hist ? `\nConversation so far:\n${hist}\n` : ''}\n${lecture ? lec : ask}${plan}${extra}${live}
+      return { json: true, max: lecture ? (slow ? 7500 : 5500) : 3000, temp: lecture || b.level === 'reteach' ? 0.5 : 0.75, system: byteSystem(b.sass), text: `${mat}Topic: ${topic}\n${hist ? `\nConversation so far:\n${hist}\n` : ''}\n${lecture ? lec : ask}${plan}${extra}${live}
 
-${SPEAK}Perform it as ${lecture ? '4-7' : b.live ? '1-3' : '3-6'} short scenes. Each scene is one spoken line plus how you act it.
+${SPEAK}Perform it as ${lecture ? scenesN : b.live ? '1-3' : '3-6'} short scenes. Each scene is one spoken line plus how you act it.
 ${BOARD_HELP}
 Moods: happy, cheeky, excited, thinking, surprised, serious, proud, facepalm, impatient.
 Gestures: wave, point (at the board), explain, think, shrug, celebrate, lean (close to the glass), knock (on the glass), laugh, facepalm, tap (drumming fingers, impatient), none.
 Use "point" when a board is up. Now and then slip in a short story or fun tangent tied to the topic (at most one per answer). Never end by quizzing the learner or asking a pop question unless the request above asks for it.
-Return JSON: {"scenes":[{"say":"spoken line, under 45 words, no markdown","mood":"","gesture":"","board":null}],"chips":["2-3 short replies the learner might tap"]${steps.length ? ',"advance":false' : ''}}` };
+Return JSON: {"scenes":[{"say":"spoken line, ${lecture ? '25-60' : 'under 45'} words, no markdown","mood":"","gesture":"","board":null}],"chips":["2-3 short replies the learner might tap"]${steps.length ? ',"advance":false' : ''}}` };
     }
     case 'capstone_ideas':
       return { json: true, max: 4000, text: `${mat}What I am learning and have built:\n${clip(b.profile, 3000)}\n${b.avoid?.length ? `Already suggested or started, do not repeat: ${b.avoid.slice(0, 15).map((t) => clip(t, 100)).join(' | ')}\n` : ''}${b.focus ? `Focus area: ${clip(b.focus, 200)}\n` : ''}
@@ -271,8 +271,9 @@ async function leetcodeCheck(slug) {
   } catch { return null; }
 }
 
-async function groq(key, text, json, max, system = TUTOR, temperature) {
-  const body = { model: GROQ_MODEL, temperature: temperature ?? (json ? 0.5 : 0.4), max_tokens: max, ...(json ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: system + (json ? '\nOutput only valid JSON.' : '') }, { role: 'user', content: text }] };
+async function groq(key, text, json, max, system = TUTOR, temperature, effort = null) {
+  // gpt-oss thinks before it answers, and that thinking comes out of max_tokens: "low" leaves room for long answers.
+  const body = { model: GROQ_MODEL, temperature: temperature ?? (json ? 0.5 : 0.4), max_tokens: max, ...(effort && /gpt-oss/.test(GROQ_MODEL) ? { reasoning_effort: effort } : {}), ...(json ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: system + (json ? '\nOutput only valid JSON.' : '') }, { role: 'user', content: text }] };
   const r = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` }, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(d.error?.message || 'Groq error'); e.status = r.status; throw e; }
@@ -306,20 +307,32 @@ export default async function handler(req, res) {
   if (b.type === 'tutor' && !String(b.question || '').trim()) return res.status(400).json({ error: 'Ask a question first.' });
   const key = process.env.GROQ_API_KEY;
   let raw = '';
+  const temp = p.temp ?? (p.system ? 0.75 : undefined);
   try {
     if (!key) throw Object.assign(new Error('GROQ_API_KEY not set'), { status: 500 });
-    raw = await groq(key, p.text, p.json, p.max, p.system || TUTOR, p.temp ?? (p.system ? 0.75 : undefined));
+    raw = await groq(key, p.text, p.json, p.max, p.system || TUTOR, temp, p.effort);
+    // Cut off or not JSON (it ran out of room while thinking): once more, thinking less, with more room.
+    if (p.json && !parseJSON(raw)) {
+      console.warn('[fedha] study AI unreadable answer, retrying:', b.type);
+      raw = await groq(key, p.text, true, Math.min(8000, p.max + 2000), p.system || TUTOR, temp, 'low');
+      if (!parseJSON(raw)) throw Object.assign(new Error('unreadable answer'), { status: 502 });
+    }
   } catch (e) {
     console.warn('[fedha] study AI groq failed:', e.status, e.message);
-    if (nvidiaAvailable()) {
+    raw = '';
+    if (key && e.status === 400 && p.json) {
+      try { raw = await groq(key, p.text, true, Math.min(8000, p.max + 2000), p.system || TUTOR, temp, 'low'); if (!parseJSON(raw)) raw = ''; } catch { raw = ''; }
+    }
+    if (!raw && nvidiaAvailable()) {
       try { raw = await nvidiaChat({ system: (p.system || TUTOR) + (p.json ? '\nOutput only valid JSON.' : ''), prompt: p.text, temperature: 0.45, maxTokens: p.max, fallback: false }); } catch (e2) { console.warn('[fedha] study AI nvidia failed:', e2.status, e2.message); }
     }
+    if (p.json && raw && !parseJSON(raw)) raw = ''; // never read a garbled answer out loud
     if (!raw) return res.status(e.status === 429 ? 429 : 500).json({ error: e.status === 429 ? 'The free AI tiers are busy right now. Try again in a minute.' : 'The AI could not answer right now.' });
   }
   if (!p.json) return res.status(200).json({ text: raw.trim() });
   const obj = parseJSON(raw);
   if (b.type === 'stage') {
-    const scenes = cleanScenes(obj?.scenes);
+    const scenes = cleanScenes(obj?.scenes, b.level === 'teach' || b.level === 'reteach' ? 14 : 7);
     // Unreadable JSON still gets performed: the raw text becomes one scene.
     if (!scenes.length) return res.status(200).json({ scenes: [{ say: clip(String(raw).replace(/[{}\[\]"]/g, ' ').replace(/\s+/g, ' '), 400) || 'My circuits tangled. Ask me again?', mood: 'surprised', gesture: 'shrug', board: null }], chips: [] });
     const homework = obj.homework && obj.homework.task ? { title: clip(obj.homework.title, 100) || 'Homework', task: clip(obj.homework.task, 600), deliverable: clip(obj.homework.deliverable, 240), kind: ['code', 'text', 'photo'].includes(obj.homework.kind) ? obj.homework.kind : 'text', lang: clip(obj.homework.lang, 20) } : null;
@@ -467,11 +480,28 @@ function cleanBoard(bd) {
     default: return null;
   }
 }
-function cleanScenes(list) {
-  return (Array.isArray(list) ? list : []).filter((x) => x && String(x.say || '').trim()).slice(0, 7).map((x) => ({
-    say: clip(String(x.say).replace(/[*_#`]/g, ''), 420),
-    mood: MOODS.includes(x.mood) ? x.mood : 'happy',
-    gesture: GESTURES.includes(x.gesture) ? x.gesture : 'none',
-    board: cleanBoard(x.board),
-  }));
+function cleanScenes(list, max = 7) {
+  let shown = null; // the code on the board so far
+  return (Array.isArray(list) ? list : []).filter((x) => x && String(x.say || '').trim()).slice(0, max).map((x) => {
+    const board = cleanBoard(keepCode(x.board, shown));
+    if (board?.type === 'code') shown = board.code;
+    return {
+      say: clip(String(x.say).replace(/[*_#`]/g, ''), 520),
+      mood: MOODS.includes(x.mood) ? x.mood : 'happy',
+      gesture: GESTURES.includes(x.gesture) ? x.gesture : 'none',
+      board,
+    };
+  });
+}
+
+// Walking through code, he sometimes puts only the line he is talking about on the board ("line 5", alone, as
+// line 1). The whole snippet stays up instead, with that line highlighted.
+function keepCode(bd, shown) {
+  if (!bd || bd.type !== 'code' || !bd.code || !shown) return bd;
+  const full = shown.split('\n');
+  const part = String(bd.code).split('\n').map((l) => l.trim()).filter(Boolean);
+  if (!part.length || part.length >= full.filter((l) => l.trim()).length) return bd;
+  const at = part.map((l) => full.findIndex((f) => f.trim() === l) + 1);
+  if (at.some((n) => n < 1)) return bd; // new code, not a piece of what is up
+  return { ...bd, code: shown, focus: at };
 }

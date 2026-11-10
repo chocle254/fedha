@@ -149,10 +149,17 @@ async function groqJSON(key, prompt, temperature = 0.6, maxTokens = 6000, model 
 // the page reuses the judge's last review instead.
 async function groqJSONOnly(key, prompt, temperature = 0.6, maxTokens = 6000, model = GROQ_MODEL, { reasoning = null, steady = false } = {}, nvidiaBackup = false) { // eslint-disable-line default-param-last
   let useReasoning = reasoning;
+  let room = maxTokens;
   const call = async (m) => {
     try { return await callOnce(m); } catch (e) {
       // Model/endpoint doesn't accept reasoning_effort: retry once without it rather than failing.
       if (e.status === 400 && useReasoning && /reasoning/i.test(e.message || '')) { useReasoning = null; return callOnce(m); }
+      // The answer was cut off or was not JSON (the model's thinking used up the room): once more, thinking less, with more room.
+      if (e.status === 502 || (e.status === 400 && /json|generat|validat/i.test(e.message || ''))) {
+        if (useReasoning) useReasoning = 'low';
+        room = Math.min(8000, maxTokens + 2000);
+        return callOnce(m);
+      }
       throw e;
     }
   };
@@ -163,7 +170,7 @@ async function groqJSONOnly(key, prompt, temperature = 0.6, maxTokens = 6000, mo
       body: JSON.stringify({
         model: m,
         temperature,
-        max_tokens: maxTokens,
+        max_tokens: room,
         ...(temperature === 0 ? { seed: 42 } : {}),
         response_format: { type: 'json_object' },
         // gpt-oss models think before answering; "medium" gives real reasoning without eating the token budget.
@@ -181,7 +188,9 @@ async function groqJSONOnly(key, prompt, temperature = 0.6, maxTokens = 6000, mo
       e.retryAfter = Number(r.headers.get('retry-after')) || null;
       throw e;
     }
-    return parseObject(data.choices?.[0]?.message?.content || '');
+    const obj = parseObject(data.choices?.[0]?.message?.content || '');
+    if (!obj) throw Object.assign(new Error('The answer came back unreadable'), { status: 502 });
+    return obj;
   };
   try {
     return await call(model);

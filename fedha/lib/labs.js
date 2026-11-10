@@ -29,7 +29,8 @@ export function missedLessons(course, section, explained = []) {
   if (at < 0) return [];
   const all = units.slice(0, at + 1).flatMap((u) => u.lessons);
   const lastDone = all.map((l) => !!l.completed).lastIndexOf(true);
-  return all.filter((l, i) => !l.completed && i < Math.max(lastDone, all.length) && !explained.includes(l.id));
+  // Only lessons with a finished lesson after them were skipped; the ones you have not reached yet are just next.
+  return all.filter((l, i) => !l.completed && i < lastDone && !explained.includes(l.id));
 }
 
 // A new lab project from the AI's answer.
