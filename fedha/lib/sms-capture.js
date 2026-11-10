@@ -147,10 +147,13 @@ export async function ingest(token, messages) {
       fingerprint: sha(`${sender}|${at}|${body}`), parsed, wallet_id: wallet,
       status: device.paired_at && at < device.paired_at ? 'history' : parsed ? 'captured' : 'unparsed',
     };
-    // A message with a code already seen (the same text resent, or caught twice) is a duplicate.
+    // A message with a code already seen (the same text resent, or caught twice) is a duplicate. One exception:
+    // a payment that Fuliza topped up sends TWO texts with the SAME code, the payment and "Fuliza M-PESA amount
+    // is Ksh…". Both must be kept: dropping the Fuliza one left the wallet short by everything Fuliza lent.
     if (row.code) {
-      const { data: dup } = await supabaseAdmin.from('sms_inbox').select('id').eq('user_id', userId).eq('code', row.code).limit(1);
-      if (dup?.length) { skipped++; continue; }
+      const { data: dup } = await supabaseAdmin.from('sms_inbox').select('id, parsed').eq('user_id', userId).eq('code', row.code).limit(6);
+      const isDraw = (k) => k === 'fuliza_draw';
+      if ((dup || []).some((d) => isDraw(d.parsed?.kind) === isDraw(parsed?.kind))) { skipped++; continue; }
     }
     const { error } = await supabaseAdmin.from('sms_inbox').upsert(row, { onConflict: 'user_id,fingerprint', ignoreDuplicates: true });
     if (!error && row.status === 'captured' && parsed?.kind === 'received' && parsed.phone) await customerPaid(userId, parsed, at).catch(() => {});
@@ -353,7 +356,7 @@ export async function readyToRecord(userId) {
   for (const r of rows) {
     const plan = planMessage(r, ctx);
     if (plan.action === 'skip') { await supabaseAdmin.from('sms_inbox').update({ status: 'ignored', body: null }).eq('id', r.id); continue; }
-    if (plan.action === 'record') items.push({ id: r.id, received_at: r.received_at, sim_slot: r.sim_slot, parsed: r.parsed, plan });
+    if (plan.action === 'record') items.push({ id: r.id, received_at: r.received_at, sim_slot: r.sim_slot, wallet_id: r.wallet_id || ctx.sims?.[r.sim_slot] || null, parsed: r.parsed, plan });
   }
   return { auto, items };
 }

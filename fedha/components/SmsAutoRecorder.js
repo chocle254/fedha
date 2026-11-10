@@ -13,6 +13,19 @@ import { applyClientPayment } from '../lib/client-pay';
 // Every transaction id is sms_<message id>_<n>, so a message can never be recorded twice.
 const POLL_MS = 45e3;
 
+// Messages this phone has already recorded (newest 300), with the transactions they made.
+const DONE_KEY = 'luxe_sms_done';
+const doneMap = () => { try { return JSON.parse(localStorage.getItem(DONE_KEY) || '{}'); } catch { return {}; } };
+const wasDone = (id) => doneMap()[id] || null;
+function markDone(id, ids) {
+  try {
+    const m = doneMap(); m[id] = ids || [];
+    const keys = Object.keys(m);
+    for (const k of keys.slice(0, Math.max(0, keys.length - 300))) delete m[k];
+    localStorage.setItem(DONE_KEY, JSON.stringify(m));
+  } catch { /* private mode */ }
+}
+
 export default function SmsAutoRecorder() {
   const app = useApp();
   const ref = useRef(app);
@@ -98,9 +111,15 @@ export default function SmsAutoRecorder() {
       if (!r.ok) return;
       const { items = [] } = await r.json();
       let done = 0;
+      const stated = {}; // per wallet: the last "New M-PESA balance" in this batch
       for (const item of items) {
         try {
-          const ids = await record(item);
+          // Recorded on this phone already but the server never heard (the connection dropped in between):
+          // tell it again, and do not record it twice (a Fuliza loan entry would be counted double).
+          const seen = wasDone(item.id);
+          const ids = seen || await record(item);
+          if (!seen) markDone(item.id, ids);
+          if (item.parsed?.balance != null && item.wallet_id && item.parsed.kind !== 'failed') stated[item.wallet_id] = { balance: Number(item.parsed.balance), at: item.received_at };
           await fetch('/api/sms/ready', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id, transaction_ids: ids }) });
           done++;
           // Recorded as Other because Luxe doesn't know this person yet: ask for the category (it relabels in place).
@@ -111,6 +130,18 @@ export default function SmsAutoRecorder() {
         } catch (e) { console.warn('[fedha] SMS record failed:', item.id, e?.message); }
       }
       if (done > 1) showNotif({ title: `✓ ${done} M-Pesa transactions recorded`, body: 'From your messages. Tap a transaction to change or delete it.', tag: 'sms-batch' });
+      // The check: M-Pesa states its balance in every text. If Luxe's wallet does not agree after recording, say
+      // so straight away (it never changes your balance by itself), so a slip is caught the day it happens.
+      if (done) {
+        await new Promise((res) => setTimeout(res, 1500));
+        for (const [walletId, st] of Object.entries(stated)) {
+          if (Date.now() - new Date(st.at).getTime() > 15 * 60e3) continue; // an old text: other things may have happened since
+          const w = (ref.current.wallets || []).find((x) => x.id === walletId);
+          if (!w || Math.abs(Number(w.balance) - st.balance) <= 1) continue;
+          const k = (n) => `KSh ${Number(n).toLocaleString('en-KE', { maximumFractionDigits: 2 })}`;
+          showNotif({ title: `⚠️ ${w.name}: Luxe and M-Pesa disagree`, body: `M-Pesa says ${k(st.balance)}, Luxe has ${k(w.balance)}. Open Wallets and set ${w.name} to ${k(st.balance)}.`, tag: `sms-balance-${walletId}`, url: '/wallets' });
+        }
+      }
     } catch { /* offline */ } finally { busy.current = false; }
   }, [record]);
 
