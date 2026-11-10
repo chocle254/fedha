@@ -137,6 +137,12 @@ async function health() {
 export default async function handler(req, res) {
   if (req.method === 'GET' && req.query?.check) { const h = await health(); res.setHeader('Cache-Control', 'no-store'); return res.status(200).json({ ...h, at: undefined }); }
   if (!(await requireUser(req, res))) return;
+  // GET ?wake=1: loads Kokoro's model now, so the first spoken line does not wait for it.
+  if (req.method === 'GET' && req.query?.wake) {
+    const url = process.env.KOKORO_URL || (process.env.VERCEL ? 'https://fedha.vercel.app/api' : '');
+    if (url && url !== 'off') await fetch(`${url.replace(/\/$/, '')}/tts`, { signal: AbortSignal.timeout(50000) }).catch(() => {});
+    return res.status(200).json({ ok: true });
+  }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!process.env.ELEVENLABS_API_KEY && !process.env.GROQ_API_KEY && !process.env.KOKORO_URL) return res.status(500).json({ error: 'No voice key set (ELEVENLABS_API_KEY or GROQ_API_KEY)' });
   const text = String(req.body?.text || '').replace(/[*_#`[\]<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 190);

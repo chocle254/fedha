@@ -49,13 +49,14 @@ export function chunks(text, max = 180) {
 // ElevenLabs' free plan allows 2 requests at once, so never run more than 2 voice fetches together.
 let running = 0;
 const waiting = [];
-const gate = (fn) => new Promise((resolve, reject) => {
+// The line being spoken goes to the front of the queue, ahead of lines being got ready for later.
+const gate = (fn, urgent = false) => new Promise((resolve, reject) => {
   const go = () => { running += 1; fn().then(resolve, reject).finally(() => { running -= 1; waiting.shift()?.(); }); };
-  if (running < 2) go(); else waiting.push(go);
+  if (running < 2) go(); else if (urgent) waiting.unshift(go); else waiting.push(go);
 });
 const inflight = new Map(); // the same chunk asked for twice (warm-up + playback) is fetched once
 
-function fetchChunk(text, voice, tone, signal, persona = null) {
+function fetchChunk(text, voice, tone, signal, persona = null, urgent = false) {
   const k = `${persona || ''}|${voice}|${tone}|${text}`;
   if (cache.has(k)) return Promise.resolve(cache.get(k));
   if (inflight.has(k)) return inflight.get(k);
@@ -67,16 +68,25 @@ function fetchChunk(text, voice, tone, signal, persona = null) {
     const blob = await r.blob();
     remember(k, blob);
     return blob;
-  }).finally(() => inflight.delete(k));
+  }, urgent).finally(() => inflight.delete(k));
   inflight.set(k, job);
   return job;
 }
 
 // Gets the first two chunks of a line ready while the one before it is still playing, so there is no gap between lines.
-export function warmByte(text, { mood = 'happy', voice = getByteVoice(), persona = null } = {}) {
+// Wakes the voice engine (it sleeps when nobody has used it for a while, and the first line after that was slow).
+let wokeAt = 0;
+export function wakeByte() {
+  if (typeof window === 'undefined' || Date.now() - wokeAt < 3 * 60e3) return;
+  const v = getByteVoice(); if (v === 'off' || v === 'phone') return;
+  wokeAt = Date.now();
+  fetch('/api/byte-voice?wake=1').catch(() => {});
+}
+
+export function warmByte(text, { mood = 'happy', voice = getByteVoice(), persona = null, first = 4 } = {}) {
   if (typeof window === 'undefined' || !text || voice === 'off' || voice === 'phone' || Date.now() < neuralDownUntil) return;
   const tone = TONE[mood] || 'cheerful';
-  chunks(text).slice(0, 2).forEach((c) => { fetchChunk(c, voice, tone, undefined, persona).catch(() => {}); });
+  chunks(text).slice(0, first).forEach((c) => { fetchChunk(c, voice, tone, undefined, persona).catch(() => {}); });
 }
 
 let ac = null;
@@ -145,7 +155,7 @@ export function speakByte(text, { mood = 'happy', voice = getByteVoice(), person
   const tone = TONE[mood] || 'cheerful';
   const parts = chunks(text);
   const jobs = [];
-  const get = (i) => { if (i < parts.length && !jobs[i]) jobs[i] = fetchChunk(parts[i], voice, tone, ctrl.signal, persona); return jobs[i]; };
+  const get = (i) => { if (i < parts.length && !jobs[i]) jobs[i] = fetchChunk(parts[i], voice, tone, ctrl.signal, persona, true); return jobs[i]; };
   const playPart = async (i) => {
     if (stopped) return;
     if (i >= parts.length) { finish(); return; }

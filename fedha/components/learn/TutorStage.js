@@ -7,7 +7,7 @@ import CodePad from './CodePad';
 import { resizeImage } from '../../lib/utils';
 import { askStudy, getSass, setSass } from '../../lib/study';
 import { stopSpeaking } from '../../lib/voice';
-import { speakByte, warmByte, byteVoiceInfo, byteVoiceWhy, getByteVoice, setByteVoice, BYTE_VOICES } from '../../lib/byte-voice';
+import { speakByte, warmByte, wakeByte, byteVoiceInfo, byteVoiceWhy, getByteVoice, setByteVoice, BYTE_VOICES } from '../../lib/byte-voice';
 
 // The tutor stage in Study mode. Professor Byte runs a class: he teaches the lesson point by point (the next part is
 // prepared while he talks, and the words stay off screen unless captions are on), then quizzes you at the end. He only
@@ -90,6 +90,9 @@ function tok() {
   } catch { /* no audio */ }
 }
 const toMd = (a) => a.scenes.map((s) => [s.say, boardToMd(s.board)].filter(Boolean).join('\n\n')).join('\n\n');
+
+// A check question after every part broke the flow of the class: he teaches straight through and tests at the end.
+const CHECK_EACH_PART = false;
 
 // Lesson plans he made, kept on this phone (last 20) so reopening the same lesson picks up where you left off.
 const PKEY = 'luxe_byte_plans';
@@ -213,6 +216,7 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
   const lastQuiz = useRef('');
   const rearm = useRef(null);
   const K = useRef({}); // latest versions of the class functions, for timers and the stable play()
+  useEffect(() => { wakeByte(); const t = setInterval(wakeByte, 4 * 60e3); return () => clearInterval(t); }, []); // keeps his voice loaded, so lines start quickly
   useEffect(() => { setVoice(getByteVoice()); try { setCaptions(localStorage.getItem('luxe_byte_cc') === '1'); } catch { /* private mode */ } }, []);
   const clearTimers = () => { timers.current.forEach(clearTimeout); timers.current = []; };
   const clearWait = () => { waitTimers.current.forEach(clearTimeout); waitTimers.current = []; };
@@ -257,10 +261,13 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
     }
     const id = ++playId.current;
     const scene = a.scenes[s];
+    if (a.kind === 'lecture' && a.full) K.current.mark?.(a.step, Math.max(0, s - (a.pre || 0)) + (a.skip || 0), a.full);
     setIdle(null); setCur({ i, s, done: false }); setTalking(true); setTyped('');
     // Get the next line's voice ready while this one plays, so there is no gap between lines.
     const nxt = a.scenes[s + 1] || (a.kind === 'lecture' ? preVal.current[K.current.stepKey(planRef.current, a.step + 1)]?.scenes?.[0] : null);
     if (nxt) warmByte(speakable(nxt.say), { mood: nxt.mood, voice: voiceRef.current });
+    const nxt2 = a.scenes[s + 2];
+    if (nxt2) warmByte(speakable(nxt2.say), { mood: nxt2.mood, voice: voiceRef.current, first: 1 });
     const text = scene.say;
     // The words only appear on screen when captions are on (or his voice is off): he talks, you listen.
     if (captionsRef.current || voiceRef.current === 'off') {
@@ -284,16 +291,28 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
 
   // ── The class: he lectures point by point, then quizzes you at the end ──
   // Each part of the lesson is fetched while the part before it is still being taught, so there is no waiting between parts.
+  // Where he is in the lesson, saved on the phone: the part, the line, and that part's scenes.
+  const mark = (step, scene, scenes) => {
+    const p = planRef.current; if (!p) return;
+    const n = { ...p, pos: { step, scene }, part: { step, scenes } };
+    planRef.current = n; savePlan(planKeyRef.current, n);
+  };
   const fetchStep = (p, k, intro) => {
     const key = K.current.stepKey(p, k);
     if (pre.current[key]) return pre.current[key];
-    const history = [k - 2, k - 1].filter((x) => x >= 0 && lectureSaid.current[K.current.stepKey(p, x)]).map((x) => ({ role: 'ai', text: lectureSaid.current[K.current.stepKey(p, x)] }));
-    const job = askStudy({ type: 'stage', level: 'teach', intro, topic: subject, context: context(), plan: { steps: p.steps, mode: p.mode, lang: p.lang, pipeline: p.pipeline }, step: k, history })
+    const history = [k - 1].filter((x) => x >= 0 && lectureSaid.current[K.current.stepKey(p, x)]).map((x) => ({ role: 'ai', text: lectureSaid.current[K.current.stepKey(p, x)] }));
+    // Everything he has already explained in earlier parts (kept with the plan), so he builds on it instead of explaining it again.
+    const taught = p.steps.slice(0, k).map((st) => ({ title: st.title, covered: st.covered || [] }));
+    const job = askStudy({ type: 'stage', level: 'teach', intro, topic: subject, context: context(), plan: { steps: p.steps, mode: p.mode, lang: p.lang, pipeline: p.pipeline }, step: k, history, taught })
       .then((j) => {
         const scenes = j.scenes || [];
         if (!scenes.length) throw new Error('empty');
         lectureSaid.current[key] = scenes.map((x) => x.say).join(' ');
         preVal.current[key] = { scenes };
+        if (j.covered?.length) {
+          const cur = planRef.current;
+          if (cur?.steps?.[k]) { const n = { ...cur, steps: cur.steps.map((st, i) => (i === k ? { ...st, covered: j.covered } : st)) }; planRef.current = n; setPlan(n); savePlan(planKeyRef.current, n); }
+        }
         return { scenes };
       })
       .catch((e) => { delete pre.current[key]; throw e; });
@@ -336,6 +355,22 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
     const c = cls.current; const p = planRef.current;
     if (!c.on || !p || !p.steps[k]) return;
     c.step = k;
+    // Stopped in the middle of this part last time: carry on from that line, not from the top of the part.
+    const at = p.pos && p.pos.step === k && p.part?.step === k && Array.isArray(p.part.scenes) ? p.pos.scene : 0;
+    if ((intro === 'back' || intro === 'new') && at > 0 && at < p.part.scenes.length) {
+      const full = p.part.scenes;
+      const from = Math.max(0, at - 1); // the line he was on is said again, so nothing is lost
+      const key = K.current.stepKey(p, k);
+      lectureSaid.current[key] = full.map((x) => x.say).join(' ');
+      preVal.current[key] = { scenes: full }; pre.current[key] = Promise.resolve({ scenes: full });
+      const hello = { say: `Welcome back. We were in part ${k + 1}, ${p.steps[k].title}. Let us pick up right where we stopped.`, mood: 'happy', gesture: 'wave', board: full[from].board || null };
+      gate(() => {
+        showEntry({ role: 'ai', kind: 'lecture', step: k, scenes: [hello, ...full.slice(from)], full, pre: 1, skip: from, chips: [] });
+        if (k + 1 < p.steps.length) fetchStep(p, k + 1).catch(() => {});
+        fetchQuiz(p);
+      });
+      return;
+    }
     if (!preVal.current[K.current.stepKey(p, k)]) { setThinking(true); thinkingRef.current = true; }
     let entry;
     try { entry = await fetchStep(p, k, intro); }
@@ -349,7 +384,7 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
     setThinking(false); thinkingRef.current = false;
     if (!c.on || c.step !== k) return;
     gate(() => {
-      showEntry({ role: 'ai', kind: 'lecture', step: k, scenes: entry.scenes, chips: [] });
+      showEntry({ role: 'ai', kind: 'lecture', step: k, scenes: entry.scenes, full: entry.scenes, chips: [] });
       if (k + 1 < p.steps.length) fetchStep(p, k + 1).catch(() => {});
       fetchQuiz(p);
     });
@@ -358,13 +393,13 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
   const lectureDone = (k) => {
     const c = cls.current; const p = planRef.current;
     if (!c.on || !p) return;
-    proceed(() => startCheck(k));
+    proceed(() => (CHECK_EACH_PART ? startCheck(k) : afterCheck(k)));
   };
   // After the check: the next part, or (coding classes) your turn to code, then the quiz.
   const afterCheck = (k) => {
     const c = cls.current; const p = planRef.current;
     if (!c.on || !p) return;
-    const next = { ...p, step: Math.max(p.step, k + 1) }; setPlan(next); planRef.current = next; savePlan(planKey, next);
+    const next = { ...planRef.current, step: Math.max(p.step, k + 1), pos: null, part: null }; setPlan(next); planRef.current = next; savePlan(planKey, next);
     if (k + 1 < p.steps.length) { holdForBreak(() => teachStep(k + 1), p.steps[k + 1].title); return; }
     if (p.mode === 'coding' && !c.coded) {
       c.coded = true;
@@ -658,7 +693,7 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
     } finally { setThinking(false); thinkingRef.current = false; }
   }, [subject, context, play]); // eslint-disable-line react-hooks/exhaustive-deps
   const askRef = useRef(ask); askRef.current = ask;
-  K.current = { entryEnded, stepKey: (p, k) => `${planKeyRef.current}|${p?.sig}|${k}` };
+  K.current = { entryEnded, mark, stepKey: (p, k) => `${planKeyRef.current}|${p?.sig}|${k}` };
   const nextAfterHw = useRef('start');
   // ✋ Hand it in (timeUp: the catch-up time ran out, hand in whatever is there).
   // "I didn't do it": no scolding and carry-over any more: he gives you minutes and hints to do it now.
@@ -697,9 +732,12 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
     const b = brief();
     const sig = `${b.text.length}:${b.read.notes}:${b.read.cards}`;
     const have = planRef.current;
-    if (!force && have && have.key === planKey && have.sig === sig && have.mode) return have; // plans without a class type are from before: re-plan
+    if (!force && have && have.key === planKey && have.mode && have.steps?.length) return have; // plans without a class type are from before: re-plan
     const saved = loadPlans()[planKey];
-    if (!force && saved && saved.sig === sig && saved.mode) { setPlan(saved); planRef.current = saved; return saved; }
+    // A saved plan is kept with its progress until it is finished. (It used to be thrown away whenever the brief
+    // changed, and the brief changes after every study session, so every class started the topic from the top.)
+    // New notes? The Re-plan button in the lesson plan makes a fresh one.
+    if (!force && saved && saved.mode && saved.steps?.length) { setPlan(saved); planRef.current = saved; return saved; }
     const r = b.read;
     setReading([r.lessons && `${r.lessons} lesson${r.lessons === 1 ? '' : 's'} of notes`, r.notes && `${r.notes} saved note${r.notes === 1 ? '' : 's'}`, r.cards && `${r.cards} flashcard${r.cards === 1 ? '' : 's'}`, r.weak && `${r.weak} weak spot${r.weak === 1 ? '' : 's'}`].filter(Boolean).join(', ') || 'the topic');
     try {
