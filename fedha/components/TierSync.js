@@ -50,8 +50,8 @@ export default function TierSync() {
   const mood = holiday ? { glows: holiday.glows, emit: holiday.emit } : MOODS[tier.key];
   const moodKey = holiday ? `h-${holiday.key}` : tier.key;
   // The holiday's motion runs on every screen (the whole app dresses up); a tier's only on money screens,
-  // except Sapphire's aquarium, which is the background everywhere.
-  const motion = mood && (money || holiday || mood.aquarium) ? <>{holiday?.scene && <HolidayScene kind={holiday.scene} />}<TierMotion moodKey={moodKey} mood={mood} /></> : null;
+  // except the 3D worlds (Sapphire's aquarium and every tier above it), which are the background everywhere.
+  const motion = mood && (money || holiday || mood.aquarium || mood.world) ? <>{holiday?.scene && <HolidayScene kind={holiday.scene} />}<TierMotion moodKey={moodKey} mood={mood} /></> : null;
 
   // Holiday skin, app-wide: html[data-holiday] styles cards, numbers, buttons and the nav (styles/globals.css),
   // the holiday accent wins over the section's, and only today's display font is downloaded.

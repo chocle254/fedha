@@ -1,24 +1,26 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Aquarium from './Aquarium';
+import TierWorld from './TierWorld';
 
 // The living background on the money screens: ONLY the current mood is built (your tier's, or today's holiday,
 // which takes over the motion for the day). A mood is one or two soft glows plus a few emitters of real-looking
-// things: Sapphire's 3D aquarium and bubbles, Amethyst crystals, Rose Gold petals and roses, Gold coins and dust,
-// Platinum chrome coins and beams, Black Card falling black cards and gold glints, Diamond gems and sparkles,
-// Royal crowns and glitter, Imperial embers and coins. Holidays: lib/holidays.js.
+// things. The tiers themselves are 3D worlds now (Sapphire's aquarium, then one world per tier); the emitters
+// below are what holidays use. Holidays: lib/holidays.js.
 // Only transform and opacity animate, about 15-25 things on screen, nothing when motion is reduced.
 export const MOODS = {
   // Sapphire is an aquarium: real 3D sea life and bubbles behind the screen (components/Aquarium.js).
   sapphire: { aquarium: true, glows: [], emit: [] }, // the bubbles are inside the aquarium itself
-  amethyst: { glows: ['139,92,246'], emit: [{ shape: 'crystal', motion: 'float', n: 8, size: [12, 24], colors: ['#A78BFA', '#C4B5FD', '#7C3AED'] }, { shape: 'sparkle', n: 10, size: [6, 12], colors: ['#DDD6FE'] }] },
-  rosegold: { glows: ['244,114,182'], emit: [{ shape: 'petal', motion: 'fall', n: 12, size: [10, 18], colors: ['#FBCFE8', '#F9A8D4', '#E8A0A8'] }, { emoji: ['🌹'], motion: 'fall', n: 3, size: [16, 22], slow: true }] },
-  gold: { glows: ['245,196,81'], emit: [{ shape: 'coin', motion: 'flip', n: 8, size: [14, 24] }, { shape: 'dust', motion: 'rise', n: 12, size: [2, 4], colors: ['#FDE047'] }] },
-  platinum: { glows: ['209,213,219'], emit: [{ shape: 'beam', n: 3 }, { shape: 'chrome', motion: 'flip', n: 7, size: [14, 22] }, { shape: 'sparkle', n: 6, size: [6, 10], colors: ['#F9FAFB'] }] },
-  obsidian: { glows: ['233,196,106'], spot: true, emit: [{ shape: 'glint', n: 8 }, { shape: 'card', motion: 'flip', n: 5, size: [26, 36], slow: true }] },
-  diamond: { glows: ['125,211,252'], emit: [{ shape: 'gem', motion: 'flip', n: 8, size: [14, 24], colors: ['#E0F2FE', '#7DD3FC', '#BAE6FD'] }, { shape: 'sparkle', n: 14, size: [6, 14], colors: ['#FFFFFF'] }] },
-  royal: { glows: ['124,58,237', '251,191,36'], emit: [{ emoji: ['👑'], motion: 'fall', n: 4, size: [18, 26], slow: true }, { shape: 'glitter', motion: 'fall', n: 16, size: [3, 6], colors: ['#FDE047', '#FBBF24'] }] },
-  imperial: { glows: ['220,38,38'], emit: [{ shape: 'ember', motion: 'rise', n: 16, size: [2, 5], colors: ['#FB923C', '#FBBF24'] }, { shape: 'coin', motion: 'flip', n: 5, size: [14, 22] }] },
+  // Every tier above Sapphire is its own 3D world you travel through (components/TierWorld.js, components/worlds/),
+  // each grander than the one before. The world is the whole background, so nothing else is drawn over it.
+  amethyst: { world: 'amethyst', glows: [], emit: [] }, // a flight through a crystal cavern
+  rosegold: { world: 'rosegold', glows: [], emit: [] }, // a sea of silk, ring gates and petals
+  gold: { world: 'gold', glows: [], emit: [] },         // the aisle of an endless vault
+  platinum: { world: 'platinum', glows: [], emit: [] }, // a chrome solar system
+  obsidian: { world: 'obsidian', glows: [], emit: [] }, // a midnight city, your black card above it
+  diamond: { world: 'diamond', glows: [], emit: [] },   // an ice plain and a mountain of diamond
+  royal: { world: 'royal', glows: [], emit: [] },       // the throne hall and the crown
+  imperial: { world: 'imperial', glows: [], emit: [] }, // a golden dragon over the mountains
 };
 
 const rnd = (i, k) => { const x = Math.sin(i * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
@@ -58,6 +60,7 @@ export default function TierMotion({ moodKey, mood }) {
   const layer = useMemo(() => (mood ? (
     <div key={moodKey} className={`tm tm-${moodKey}`} aria-hidden="true">
       {mood.aquarium && <Aquarium />}
+      {mood.world && <TierWorld kind={mood.world} />}
       {(mood.glows || []).slice(0, 2).map((g, i) => <b key={g} className="tm-glow" style={{ '--rgb': g, '--gx': i ? '80%' : '18%', '--gy': i ? '75%' : '12%', '--d': `${24 + i * 10}s` }} />)}
       {mood.spot && <b className="tm-spot" />}
       {mood.emit.map((e, k) => build(e, k + 1))}
