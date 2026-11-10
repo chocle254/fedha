@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getSetting } from '../../lib/db';
 import { genId } from '../../lib/utils';
+import LeadFinder from './LeadFinder';
 
 // Startup → 💰 Customers: the people you are turning into paying customers, from first message to paid.
 //   - each person sits at a stage (Lead → Contacted → Demo → Trial → Paid, or Lost)
@@ -95,6 +96,8 @@ export default function CustomersTab({ startup, save }) {
           <input className="input" value={price} placeholder="e.g. KES 200 a month, M-Pesa till 123456" onChange={(e) => setPrice(e.target.value)} onBlur={() => price !== (startup.price || '') && save({ price })} style={{ marginTop: 4 }} />
         </label>
       </section>
+
+      <LeadFinder startup={startup} save={save} pipeline={customers.length} paying={counts.paid} />
 
       <section className="card muse-card">
         <div className="muse-label">ADD SOMEONE</div>
