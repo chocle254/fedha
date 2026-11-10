@@ -27,7 +27,7 @@ Plain English, no slang or local dialect, no emoji in spoken lines. Use the STUD
 const BOARD_HELP = `Boards (pick the one that teaches best; use one in most scenes):
 {"type":"chart","title":"","kind":"line"|"bar","x":"x label","y":"y label","points":[[x,y],...]}  up to 12 points; x is a number for line, a short label for bar. Use whenever numbers, growth, trade-offs or a function would help (real data, or clearly illustrative).
 {"type":"steps","title":"","items":["",""]}  up to 6 short items
-{"type":"code","lang":"python","code":"...","focus":[3,4],"note":"what these lines do"}  up to 14 short lines of CORRECT, runnable code; "focus" = the line numbers you are explaining right now (highlighted); "note" = one line about them. When walking through code, keep the SAME code on the board and move "focus" scene by scene.
+{"type":"code","lang":"python","code":"...","focus":[3,4],"note":"what these lines do"}  up to 14 short lines of CORRECT, runnable code; "focus" = the line numbers you are explaining right now (highlighted), counted on THIS snippet starting at 1; "note" = one line about them, and any line number in it is a line of this snippet (never of the full program). When walking through code, keep the SAME code on the board and move "focus" scene by scene.
 {"type":"table","title":"","headers":["step","i","total"],"rows":[["1","0","0"],["2","1","1"]]}  a trace or comparison table: up to 5 columns, 8 rows. Use it to TRACE code with real values (variables after each line or loop pass).
 {"type":"big","text":"key term or formula","sub":"one line"}
 {"type":"compare","left":{"title":"","items":[""]},"right":{"title":"","items":[""]}}
@@ -410,6 +410,15 @@ export default async function handler(req, res) {
 const MOODS = ['happy', 'cheeky', 'excited', 'thinking', 'surprised', 'serious', 'proud', 'facepalm', 'impatient'];
 const GESTURES = ['wave', 'point', 'explain', 'think', 'shrug', 'celebrate', 'lean', 'knock', 'laugh', 'facepalm', 'tap', 'none'];
 const strs = (a, n, len) => (Array.isArray(a) ? a : []).map((x) => clip(x, len)).filter(Boolean).slice(0, n);
+// The note under the code must point at lines that are on the board. The AI sometimes counts lines in the
+// full lesson code ("line 5") while showing a short snippet: point at the highlighted lines instead.
+function fixLineRefs(note, n, focus) {
+  if (!note) return note;
+  const here = focus.length ? (focus.length === 1 ? `line ${focus[0]}` : `lines ${focus[0]}-${focus[focus.length - 1]}`) : (n === 1 ? 'this line' : 'this code');
+  return note.replace(/\b(lines?)\s+(\d+)(?:\s*(?:-|–|to|and)\s*(\d+))?/gi, (m, w, a, b) => (Number(a) > n || (b && Number(b) > n) ? here : m))
+    .replace(/^this (line|code)/, (m) => m[0].toUpperCase() + m.slice(1));
+}
+
 function cleanBoard(bd) {
   if (!bd || typeof bd !== 'object') return null;
   switch (bd.type) {
@@ -421,10 +430,10 @@ function cleanBoard(bd) {
     case 'steps': { const items = strs(bd.items, 6, 140); return items.length ? { type: 'steps', title: clip(bd.title, 60), items } : null; }
     case 'code': {
       if (!bd.code) return null;
-      const code = String(bd.code).split('\n').slice(0, 18).join('\n').slice(0, 1100);
+      const code = String(bd.code).split('\n').slice(0, 18).join('\n').slice(0, 1100).replace(/\s+$/, '');
       const n = code.split('\n').length;
       const focus = (Array.isArray(bd.focus) ? bd.focus : []).map(Number).filter((x) => Number.isInteger(x) && x >= 1 && x <= n).slice(0, 6);
-      return { type: 'code', lang: clip(bd.lang, 20), code, focus, note: clip(bd.note, 160) };
+      return { type: 'code', lang: clip(bd.lang, 20), code, focus, note: fixLineRefs(clip(bd.note, 160), n, focus) };
     }
     case 'table': {
       const headers = strs(bd.headers, 5, 24);

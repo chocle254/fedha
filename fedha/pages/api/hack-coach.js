@@ -74,18 +74,24 @@ export default async function handler(req, res) {
     try {
       obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), b.type === 'hack_submission' ? 0.75 : JUDGING ? 0 : 0.6, LIGHT.has(b.type) ? 2500 : b.type === 'hack_judge_one' ? 3500 : 6000, ['hack_judge', 'hack_judge_one', 'hack_panel', 'hack_deliberate'].includes(b.type) ? JUDGE_MODEL : LIGHT.has(b.type) ? FALLBACK_MODEL : GROQ_MODEL, { reasoning, prefer, steady: JUDGING && !b.allow_backup });
     } catch (e) {
-      // Groq's free tier caps tokens per request/minute. If the code
-      // evidence made the prompt too big, try once more with less of it.
-      const tooBig = e.status === 413 || /too large|reduce|tokens per minute/i.test(e.message || '');
-      const ev = b.hack?.coach?.app?.evidence;
-      if (!tooBig || !ev) throw e;
-      ev.sources = (ev.sources || []).slice(0, 4).map((f) => ({ ...f, text: String(f.text || '').slice(0, 600), outline: (f.outline || []).slice(0, 20), truncated: true }));
-      ev.readme = String(ev.readme || '').slice(0, 2000);
-      ev.files = (ev.files || []).slice(0, 80);
-      ev.deps = (ev.deps || []).slice(0, 1);
-      if (b.hack.coach.presentation?.text) b.hack.coach.presentation.text = String(b.hack.coach.presentation.text).slice(0, 2500);
-      if (b.found) b.found = String(b.found).slice(0, 2500);
-      obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), JUDGING ? 0 : 0.6, 3000, ['hack_judge', 'hack_judge_one', 'hack_panel'].includes(b.type) ? JUDGE_MODEL : GROQ_MODEL, { reasoning: reasoning ? 'low' : null, prefer, steady: JUDGING && !b.allow_backup });
+      // Groq's free tier caps tokens per request/minute (the reply budget counts too). If the prompt was too
+      // big (long code excerpts, a demo transcript, a long write-up), shrink everything and try again, twice,
+      // then let NVIDIA (bigger limit) answer rather than fail.
+      const tooBig = (err) => err.status === 413 || /too large|reduce|tokens per minute/i.test(err?.message || '');
+      if (!tooBig(e)) throw e;
+      const model = ['hack_judge', 'hack_judge_one', 'hack_panel', 'hack_deliberate'].includes(b.type) ? JUDGE_MODEL : GROQ_MODEL;
+      let lastErr = e;
+      for (const level of [1, 2]) {
+        shrinkForLimit(b, level);
+        try {
+          obj = await groqJSON(GROQ_API_KEY, prompts[b.type](b), JUDGING ? 0 : 0.6, level === 1 ? 3000 : 2400, model, { reasoning: reasoning ? 'low' : null, prefer, steady: JUDGING && !b.allow_backup });
+          lastErr = null; break;
+        } catch (e2) { lastErr = e2; if (!tooBig(e2)) throw e2; }
+      }
+      if (lastErr) {
+        if (!nvidiaAvailable()) throw lastErr;
+        obj = await nvidiaJSON(prompts[b.type](b), JUDGING ? 0 : 0.6, 3500);
+      }
     }
     const out = shape[b.type](obj, b);
     if (out.error) return res.status(500).json(out);
@@ -95,6 +101,26 @@ export default async function handler(req, res) {
     const wait = e.retryAfter ? (e.retryAfter >= 60 ? `${Math.ceil(e.retryAfter / 60)} min` : `${e.retryAfter}s`) : 'a minute';
     return res.status(e.status === 429 ? 429 : 500).json({ error: e.status === 429 ? `The free AI tier is rate limited right now. Try again in ${wait}.` : 'The mentor could not answer right now. Try again in a moment.' });
   }
+}
+
+// Cuts the request down to fit the free tier: level 1 trims, level 2 keeps only the essentials.
+function shrinkForLimit(b, level) {
+  const cut = (v, n) => String(v || '').slice(0, n);
+  const c = b.hack?.coach || {};
+  const ev = c.app?.evidence;
+  if (ev) {
+    ev.sources = (ev.sources || []).slice(0, level === 1 ? 4 : 2).map((f) => ({ ...f, text: cut(f.text, level === 1 ? 600 : 400), outline: (f.outline || []).slice(0, level === 1 ? 20 : 8), truncated: true }));
+    ev.readme = cut(ev.readme, level === 1 ? 2000 : 1000);
+    ev.files = (ev.files || []).slice(0, level === 1 ? 80 : 40);
+    ev.deps = (ev.deps || []).slice(0, level === 1 ? 1 : 0);
+  }
+  if (c.presentation) {
+    c.presentation = { ...c.presentation, text: cut(c.presentation.text, level === 1 ? 2000 : 800), transcript: cut(c.presentation.transcript, level === 1 ? 3500 : 2000) };
+  }
+  if (c.facts) c.facts = cut(c.facts, level === 1 ? 1800 : 1000);
+  if (b.pitch) b.pitch = cut(b.pitch, level === 1 ? 2500 : 1500);
+  if (b.found) b.found = cut(b.found, level === 1 ? 2500 : 1200);
+  if (b.previous?.changes) b.previous.changes = b.previous.changes.slice(0, level === 1 ? 8 : 4);
 }
 
 // Rate limits (Groq free tier): on a 429, wait if Groq asks for a short pause, otherwise try the smaller
