@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import Layout from '../components/Layout';
 import { useApp } from '../context/AppContext';
 import { getSetting, setSetting, getFoodLogs } from '../lib/db';
@@ -53,6 +53,49 @@ const TYPE_COLORS = {
   sleep:    { bg:'rgba(30,41,59,0.5)',    border:'rgba(51,65,85,0.5)',     text:'#475569', dot:'#334155' },
   event:    { bg:'rgba(249,115,22,0.12)', border:'rgba(249,115,22,0.4)',   text:'#FDBA74', dot:'#F97316' },
 };
+// ─── LOW DAY ────────────────────────────────────────────────────────────────
+// For the days when everything is heavy. One tap shrinks today to what keeps you going: meals, the bath, your
+// shows, sleep, ten minutes of moving, and ONE small piece of work (25 minutes, the next thing you would have
+// done). Everything else becomes rest, with no "missed" or "dropped" anywhere. The full plan is kept underneath
+// and comes back with one tap; tomorrow starts as a normal day.
+const LOW_HEAVY = new Set(['coding', 'research', 'learning', 'chores', 'workout']);
+const LOW_REST = ['Lie down with music on.', 'Water, and a seat by the window.', 'A slow warm shower if you feel like it.', 'Two minutes of air outside, then back in.', 'Nothing is due here. Rest is the plan.'];
+function lowDay(blocks, nowMins = 0) {
+  if (!blocks?.length || blocks.some((b) => b.low)) return blocks || [];
+  const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + (m || 0); };
+  const toTime = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const out = [];
+  let work = false; let moved = false; let n = 0;
+  const rest = (id, start, duration) => {
+    if (duration <= 0) return;
+    const last = out[out.length - 1];
+    if (last && last.lowRest && toMin(last.time) + last.duration === start) { last.duration += duration; return; }
+    out.push({ id: `low_${id}`, time: toTime(start), duration, label: 'Rest', type: 'personal', emoji: '🫧', note: LOW_REST[n++ % LOW_REST.length], low: true, lowRest: true });
+  };
+  for (const b of blocks) {
+    if (!LOW_HEAVY.has(b.type)) { out.push(b); continue; }
+    const start = toMin(b.time);
+    if (b.type === 'workout') {
+      if (moved) { rest(b.id, start, b.duration); continue; }
+      moved = true;
+      const d = Math.min(10, b.duration);
+      out.push({ ...b, label: 'Ten minutes of moving', emoji: '🚶', type: 'health', duration: d, note: 'A short walk or a stretch. Ten minutes is the whole thing today.', low: true });
+      rest(`${b.id}_r`, start + d, b.duration - d);
+      continue;
+    }
+    // The one small thing: the first piece of real work that has not already gone by.
+    if (!work && b.type !== 'chores' && start + b.duration > nowMins) {
+      work = true;
+      const d = Math.min(25, b.duration);
+      out.push({ ...b, label: `One small thing: ${b.label}`, duration: d, note: 'Open it and do 25 minutes. That is the whole job today. Stopping after it is finishing, not quitting.', low: true });
+      rest(`${b.id}_r`, start + d, b.duration - d);
+      continue;
+    }
+    rest(b.id, start, b.duration);
+  }
+  return out;
+}
+
 // Blocks from Jarvis or older plans can carry a type we don't have colours
 // for — fall back to "personal" instead of crashing the page.
 const colorsFor = (type) => TYPE_COLORS[type] || TYPE_COLORS.personal;
@@ -704,7 +747,12 @@ export default function PlannerPage() {
   const planCtx = { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, lowCash, workoutMode: prefs?.workoutMode, workoutStreak: prefs?.workoutStreak, anchorBath: true, dayWake: prefs?.dayWake, dayStart: prefs?.dayStart, funToday: funBlocks.length > 0 };
   const [allDayEvents, setAllDayEvents] = useState([]);
   const isWeekend = [0,6].includes(new Date().getDay());
-  const [blocks, setBlocks] = useState([]);
+  const [fullBlocks, setBlocks] = useState([]);
+  const [low, setLow] = useState(false); // Low day (lowDay above): today only
+  const lowRef = useRef(false);
+  const lowNow = new Date().getHours() * 60 + new Date().getMinutes();
+  const blocks = useMemo(() => (low ? lowDay(fullBlocks, lowNow) : fullBlocks), [low, fullBlocks]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { getSetting(`planner_low_${todayISO()}`, false).then((v) => { lowRef.current = !!v; setLow(!!v); }).catch(() => {}); }, []);
   const [droppedToday, setDroppedToday] = useState([]);
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [notifPerm, setNotifPerm] = useState('default');
@@ -804,6 +852,8 @@ export default function PlannerPage() {
   // reminder, both the in-app timers and the server push copy, with ones for
   // exactly these blocks. Nothing else in this file schedules notifications.
   async function syncPlannerBlocksSetting(effectiveBlocks) {
+    // On a low day the reminders are for the small plan, never for the things that were set aside.
+    if (lowRef.current) effectiveBlocks = lowDay(effectiveBlocks || [], new Date().getHours() * 60 + new Date().getMinutes());
     // Each block remembers where it leads, so its notification opens that section (Food, the startup, ...).
     effectiveBlocks = (effectiveBlocks || []).map((b) => { const l = blockLink(b, { startups, hackathons }); return l ? { ...b, link: l.href } : b; });
     await setSetting('planner_blocks', effectiveBlocks);
@@ -907,7 +957,16 @@ export default function PlannerPage() {
     showNotif({ tag: 'planner_active', title: '🟢 Luxe Planner Active', body: `Reminders are on for today's ${isWeekend ? 'weekend' : 'weekday'} schedule.`, vibrate: VIBRATE.gentle });
   }
 
+  async function toggleLow() {
+    const on = !low;
+    lowRef.current = on; setLow(on);
+    await setSetting(`planner_low_${todayISO()}`, on);
+    await syncPlannerBlocksSetting(fullBlocks); // reminders switch to the small plan (or back)
+  }
+
   async function handleEditSave(updated) {
+    if (String(updated?.id).startsWith('low_')) return; // a Rest block on a low day is not a real block to edit
+    const blocks = fullBlocks; // edits always change the full plan underneath
     planRevision++;
     const original = blocks.find((b) => b.id === updated.id);
     const timeChanged = original && updated.time && updated.time !== original.time;
@@ -1060,6 +1119,14 @@ export default function PlannerPage() {
               </div>
             </div>
           </button>
+          <button onClick={toggleLow}
+            style={{ width:'100%', padding:'12px 16px', margin:'10px 0 14px', background: low ? 'rgba(125,211,252,0.10)' : 'var(--card-2)', border:`1px solid ${low ? 'rgba(125,211,252,0.4)' : 'var(--border)'}`, borderRadius:12, display:'flex', alignItems:'center', gap:12, cursor:'pointer', textAlign:'left', color:'var(--text)' }}>
+            <span style={{ fontSize:22 }}>🫧</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:14, fontWeight:700 }}>{low ? 'Low day is on' : 'Low day'}</div>
+              <div style={{ fontSize:12, color:'var(--text-3)', lineHeight:1.45 }}>{low ? 'Only the basics and one small thing today. Nothing else counts, and nothing is marked missed. Tap to bring the full day back.' : 'Heavy day? Shrink today to meals, rest, ten minutes of moving and one small 25-minute task.'}</div>
+            </div>
+          </button>
           {aiError && (
             <div style={{ padding:'10px 14px', background:'var(--red-dim)', border:'1px solid rgba(239,68,68,0.2)', borderRadius:10, fontSize:13, color:'var(--red)', marginBottom:14 }}>
               ⚠ {aiError}
@@ -1096,7 +1163,7 @@ export default function PlannerPage() {
               💸 Floating cash is low, so paid work comes first today.
             </div>
           )}
-          {droppedToday.length > 0 && (
+          {!low && droppedToday.length > 0 && (
             <div style={{ padding:'10px 14px', background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.25)', borderRadius:10, fontSize:13, color:'#FCD34D', marginBottom:14 }}>
               ⚠️ Not enough time left for everything today, so this was left out: {droppedToday.map((d) => d.label).join(', ')}.
             </div>
