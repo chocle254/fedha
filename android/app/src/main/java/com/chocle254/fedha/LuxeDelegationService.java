@@ -43,15 +43,15 @@ public class LuxeDelegationService extends DelegationService {
     // chosen in android/tools/app-sounds.mjs: success (TP, NestLink), alert (SL, UpesiPay, NestLink failed),
     // planner, jarvis (and other), entry (trades).
     // A channel's sound and buzz are fixed once created, so changing either means a new id (and deleting the old).
-    private static final Kind NESTLINK = new Kind("luxe_nestlink_v1", "NestLink withdrawals", new long[]{150, 90, 70, 90, 70, 380, 200, 380}, "sound_success", 0xFF22C55E, "💸", "NESTLINK · WITHDRAWAL");
-    private static final Kind NESTLINK_FAIL = new Kind("luxe_nestlink_fail_v1", "NestLink problems", new long[]{150, 380, 180, 380}, "sound_alert", 0xFFEF4444, "⛔", "NESTLINK · WITHDRAWAL FAILED");
-    private static final Kind UPESIPAY = new Kind("luxe_upesipay_v1", "UpesiPay low balance", new long[]{150, 260, 140, 260, 140, 260}, "sound_alert", 0xFFF59E0B, "⚠️", "UPESIPAY · LOW BALANCE");
-    private static final Kind TRADE = new Kind("luxe_trade_v1", "Trades placed", new long[]{150, 180, 120, 180}, "sound_entry", 0xFF3B82F6, "🚀", "TRADE PLACED");
-    private static final Kind TP = new Kind("luxe_tp_v1", "Take-profit hit", new long[]{150, 60, 60, 60, 60, 60}, "sound_success", 0xFF10B981, "🎯", "TAKE PROFIT");
-    private static final Kind SL = new Kind("luxe_sl_v1", "Stop-loss hit", new long[]{150, 380, 180, 380}, "sound_alert", 0xFFEF4444, "🛑", "STOP LOSS");
-    private static final Kind PLANNER = new Kind("luxe_planner_v1", "Planner reminders", new long[]{150, 100}, "sound_planner", 0xFF8B5CF6, "🗓️", "PLANNER");
-    private static final Kind MONEY = new Kind("luxe_money_v1", "Money in", new long[]{150, 90, 70, 90, 70, 380, 200, 380}, "sound_success", 0xFF22C55E, "💰", "MONEY IN");
-    private static final Kind OTHER = new Kind("luxe_jarvis_v1", "Jarvis and other", new long[]{150, 100}, "sound_jarvis", 0xFF64748B, "🔔", "JARVIS");
+    private static final Kind NESTLINK = new Kind("luxe_nestlink_v2", "NestLink withdrawals", new long[]{150, 90, 70, 90, 70, 380, 200, 380}, "s2_money", 0xFF22C55E, "💸", "NESTLINK · WITHDRAWAL");
+    private static final Kind NESTLINK_FAIL = new Kind("luxe_nestlink_fail_v2", "NestLink problems", new long[]{150, 380, 180, 380}, "s2_alert", 0xFFEF4444, "⛔", "NESTLINK · WITHDRAWAL FAILED");
+    private static final Kind UPESIPAY = new Kind("luxe_upesipay_v2", "UpesiPay low balance", new long[]{150, 260, 140, 260, 140, 260}, "s2_alert", 0xFFF59E0B, "⚠️", "UPESIPAY · LOW BALANCE");
+    private static final Kind TRADE = new Kind("luxe_trade_v2", "Trades placed", new long[]{150, 180, 120, 180}, "s2_trade", 0xFF3B82F6, "🚀", "TRADE PLACED");
+    private static final Kind TP = new Kind("luxe_tp_v2", "Take-profit hit", new long[]{150, 60, 60, 60, 60, 60}, "s2_win", 0xFF10B981, "🎯", "TAKE PROFIT");
+    private static final Kind SL = new Kind("luxe_sl_v2", "Stop-loss hit", new long[]{150, 380, 180, 380}, "s2_loss", 0xFFEF4444, "🛑", "STOP LOSS");
+    private static final Kind PLANNER = new Kind("luxe_planner_v2", "Planner reminders", new long[]{150, 100}, "s2_planner", 0xFF8B5CF6, "🗓️", "PLANNER");
+    private static final Kind MONEY = new Kind("luxe_money_v2", "Money in", new long[]{150, 90, 70, 90, 70, 380, 200, 380}, "s2_money", 0xFF22C55E, "💰", "MONEY IN");
+    private static final Kind OTHER = new Kind("luxe_jarvis_v2", "Jarvis and other", new long[]{150, 100}, "s2_luxe", 0xFF64748B, "🔔", "JARVIS");
 
     // Holiday looks and sounds (android/tools/holiday-sounds.mjs, drawable/bg_h_*.xml). On the day, everyday
     // notifications (planner, money in, Jarvis and other) wear the holiday: its own channel, sound, colour, badge
@@ -77,7 +77,7 @@ public class LuxeDelegationService extends DelegationService {
 
     // The pinned planner card: silent (no sound, no buzz) because the block's own reminder already alerts.
     // v2: the live card is now THE planner notification (sound + buzz once per new block); v1 was silent.
-    private static final String LIVE_CHANNEL = "luxe_planner_live_v2";
+    private static final String LIVE_CHANNEL = "luxe_planner_live_v3"; // v3: the new planner sound
     private static final String LIVE_PREFS = "luxe_live";
     private static final String LIVE_TAG = "luxe_planner_live";
     // Sent by supabase/functions/send-reminders at each block start: planner_live~<startMs>~<endMs>~<n>~<total>.
@@ -89,6 +89,9 @@ public class LuxeDelegationService extends DelegationService {
 
     // Every earlier channel (sounds and buzzes are fixed per channel, so changes get new ids).
     private static final String OLD_PREFIX = "fedha_";
+    // v2 (Nov 2026): the new sound family (res/raw/s2_*.wav, the same files as the site's public/sounds/x-*.wav,
+    // made by fedha/scripts/make-sounds.py). The v1 channels held the old sounds, so they are removed.
+    private static final String[] OLD_IDS = {"luxe_nestlink_v1", "luxe_nestlink_fail_v1", "luxe_upesipay_v1", "luxe_trade_v1", "luxe_tp_v1", "luxe_sl_v1", "luxe_planner_v1", "luxe_money_v1", "luxe_jarvis_v1", "luxe_planner_live_v1", "luxe_planner_live_v2"};
 
     // Titles and tags come from the site (lib/trading.js, lib/broker.js, lib/nestlink-*.js, lib/upesipay-alert.js, the planner).
     static Kind kindOf(String tag, String title) {
@@ -138,7 +141,7 @@ public class LuxeDelegationService extends DelegationService {
             shade.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             nm.createNotificationChannel(shade);
         }
-        if (nm.getNotificationChannel("luxe_planner_live_v1") != null) nm.deleteNotificationChannel("luxe_planner_live_v1");
+        for (String gone : OLD_IDS) if (nm.getNotificationChannel(gone) != null) nm.deleteNotificationChannel(gone);
         if (nm.getNotificationChannel(LIVE_CHANNEL) == null) {
             NotificationChannel live = new NotificationChannel(LIVE_CHANNEL, "Planner (live card)", NotificationManager.IMPORTANCE_HIGH);
             AudioAttributes a = new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build();
