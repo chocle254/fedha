@@ -4,6 +4,8 @@ import { isFollowUp, parseSignal } from '../../../lib/signal-parser';
 import { placeSignalOnBrokers, getBrokerSettings, brokersActive } from '../../../lib/broker';
 import { maybeAutoEnter } from '../../../lib/trading';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { scoreSignal, deskStamp, deskState } from '../../../lib/desk';
+import { handleFollowUp } from '../../../lib/followups';
 
 // Called by the Telegram listener (telegram-listener/). Tracks the signal, then trades it on the MT5 demo accounts
 // (XM, LiteFinance via MetaApi) when they are switched on, or as a Luxe paper trade otherwise.
@@ -58,8 +60,10 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: false, skipped: 'stale' });
   }
   if (isFollowUp(text)) {
-    await logInbox({ ...base, outcome: 'follow_up', detail: 'Looks like a result or update post, not a new signal.' });
-    return res.status(200).json({ ok: false, skipped: 'follow_up' });
+    // "Close now", "SL to entry", "cancel the limit": read by the AI and applied to that channel's open trades (lib/followups.js).
+    const acted = await handleFollowUp({ userId, source: base.source, text });
+    await logInbox({ ...base, outcome: 'follow_up', detail: acted?.note || 'Looks like a result or update post, not a new signal.' });
+    return res.status(200).json({ ok: false, skipped: 'follow_up', acted: acted?.action || null });
   }
 
   const result = await createSignal({ userId, source, text, externalId });
@@ -67,10 +71,14 @@ export default async function handler(req, res) {
 
   // MT5 accounts work from the signal's own prices (real XAUUSD), so they run even if the Binance stand-in could not be tracked.
   const parsed = parseSignal(text);
+  // The Desk scores it from your own results before anything trades (lib/desk.js); the score stays on the signal.
+  const desk = parsed.ok ? await scoreSignal(userId, { source: base.source, symbol: result.ok ? result.signal.symbol : parsed.symbol, side: parsed.side }) : null;
+  if (desk && result.ok) await supabaseAdmin.from('trade_signals').update({ desk: deskStamp(desk) }).eq('id', result.signal.id).then(() => null, () => null);
+  const deskReal = desk?.verdict === 'take' && (await deskState(userId).catch(() => ({}))).real === true;
   const brokerSettings = await getBrokerSettings(userId);
   const onBrokers = parsed.ok && brokersActive(brokerSettings);
   const broker = onBrokers
-    ? await placeSignalOnBrokers({ userId, parsed, source: base.source, signalKey: base.external_id || crypto.createHash('sha1').update(String(text)).digest('hex').slice(0, 20), signalId: result.ok ? result.signal.id : null })
+    ? await placeSignalOnBrokers({ userId, parsed, source: base.source, signalKey: base.external_id || crypto.createHash('sha1').update(String(text)).digest('hex').slice(0, 20), signalId: result.ok ? result.signal.id : null, desk: deskReal ? desk : null })
     : null;
   const brokerNote = (broker || []).map((b) => `${b.account}: ${b.ok ? `${b.legs} leg${b.legs > 1 ? 's' : ''}, ${b.lots} lots ×${b.mult}` : b.skipped || b.error}`).join(' · ');
   const brokerTraded = (broker || []).some((b) => b.ok);
@@ -89,6 +97,8 @@ export default async function handler(req, res) {
     await logInbox({ ...base, outcome: 'traded', detail: `${brokerNote} · (not tracked on Binance: ${result.error})` });
     return res.status(200).json({ ok: true, broker });
   }
-  await logInbox({ ...base, outcome: 'unparsed', detail: result.error });
+  // Not a signal we could read: it may still be an instruction about an open trade ("close gold now").
+  const acted = parsed.ok ? null : await handleFollowUp({ userId, source: base.source, text });
+  await logInbox({ ...base, outcome: acted ? 'follow_up' : 'unparsed', detail: acted?.note || result.error });
   return res.status(200).json({ ok: false, skipped: 'unparsed', error: result.error });
 }

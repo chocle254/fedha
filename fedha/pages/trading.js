@@ -12,6 +12,7 @@ import NewsStrip from '../components/trading/NewsStrip';
 import GrowthCard from '../components/trading/GrowthCard';
 import PotentialCard from '../components/trading/PotentialCard';
 import DaysCard from '../components/trading/DaysCard';
+import DeskCard from '../components/trading/DeskCard';
 import { ensurePushSubscription } from '../lib/push';
 import { groupReport, brokerResults, GROUP_MIN_TRADES, TRAIL_LABEL, TRAIL_DEFAULT } from '../lib/trading-core';
 import { C, base, quoteOf, fmtPrice, fmtQty, fmtUsd, fmtCompact, ago, livePnl, openPnl, openStream, REST, lotsLabel, rrPlan, rrText, rrDetail, resultR, isMt5, pipSize, moveLabel, bankedPipsLabel, netPipsLabel } from '../components/trading/util';
@@ -642,6 +643,7 @@ export default function TradingPage() {
           )}
           {tab === 'channels' && (
             <div className="sx">
+              <div className="sx-wrap"><DeskCard /></div>
               <div className="sx-wrap"><PotentialCard trades={trades} settings={settings} /></div>
               <div className="sx-wrap"><DaysCard /></div>
 

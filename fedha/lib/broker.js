@@ -66,7 +66,7 @@ async function todaysLoss(userId, account, info) {
   return -(closed + floating);
 }
 
-async function placeOnAccount({ userId, acct, settings, parsed, source, signalKey, signalId, news }) {
+async function placeOnAccount({ userId, acct, settings, parsed, source, signalKey, signalId, news, desk = null }) {
   const id = accountId(acct.key);
   const cfg = settings[acct.key];
   const info = await mt.accountInfo(id);
@@ -91,8 +91,11 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
   // profit, still improving) → Real (also winning on its own in the Proven book). Everything else: demo and paper.
   if (real) {
     const stage = await ladderStage(userId, source);
-    if (stage !== 'real') return { skipped: `${source} is at the ${stage === 'proven' ? 'Proven' : 'Trial'} stage; only channels that reach Real trade real money.` };
-    if (sizing.verdict === 'testing') mult = Math.min(mult, 1); // young record: no more than 1x lots yet
+    // The other way in: the Desk (lib/desk.js) called this signal a "take" and its real-money switch is on.
+    // `desk` is only passed in that case. The lot size is then the Desk's, not the channel's.
+    if (stage !== 'real' && !desk) return { skipped: `${source} is at the ${stage === 'proven' ? 'Proven' : 'Trial'} stage; only channels that reach Real trade real money.` };
+    if (stage !== 'real') mult = Number(desk.mult) > 0 ? Number(desk.mult) : 1;
+    else if (sizing.verdict === 'testing') mult = Math.min(mult, 1); // young record: no more than 1x lots yet
   }
   // News guard: skip right around a high-impact release, half lot in the hour before (lib/news-guard.js).
   if (news?.level === 'danger') return { skipped: `News: ${news.reason}`, news: true };
@@ -178,7 +181,7 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
 }
 
 // Called by the ingest endpoint for every new signal. Returns a short per-account summary for the inbox log.
-export async function placeSignalOnBrokers({ userId, parsed, source, signalKey, signalId }) {
+export async function placeSignalOnBrokers({ userId, parsed, source, signalKey, signalId, desk = null }) {
   if (!metaapiConfigured()) return null;
   const settings = await getBrokerSettings(userId);
   const accounts = BROKER_ACCOUNTS.filter((a) => settings[a.key]?.enabled && accountId(a.key));
@@ -190,7 +193,7 @@ export async function placeSignalOnBrokers({ userId, parsed, source, signalKey, 
   if (news.level !== 'clear') news.reason = await newsReason(news, parsed.symbol);
   const results = await Promise.all(accounts.map(async (acct) => {
     try {
-      const r = await placeOnAccount({ userId, acct, settings, parsed, source, signalKey, signalId, news });
+      const r = await placeOnAccount({ userId, acct, settings, parsed, source, signalKey, signalId, news, desk });
       // Real money trades silently (the owner checks less that way); only demo trades notify.
       if (r.ok && !r.real) {
         await notify({

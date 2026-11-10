@@ -5,6 +5,7 @@ import { syncBrokerTrades, realMilestones } from '../../../lib/broker';
 import { learnTrailProfiles } from '../../../lib/trail-learn';
 import { evaluateLadder } from '../../../lib/ladder';
 import { resetIfBlown } from '../../../lib/paper-reset';
+import { deskTick } from '../../../lib/desk-daily';
 
 // Called every minute by the Telegram listener on the phone, so trades are checked (and TP / SL / fill
 // notifications are sent) even when the Trading page is closed. Also syncs the MT5 accounts (fills, TP/SL, break-even).
@@ -29,6 +30,8 @@ export default async function handler(req, res) {
   await realMilestones(userId).catch(() => null);
   // Blown paper account? Everything starts again (lib/paper-reset.js).
   await resetIfBlown(userId).catch(() => null);
+  // The Desk: an hourly read of the gold market and the 21:00 review of the day (lib/desk-daily.js).
+  await deskTick(userId).catch(() => null);
   const { data, error } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId).in('status', ['pending', 'open']).limit(60);
   if (error) return res.status(500).json({ error: 'Could not load trades.' });
   if (!data.length) return res.status(200).json({ ok: true, checked: 0, broker });
