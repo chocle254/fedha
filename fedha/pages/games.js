@@ -5,11 +5,13 @@ import Layout from '../components/Layout';
 import { useApp } from '../context/AppContext';
 import { VICE, viceRelease } from '../lib/holidays';
 import { formatCurrency } from '../lib/utils';
+import { useMusic } from '../context/MusicContext';
 
 // Game Room: GTA VI without a console of your own yet. Luxe cannot stream the game itself (nobody may on a
 // phone at launch, see FACTS), so this page is honest about that and useful instead: the countdown, the real
 // ways in from cheapest up, a savings goal for the one you pick (it lives in Savings Goals, so every deposit's
-// savings cut can feed it), cloud gaming that does run in a phone browser for other games, and where to watch.
+// savings cut can feed it), cloud gaming that does run in a phone browser for other games, and Live now: people
+// streaming the game on YouTube and Twitch this minute, watched inside Luxe.
 // FACTS were checked on 10 Nov 2026; update CHECKED and the lines below when Rockstar or Xbox change them.
 const CHECKED = '10 Nov 2026';
 const FACTS = [
@@ -28,6 +30,91 @@ const PLAY_NOW = [
   ['Amazon Luna', 'https://luna.amazon.com', 'A small library in the browser.'],
 ];
 const GOAL = 'GTA VI setup';
+const people = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K` : String(n));
+
+// Live now: people streaming the game this minute on YouTube and Twitch (pages/api/games/live.js), played right
+// here in Luxe. Tap a stream to watch it; it keeps playing while you scroll the list. Luxe's own music pauses.
+function LiveNow() {
+  const music = useMusic();
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [on, setOn] = useState(null); // the stream playing
+  const [only, setOnly] = useState('all');
+  const [q, setQ] = useState('GTA 6');
+  const load = async (query = q) => {
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/games/live?q=${encodeURIComponent(query)}`, { cache: 'no-store' });
+      setData(r.ok ? await r.json() : { streams: [], missing: [], errors: { all: 'Could not load the streams.' } });
+    } catch { setData({ streams: [], missing: [], errors: { all: 'You look offline.' } }); } finally { setBusy(false); }
+  };
+  useEffect(() => { load(); const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 5 * 60e3); return () => clearInterval(t); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const watch = (st) => { if (music?.playing) music.toggle(); setOn(st); setTimeout(() => document.getElementById('gr-player')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); };
+  const host = typeof window !== 'undefined' ? window.location.hostname : 'fedha.vercel.app';
+  const src = on && (on.on === 'youtube'
+    ? `https://www.youtube.com/embed/${on.id}?autoplay=1&playsinline=1&rel=0`
+    : `https://player.twitch.tv/?channel=${encodeURIComponent(on.id)}&parent=${host}&autoplay=true&muted=false`);
+  const list = (data?.streams || []).filter((x) => only === 'all' || x.on === only);
+  const missing = data?.missing || [];
+  const label = { fontSize: 11, fontWeight: 800, letterSpacing: 0.8, color: 'var(--text-3)', textTransform: 'uppercase' };
+  const chip = (k, text) => <button key={k} type="button" onClick={() => setOnly(k)} style={{ all: 'unset', cursor: 'pointer', fontSize: 12, fontWeight: 700, padding: '5px 11px', borderRadius: 16, background: only === k ? 'var(--accent)' : 'var(--card-2)', color: only === k ? '#0b0b0f' : 'var(--text-2)' }}>{text}</button>;
+
+  return (
+    <div className="card" style={{ padding: 16, marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ ...label, flex: 1 }}><span style={{ color: '#EF4444' }}>●</span> Live now</div>
+        <button className="btn-ghost" style={{ width: 'auto', padding: '4px 10px', fontSize: 12 }} disabled={busy} onClick={() => load()}>{busy ? '…' : '↻ Refresh'}</button>
+      </div>
+
+      {on && (
+        <div id="gr-player" style={{ marginTop: 10, scrollMarginTop: 70 }}>
+          <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', borderRadius: 12, overflow: 'hidden', background: '#000' }}>
+            <iframe key={`${on.on}${on.id}`} src={src} title={on.title} allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowFullScreen style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0 }} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 8 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, lineHeight: 1.35 }}>{on.title}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{on.who} · {on.on === 'youtube' ? 'YouTube' : 'Twitch'}</div>
+            </div>
+            <button className="btn-ghost" style={{ width: 'auto', padding: '4px 10px', fontSize: 12 }} onClick={() => setOn(null)}>Close</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
+        <input className="input" style={{ flex: 1 }} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && load(q)} placeholder="Search live streams, e.g. GTA 6 gameplay" />
+        <button className="btn-primary" style={{ width: 'auto', padding: '0 14px' }} disabled={busy} onClick={() => load(q)}>Search</button>
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>{chip('all', 'All')}{chip('youtube', 'YouTube')}{chip('twitch', 'Twitch')}</div>
+
+      {Object.values(data?.errors || {}).map((e, i) => <div key={i} style={{ fontSize: 12.5, color: '#F59E0B', marginTop: 8 }}>⚠ {e}</div>)}
+      {data && !list.length && missing.length < 2 && <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 12 }}>Nobody is live for that right now. Try another search or come back in a bit.</div>}
+      {!data && <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 12 }}>Looking for streams…</div>}
+
+      {list.map((st) => (
+        <button key={`${st.on}${st.id}`} type="button" onClick={() => watch(st)} style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', display: 'flex', gap: 10, width: '100%', padding: '9px 0', borderTop: '1px solid var(--border)', alignItems: 'center', opacity: on && on.id === st.id ? 0.55 : 1 }}>
+          <div style={{ position: 'relative', flexShrink: 0, width: 128, height: 72, borderRadius: 8, overflow: 'hidden', background: `#111 center/cover url("${st.thumb}")` }}>
+            <span style={{ position: 'absolute', left: 4, bottom: 4, fontSize: 10, fontWeight: 800, padding: '1px 5px', borderRadius: 4, background: 'rgba(0,0,0,.75)', color: '#fff' }}><span style={{ color: '#EF4444' }}>●</span> {people(st.viewers)}</span>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{st.title}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 3 }}>{st.who} · <b style={{ color: st.on === 'youtube' ? '#FF4E45' : '#A970FF' }}>{st.on === 'youtube' ? 'YouTube' : 'Twitch'}</b></div>
+          </div>
+        </button>
+      ))}
+
+      {missing.length > 0 && (
+        <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: 'var(--card-2)', fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-2)' }}>
+          <b style={{ color: 'var(--text)' }}>{missing.length === 2 ? 'One-time setup needed' : `${missing[0] === 'youtube' ? 'YouTube' : 'Twitch'} is not connected yet`}</b>
+          <div>Luxe finds the streams through each platform's own free key. Add them in Vercel → Project → Settings → Environment Variables, then redeploy:</div>
+          {missing.includes('youtube') && <div style={{ marginTop: 6 }}>• <b>YOUTUBE_API_KEY</b>: <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>enable YouTube Data API v3</a>, then Credentials → Create API key.</div>}
+          {missing.includes('twitch') && <div style={{ marginTop: 6 }}>• <b>TWITCH_CLIENT_ID</b> and <b>TWITCH_CLIENT_SECRET</b>: <a href="https://dev.twitch.tv/console/apps" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>register an app on Twitch</a> (any name, redirect URL https://fedha.vercel.app, category Website Integration), then New Secret.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
 const p2 = (n) => String(n).padStart(2, '0');
 
 export default function Games() {
@@ -66,6 +153,8 @@ export default function Games() {
           )}
           <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4 }}>{new Date(`${VICE.release}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
         </div>
+
+        <LiveNow />
 
         <div className="card" style={card}>
           <div style={label}>Can I play it from this phone?</div>
@@ -114,7 +203,7 @@ export default function Games() {
         </div>
 
         <div className="card" style={card}>
-          <div style={label}>Watch it meanwhile</div>
+          <div style={label}>Or open the platforms themselves</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
             <a className="btn-ghost" style={{ width: 'auto', padding: '8px 12px', textDecoration: 'none' }} href="https://www.youtube.com/results?search_query=GTA+6+gameplay&sp=EgJAAQ%253D%253D" target="_blank" rel="noreferrer">🔴 Live on YouTube</a>
             <a className="btn-ghost" style={{ width: 'auto', padding: '8px 12px', textDecoration: 'none' }} href="https://www.twitch.tv/directory/category/grand-theft-auto-vi" target="_blank" rel="noreferrer">Twitch</a>
