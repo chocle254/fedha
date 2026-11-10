@@ -257,26 +257,36 @@ export function combinePanel(panel, results) {
 // score the judges gave on their own, so the discussion settles splits but cannot invent a score.
 export function mergeDeliberation(raw, d) {
   if (!d) return raw;
+  // The discussion may move a score, but only a little: at most 1 point from what the judges gave on average
+  // (and never outside their own range). It used to be free to settle on the most generous judge's number for
+  // every criterion, which turned 58 / 64 / 78 into a 74. A talk does not make the project better.
   const scores = (raw.scores || []).map((s) => {
     const agreed = d.scores.find((x) => normName(x.criterion) === normName(s.criterion));
     if (!agreed) return s;
     const own = (s.by || []).map((x) => x.score);
     const lo = own.length ? Math.min(...own) : 0;
     const hi = own.length ? Math.max(...own) : 10;
-    return { ...s, score: Math.max(lo, Math.min(hi, agreed.score)), note: agreed.note || s.note, own: s.score };
+    const mean = own.length ? own.reduce((a, b) => a + b, 0) / own.length : Number(s.score) || 0;
+    const score = Math.round(Math.max(lo, mean - 1, Math.min(hi, mean + 1, Number(agreed.score) || mean)) * 10) / 10;
+    return { ...s, score, note: agreed.note || s.note, own: s.score };
   });
+  // The panel shortlists only if most judges wanted to on their own; the discussion cannot vote it in.
+  const total = (raw.judges || []).length;
   const shortlistedBy = (raw.judges || []).filter((j) => j.shortlist).length;
+  const majority = shortlistedBy * 2 > total;
+  const shortlist = !!d.shortlist && majority;
+  const overruled = !!d.shortlist && !majority;
   return {
     ...raw,
     scores,
     overall: weightedOverall(scores),
     overall_before_discussion: raw.overall,
-    verdict: `${d.verdict || raw.verdict} ${d.shortlist ? 'The panel would shortlist it' : 'The panel would not shortlist it yet'}${d.shortlist && d.track ? ` for ${d.track}` : ''} (${shortlistedBy} of ${(raw.judges || []).length} wanted to on their own).`,
-    prize_odds: d.prize_odds || raw.prize_odds,
+    verdict: `${overruled ? raw.verdict : d.verdict || raw.verdict} ${shortlist ? 'The panel would shortlist it' : 'The panel would not shortlist it yet'}${shortlist && d.track ? ` for ${d.track}` : ''} (${shortlistedBy} of ${total} wanted to on their own).`,
+    prize_odds: overruled ? raw.prize_odds : d.prize_odds || raw.prize_odds,
     strengths: d.strengths?.length ? d.strengths : raw.strengths,
     fixes: d.fixes?.length ? d.fixes : raw.fixes,
     questions: d.questions?.length ? d.questions : raw.questions,
-    shortlist: d.shortlist,
+    shortlist,
     discussion: d.discussion,
     dissent: d.dissent,
   };

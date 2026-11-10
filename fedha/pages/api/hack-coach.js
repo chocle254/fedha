@@ -629,11 +629,12 @@ ${reviews.map((r) => reviewText(r, panel.find((j) => j.key === r.key) || { title
 
 Write the discussion, then the panel's one verdict.
 - discussion: 8-14 turns. Each judge speaks in their own voice from their seat, refers to the project's real details (files, features, the video, the write-up) and to what the others said by role ("I hear the developer advocate, but…"). They disagree where their scores differ, push back, concede when another judge makes a better point, and settle each criterion where they were split. Real talk, short turns (1-3 sentences), no speeches, no flattery, nothing invented beyond the reviews and the facts above. The last turns reach the decision.
-- scores: exactly these criteria: ${criteria}. The panel's agreed score per criterion: it MUST be between the lowest and highest score the judges gave it on their own; note = one sentence naming what settled it.
+- scores: exactly these criteria: ${criteria}. The panel's agreed score per criterion: it MUST be between the lowest and highest score the judges gave it on their own, and close to their average (a discussion settles a disagreement, it does not make the project better: never simply adopt the most generous judge's score); note = one sentence naming what settled it.
 - shortlist: true only if the panel, after discussing, would put it through.
 - fixes: the 3-5 changes the whole panel agrees matter most, most important first.
 - dissent: if a judge still disagrees with the outcome, one sentence on who and why; else empty.
 
+- shortlist: true only if most of the judges said they would shortlist it in their own reviews. The verdict must agree with that.
 Return JSON: {"discussion":[{"who":"judge id","says":""}],"scores":[{"criterion":"","score":0,"note":""}],"verdict":"one sentence the panel chair would read out","shortlist":false,"track":"","prize_odds":"one honest sentence","strengths":["2-4"],"fixes":["3-5"],"questions":["2-4 the panel would ask the builder"],"dissent":""}`;
   },
   hack_panel(b) {
