@@ -19,7 +19,7 @@ export const THEMES = {
 
 const ROUTES = [
   ['/trading', 'trading'], ['/binance', 'trading'],
-  ['/chill', 'chill'], ['/reels', 'chill'],
+  ['/chill', 'chill'], ['/reels', 'chill'], ['/games', 'chill'],
   ['/music', 'music'],
   ['/startup', 'startup'],
   ['/hackathon', 'hackathon'], ['/tech-hub', 'hackathon'],
