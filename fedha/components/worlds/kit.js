@@ -168,6 +168,27 @@ export function boot(THREE, host, build) {
       const gone = (((front - z0 - distance) % length) + length) % length;
       return front - gone;
     },
+    // A real photograph as the far end of the world (public/worlds/). It fades in when it has loaded, always
+    // overfills the screen with room to spare, so the camera can travel towards it and look around while the 3D
+    // things in front slide across it. tint darkens or colours it so the app's text stays readable over it.
+    photo(url, { aspect = 0.75, z = -120, y = 0, height = 190, tint = '#ffffff' } = {}) {
+      const mat = keep(new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0, fog: false, toneMapped: false, depthWrite: false }));
+      const mesh = new THREE.Mesh(keep(new THREE.PlaneGeometry(height * aspect, height)), mat);
+      mesh.position.set(0, y, z); mesh.renderOrder = -9;
+      scene.add(mesh);
+      let shown = false;
+      new THREE.TextureLoader().load(url, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; keep(tex); mat.map = tex; mat.needsUpdate = true; shown = true; }, undefined, () => {});
+      // Call every frame: fades it in, and keeps it wide enough for this screen (a tablet or a turned phone).
+      mesh.userData.tick = (dt) => {
+        if (shown && mat.opacity < 1) mat.opacity = Math.min(1, mat.opacity + dt * 0.8);
+        const dist = camera.position.z - z;
+        const needW = 2 * dist * Math.tan((camera.fov * Math.PI) / 360) * camera.aspect * 1.25;
+        const needH = 2 * dist * Math.tan((camera.fov * Math.PI) / 360) * 1.2;
+        mesh.scale.setScalar(Math.max(1, needW / (height * aspect), needH / height));
+      };
+      return mesh;
+    },
+
     // A flat picture that glows (light shafts, halos, clouds).
     card(w, h, { color = '#ffffff', opacity = 0.2, tex = null, add = true } = {}) {
       const m = new THREE.Mesh(keep(new THREE.PlaneGeometry(w, h)), keep(new THREE.MeshBasicMaterial({ color, map: tex, transparent: true, opacity, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending })));
