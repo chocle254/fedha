@@ -136,7 +136,12 @@ function Upkeep() {
   );
 }
 
-function FirstTimes({ city }) {
+// A pin on the exact spot the map has for the place (not a name search that can land on the wrong building).
+const pin = (name, lat, lon) => `https://www.google.com/maps/search/${encodeURIComponent(name)}/@${lat},${lon},18z`;
+// A search for the thing around where you live.
+const near = (thing, found, city) => (found?.lat != null ? `https://www.google.com/maps/search/${encodeURIComponent(thing)}/@${found.lat},${found.lon},14z` : `https://www.google.com/maps/search/${encodeURIComponent(`${thing} ${found?.city || city}`)}`);
+
+function FirstTimes({ city, geo }) {
   const [list, setList] = useState(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState('');
@@ -153,7 +158,7 @@ function FirstTimes({ city }) {
   const find = async (it) => {
     setBusy(it.id); setErr('');
     try {
-      const r = await fetch('/api/life', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'find', thing: it.name, city }) });
+      const r = await fetch('/api/life', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'find', thing: it.name, city, ...(geo || {}) }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Could not look it up.');
       save(list.map((x) => (x.id === it.id ? { ...x, found: j, open: true } : x)));
@@ -189,10 +194,12 @@ function FirstTimes({ city }) {
                 <div key={i} style={{ marginTop: 8 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 700 }}>{p.name}{p.area ? <span style={{ fontWeight: 500, color: 'var(--text-3)' }}> · {p.area}</span> : null}</div>
                   <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{[p.price && p.price !== 'not stated' ? p.price : null, p.note].filter(Boolean).join(' · ')}</div>
-                  <a href={`https://www.google.com/maps/search/${encodeURIComponent(`${p.name} ${it.found.city}`)}`} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent)' }}>Open in Maps ↗</a>
+                  {p.lat != null && <a href={pin(p.name, p.lat, p.lon)} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent)' }}>Open in Maps ↗</a>}
                 </div>
               ))}
-              {!it.found.places?.length && <a href={`https://www.google.com/maps/search/${encodeURIComponent(`${it.name} ${it.found.city}`)}`} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 6, fontSize: 12.5, fontWeight: 700, color: 'var(--accent)' }}>Search Maps for {it.name} ↗</a>}
+              {it.found.from === 'map' && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 6 }}>The web search named no place that is really on the map, so these come straight from the map near you.</div>}
+              {!it.found.places?.length && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 6 }}>No place for this checked out on the map near you.</div>}
+              {!it.found.places?.length && <a href={near(it.name, it.found, city)} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 6, fontSize: 12.5, fontWeight: 700, color: 'var(--accent)' }}>Search Maps for {it.name} ↗</a>}
               {it.found.expect_to_pay && <div style={{ fontSize: 12.5, marginTop: 8, lineHeight: 1.5 }}><b>Expect to pay:</b> {it.found.expect_to_pay}</div>}
               {it.found.first_time && <div style={{ fontSize: 12.5, marginTop: 6, lineHeight: 1.5 }}><b>First time:</b> {it.found.first_time}</div>}
               {it.found.cheaper_way && <div style={{ fontSize: 12.5, marginTop: 6, lineHeight: 1.5, color: 'var(--text-2)' }}><b>Cheaper way:</b> {it.found.cheaper_way}</div>}
@@ -205,7 +212,7 @@ function FirstTimes({ city }) {
   );
 }
 
-function DayOut({ city, floating }) {
+function DayOut({ city, geo, floating }) {
   const [plan, setPlan] = useState(null);
   const [budget, setBudget] = useState('');
   const [mood, setMood] = useState('');
@@ -218,7 +225,7 @@ function DayOut({ city, floating }) {
   const make = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await fetch('/api/life', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'day_out', city, budget: Number(String(budget).replace(/[^\d.]/g, '')), mood, day: new Date().toLocaleDateString('en-GB', { weekday: 'long' }) }) });
+      const r = await fetch('/api/life', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'day_out', city, ...(geo || {}), budget: Number(String(budget).replace(/[^\d.]/g, '')), mood, day: new Date().toLocaleDateString('en-GB', { weekday: 'long' }) }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Could not plan it.');
       setPlan(j); keep(j).catch(() => {});
@@ -249,7 +256,8 @@ function DayOut({ city, floating }) {
                 <div style={{ fontSize: 13.5, fontWeight: 700, lineHeight: 1.35 }}>{s.what}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{[s.place, s.cost ? kes(s.cost) : 'free'].filter(Boolean).join(' · ')}</div>
                 {s.solo && <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2, lineHeight: 1.45 }}>{s.solo}</div>}
-                {s.place && <a href={`https://www.google.com/maps/search/${encodeURIComponent(`${s.place} ${plan.city}`)}`} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>Maps ↗</a>}
+                {s.lat != null && <a href={pin(s.place, s.lat, s.lon)} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>Maps ↗</a>}
+                {s.place && s.on_map === false && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2 }}>Not found on the map: check it exists before you go.</div>}
               </div>
             </div>
           ))}
@@ -298,7 +306,8 @@ function BuilderDay() {
 export default function Living() {
   const { floating } = useFloatingCash();
   const [city, setCity] = useState('');
-  useEffect(() => { getHomeLocation().then((l) => setCity(l?.name ? String(l.name).split(',')[0] : '')).catch(() => {}); }, []);
+  const [geo, setGeo] = useState(null); // home lat/lon, so places are checked against the map near you
+  useEffect(() => { getHomeLocation().then((l) => { setCity(l?.name ? String(l.name).split(',')[0] : ''); if (l?.lat != null) setGeo({ lat: l.lat, lon: l.lon }); }).catch(() => {}); }, []);
   const hello = useMemo(() => { const h = new Date().getHours(); return h < 12 ? 'Morning' : h < 17 ? 'Afternoon' : 'Evening'; }, []);
   return (
     <Layout fab={false}>
@@ -307,8 +316,8 @@ export default function Living() {
         <h1 style={{ fontSize: 22, fontWeight: 900, margin: '4px 0 4px' }}>🌤 Live a little</h1>
         <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 14 }}>{hello}. Money is for living too: what is coming up, something you have never tried, and a day that is yours.</div>
         <Upkeep />
-        <FirstTimes city={city} />
-        <DayOut city={city} floating={floating} />
+        <FirstTimes city={city} geo={geo} />
+        <DayOut city={city} geo={geo} floating={floating} />
         <BuilderDay />
         <Link href="/support" style={{ display: 'block', padding: '12px 14px', borderRadius: 12, background: 'var(--card-2)', color: 'var(--text-2)', textDecoration: 'none', fontSize: 13, lineHeight: 1.45 }}>
           <b style={{ color: 'var(--text)' }}>When it's heavy →</b><br />People to call, what to do in the next ten minutes, and your own plan for the dark hours.
