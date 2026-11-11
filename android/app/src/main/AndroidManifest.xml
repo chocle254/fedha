@@ -19,8 +19,6 @@
     <!-- Wallets → 📞 *456#: dial an M-Pesa USSD code on the right SIM (UssdActivity). -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-    <!-- Call refunds: Android only tells an app the caller's number with this. -->
-    <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <queries>
@@ -171,29 +169,6 @@
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
         </receiver>
-
-        <!-- Call refunds: after a call on the refund SIM, notify and open the Termux refund page. -->
-        <receiver
-            android:name=".CallReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.PHONE_STATE" />
-            </intent-filter>
-        </receiver>
-
-        <!-- Link call refunds: luxe://callrefund?token=…&sim=2 saves the token and asks for call permissions. -->
-        <activity
-            android:name=".CallRefundActivity"
-            android:exported="true"
-            android:excludeFromRecents="true"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="luxe" android:host="callrefund" />
-            </intent-filter>
-        </activity>
 
         <!-- Chill Room: hourly background scan for new downloads. -->
         <service
