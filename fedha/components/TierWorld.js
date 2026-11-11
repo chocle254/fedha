@@ -22,6 +22,8 @@ export default function TierWorld({ kind }) {
   const ref = useRef(null);
   useEffect(() => {
     if (!WORLDS[kind]) return undefined;
+    // Light mode (components/PowerSaver.js, an old or small machine): the 3D is never downloaded, the tier's colours stay.
+    try { if (localStorage.getItem('luxe_lite') === '1' || (localStorage.getItem('luxe_lite') !== '0' && Number(navigator.deviceMemory) > 0 && Number(navigator.deviceMemory) <= 2)) return undefined; } catch { /* carry on */ }
     let stop = false; let cleanup = () => {};
     Promise.all([import('three'), import('./worlds/kit'), WORLDS[kind]()]).then(([THREE, kit, world]) => {
       if (stop || !ref.current) return;
