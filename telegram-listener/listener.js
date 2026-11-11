@@ -43,13 +43,33 @@ async function send(payload) {
 
 // Every minute, ask the site to check open paper trades so TP / SL / fill notifications arrive even when the page is closed.
 const TICK_URL = process.env.TICK_URL || new URL('/api/trading/tick', INGEST_URL).toString();
+// How often depends on what's happening (saves Vercel CPU on the free plan). From 30 days of signals:
+// almost all arrive Mon-Fri 04:00-19:00 Kenya time; weekends are near silent (forex and gold are shut).
+//   trades open or waiting: 1 min in busy hours, 3 min otherwise
+//   nothing open:           5 min in busy hours, 15 min at night, 30 min at the weekend
+//   a signal just came in:  check 10 s later so its trade fills on time
+const MIN = 60000;
+function nextTickMs(live) {
+  const eat = new Date(Date.now() + 3 * 3600000); // Kenya time (UTC+3, no daylight saving)
+  const h = eat.getUTCHours();
+  const d = eat.getUTCDay(); // 0 Sun ... 6 Sat
+  const weekend = (d === 6 && h >= 1) || d === 0 || (d === 1 && h < 1);
+  const busy = !weekend && h >= 4 && h < 19;
+  if (live > 0) return busy ? MIN : 3 * MIN;
+  return weekend ? 30 * MIN : busy ? 5 * MIN : 15 * MIN;
+}
+let tickTimer = null;
+function scheduleTick(ms) { clearTimeout(tickTimer); tickTimer = setTimeout(tickTrades, ms); }
 async function tickTrades() {
+  let live = 1; // if the check fails, assume trades are open and retry soon
   try {
     const r = await fetch(TICK_URL, { method: 'POST', headers: { 'x-ingest-secret': INGEST_SECRET }, signal: AbortSignal.timeout(25000) });
-    if (!r.ok && r.status !== 404) console.warn('trade check failed: HTTP ' + r.status);
+    if (r.ok) live = Number((await r.json().catch(() => ({}))).checked ?? 1);
+    else if (r.status !== 404) console.warn('trade check failed: HTTP ' + r.status);
   } catch (e) { console.warn('trade check failed: ' + e.message); }
+  scheduleTick(nextTickMs(live));
 }
-setInterval(tickTrades, 60000);
+scheduleTick(5000);
 
 // Obfuscated transport (what the official Telegram app uses): plain MTProto is easy for mobile networks to spot
 // and throttle, which made the listener only connect over a VPN. TG_TRANSPORT=full switches back to the old one.
@@ -98,6 +118,7 @@ async function forward({ chatId, id, date, text, title, edited = false }) {
   forwarded++;
   const out = await send({ source: title, text, externalId: key, messageDate: new Date(date * 1000).toISOString(), edited });
   console.log(new Date().toISOString(), title, '->', out ? JSON.stringify(out) : 'failed');
+  if (out) scheduleTick(10000); // new signal: check its trade soon instead of waiting for the slow timer
 }
 
 client.addEventHandler(async (event) => {
