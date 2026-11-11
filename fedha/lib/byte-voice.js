@@ -1,18 +1,18 @@
-// lib/byte-voice.js — plays Professor Byte's voice. The neural voice comes from /api/byte-voice: Kokoro by default
-// (free, runs in Luxe itself, one steady voice all class), or ElevenLabs / Groq Orpheus (Troy, Austin, Daniel) if chosen. The text is sent in sentence-sized chunks with the next
+// lib/byte-voice.js — plays Professor Byte's voice. The neural voice comes from /api/byte-voice: Groq Orpheus Troy by
+// default (one steady voice all class), or ElevenLabs / Austin / Daniel if chosen. The text is sent in sentence-sized chunks with the next
 // one fetched while the current one plays, plus a live loudness level so his mouth moves with the real sound.
 // Only when every neural voice fails for a chunk does the phone's own voice say that one chunk, and the next chunk tries
 // neural again. Two failures in a row rest the neural voice for 45 seconds.
 import { speak, stopSpeaking, pickByteVoice } from './voice';
 
-export const BYTE_VOICES = [['kokoro', 'Kokoro (free)'], ['auto', 'Auto'], ['eleven', 'ElevenLabs'], ['troy', 'Troy'], ['austin', 'Austin'], ['daniel', 'Daniel'], ['phone', 'Phone voice'], ['off', 'Silent']];
-const KEY = 'luxe_byte_voice_v3'; // v3: Kokoro became the default, so older choices start fresh on Kokoro
+export const BYTE_VOICES = [['troy', 'Troy'], ['auto', 'Auto'], ['eleven', 'ElevenLabs'], ['austin', 'Austin'], ['daniel', 'Daniel'], ['phone', 'Phone voice'], ['off', 'Silent']];
+const KEY = 'luxe_byte_voice_v4'; // v4: Kokoro was removed and Troy became the default, so everyone starts on Troy
 export function getByteVoice() {
-  try { const v = localStorage.getItem(KEY); return BYTE_VOICES.some(([k]) => k === v) ? v : 'kokoro'; } catch { return 'kokoro'; }
+  try { const v = localStorage.getItem(KEY); return BYTE_VOICES.some(([k]) => k === v) ? v : 'troy'; } catch { return 'troy'; }
 }
 export function setByteVoice(v) { try { localStorage.setItem(KEY, v); } catch { /* private mode */ } }
 
-// Which voice actually answered last: 'kokoro', 'eleven', 'troy', 'austin', 'daniel', or 'phone'.
+// Which voice actually answered last: 'eleven', 'troy', 'austin', 'daniel', or 'phone'.
 let lastWho = '';
 let lastWhy = ''; // why ElevenLabs didn't answer, when it didn't
 export const byteVoiceInfo = () => lastWho;
@@ -73,16 +73,10 @@ function fetchChunk(text, voice, tone, signal, persona = null, urgent = false) {
   return job;
 }
 
-// Gets the first two chunks of a line ready while the one before it is still playing, so there is no gap between lines.
-// Wakes the voice engine (it sleeps when nobody has used it for a while, and the first line after that was slow).
-let wokeAt = 0;
-export function wakeByte() {
-  if (typeof window === 'undefined' || Date.now() - wokeAt < 3 * 60e3) return;
-  const v = getByteVoice(); if (v === 'off' || v === 'phone') return;
-  wokeAt = Date.now();
-  fetch('/api/byte-voice?wake=1').catch(() => {});
-}
+// Kept so callers don't break: there is no voice engine to wake any more (Kokoro was removed).
+export function wakeByte() {}
 
+// Gets the first two chunks of a line ready while the one before it is still playing, so there is no gap between lines.
 export function warmByte(text, { mood = 'happy', voice = getByteVoice(), persona = null, first = 4 } = {}) {
   if (typeof window === 'undefined' || !text || voice === 'off' || voice === 'phone' || Date.now() < neuralDownUntil) return;
   const tone = TONE[mood] || 'cheerful';

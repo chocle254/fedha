@@ -406,7 +406,7 @@ export function MusicProvider({ children }) {
       const more = j.tracks.filter((t) => !now.some((y) => y.id === t.id)).map((t) => ({ ...t, chapter: d.chapter + 1 }));
       d.chapter += 1; d.journey = j.journey || []; d.names[d.chapter] = { name: j.name, mood: j.mood };
       if (more.length) { const nl = [...now, ...more]; setQueue(nl); state.current.queue = nl; }
-      if (more[0]?.dj) warmByte(more[0].dj, { persona: 'dj', voice: 'kokoro', mood: 'cheeky' }); // ready before the blend
+      if (more[0]?.dj) warmByte(more[0].dj, { persona: 'dj', voice: 'austin', mood: 'cheeky' }); // ready before the blend
       setDj((x) => (x ? { ...x, journey: d.journey, up: j.name } : x));
     }).catch(() => {}).finally(() => { d.fetching = false; });
   }, [idx, queue, djAsk]);

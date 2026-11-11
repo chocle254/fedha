@@ -1,20 +1,14 @@
-import { createHash } from 'crypto';
-// pages/api/byte-voice.js — Professor Byte's and DJ Luxe's real voice.
-// voice 'kokoro' (the app's default): Kokoro only, the same voice every line, so it never switches mid-class. Groq
-// stands in only if Kokoro fails twice. Other choices use the old fall-back chain:
-//   1. ElevenLabs (your free key: ELEVENLABS_API_KEY, optional ELEVENLABS_VOICE_ID / ELEVENLABS_MODEL)
-//   2. Kokoro, running in this same Vercel project as a Python function (api/tts.py), no account or quota beyond
-//      Vercel's free CPU allowance. Byte: KOKORO_BYTE_VOICE (default am_michael), DJ Luxe: KOKORO_DJ_VOICE (default
-//      am_fenrir). A cold start downloads the model first: Groq covers that minute.
-//   3. Groq Orpheus: Troy, then Austin, then Daniel (same GROQ_API_KEY as the rest of Luxe)
-//   3. the phone's own voice, which the app itself switches to when this route answers 502
+// pages/api/byte-voice.js — Professor Byte's and DJ Luxe's real voice. Every voice is made on the provider's servers;
+// Vercel only waits for the reply, so it costs almost no CPU. (Kokoro used to run here as a Python function and was
+// removed in Nov 2026 because it used most of Vercel's free CPU allowance.)
+//   voice 'troy' | 'austin' | 'daniel' (default 'troy'): Groq Orpheus, same GROQ_API_KEY as the rest of Luxe
+//   voice 'eleven': ElevenLabs only (ELEVENLABS_API_KEY, optional ELEVENLABS_VOICE_ID / ELEVENLABS_MODEL)
+//   voice 'auto': ElevenLabs first, then Groq
+// When nothing answers, this route returns 502 and the app uses the phone's own voice for that line.
 // A voice that is out of credits or rate-limited is left alone for a while, so a line does not flip between voices.
-// Nothing is stored; the phone keeps a short memory of what it already fetched.
 //
-// POST { text, voice, tone } → audio (mp3 from ElevenLabs, wav from Groq) + header X-Byte-Voice: eleven | troy | austin | daniel
-// persona: 'dj' = DJ Luxe's own male voice (ELEVENLABS_DJ_VOICE_ID, default "Chris", a relaxed, casual American man;
-//          falls back to Byte's voice if that one isn't on the account). Anything else = Professor Byte.
-// voice: 'auto' (ElevenLabs first), or 'troy' | 'austin' | 'daniel' to start with that Groq voice. Text over 190 characters is cut.
+// POST { text, voice, tone, persona } → audio + header X-Byte-Voice: eleven | troy | austin | daniel
+// persona: 'dj' = DJ Luxe (ElevenLabs "Chris", or Groq Austin first). Text over 190 characters is cut.
 import { requireUser } from '../../lib/require-user';
 
 export const config = { maxDuration: 60 };
@@ -26,7 +20,7 @@ const EL_DJ_VOICE = process.env.ELEVENLABS_DJ_VOICE_ID || 'iP95p4xoKVk53GoZ742B'
 const EL_MODEL = process.env.ELEVENLABS_MODEL || 'eleven_flash_v2_5'; // half the credits per character of the older models
 
 // Best-effort memory of what is out of action (lasts as long as this server instance stays warm).
-const down = { eleven: 0, groq: 0, kokoro: 0 };
+const down = { eleven: 0, groq: 0 };
 let elevenWhy = '';
 let elevenOutUntil = 0; // out of monthly credits: even 'ElevenLabs only' falls back to Groq's male voices meanwhile // the last reason ElevenLabs gave for not answering (sent back so the app can show it)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -63,33 +57,6 @@ async function viaEleven(text, tone, persona) {
       console.warn('[fedha] byte-voice elevenlabs error:', e.message);
       return null;
     }
-  }
-  return null;
-}
-
-const kokoroKey = () => process.env.KOKORO_KEY || (process.env.SUPABASE_SERVICE_ROLE_KEY ? createHash('sha256').update(`kokoro:${process.env.SUPABASE_SERVICE_ROLE_KEY}`).digest('hex') : '');
-
-async function viaKokoro(text, persona, patient = 0) {
-  // Default: the Kokoro Python function in this same project (api/tts.py). KOKORO_URL=off turns it off.
-  const url = process.env.KOKORO_URL || (process.env.VERCEL ? 'https://fedha.vercel.app/api' : '');
-  if (url === 'off') return null;
-  if (!url || (!patient && Date.now() < down.kokoro)) return null;
-  const voice = persona === 'dj' ? (process.env.KOKORO_DJ_VOICE || 'am_fenrir') : (process.env.KOKORO_BYTE_VOICE || 'am_michael');
-  try {
-    const r = await fetch(`${url.replace(/\/$/, '')}/tts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Api-Key': kokoroKey() },
-      body: JSON.stringify({ text, voice, speed: persona === 'dj' ? 0.95 : 1.0 }),
-      signal: AbortSignal.timeout(patient || 15000), // a cold start loads the model first
-    });
-    if (r.ok) return { buf: Buffer.from(await r.arrayBuffer()), type: r.headers.get('content-type') || 'audio/mpeg', who: 'kokoro' };
-    console.warn('[fedha] byte-voice kokoro failed:', r.status);
-    down.kokoro = Date.now() + 60000;
-  } catch (e) {
-    // Cold (model still downloading/loading) or busy: warm it in the background, use Groq for a minute.
-    console.warn('[fedha] byte-voice kokoro error:', e.message);
-    down.kokoro = Date.now() + 60000;
-    fetch(`${url.replace(/\/$/, '')}/tts`, { signal: AbortSignal.timeout(60000) }).catch(() => {});
   }
   return null;
 }
@@ -137,18 +104,14 @@ async function health() {
 export default async function handler(req, res) {
   if (req.method === 'GET' && req.query?.check) { const h = await health(); res.setHeader('Cache-Control', 'no-store'); return res.status(200).json({ ...h, at: undefined }); }
   if (!(await requireUser(req, res))) return;
-  // GET ?wake=1: loads Kokoro's model now, so the first spoken line does not wait for it.
-  if (req.method === 'GET' && req.query?.wake) {
-    const url = process.env.KOKORO_URL || (process.env.VERCEL ? 'https://fedha.vercel.app/api' : '');
-    if (url && url !== 'off') await fetch(`${url.replace(/\/$/, '')}/tts`, { signal: AbortSignal.timeout(50000) }).catch(() => {});
-    return res.status(200).json({ ok: true });
-  }
+  if (req.method === 'GET' && req.query?.wake) return res.status(200).json({ ok: true }); // old app versions; nothing to wake now
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  if (!process.env.ELEVENLABS_API_KEY && !process.env.GROQ_API_KEY && !process.env.KOKORO_URL) return res.status(500).json({ error: 'No voice key set (ELEVENLABS_API_KEY or GROQ_API_KEY)' });
+  if (!process.env.ELEVENLABS_API_KEY && !process.env.GROQ_API_KEY) return res.status(500).json({ error: 'No voice key set (ELEVENLABS_API_KEY or GROQ_API_KEY)' });
   const text = String(req.body?.text || '').replace(/[*_#`[\]<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 190);
   if (!text) return res.status(400).json({ error: 'Nothing to say' });
-  const pick = GROQ_VOICES.includes(req.body?.voice) ? req.body.voice : null; // null = auto
-  const onlyEleven = req.body?.voice === 'eleven'; // ElevenLabs or nothing (the app then uses the phone, never Groq)
+  const v = req.body?.voice === 'kokoro' ? 'troy' : req.body?.voice; // old saved choice
+  const pick = GROQ_VOICES.includes(v) ? v : null; // null = auto
+  const onlyEleven = v === 'eleven'; // ElevenLabs or nothing (the app then uses the phone, never Groq)
   const tone = TONES.includes(req.body?.tone) ? req.body.tone : '';
   const persona = req.body?.persona === 'dj' ? 'dj' : null;
   const order = pick ? [pick, ...GROQ_VOICES.filter((v) => v !== pick)] : GROQ_VOICES;
@@ -156,12 +119,9 @@ export default async function handler(req, res) {
   if (onlyEleven && Date.now() > elevenOutUntil) down.eleven = 0; // chosen on purpose: always give it a real try
   // ElevenLabs only = ElevenLabs or the phone, EXCEPT when it is out of credits: then Groq's male voices, never the
   // phone's default (often a woman's) voice for Byte or DJ Luxe.
-  const kokoroFirst = req.body?.voice === 'kokoro';
-  const got = kokoroFirst
-    ? ((await viaKokoro(text, persona, 30000)) || (await viaKokoro(text, persona, 15000)) || (await viaGroq(text, tone, persona === 'dj' ? ['austin', 'troy', 'daniel'] : order)))
-    : ((!pick && (await viaEleven(text, tone, persona)))
-    || (!pick && !(onlyEleven && Date.now() > elevenOutUntil) && (await viaKokoro(text, persona)))
-    || (onlyEleven && Date.now() > elevenOutUntil ? null : await viaGroq(text, tone, persona === 'dj' ? ['austin', 'troy', 'daniel'] : order)));
+  const djOrder = ['austin', 'troy', 'daniel'];
+  const got = (!pick && (await viaEleven(text, tone, persona)))
+    || (onlyEleven && Date.now() > elevenOutUntil ? null : await viaGroq(text, tone, persona === 'dj' && !pick ? djOrder : order));
   if (!got) { res.setHeader('X-Byte-Why', elevenWhy || 'none'); return res.status(502).json({ error: 'Voice failed', eleven: elevenWhy }); }
   if (got.who !== 'eleven' && elevenWhy) res.setHeader('X-Byte-Why', elevenWhy);
   res.setHeader('Content-Type', got.type);

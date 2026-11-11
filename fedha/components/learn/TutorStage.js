@@ -7,7 +7,7 @@ import CodePad from './CodePad';
 import { resizeImage } from '../../lib/utils';
 import { askStudy, getSass, setSass } from '../../lib/study';
 import { stopSpeaking } from '../../lib/voice';
-import { speakByte, warmByte, wakeByte, byteVoiceInfo, byteVoiceWhy, getByteVoice, setByteVoice, BYTE_VOICES } from '../../lib/byte-voice';
+import { speakByte, warmByte, byteVoiceInfo, byteVoiceWhy, getByteVoice, setByteVoice, BYTE_VOICES } from '../../lib/byte-voice';
 
 // The tutor stage in Study mode. Professor Byte runs a class: he teaches the lesson point by point (the next part is
 // prepared while he talks, and the words stay off screen unless captions are on), then quizzes you at the end. He only
@@ -76,7 +76,7 @@ function nextSkit() {
   return k;
 }
 const L = (name, normal) => (getSass() === 'savage' ? SAVAGE[name] : normal);
-const WHO = { kokoro: 'Kokoro', eleven: 'ElevenLabs', troy: 'Troy', austin: 'Austin', daniel: 'Daniel', phone: 'the phone voice' };
+const WHO = { eleven: 'ElevenLabs', troy: 'Troy', austin: 'Austin', daniel: 'Daniel', phone: 'the phone voice' };
 
 // A short "tok" for knocks on the glass.
 function tok() {
@@ -216,7 +216,6 @@ export default function TutorStage({ outfit = 'default', pomo, prepare, active, 
   const lastQuiz = useRef('');
   const rearm = useRef(null);
   const K = useRef({}); // latest versions of the class functions, for timers and the stable play()
-  useEffect(() => { wakeByte(); const t = setInterval(wakeByte, 4 * 60e3); return () => clearInterval(t); }, []); // keeps his voice loaded, so lines start quickly
   useEffect(() => { setVoice(getByteVoice()); try { setCaptions(localStorage.getItem('luxe_byte_cc') === '1'); } catch { /* private mode */ } }, []);
   const clearTimers = () => { timers.current.forEach(clearTimeout); timers.current = []; };
   const clearWait = () => { waitTimers.current.forEach(clearTimeout); waitTimers.current = []; };
