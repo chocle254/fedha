@@ -26,7 +26,8 @@ const ROUTES = [
   ['/learning', 'learning'],
   ['/health', 'health'], ['/workout', 'health'],
   ['/meals', 'food'],
-  ['/planner', 'planner'], ['/activities', 'planner'],
+  ['/planner', 'planner'], ['/activities', 'planner'], ['/living', 'planner'],
+  ['/support', 'health'],
   ['/discover', 'business'],
 ];
 

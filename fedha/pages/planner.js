@@ -1196,6 +1196,7 @@ export default function PlannerPage() {
               <div style={{ fontSize:12, color:'var(--text-3)', lineHeight:1.45 }}>{low ? 'Only the basics and one small thing today. Nothing else counts, and nothing is marked missed. Tap to bring the full day back.' : 'Heavy day? Shrink today to meals, rest, ten minutes of moving and one small 25-minute task.'}</div>
             </div>
           </button>
+          {low && <a href="/support" style={{ display:'block', margin:'-6px 0 14px', fontSize:12.5, color:'var(--text-3)', textDecoration:'none' }}>If today is more than heavy: <b style={{ color:'var(--accent)' }}>people to call and your own plan →</b></a>}
           {aiError && (
             <div style={{ padding:'10px 14px', background:'var(--red-dim)', border:'1px solid rgba(239,68,68,0.2)', borderRadius:10, fontSize:13, color:'var(--red)', marginBottom:14 }}>
               ⚠ {aiError}

@@ -32,10 +32,12 @@ const MORE_GROUPS = [
   ]},
   { title: 'Life', items: [
     { href:'/planner', label:'Planner', icon:'calendar', desc:'Schedule, tasks & activities' },
+    { href:'/living', label:'Live a little', icon:'heart', desc:'Upkeep forecast, first times, a day out' },
     { href:'/chill', label:'Chill Room', icon:'film', desc:'Your series & movies' },
     { href:'/games', label:'Game Room', icon:'film', desc:'GTA VI: the ways in, and a fund for it' },
     { href:'/music', label:'Music Room', icon:'music', desc:'Stream music with deep bass' },
     { href:'/health', label:'Health & Fitness', icon:'heart', desc:'Wellness & workouts' },
+    { href:'/support', label:"When it's heavy", icon:'heart', desc:'People to call and your own plan' },
   ]},
   { title: 'Grow & earn', items: [
     { href:'/trading', label:'Trading', icon:'trending', desc:'Charts, paper trades & Binance wallet' },
@@ -84,6 +86,7 @@ const SIDE_GROUPS = [
   ]},
   { title: 'Life', items: [
     { href: '/planner', label: 'Planner', icon: 'planner' },
+    { href: '/living', label: 'Live a little', icon: 'activity' },
     { href: '/activities', label: 'Activities', icon: 'activity' },
     { href: '/chill', label: 'Chill Room', icon: 'film' },
     { href: '/games', label: 'Game Room', icon: 'film' },
@@ -91,6 +94,7 @@ const SIDE_GROUPS = [
     { href: '/meals', label: 'Food', icon: 'food' },
     { href: '/workout', label: 'Workout', icon: 'workout' },
     { href: '/health', label: 'Health', icon: 'health' },
+    { href: '/support', label: "When it's heavy", icon: 'health' },
   ]},
   { title: 'Grow', items: [
     { href: '/learning', label: 'Learning', icon: 'learning' },
