@@ -5,6 +5,8 @@ import { aiJSON } from '../../lib/ai-json';
 // Planner → Night out: where to go tonight, how to split the money, when to leave home and when to head back,
 // and what to carry. The places come from a live web search of your town (never made up); the money split and
 // the clock are checked here in code so the plan always adds up to the budget you set.
+import { verifyAll, nearbyNightlife } from '../../lib/osm-places';
+
 const clip = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 const PARTS = ['transport_there', 'entry', 'drinks', 'food', 'ride_home', 'buffer'];
 
@@ -18,6 +20,7 @@ export default async function handler(req, res) {
   if (budget < 200) return res.status(400).json({ error: 'Set how much you can spend tonight first (at least KSh 200).' });
   const day = clip(b.day, 12) || 'Saturday';
   const vibe = clip(b.vibe, 80);
+  const geo = { city, lat: Number.isFinite(Number(b.lat)) && b.lat != null && b.lat !== '' ? Number(b.lat) : null, lon: Number.isFinite(Number(b.lon)) && b.lon != null && b.lon !== '' ? Number(b.lon) : null };
 
   let found = '';
   try {
@@ -62,10 +65,15 @@ Plain English, no slang.`, { maxTokens: 1700, temperature: 0.5, timeout: 40000 }
   for (const k of ['drinks', 'food', 'entry', 'transport_there']) { if (total <= budget) break; const cut = Math.min(split[k], total - budget); split[k] -= cut; total -= cut; }
   if (total < budget) split.buffer += budget - total;
 
+  // Only venues the map really has near you; if none check out, clubs and bars straight from the map.
+  const named = (Array.isArray(o.venues) ? o.venues : []).filter((v) => v && clip(v.name, 80)).slice(0, 3).map((v) => ({ name: clip(v.name, 80), area: clip(v.area, 60), why: clip(v.why, 200), music: clip(v.music, 80), entry: clip(v.entry, 80), note: clip(v.note, 160) }));
+  let venues = (await verifyAll(named, geo)).filter((v) => v.on_map);
+  let venues_from = 'search';
+  if (!venues.length) { venues = await nearbyNightlife(geo); venues_from = venues.length ? 'map' : 'none'; }
   const list = (a, n, len) => (Array.isArray(a) ? a : []).map((x) => clip(x, len)).filter(Boolean).slice(0, n);
   return res.status(200).json({
-    city, day, budget, split,
-    venues: (Array.isArray(o.venues) ? o.venues : []).filter((v) => v && clip(v.name, 80)).slice(0, 3).map((v) => ({ name: clip(v.name, 80), area: clip(v.area, 60), why: clip(v.why, 200), music: clip(v.music, 80), entry: clip(v.entry, 80), note: clip(v.note, 160) })),
+    city, lat: geo.lat, lon: geo.lon, day, budget, split,
+    venues, venues_from,
     drinks_plan: clip(o.drinks_plan, 300),
     timeline: (Array.isArray(o.timeline) ? o.timeline : []).filter((t) => /^\d{1,2}:\d{2}$/.test(String(t?.time || ''))).slice(0, 8).map((t) => ({ time: t.time, what: clip(t.what, 120) })),
     carry: list(o.carry, 7, 80), leave_at_home: list(o.leave_at_home, 5, 80), rules: list(o.rules, 4, 140),

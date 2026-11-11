@@ -1,3 +1,4 @@
+import { verifyAll, isGenericPlace } from '../../lib/osm-places';
 import { requireUser } from '../../lib/require-user';
 import { VIBECODER, AMBITION, NERVOUS_PITCHER } from '../../lib/mentor-mindset';
 // pages/api/ai.js — uses Groq (free, generous, OpenAI-compatible) for most
@@ -379,6 +380,13 @@ Be specific, data-driven where possible, and constructive. Don't be afraid to po
 
       const parsed = parseResultsJson(rawText);
       if (parsed === null) return res.status(500).json({ error: 'Could not parse AI response', raw: rawText });
+      if (type === 'fun_plan' && Array.isArray(parsed)) {
+        // Hikes, parks and venues: a map pin only for places the map really has near you (lib/osm-places.js).
+        const geo = { city: location?.city || '', lat: location?.lat ?? null, lon: location?.lng ?? null };
+        const named = parsed.map((x, i) => ({ x, i })).filter(({ x }) => x && !isGenericPlace(x.place));
+        const checked = await verifyAll(named.map(({ x }) => ({ name: String(x.place).slice(0, 90), area: x.area })), geo);
+        named.forEach(({ i }, k) => { parsed[i] = { ...parsed[i], on_map: checked[k].on_map, lat: checked[k].lat, lon: checked[k].lon }; });
+      }
       return res.status(200).json({ results: parsed });
     }
 

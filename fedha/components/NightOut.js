@@ -40,7 +40,7 @@ export default function NightOut({ homeLoc, floating }) {
   const make = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await fetch('/api/night-out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ city, budget: Number(String(budget).replace(/[^\d.]/g, '')), vibe, day: new Date().toLocaleDateString('en-GB', { weekday: 'long' }) }) });
+      const r = await fetch('/api/night-out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ city, ...(homeLoc?.lat != null ? { lat: homeLoc.lat, lon: homeLoc.lon } : {}), budget: Number(String(budget).replace(/[^\d.]/g, '')), vibe, day: new Date().toLocaleDateString('en-GB', { weekday: 'long' }) }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Could not plan it.');
       setPlan(j); await setSetting('night_out', { day: dayKey(), plan: j });
@@ -106,10 +106,11 @@ export default function NightOut({ homeLoc, floating }) {
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>{i + 1}. {v.name}{v.area ? <span style={{ fontWeight: 500, color: 'var(--text-3)' }}> · {v.area}</span> : null}</div>
                 <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 2, lineHeight: 1.45 }}>{v.why}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{[v.music, v.entry && `Entry: ${v.entry}`, v.note].filter(Boolean).join(' · ')}</div>
-                <a href={`https://www.google.com/maps/search/${encodeURIComponent(`${v.name} ${plan.city}`)}`} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent)' }}>Open in Maps ↗</a>
+                {v.lat != null && <a href={`https://www.google.com/maps/search/${encodeURIComponent(v.name)}/@${v.lat},${v.lon},18z`} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent)' }}>Open in Maps ↗</a>}
               </div>
-            )) : <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.45 }}>The search did not name any venues for {plan.city} tonight, and Luxe will not make one up. <a href={`https://www.google.com/maps/search/${encodeURIComponent(`clubs and lounges in ${plan.city}`)}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontWeight: 700 }}>See clubs on Maps ↗</a></div>}
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 8 }}>From a web search just now. Prices and opening nights change: check the venue's page before you go.</div>
+            )) : <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.45 }}>No venue for {plan.city} checked out on the map, and Luxe will not make one up. <a href={`https://www.google.com/maps/search/${encodeURIComponent(`clubs and lounges in ${plan.city}`)}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontWeight: 700 }}>See clubs on Maps ↗</a></div>}
+            {plan.venues_from === 'map' && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 6 }}>The web search named no venue that is really on the map, so these are clubs and bars straight from the map near you.</div>}
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 8 }}>Venues are checked against the map. Prices and opening nights change: check the venue's page before you go.</div>
           </div>
 
           {plan.timeline?.length > 0 && (

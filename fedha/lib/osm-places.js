@@ -40,14 +40,11 @@ export async function verifyAll(items, ctx, key = 'name') {
   return out;
 }
 
-// Real places near you whose name or cuisine matches the thing (e.g. "pizza", "sushi", "bowling"), straight from the
-// map. Used when the web search names nothing that checks out.
-export async function nearbyMatching(thing, { lat, lon, radius = 10000, limit = 4 }) {
+// Runs an Overpass query (parts = the filters, each searched around you) and returns the closest named places.
+async function nearby(parts, { lat, lon, radius = 10000, limit = 4 }) {
   if (lat == null || lon == null) return [];
-  const re = words(thing).slice(0, 3).map((w) => w.replace(/s$/, '')).join('|');
-  if (!re) return [];
   const around = `(around:${radius},${lat},${lon})`;
-  const query = `[out:json][timeout:15];(nwr${around}["name"]["cuisine"~"${re}",i];nwr${around}["name"~"${re}",i]["amenity"];nwr${around}["name"~"${re}",i]["shop"];nwr${around}["name"~"${re}",i]["leisure"];);out center 30;`;
+  const query = `[out:json][timeout:15];(${parts.map((f) => `nwr${around}${f};`).join('')});out center 30;`;
   let data = null;
   for (const host of OVERPASS) { // the main server is often busy or unreachable: try the mirrors in turn
     try {
@@ -64,9 +61,27 @@ export async function nearbyMatching(thing, { lat, lon, radius = 10000, limit = 
     return rows.sort((a, b) => dist(a) - dist(b)).slice(0, limit).map((p) => ({
       name: p.name,
       area: p.tags['addr:suburb'] || p.tags['addr:street'] || '',
-      price: 'not stated',
-      note: `${(dist(p) * 111).toFixed(1)} km from you, on the map${p.tags.opening_hours ? ` · open ${p.tags.opening_hours}` : ''}`,
+      km: +(dist(p) * 111).toFixed(1),
+      hours: p.tags.opening_hours || '',
       lat: p.lat, lon: p.lon, on_map: true,
     }));
   } catch { return []; }
 }
+
+// Real places near you whose name or cuisine matches the thing (e.g. "pizza", "sushi", "bowling"), straight from the
+// map. Used when the web search names nothing that checks out.
+export async function nearbyMatching(thing, geo) {
+  const re = words(thing).slice(0, 3).map((w) => w.replace(/s$/, '')).join('|');
+  if (!re) return [];
+  const rows = await nearby([`["name"]["cuisine"~"${re}",i]`, `["name"~"${re}",i]["amenity"]`, `["name"~"${re}",i]["shop"]`, `["name"~"${re}",i]["leisure"]`], geo);
+  return rows.map((p) => ({ ...p, price: 'not stated', note: `${p.km} km from you, on the map${p.hours ? ` · open ${p.hours}` : ''}` }));
+}
+
+// Clubs, lounges and bars near you, straight from the map (when the web search names none that check out).
+export async function nearbyNightlife(geo) {
+  const rows = await nearby(['["name"]["amenity"~"^(nightclub|bar|pub)$"]'], { ...geo, limit: 3 });
+  return rows.map((p) => ({ name: p.name, area: p.area, why: `${p.km} km from you, on the map.`, music: '', entry: '', note: p.hours ? `Open ${p.hours}` : '', lat: p.lat, lon: p.lon, on_map: true }));
+}
+
+// Words that mean "not a specific place": these get no map check.
+export const isGenericPlace = (s) => !s || /^(home|your (home|room|neighbourhood|neighborhood|area|street|estate)|online|anywhere|outside|indoors|a |an |any )/i.test(String(s).trim());

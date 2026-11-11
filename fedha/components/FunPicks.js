@@ -144,6 +144,8 @@ export default function FunPicks({ blocks, weather, homeLoc, floating, currency,
                 {p.tip && <div style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.45 }}>💡 {p.tip}</div>}
                 <div style={{ display: 'flex', gap: 8, marginTop: 'auto', paddingTop: 4, alignItems: 'center' }}>
                   {p.url && <a href={p.url} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: 'var(--text-3)' }}>details</a>}
+                  {p.lat != null && <a href={`https://www.google.com/maps/search/${encodeURIComponent(p.place)}/@${p.lat},${p.lon},17z`} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--accent)', marginLeft: 8 }}>Map ↗</a>}
+                  {p.on_map === false && <span style={{ fontSize: 11, color: "var(--text-3)" }}>Not on the map: check first</span>}
                   <span style={{ flex: 1 }} />
                   <button disabled={isAdded} onClick={() => onAdd(p)} style={{ width: 'auto', padding: '6px 12px', borderRadius: 100, border: 0, background: isAdded ? 'var(--card-2)' : 'var(--green)', color: isAdded ? 'var(--text-3)' : '#04140D', fontSize: 12, fontWeight: 700, cursor: isAdded ? 'default' : 'pointer', fontFamily: 'Onest' }}>{isAdded ? 'Added ✓' : '+ Add to today'}</button>
                 </div>
