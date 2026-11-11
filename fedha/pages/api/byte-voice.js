@@ -22,7 +22,7 @@ const EL_DJ_VOICE = process.env.ELEVENLABS_DJ_VOICE_ID || 'iP95p4xoKVk53GoZ742B'
 const EL_MODEL = process.env.ELEVENLABS_MODEL || 'eleven_flash_v2_5'; // half the credits per character of the older models
 
 // Best-effort memory of what is out of action (lasts as long as this server instance stays warm).
-const down = { eleven: 0, groq: 0, magpie: 0 };
+const down = { eleven: 0, groq: 0, magpie: 0, magpieDj: 0 };
 let elevenWhy = '';
 let elevenOutUntil = 0; // out of monthly credits: even 'ElevenLabs only' falls back to Groq's male voices meanwhile // the last reason ElevenLabs gave for not answering (sent back so the app can show it)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -64,12 +64,15 @@ async function viaEleven(text, tone, persona) {
 }
 
 async function viaMagpie(text, persona) {
-  if (!process.env.NVIDIA_API_KEY || Date.now() < down.magpie) return null;
+  const slot = persona === 'dj' ? 'magpieDj' : 'magpie'; // a bad DJ voice must not silence Byte
+  if (!process.env.NVIDIA_API_KEY || Date.now() < down[slot]) return null;
   try {
     return { buf: await magpieSpeak(text, { voice: persona === 'dj' ? MAGPIE_DJ_VOICE : MAGPIE_VOICE }), type: 'audio/wav', who: 'magpie' };
   } catch (e) {
     console.warn('[fedha] byte-voice magpie failed:', e.message);
-    down.magpie = Date.now() + (/RESOURCE_EXHAUSTED|429|rate/i.test(e.message) ? 20000 : 60000);
+    const limited = /RESOURCE_EXHAUSTED|429|rate/i.test(e.message);
+    if (limited) { down.magpie = Date.now() + 20000; down.magpieDj = down.magpie; } // shared limit
+    else down[slot] = Date.now() + 60000;
     return null;
   }
 }
@@ -112,6 +115,8 @@ async function health() {
   }
   if (process.env.NVIDIA_API_KEY) {
     try { const b = await magpieSpeak('Hi.', { timeout: 12000 }); out.magpieBytes = b.length; } catch (e) { out.magpieError = e.message; }
+    out.magpieDjVoice = MAGPIE_DJ_VOICE;
+    try { const b = await magpieSpeak('Hi.', { voice: MAGPIE_DJ_VOICE, timeout: 12000 }); out.magpieDjBytes = b.length; } catch (e) { out.magpieDjError = e.message; }
   }
   checked = out;
   return out;
