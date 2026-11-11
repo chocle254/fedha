@@ -12,6 +12,7 @@ import { showNotif, VIBRATE } from '../lib/notifications';
 import { pruneEndedEvents, todaysEventBlocks, eventWindow } from '../lib/events';
 import { format } from 'date-fns';
 import FunPicks from '../components/FunPicks';
+import NightOut from '../components/NightOut';
 
 // ─── DAY ANCHORS ───────────────────────────────────────────────────────────
 // Bedtime is a protected window, not a "whatever's left after everything
@@ -94,6 +95,58 @@ function lowDay(blocks, nowMins = 0) {
     rest(b.id, start, b.duration);
   }
   return out;
+}
+
+// ─── THE THREE THAT COUNT ───────────────────────────────────────────────────
+// A full day is 30 or more timed blocks, and the record shows it is all or nothing: days with 10 to 27 ticks, and
+// days with none once the morning slipped. So three blocks are named the ones that count: one piece of real work,
+// one for the body, one for looking after yourself. Do those and the day is won; the rest of the plan is a guide.
+function threeThatCount(blocks) {
+  const first = (test) => blocks.find((b) => b.type !== 'sleep' && !b.lowRest && test(b));
+  const work = first((b) => ['coding', 'learning', 'research'].includes(b.type));
+  const body = first((b) => b.type === 'workout' || /workout|walk/.test(String(b.id)) || (b.low && b.type === 'health'));
+  const care = first((b) => /bath/.test(String(b.id))) || first((b) => b.id === 'lunch' || b.id === 'dinner');
+  return [work && { ...work, why: 'Work' }, body && { ...body, why: 'Body' }, care && { ...care, why: 'You' }].filter(Boolean);
+}
+function ThreeCard({ blocks, completedIds, onToggle, nowMins, wins, onReplan, replanning }) {
+  const three = threeThatCount(blocks);
+  if (three.length < 2) return null;
+  const done = three.filter((b) => completedIds.includes(b.id)).length;
+  const won = done === three.length;
+  // Days won in a row, counting back from today (or from yesterday while today is still open).
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  let streak = 0; const d = new Date(); if (!wins.includes(iso(d))) d.setDate(d.getDate() - 1);
+  while (wins.includes(iso(d))) { streak += 1; d.setDate(d.getDate() - 1); }
+  const slipped = !won && completedIds.length === 0 && nowMins >= 12 * 60;
+  const time = (t) => { const [h, m] = String(t).split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
+  return (
+    <div style={{ padding: 14, marginBottom: 12, borderRadius: 14, background: won ? 'rgba(34,197,94,.10)' : 'var(--card-2)', border: `1px solid ${won ? 'rgba(34,197,94,.4)' : 'var(--border)'}` }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <div style={{ flex: 1, fontSize: 14, fontWeight: 800 }}>{won ? '✓ Day won' : 'The three that count today'}</div>
+        <span className="font-num" style={{ fontSize: 12, color: 'var(--text-3)' }}>{done}/{three.length}{streak > 0 ? ` · ${streak} day${streak === 1 ? '' : 's'} in a row` : ''}</span>
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2, lineHeight: 1.45 }}>{won ? 'Everything else today is a bonus.' : 'Do these and the day is won. The rest of the plan is a guide, not a test.'}</div>
+      {three.map((b) => {
+        const on = completedIds.includes(b.id);
+        return (
+          <label key={b.id} style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, cursor: 'pointer', opacity: on ? 0.6 : 1 }}>
+            <input type="checkbox" checked={on} onChange={() => onToggle(b.id)} style={{ width: 18, height: 18 }} />
+            <span style={{ fontSize: 18 }}>{b.emoji || '•'}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, textDecoration: on ? 'line-through' : 'none' }}>{b.label}</span>
+              <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{b.why} · {time(b.time)} · {b.duration} min</span>
+            </span>
+          </label>
+        );
+      })}
+      {slipped && (
+        <div style={{ marginTop: 12, fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.45 }}>
+          The morning got away. Nothing is lost: the day can still be won from here.
+          <button onClick={onReplan} disabled={replanning} style={{ display: 'block', marginTop: 6, padding: '7px 12px', borderRadius: 9, border: '1px solid var(--border)', background: 'transparent', color: 'var(--accent)', fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>{replanning ? 'Planning…' : 'Start the day from now'}</button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Blocks from Jarvis or older plans can carry a type we don't have colours
@@ -757,6 +810,15 @@ export default function PlannerPage() {
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [notifPerm, setNotifPerm] = useState('default');
   const [completedIds, setCompletedIds] = useState([]);
+  const [wins, setWins] = useState([]); // days when the three that count were all done (newest 120 kept)
+  useEffect(() => { getSetting('planner_wins', []).then((w) => setWins(Array.isArray(w) ? w : [])).catch(() => {}); }, []);
+  useEffect(() => {
+    const three = threeThatCount(blocks); const today = todayISO();
+    const won = three.length >= 2 && three.every((b) => completedIds.includes(b.id));
+    if (!won || wins.includes(today)) return; // only ever adds here; unticking one of the three takes it back (toggleDone)
+    const next = [...wins, today].slice(-120);
+    setWins(next); setSetting('planner_wins', next).catch(() => {});
+  }, [completedIds, blocks]); // eslint-disable-line react-hooks/exhaustive-deps
   const [now, setNow] = useState(new Date());
   const [tab, setTab] = useState('today');
   const [editBlock, setEditBlock] = useState(null);
@@ -935,6 +997,11 @@ export default function PlannerPage() {
     const updated = completedIds.includes(id) ? completedIds.filter(x=>x!==id) : [...completedIds, id];
     setCompletedIds(updated);
     await setSetting(`planner_done_${todayISO()}`, updated);
+    // Unticked one of the three that count: today is no longer a won day.
+    if (wins.includes(todayISO()) && !threeThatCount(blocks).every((b) => updated.includes(b.id))) {
+      const next = wins.filter((d) => d !== todayISO());
+      setWins(next); setSetting('planner_wins', next).catch(() => {});
+    }
   }
 
   async function enableNotifs() {
@@ -1107,6 +1174,8 @@ export default function PlannerPage() {
           </div>
           <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:16 }}>{format(now,'EEEE, d MMMM yyyy')} · {usingAI ? 'planned from when you woke up' : "auto-built from Tech Hub, My Jobs & today's workout"}</div>
 
+          <ThreeCard blocks={blocks} completedIds={completedIds} onToggle={toggleDone} nowMins={now.getHours() * 60 + now.getMinutes()} wins={wins} onReplan={planFromNow} replanning={aiGenerating} />
+
           <button onClick={planFromNow} disabled={aiGenerating}
             style={{ width:'100%', padding:'14px 16px', background: usingAI ? 'var(--card-2)' : 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.15))', border: `1px solid ${usingAI ? 'var(--border)' : 'rgba(16,185,129,0.35)'}`, borderRadius:12, display:'flex', alignItems:'center', gap:12, cursor: aiGenerating ? 'default' : 'pointer', marginBottom:14, textAlign:'left', fontFamily:'Onest' }}>
             <span style={{ fontSize:22 }}>{aiGenerating ? '⏳' : '☀️'}</span>
@@ -1265,6 +1334,8 @@ export default function PlannerPage() {
             </div>
             {anchorWarnings.map((w) => <div key={w} style={{ fontSize:12, color:'#FCD34D', marginTop:8 }}>⚠️ {w}</div>)}
           </div>
+
+          <NightOut homeLoc={homeLoc} floating={floating} />
 
           <FunPicks blocks={blocks} weather={weather} homeLoc={homeLoc} floating={floating} currency={currency} nowMin={nowMins} added={funBlocks} onAdd={addFun} onRemove={removeFun} />
 
