@@ -32,7 +32,7 @@ export default function BrokerPanel({ onData, flash }) {
       if (r.ok) apply(j); else setData({ error: j.error });
     } catch { setData({ error: 'Could not load the MT5 accounts.' }); }
   }, [apply]);
-  useEffect(() => { load(); const id = setInterval(load, 60000); return () => clearInterval(id); }, [load]);
+  useEffect(() => { load(); const id = setInterval(load, 5 * 60e3); return () => clearInterval(id); }, [load]);
 
   async function save(body) {
     setBusy(true);

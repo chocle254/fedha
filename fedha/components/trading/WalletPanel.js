@@ -22,7 +22,7 @@ export default function WalletPanel({ onTrade }) {
       setChanges(map);
     } catch { setData({ error: 'Could not load your Binance wallet.' }); } finally { setLoading(false); }
   }, []);
-  useEffect(() => { load(); const id = setInterval(load, 60000); return () => clearInterval(id); }, [load]);
+  useEffect(() => { load(); const id = setInterval(load, 5 * 60e3); return () => clearInterval(id); }, [load]);
 
   if (loading && !data) return <div className="tx-empty">Loading your Binance wallet…</div>;
   if (!data?.configured) {

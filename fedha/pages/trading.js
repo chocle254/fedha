@@ -138,7 +138,7 @@ export default function TradingPage() {
   const hasLive = trades.some((t) => LIVE.includes(t.status));
   useEffect(() => {
     load();
-    const id = setInterval(() => { if (document.visibilityState === 'visible') load(); }, hasLive ? 10000 : 30000);
+    const id = setInterval(() => { if (document.visibilityState === 'visible') load(); }, hasLive ? 30000 : 120000); // Vercel CPU: each load is 4 server calls
     return () => clearInterval(id);
   }, [load, hasLive]);
 
@@ -181,7 +181,7 @@ export default function TradingPage() {
       } catch { /* next tick */ }
     };
     if (mt5.length) pollMt5();
-    const goldPoll = mt5.length ? setInterval(pollMt5, 5000) : null;
+    const goldPoll = mt5.length ? setInterval(pollMt5, 15000) : null;
     const tick = setInterval(() => { if (Object.keys(buf).length) { lastMsg = Date.now(); const b = buf; buf = {}; setTickers((p) => ({ ...p, ...b })); } }, 500);
     // Socket quiet for 5 s (blocked network, phone woke up): poll prices instead until it comes back.
     const poll = setInterval(async () => {

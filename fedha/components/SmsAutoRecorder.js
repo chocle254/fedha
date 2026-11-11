@@ -11,7 +11,7 @@ import { applyClientPayment } from '../lib/client-pay';
 // switched on (the server decides what each one is: lib/sms-plan.js, /api/sms/ready), with the same code as a
 // transaction you type in, so balances, budgets and the 30% savings question all behave as usual.
 // Every transaction id is sms_<message id>_<n>, so a message can never be recorded twice.
-const POLL_MS = 45e3;
+const POLL_MS = 5 * 60e3; // Vercel CPU; reopening Luxe checks at once
 
 // Messages this phone has already recorded (newest 300), with the transactions they made.
 const DONE_KEY = 'luxe_sms_done';

@@ -134,10 +134,13 @@ export default function TradeChart({ symbol, interval, onInterval, lines = [], m
         };
         // If the live socket goes quiet (blocked network, sleeping phone), poll every 3 s instead.
         let lastMsg = Date.now();
+        let lastMt5 = 0;
         poll = setInterval(async () => {
           if (Date.now() - lastMsg < 6000 || document.visibilityState !== 'visible') return;
           try {
             if (isMt5(symbol)) { // MT5 market: refresh the newest candles from our server (no Binance stream)
+              if (Date.now() - lastMt5 < 15000) return; // every 15 s, not 3 s (Vercel CPU)
+              lastMt5 = Date.now();
               const rows = await loadKlines(symbol, interval);
               if (!disposed) { rows.slice(-2).forEach(apply); setState('live'); }
               return;

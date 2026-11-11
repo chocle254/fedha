@@ -35,7 +35,7 @@ export default function BinancePortfolioCard() {
   useEffect(() => {
     refresh();
     const tick = () => { if (document.visibilityState === 'visible') refresh(); };
-    const id = setInterval(tick, 60000);
+    const id = setInterval(tick, 5 * 60e3); // 5 min (Vercel CPU); reopening Luxe refreshes at once
     document.addEventListener('visibilitychange', tick);
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', tick); };
   }, [refresh]);
