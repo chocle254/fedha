@@ -6,7 +6,7 @@ import { showNotif } from '../lib/notifications';
 import { applyCredits } from '../lib/nestlink-credits';
 import { summarize, incomeLine } from '../lib/earnings';
 
-const POLL_MS = 3000;
+const POLL_MS = 300000; // 5 min; a sweep or reopening Luxe checks straight away
 
 // Invisible. While Luxe is open it asks the server which NestLink payouts have
 // finished, credits them to the "mpesa 2" wallet and shows a notification.
