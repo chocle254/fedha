@@ -76,7 +76,7 @@ function nextSkit() {
   return k;
 }
 const L = (name, normal) => (getSass() === 'savage' ? SAVAGE[name] : normal);
-const WHO = { eleven: 'ElevenLabs', troy: 'Troy', austin: 'Austin', daniel: 'Daniel', phone: 'the phone voice' };
+const WHO = { magpie: 'NVIDIA Magpie', eleven: 'ElevenLabs', troy: 'Troy', austin: 'Austin', daniel: 'Daniel', phone: 'the phone voice' };
 
 // A short "tok" for knocks on the glass.
 function tok() {

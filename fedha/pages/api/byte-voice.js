@@ -1,15 +1,17 @@
 // pages/api/byte-voice.js — Professor Byte's and DJ Luxe's real voice. Every voice is made on the provider's servers;
 // Vercel only waits for the reply, so it costs almost no CPU. (Kokoro used to run here as a Python function and was
 // removed in Nov 2026 because it used most of Vercel's free CPU allowance.)
-//   voice 'troy' | 'austin' | 'daniel' (default 'troy'): Groq Orpheus, same GROQ_API_KEY as the rest of Luxe
+//   voice 'magpie' (default): NVIDIA Magpie TTS (lib/nvidia-tts.js, NVIDIA_API_KEY), Troy if it fails
+//   voice 'troy' | 'austin' | 'daniel': Groq Orpheus, same GROQ_API_KEY as the rest of Luxe
 //   voice 'eleven': ElevenLabs only (ELEVENLABS_API_KEY, optional ELEVENLABS_VOICE_ID / ELEVENLABS_MODEL)
 //   voice 'auto': ElevenLabs first, then Groq
 // When nothing answers, this route returns 502 and the app uses the phone's own voice for that line.
 // A voice that is out of credits or rate-limited is left alone for a while, so a line does not flip between voices.
 //
-// POST { text, voice, tone, persona } → audio + header X-Byte-Voice: eleven | troy | austin | daniel
+// POST { text, voice, tone, persona } → audio + header X-Byte-Voice: magpie | eleven | troy | austin | daniel
 // persona: 'dj' = DJ Luxe (ElevenLabs "Chris", or Groq Austin first). Text over 190 characters is cut.
 import { requireUser } from '../../lib/require-user';
+import { magpieSpeak, MAGPIE_VOICE, MAGPIE_DJ_VOICE } from '../../lib/nvidia-tts';
 
 export const config = { maxDuration: 60 };
 const GROQ_VOICES = ['troy', 'austin', 'daniel'];
@@ -20,7 +22,7 @@ const EL_DJ_VOICE = process.env.ELEVENLABS_DJ_VOICE_ID || 'iP95p4xoKVk53GoZ742B'
 const EL_MODEL = process.env.ELEVENLABS_MODEL || 'eleven_flash_v2_5'; // half the credits per character of the older models
 
 // Best-effort memory of what is out of action (lasts as long as this server instance stays warm).
-const down = { eleven: 0, groq: 0 };
+const down = { eleven: 0, groq: 0, magpie: 0 };
 let elevenWhy = '';
 let elevenOutUntil = 0; // out of monthly credits: even 'ElevenLabs only' falls back to Groq's male voices meanwhile // the last reason ElevenLabs gave for not answering (sent back so the app can show it)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -61,6 +63,17 @@ async function viaEleven(text, tone, persona) {
   return null;
 }
 
+async function viaMagpie(text, persona) {
+  if (!process.env.NVIDIA_API_KEY || Date.now() < down.magpie) return null;
+  try {
+    return { buf: await magpieSpeak(text, { voice: persona === 'dj' ? MAGPIE_DJ_VOICE : MAGPIE_VOICE }), type: 'audio/wav', who: 'magpie' };
+  } catch (e) {
+    console.warn('[fedha] byte-voice magpie failed:', e.message);
+    down.magpie = Date.now() + (/RESOURCE_EXHAUSTED|429|rate/i.test(e.message) ? 20000 : 60000);
+    return null;
+  }
+}
+
 async function viaGroq(text, tone, order) {
   const key = process.env.GROQ_API_KEY;
   if (!key || Date.now() < down.groq) return null;
@@ -89,13 +102,16 @@ let checked = null;
 async function health() {
   if (checked && Date.now() - checked.at < 600000) return checked;
   const key = process.env.ELEVENLABS_API_KEY;
-  const out = { at: Date.now(), elevenKey: !!key, keyLength: key ? key.length : 0, voice: EL_VOICE, model: EL_MODEL, groqKey: !!process.env.GROQ_API_KEY };
+  const out = { at: Date.now(), nvidiaKey: !!process.env.NVIDIA_API_KEY, magpieVoice: MAGPIE_VOICE, elevenKey: !!key, keyLength: key ? key.length : 0, voice: EL_VOICE, model: EL_MODEL, groqKey: !!process.env.GROQ_API_KEY };
   if (key) {
     try {
       const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${EL_VOICE}?output_format=mp3_22050_32`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'xi-api-key': key }, body: JSON.stringify({ text: 'Hi.', model_id: EL_MODEL }), signal: AbortSignal.timeout(12000) });
       out.elevenStatus = r.status;
       if (!r.ok) { const d = await r.json().catch(() => ({})); out.elevenError = String(d?.detail?.status || '') + ' ' + String(d?.detail?.message || JSON.stringify(d).slice(0, 200)); }
     } catch (e) { out.elevenError = e.message; }
+  }
+  if (process.env.NVIDIA_API_KEY) {
+    try { const b = await magpieSpeak('Hi.', { timeout: 12000 }); out.magpieBytes = b.length; } catch (e) { out.magpieError = e.message; }
   }
   checked = out;
   return out;
@@ -106,10 +122,10 @@ export default async function handler(req, res) {
   if (!(await requireUser(req, res))) return;
   if (req.method === 'GET' && req.query?.wake) return res.status(200).json({ ok: true }); // old app versions; nothing to wake now
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  if (!process.env.ELEVENLABS_API_KEY && !process.env.GROQ_API_KEY) return res.status(500).json({ error: 'No voice key set (ELEVENLABS_API_KEY or GROQ_API_KEY)' });
+  if (!process.env.ELEVENLABS_API_KEY && !process.env.GROQ_API_KEY && !process.env.NVIDIA_API_KEY) return res.status(500).json({ error: 'No voice key set (ELEVENLABS_API_KEY or GROQ_API_KEY)' });
   const text = String(req.body?.text || '').replace(/[*_#`[\]<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 190);
   if (!text) return res.status(400).json({ error: 'Nothing to say' });
-  const v = req.body?.voice === 'kokoro' ? 'troy' : req.body?.voice; // old saved choice
+  const v = req.body?.voice === 'kokoro' ? 'magpie' : req.body?.voice; // old saved choice
   const pick = GROQ_VOICES.includes(v) ? v : null; // null = auto
   const onlyEleven = v === 'eleven'; // ElevenLabs or nothing (the app then uses the phone, never Groq)
   const tone = TONES.includes(req.body?.tone) ? req.body.tone : '';
@@ -120,7 +136,10 @@ export default async function handler(req, res) {
   // ElevenLabs only = ElevenLabs or the phone, EXCEPT when it is out of credits: then Groq's male voices, never the
   // phone's default (often a woman's) voice for Byte or DJ Luxe.
   const djOrder = ['austin', 'troy', 'daniel'];
-  const got = (!pick && (await viaEleven(text, tone, persona)))
+  const magpieFirst = v === 'magpie';
+  const got = magpieFirst
+    ? ((await viaMagpie(text, persona)) || (await viaGroq(text, tone, persona === 'dj' ? djOrder : order)))
+    : (!pick && (await viaEleven(text, tone, persona)))
     || (onlyEleven && Date.now() > elevenOutUntil ? null : await viaGroq(text, tone, persona === 'dj' && !pick ? djOrder : order));
   if (!got) { res.setHeader('X-Byte-Why', elevenWhy || 'none'); return res.status(502).json({ error: 'Voice failed', eleven: elevenWhy }); }
   if (got.who !== 'eleven' && elevenWhy) res.setHeader('X-Byte-Why', elevenWhy);

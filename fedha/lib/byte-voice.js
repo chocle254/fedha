@@ -1,18 +1,18 @@
-// lib/byte-voice.js — plays Professor Byte's voice. The neural voice comes from /api/byte-voice: Groq Orpheus Troy by
-// default (one steady voice all class), or ElevenLabs / Austin / Daniel if chosen. The text is sent in sentence-sized chunks with the next
+// lib/byte-voice.js — plays Professor Byte's voice. The neural voice comes from /api/byte-voice: NVIDIA Magpie by
+// default (free, one steady voice all class), or ElevenLabs / Groq Orpheus (Troy, Austin, Daniel) if chosen. The text is sent in sentence-sized chunks with the next
 // one fetched while the current one plays, plus a live loudness level so his mouth moves with the real sound.
 // Only when every neural voice fails for a chunk does the phone's own voice say that one chunk, and the next chunk tries
 // neural again. Two failures in a row rest the neural voice for 45 seconds.
 import { speak, stopSpeaking, pickByteVoice } from './voice';
 
-export const BYTE_VOICES = [['troy', 'Troy'], ['auto', 'Auto'], ['eleven', 'ElevenLabs'], ['austin', 'Austin'], ['daniel', 'Daniel'], ['phone', 'Phone voice'], ['off', 'Silent']];
-const KEY = 'luxe_byte_voice_v4'; // v4: Kokoro was removed and Troy became the default, so everyone starts on Troy
+export const BYTE_VOICES = [['magpie', 'NVIDIA Magpie (free)'], ['auto', 'Auto'], ['eleven', 'ElevenLabs'], ['troy', 'Troy'], ['austin', 'Austin'], ['daniel', 'Daniel'], ['phone', 'Phone voice'], ['off', 'Silent']];
+const KEY = 'luxe_byte_voice_v5'; // v5: Kokoro was removed and NVIDIA Magpie became the default, so everyone starts on Magpie
 export function getByteVoice() {
-  try { const v = localStorage.getItem(KEY); return BYTE_VOICES.some(([k]) => k === v) ? v : 'troy'; } catch { return 'troy'; }
+  try { const v = localStorage.getItem(KEY); return BYTE_VOICES.some(([k]) => k === v) ? v : 'magpie'; } catch { return 'magpie'; }
 }
 export function setByteVoice(v) { try { localStorage.setItem(KEY, v); } catch { /* private mode */ } }
 
-// Which voice actually answered last: 'eleven', 'troy', 'austin', 'daniel', or 'phone'.
+// Which voice actually answered last: 'magpie', 'eleven', 'troy', 'austin', 'daniel', or 'phone'.
 let lastWho = '';
 let lastWhy = ''; // why ElevenLabs didn't answer, when it didn't
 export const byteVoiceInfo = () => lastWho;
