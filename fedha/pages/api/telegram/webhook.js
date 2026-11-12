@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import { createSignal } from '../../../lib/signals';
 import { maybeAutoEnter } from '../../../lib/trading';
+import { scoreSignal, deskStamp } from '../../../lib/desk';
+import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { linkTeamChat, unlinkTeamChat } from '../../../lib/team-telegram';
 
 // Forward a signal message from any Telegram group to your own bot and it is tracked here.
@@ -70,7 +72,12 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
   const result = await createSignal({ userId, source: sourceOf(msg), text });
-  if (result.ok) await maybeAutoEnter(userId, result.signal);
+  if (result.ok) {
+    // Scored by the Desk first, like the listener's signals, so the paper trade is sized by its verdict.
+    const desk = await scoreSignal(userId, { source: result.signal.source, symbol: result.signal.symbol, side: result.signal.side });
+    if (desk) await supabaseAdmin.from('trade_signals').update({ desk: deskStamp(desk) }).eq('id', result.signal.id).then(() => null, () => null);
+    await maybeAutoEnter(userId, result.signal, desk);
+  }
   await reply(msg.chat.id, result.ok
     ? `Tracking ${result.signal.symbol} ${result.signal.side} from ${result.signal.source}`
     : `Could not read that signal: ${result.error}`);

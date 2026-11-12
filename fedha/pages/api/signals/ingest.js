@@ -85,7 +85,7 @@ export default async function handler(req, res) {
 
   if (result.ok) {
     // Luxe's own paper trade only when no MT5 account is on (or "paper too" is switched on).
-    const trade = !onBrokers || brokerSettings.paper_too ? await maybeAutoEnter(userId, result.signal) : null;
+    const trade = !onBrokers || brokerSettings.paper_too ? await maybeAutoEnter(userId, result.signal, desk) : null;
     const paperTrade = trade ? (trade.ok ? 'entered' : trade.skipped || trade.error) : null;
     const detail = [brokerNote, trade && !trade.ok ? `Paper trade skipped: ${trade.error || trade.skipped}` : null].filter(Boolean).join(' · ') || null;
     // Keep the reason on the signal itself: the inbox only holds the newest 100 messages, so it would be lost.

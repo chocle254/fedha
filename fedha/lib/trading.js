@@ -319,7 +319,14 @@ export async function channelSizing(userId, source) {
 }
 
 // Called right after a signal is created (Telegram listener / bot). Respects the user's automation settings.
-export async function maybeAutoEnter(userId, signal) {
+// Main book size by the Desk's verdict (lib/desk.js). Replayed on 191 signals from $1,000 at 10%: every signal at
+// the same size ended near $1.8k with an 84% drop on the way; following the Desk ended near $11.9k, worst drop 34%.
+// A skip still trades a tiny "watch" stake so every channel keeps being measured (R does not depend on size).
+export const DESK_SIZE = { take: 1.5, small: 1, learning: 1, skip: 0, none: 0.5 };
+const WATCH_PCT = 0.25; // % of equity on a skipped signal
+const MAX_TRADE_PCT = 15; // no single main-book trade risks more than this % of equity
+
+export async function maybeAutoEnter(userId, signal, desk = null) {
   try {
     const s = await getSettings(userId);
     if (!s.auto_enabled) return null;
@@ -335,8 +342,10 @@ export async function maybeAutoEnter(userId, signal) {
     // News guard: quarter lot right around a high-impact release, half lot in the hour before (lib/news-guard.js).
     const news = await newsCheck(signal.symbol).catch(() => ({ level: 'clear', mult: 1 }));
     const equity = await getEquity(userId, s);
-    const riskUsdt = Math.round(riskAmount(s, equity) * mult * news.mult * 100) / 100;
-    // Main book: every signal, never skipped, so every channel keeps being measured.
+    const verdict = desk?.verdict && DESK_SIZE[desk.verdict] != null ? desk.verdict : 'none';
+    const planned = verdict === 'skip' ? (equity * WATCH_PCT) / 100 : riskAmount(s, equity) * DESK_SIZE[verdict];
+    const riskUsdt = Math.round(Math.min(planned * news.mult, (equity * MAX_TRADE_PCT) / 100) * 100) / 100;
+    // Main book: every signal, sized by the Desk (a skip = a watch stake), so every channel keeps being measured.
     // Price already moved toward TP1 (past the channel's entry): half at market now so the move isn't missed, half
     // as a limit at the channel's entry in case the price comes back. The limit half cancels if TP1 is hit first.
     const lim = limitLevel(signal);
@@ -346,7 +355,7 @@ export async function maybeAutoEnter(userId, signal) {
     const g = await growthEnter(userId, s, signal, { mult, confidence, news }).catch((e) => ({ ok: false, error: e.message }));
     if (r.ok) {
       const msg = describeEntry(r.trade);
-      msg.body += ` · lot ×${mult} (${confidence}% confident in ${signal.source})`;
+      msg.body += verdict === 'skip' ? ' · Desk: skip, so only a small watch stake' : verdict === 'take' ? ' · Desk: take, 1.5x size' : verdict === 'small' ? ' · Desk: small, normal size' : '';
       if (r.fit?.minLot) msg.body += ` · 0.01 lot minimum: risk $${r.fit.to.toFixed(2)} (planned $${r.fit.from.toFixed(2)}) of the $${r.equity.toFixed(2)} balance`;
       else if (r.fit) msg.body += ` · sized to fit the $${r.equity.toFixed(2)} balance: risk $${r.fit.to.toFixed(2)} instead of $${r.fit.from.toFixed(2)}`;
       if (lr?.ok) msg.body += ` · half at market, half ⏳ limit at ${lim} (cancels if TP1 hits first)`;
