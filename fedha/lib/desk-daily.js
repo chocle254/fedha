@@ -158,7 +158,7 @@ export async function dailyReview(userId, { force = false, now = Date.now() } = 
     hurt: bottom && bottom.totalR < 0 ? [`${bottom.key}: ${rTxt(bottom.totalR)} from ${bottom.n}`] : [],
     change: '',
   };
-  const o = await aiJSON(`You are an honest trading coach reviewing the last 24 hours of paper trades copied from Telegram signal channels. R = profit divided by the amount risked (+1R = won the stake, -1R = lost it). Use ONLY the numbers below; never invent a trade, a reason or a market event. Be plain and direct, no flattery, no emoji. One day is a small sample: say so where it matters, and do not call something a pattern from one or two trades.
+  const o = await aiJSON(`You are an honest trading coach reviewing the last 24 hours of paper trades copied from Telegram signal channels. R = profit divided by the amount risked (+1R = won the stake, -1R = lost it). Use ONLY the numbers below; never invent a trade, a reason or a market event. How the account is sized: a Desk "skip" trades only a 0.25% watch stake (its R barely moves the balance and is there to keep measuring), "small" trades 10% and "take" 15%, so judge the Desk's money mistakes on small and take, not skip. One day is a small sample: say so if a change rests on fewer than 10 trades. Be plain and direct, no flattery, no emoji. One day is a small sample: say so where it matters, and do not call something a pattern from one or two trades.
 
 TODAY'S NUMBERS:
 ${JSON.stringify(facts)}
