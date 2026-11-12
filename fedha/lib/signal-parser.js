@@ -7,7 +7,8 @@ const NUM = '\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?|\\.\\d+';
 import { detectMt5, instrument } from './instruments';
 
 export function normalizeText(text) {
-  return String(text || '').normalize('NFKC').replace(/[*_`~]/g, ' ').replace(/\u00a0/g, ' ');
+  return String(text || '').normalize('NFKC').replace(/[*_`~]/g, ' ').replace(/\u00a0/g, ' ')
+    .replace(/[\u2190-\u2BFF\uFE0F\u200D\u20E3]|[\u{1F000}-\u{1FAFF}]/gu, ' ');
 }
 
 // Result posts ("TP2 HIT", "590 pips", "1:1.7rr") are follow-ups, not new signals.
@@ -28,6 +29,9 @@ function num(s) {
 export function parseSignal(text) {
   const t = normalizeText(text);
   const up = t.toUpperCase();
+  if (/\bONCE\s+(IT\s+)?TAPPED\b|\bLOOK(ING)?\s+FOR\s+(PRICE|ENTRIES|CONFIRMATIONS?)\b|\bWAIT\s+FOR\s+CONFIRMATION/.test(up)) {
+    return { ok: false, error: 'An analysis or zone to watch, not a signal to enter now.' };
+  }
 
   // Symbol
   let symbol = null;
@@ -76,18 +80,30 @@ export function parseSignal(text) {
   // "ENTRY 4058", "SELL NOW 4058", "BUY LIMIT 65000", "SELL @ 4058", "BUY ZONE 64000-64500", "SELL 4058/4062",
   // "SELL 4057 OR 4061" (a zone too)
   const entryRe = new RegExp(`\\b(?:ENTRY|ENTER|(?:BUY|SELL|LONG|SHORT)\\s*(?:NOW|LIMIT|STOP|MARKET|ZONE|AT|BELOW|ABOVE)?)\\s*(?:ZONE|PRICE|POINT|RANGE|AT|@)?\\s*[:=@\\-]?\\s*(${NUM})(?:\\s*(?:-|–|—|/|TO|OR|&|AND)\\s*(${NUM}))?`, 'i');
-  const em = up.match(entryRe);
+  let em = up.match(entryRe);
+  if (!em) {
+    const head = up.split(/\b(?:SL|STOP|TP\d?|TAKE[\s-]*PROFIT|TARGETS?)\b/)[0];
+    em = head.match(new RegExp(`(?:\\bNOW|\\bPRICE|@)\\s*[:=@\\-]?\\s*(${NUM})(?:\\s*(?:-|–|—|/|TO|OR)\\s*(${NUM}))?`));
+  }
   if (em) {
     const a = num(em[1]);
-    const b = em[2] ? num(em[2]) : null;
+    let b = em[2] ? num(em[2]) : null;
+    // "3947-48": the second number is the last digits of the first.
+    if (a && b && b < a / 10) {
+      const whole = String(Math.floor(a));
+      const tail = String(em[2]).replace(/\..*$/, '');
+      if (tail.length < whole.length) b = Number(whole.slice(0, whole.length - tail.length) + tail);
+    }
     if (a) { entryLow = b ? Math.min(a, b) : a; entryHigh = b ? Math.max(a, b) : a; }
   }
 
   // Take profits
   const takeProfits = [];
   const tpRe = new RegExp(`\\b(?:TP|TAKE[\\s-]*PROFIT|TARGET)S?(?:\\s*\\d{1,2}(?![\\d,]|\\.\\d))?\\.?(?:\\s*\\((?:TP|TARGET)S?\\d?\\))?\\s*[:=@\\-]?\\s*(${NUM})((?:\\s*(?:,|/|>|\\|)\\s*(?:${NUM}))*)`, 'gi');
+  const tpPips = [];
   for (const x of up.matchAll(tpRe)) {
     const first = num(x[1]);
+    if (first && /^\s*(PIPS?|POINTS?)\b/.test(up.slice(x.index + x[0].length))) { tpPips.push(first); continue; }
     if (first) takeProfits.push(first);
     for (const n of (x[2] || '').match(new RegExp(NUM, 'g')) || []) {
       const v = num(n);
@@ -99,13 +115,17 @@ export function parseSignal(text) {
   // Stop loss
   let stopLoss = null;
   const sm = up.match(new RegExp(`\\b(?:SL|STOP[\\s-]*LOSS|STOP)(?:\\s*\\(SL\\))?\\s*[:=@\\-]?\\s*(${NUM})`, 'i'));
-  if (sm) stopLoss = num(sm[1]);
+  let slPips = null;
+  if (sm && /^\s*(PIPS?|POINTS?)\b/.test(up.slice(sm.index + sm[0].length))) slPips = num(sm[1]);
+  else if (sm) stopLoss = num(sm[1]);
 
-  if (!tps.length && !stopLoss) return { ok: false, error: 'Needs at least one take-profit (TP) or a stop-loss (SL).' };
+  // No take-profit and no stop at all ("GOLD SELL NOW 3933", "TP / SL in my VIP"): still a call on direction.
+  // createSignal sets levels from this channel's usual distances, and says so on the signal.
+  const bare = !tps.length && !stopLoss && !tpPips.length && slPips == null;
   // "BUY NOW", "SELL NOW @ 4040", "market execution", "CMP", "instant": enter at the market straight away, not a
   // limit at the quoted price (these run immediately and rarely come back to it). "BUY LIMIT" never counts as now.
   const now = !/\b(LIMIT|PENDING)\b/.test(up) && /\b(BUY|SELL|LONG|SHORT)\s*NOW\b|\bNOW\s*(@|AT|:)|\bMARKET(\s*(EXECUTION|ORDER|PRICE))?\b|\bCMP\b|\bINSTANT\b/.test(up);
-  return { ok: true, symbol, proxyOf, side, entryLow, entryHigh, takeProfits: tps, stopLoss, now };
+  return { ok: true, symbol, proxyOf, side, entryLow, entryHigh, takeProfits: tps, stopLoss, now, tpPips: [...new Set(tpPips)].sort((a, b) => a - b), slPips, bare };
 }
 
 // For MT5 markets: the signal's prices are a broker's quotes, while the feed (futures, or Yahoo's forex rate) sits a little
@@ -113,8 +133,7 @@ export function parseSignal(text) {
 // and treat the entry as the stand-in's current price. Returns { error } when it cannot be matched safely.
 export function rebaseToMarket(parsed, marketPrice) {
   const name = instrument(parsed.symbol)?.name || parsed.symbol;
-  if (parsed.entryLow == null) return { error: `${name} signals need a stated entry price so they can be matched to the live price.` };
-  const ref = (parsed.entryLow + parsed.entryHigh) / 2;
+  const ref = parsed.entryLow == null ? marketPrice : (parsed.entryLow + parsed.entryHigh) / 2; // no price stated: at the market
   const delta = marketPrice - ref;
   if (Math.abs(delta) / marketPrice > 0.02) return { error: `${name} is more than 2% away from the signal's price, so it was skipped.` };
   const r = (v) => Number((v + delta).toFixed(marketPrice < 10 ? 5 : marketPrice < 1000 ? 3 : 2));

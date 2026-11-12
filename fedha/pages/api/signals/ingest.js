@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { createSignal } from '../../../lib/signals';
+import { createSignal, upgradeLevels } from '../../../lib/signals';
 import { isFollowUp, parseSignal } from '../../../lib/signal-parser';
 import { placeSignalOnBrokers, getBrokerSettings, brokersActive } from '../../../lib/broker';
 import { maybeAutoEnter, notify } from '../../../lib/trading';
@@ -67,7 +67,11 @@ export default async function handler(req, res) {
   }
 
   const result = await createSignal({ userId, source, text, externalId });
-  if (result.duplicate) return res.status(200).json({ ok: false, skipped: 'duplicate' });
+  if (result.duplicate) {
+    // An edit that adds the channel's stop and targets to a signal Luxe had to set levels for: use the channel's.
+    const up = req.body?.edited ? await upgradeLevels({ userId, text, externalId }).catch(() => null) : null;
+    return res.status(200).json({ ok: false, skipped: 'duplicate', upgraded: !!up });
+  }
 
   // MT5 accounts work from the signal's own prices (real XAUUSD), so they run even if the Binance stand-in could not be tracked.
   const parsed = parseSignal(text);
