@@ -62,3 +62,30 @@ export default function PaperBooksCard() {
     </div>
   );
 }
+
+// The three balances in one row at the top of the trading page; tapping opens the full card (Channels tab).
+export function PaperBooksStrip({ onOpen }) {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    const load = () => fetch('/api/trading/books', { cache: 'no-store' }).then((r) => r.json()).then(setD).catch(() => {});
+    load();
+    const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 5 * 60e3);
+    return () => clearInterval(t);
+  }, []);
+  if (!d || d.error) return null;
+  const rows = [{ ...d.main, short: 'Main' }, ...d.books.map((b) => ({ ...b, short: b.name === 'diamond' ? '💎 Diamonds' : '🎯 Big on takes' }))];
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+      {rows.map((b) => {
+        const ch = pct(b.equity, b.start);
+        return (
+          <button key={b.name} type="button" onClick={onOpen} style={{ all: 'unset', cursor: 'pointer', flex: '1 1 0', minWidth: 96, padding: '7px 10px', borderRadius: 10, background: 'rgba(132,142,156,.12)', border: b.name === 'diamond' ? '1px solid rgba(56,189,248,.35)' : '1px solid transparent' }}>
+            <div style={{ fontSize: 10.5, color: 'var(--text-3)', fontWeight: 700 }}>{b.short}</div>
+            <div className="font-num" style={{ fontSize: 14, fontWeight: 800 }}>{fmtUsd(b.equity, false)}</div>
+            <div className="font-num" style={{ fontSize: 10.5, color: tone(ch) }}>{ch >= 0 ? '+' : ''}{ch.toFixed(1)}%</div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}

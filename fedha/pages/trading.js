@@ -10,7 +10,7 @@ import WalletPanel from '../components/trading/WalletPanel';
 import BrokerPanel from '../components/trading/BrokerPanel';
 import NewsStrip from '../components/trading/NewsStrip';
 import GrowthCard from '../components/trading/GrowthCard';
-import PaperBooksCard from '../components/trading/PaperBooksCard';
+import PaperBooksCard, { PaperBooksStrip } from '../components/trading/PaperBooksCard';
 import PotentialCard from '../components/trading/PotentialCard';
 import DaysCard from '../components/trading/DaysCard';
 import DeskCard from '../components/trading/DeskCard';
@@ -584,6 +584,7 @@ export default function TradingPage() {
               <div className="tx-hero-tiles">
                 {tiles.map(([k, v, c]) => <div key={k}><span>{k}</span><b style={c ? { color: c } : undefined}>{v}</b></div>)}
               </div>
+              <PaperBooksStrip onOpen={() => { setTab('channels'); setTimeout(() => document.getElementById('paper-books')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); }} />
               <button className="tx-hero-vault" onClick={() => { setTab('mt5'); setTimeout(() => document.getElementById('tx-bottom')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}>🔒 Real Money Vault <span>open ›</span></button>
             </div>
           );
@@ -645,7 +646,7 @@ export default function TradingPage() {
           {tab === 'channels' && (
             <div className="sx">
               <div className="sx-wrap"><DeskCard /></div>
-              <div className="sx-wrap" style={{ marginTop: 10 }}><PaperBooksCard /></div>
+              <div className="sx-wrap" id="paper-books" style={{ marginTop: 10 }}><PaperBooksCard /></div>
               <div className="sx-wrap"><PotentialCard trades={trades} settings={settings} /></div>
               <div className="sx-wrap"><DaysCard /></div>
 
