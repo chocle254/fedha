@@ -91,7 +91,7 @@ async function placeOnAccount({ userId, acct, settings, parsed, source, signalKe
   // profit, still improving) → Real (also winning on its own in the Proven book). Everything else: demo and paper.
   if (real) {
     const stage = await ladderStage(userId, source);
-    // The other way in: the Desk (lib/desk.js) called this signal a "take" and its real-money switch is on.
+    // The other way in: the Desk (lib/desk.js) called this signal a 💎 diamond and its real-money switch is on.
     // `desk` is only passed in that case. The lot size is then the Desk's, not the channel's.
     if (stage !== 'real' && !desk) return { skipped: `${source} is at the ${stage === 'proven' ? 'Proven' : 'Trial'} stage; only channels that reach Real trade real money.` };
     if (stage !== 'real') mult = Number(desk.mult) > 0 ? Number(desk.mult) : 1;

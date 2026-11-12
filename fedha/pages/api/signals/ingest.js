@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { createSignal } from '../../../lib/signals';
 import { isFollowUp, parseSignal } from '../../../lib/signal-parser';
 import { placeSignalOnBrokers, getBrokerSettings, brokersActive } from '../../../lib/broker';
-import { maybeAutoEnter } from '../../../lib/trading';
+import { maybeAutoEnter, notify } from '../../../lib/trading';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { scoreSignal, deskStamp, deskState } from '../../../lib/desk';
 import { handleFollowUp } from '../../../lib/followups';
@@ -74,7 +74,9 @@ export default async function handler(req, res) {
   // The Desk scores it from your own results before anything trades (lib/desk.js); the score stays on the signal.
   const desk = parsed.ok ? await scoreSignal(userId, { source: base.source, symbol: result.ok ? result.signal.symbol : parsed.symbol, side: parsed.side }) : null;
   if (desk && result.ok) await supabaseAdmin.from('trade_signals').update({ desk: deskStamp(desk) }).eq('id', result.signal.id).then(() => null, () => null);
-  const deskReal = desk?.verdict === 'take' && (await deskState(userId).catch(() => ({}))).real === true;
+  if (desk?.diamond && result.ok) await notify({ title: `💎 Diamond: ${result.signal.side} ${result.signal.symbol}`, body: `${base.source} · ${(desk.why || []).slice(0, 2).join(' · ')}`, url: '/trading' }, `diamond-${result.signal.id}`).catch(() => null);
+  // Real money through the Desk: 💎 diamonds only (a take from a channel that wins 60%+), and only with the switch on.
+  const deskReal = desk?.diamond === true && (await deskState(userId).catch(() => ({}))).real === true;
   const brokerSettings = await getBrokerSettings(userId);
   const onBrokers = parsed.ok && brokersActive(brokerSettings);
   const broker = onBrokers

@@ -23,6 +23,7 @@ import { supabaseAdmin } from './supabaseAdmin';
 import { klines } from './market';
 
 export const DESK = { minHistory: 30, minChannel: 4, days: 45, maxSignals: 600 };
+export const DIAMOND = { winRate: 0.6 };
 const HOUR = 3600e3;
 
 // Time of day in Nairobi (UTC+3, no daylight saving).
@@ -126,8 +127,10 @@ export function estimate(history, f, rule = 'now', at = Date.now()) {
   const base = avgOf(history, at, R.half);
   let votes = 0;
   const why = [];
+  let chGroup = [];
   for (const key of R.keys) {
     const group = history.filter((h) => h.f[key] === f[key]);
+    if (key === 'ch') chGroup = group;
     if (key === 'ch' && group.length < DESK.minChannel) { why.push(group.length ? `${f.ch}: only ${group.length} closed, no vote yet` : 'New channel: no record yet'); continue; }
     if (key === 'sw' && group.length < 6) continue; // too few to say anything about this side at this hour
     if (!group.length) continue;
@@ -145,11 +148,19 @@ export function estimate(history, f, rule = 'now', at = Date.now()) {
     }
   }
   const verdict = votes >= 2 ? 'take' : votes === 1 ? 'small' : 'skip';
+  // 💎 Diamond: a take from a channel with a real record (4+ closed signals) that wins 60%+ of them and has not lost
+  // its last two. On history (12 Nov 2026): 2 diamonds in 45 days, both won (+1.21R each). Loosening the record to
+  // 1-3 closed signals finds 8 (all won) but a 1-for-1 channel proves nothing, so the bar stays at 4. Rare on
+  // purpose; its live record (the 💎 row) is the real test. Only diamonds may go to the real account via the Desk.
+  const chWin = chGroup.length ? chGroup.filter((h) => h.r > 0).length / chGroup.length : 0;
+  const lastTwo = [...chGroup].sort((a, b) => a.closedAt - b.closedAt).slice(-2);
+  const diamond = verdict === 'take' && chGroup.length >= DESK.minChannel && chWin >= DIAMOND.winRate && !(lastTwo.length === 2 && lastTwo.every((h) => h.r < 0));
+  if (diamond) why.unshift(`💎 ${f.ch} wins ${Math.round(chWin * 100)}% of ${chGroup.length}`);
   return {
-    verdict, votes, n, rule, base: round(base, 3), why,
+    verdict, diamond, votes, n, rule, base: round(base, 3), why,
     score: Math.max(0, Math.min(100, 50 + votes * 16)),
     // Real-money lot size: a "take" trades 1.5x, everything else stays off the real account.
-    mult: verdict === 'take' ? 1.5 : 0,
+    mult: diamond ? 1.5 : 0, // real money: diamonds only
   };
 }
 
@@ -171,7 +182,7 @@ export async function scoreSignal(userId, { source, symbol, side, at = Date.now(
 }
 
 // What gets saved on the signal row (small).
-export const deskStamp = (d) => (d ? { v: d.verdict, s: d.score, n: d.votes, t: d.trend || null, w: d.win, r: d.rule || 'now', c: d.shadow || null, why: (d.why || []).slice(0, 4) } : null);
+export const deskStamp = (d) => (d ? { v: d.verdict, d: d.diamond ? 1 : 0, s: d.score, n: d.votes, t: d.trend || null, w: d.win, r: d.rule || 'now', c: d.shadow || null, why: (d.why || []).slice(0, 4) } : null);
 
 // ── Proof on history: each past signal scored with only what had closed before it ──
 const blank = () => ({ n: 0, sum: 0, wins: 0 });
@@ -179,7 +190,7 @@ const add = (b, r) => { b.n += 1; b.sum += r; if (r > 0) b.wins += 1; };
 const done = (b) => ({ n: b.n, avgR: b.n ? round(b.sum / b.n) : null, totalR: round(b.sum, 1), winPct: b.n ? Math.round((b.wins / b.n) * 100) : null });
 
 export function walkForward(history, rule = 'now') {
-  const out = { take: blank(), small: blank(), skip: blank(), all: blank() };
+  const out = { take: blank(), small: blank(), skip: blank(), all: blank(), diamond: blank() };
   const seq = [];
   for (let i = 0; i < history.length; i++) {
     const rec = history[i];
@@ -187,9 +198,10 @@ export function walkForward(history, rule = 'now') {
     if (known.length < DESK.minHistory) continue;
     const est = estimate(known, rec.f, rule, rec.at);
     add(out[est.verdict], rec.r); add(out.all, rec.r);
+    if (est.diamond) add(out.diamond, rec.r);
     seq.push([est.verdict, rec.r]);
   }
-  return { take: done(out.take), small: done(out.small), skip: done(out.skip), all: done(out.all), scored: out.all.n, total: history.length, seq };
+  return { take: done(out.take), small: done(out.small), skip: done(out.skip), all: done(out.all), diamond: done(out.diamond), scored: out.all.n, total: history.length, seq };
 }
 
 // What following a rule would have made: a take trades 1.5x, a small 1x, a skip nothing (R).
@@ -216,12 +228,13 @@ export async function liveResults(userId, history) {
   const { data } = await supabaseAdmin.from('trade_signals').select('id, source, symbol, side, status, desk, created_at')
     .eq('user_id', userId).not('desk', 'is', null).order('created_at', { ascending: false }).limit(400);
   const rById = new Map((history || []).map((h) => [h.id, h.r]));
-  const out = { take: blank(), small: blank(), skip: blank(), all: blank() };
+  const out = { take: blank(), small: blank(), skip: blank(), all: blank(), diamond: blank() };
   const rows = (data || []).filter((s) => ['take', 'small', 'skip'].includes(s.desk?.v));
   for (const s of rows) {
     const r = rById.get(s.id);
     if (r == null) continue;
     add(out[s.desk.v], r); add(out.all, r);
+    if (s.desk.d) add(out.diamond, r);
   }
   // Each rule's live record from its background scores (desk.c), on the same signals.
   const rules = {};
@@ -234,8 +247,8 @@ export async function liveResults(userId, history) {
     }
   }
   for (const b of Object.values(rules)) b.traded = round(b.traded, 1);
-  const recent = (data || []).slice(0, 12).map((s) => ({ id: s.id, source: s.source, symbol: s.symbol, side: s.side, at: s.created_at, verdict: s.desk?.v, score: s.desk?.s, votes: s.desk?.n, why: s.desk?.why || [], status: s.status, r: rById.has(s.id) ? round(rById.get(s.id)) : null }));
-  return { take: done(out.take), small: done(out.small), skip: done(out.skip), all: done(out.all), since: rows.length ? rows[rows.length - 1].created_at : null, recent, rules };
+  const recent = (data || []).slice(0, 12).map((s) => ({ id: s.id, source: s.source, symbol: s.symbol, side: s.side, at: s.created_at, verdict: s.desk?.v, diamond: !!s.desk?.d, score: s.desk?.s, votes: s.desk?.n, why: s.desk?.why || [], status: s.status, r: rById.has(s.id) ? round(rById.get(s.id)) : null }));
+  return { take: done(out.take), small: done(out.small), skip: done(out.skip), all: done(out.all), diamond: done(out.diamond), since: rows.length ? rows[rows.length - 1].created_at : null, recent, rules };
 }
 
 // ── The Desk's own small state (trade_settings.desk): { real, market, reviews, review_tried } ──

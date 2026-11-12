@@ -26,6 +26,7 @@ function Table({ title, sub, t }) {
       <div style={label}>{title}</div>
       <div style={{ fontSize: 11.5, color: 'var(--text-3)', margin: '2px 0 6px' }}>{sub}</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 54px 64px 46px', gap: 6, fontSize: 10.5, color: 'var(--text-3)' }}><span /><span style={{ textAlign: 'right' }}>signals</span><span style={{ textAlign: 'right' }}>average</span><span style={{ textAlign: 'right' }}>won</span></div>
+      {t.diamond && <Row name="💎 Diamond" s={t.diamond} strong />}
       <Row name="Desk said take" s={t.take} strong />
       <Row name="Desk said lean" s={t.small} />
       <Row name="Desk said skip" s={t.skip} />
@@ -52,7 +53,7 @@ export default function DeskCard() {
 
   const toggleReal = () => {
     if (!d) return;
-    if (!d.real && !window.confirm('Let the Desk\'s "take" signals trade your REAL account?\n\nOnly signals with at least 2 of 3 votes trade, at 1.5x lots, inside your daily loss limit. Channels that reached Real keep trading as before.')) return;
+    if (!d.real && !window.confirm('Let the Desk\'s 💎 diamond signals trade your REAL account?\n\nOnly 💎 diamonds trade: a "take" from a channel with 4+ closed signals that wins 60%+ of them and has not lost its last two. 1.5x lots, inside your daily loss limit. Channels that reached Real keep trading as before.')) return;
     setBusy('real'); load({ real: !d.real });
   };
 
@@ -137,7 +138,7 @@ export default function DeskCard() {
             return (
               <div key={s.id} style={{ padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12.5 }}>
-                  <span style={{ fontWeight: 800, color: v.color, minWidth: 44 }}>{v.text}</span>
+                  <span style={{ fontWeight: 800, color: s.diamond ? '#38BDF8' : v.color, minWidth: 44 }}>{s.diamond ? '💎 Diamond' : v.text}</span>
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.side} {s.symbol} · {s.source}</span>
                   <span className="font-num" style={{ color: tone(s.r), fontWeight: 700 }}>{s.r == null ? (['open', 'pending'].includes(s.status) ? 'open' : '—') : rTxt(s.r)}</span>
                 </div>
@@ -175,7 +176,7 @@ export default function DeskCard() {
       <div style={{ ...box, marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', border: d.real ? '1px solid rgba(34,197,94,.4)' : '1px solid transparent' }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 800 }}>Desk picks trade the real account</div>
-          <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2, lineHeight: 1.45 }}>{d.real ? 'On: a "take" trades real money at 1.5x lots, even from a channel that has not reached Real.' : 'Off: only channels that reached Real trade real money. Watch the Live table first; switch this on when its picks keep beating "Every signal".'}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2, lineHeight: 1.45 }}>{d.real ? 'On: only 💎 diamonds trade real money (1.5x lots), even from a channel that has not reached Real. Rare on purpose: 2 in the last 45 days on your history, both won.' : 'Off: only channels that reached Real trade real money. A 💎 diamond is a take from a channel with 4+ closed signals that wins 60%+ of them and has not lost its last two. Rare: 2 in 45 days on your history, both won. Watch the 💎 row in the Live table first.'}</div>
         </div>
         <button className={d.real ? 'btn-primary' : 'btn-ghost'} disabled={!!busy} onClick={toggleReal}>{busy === 'real' ? '…' : d.real ? 'On' : 'Off'}</button>
       </div>
