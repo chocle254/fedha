@@ -65,7 +65,19 @@ export function trendAt(series, symbol, ms) {
 }
 const withTrend = (side, trend) => (trend ? ((side === 'BUY') === (trend === 'up') ? 'with' : 'against') : null);
 
-const features = (rec, trend) => ({ ch: rec.source, win: windowOf(rec.at), side: rec.side, trend: withTrend(rec.side, trend) });
+const features = (rec, trend) => { const win = windowOf(rec.at); return { ch: rec.source, win, side: rec.side, sw: `${rec.side}@${win}`, trend: withTrend(rec.side, trend) }; };
+
+// ── Rules the Desk can score with. 'now' is the original. The others are lessons from its own misses (e.g. it judged
+// "buys" and "mornings" separately, so it could not see that morning buys won while evening buys lost). Every rule
+// scores every signal in the background; learnRule() switches to another rule only when it has done clearly better
+// on signals it could not have seen, so one lucky day can't change how the Desk trades. ──
+export const RULES = {
+  now: { label: 'Channel, side and time of day', keys: ['ch', 'side', 'win'] },
+  time_side: { label: '+ buys or sells at this time of day', keys: ['ch', 'side', 'win', 'sw'] },
+  fresh: { label: '+ buys or sells at this time of day, the last 5 days counting most', keys: ['ch', 'side', 'win', 'sw'], half: 5 },
+  recent: { label: '+ how the same side did in the last 3 hours', keys: ['ch', 'side', 'win'], recent: 3 },
+};
+export const ruleOf = (state) => (RULES[state?.rule] ? state.rule : 'now');
 
 // ── History: one record per closed signal in the main paper book ──
 export async function deskHistory(userId) {
@@ -97,24 +109,44 @@ export async function deskHistory(userId) {
 const NAME = { ch: (v) => v, win: (v) => `${v[0].toUpperCase()}${v.slice(1)} signals`, side: (v) => (v === 'BUY' ? 'Buys' : 'Sells') };
 const rTxt = (r) => `${r >= 0 ? '+' : ''}${r.toFixed(2)}R`;
 
-export function estimate(history, f) {
+const swName = (v) => { const [side, win] = String(v).split('@'); return `${win ? `${win[0].toUpperCase()}${win.slice(1)} ` : ''}${side === 'BUY' ? 'buys' : 'sells'}`; };
+NAME.sw = swName;
+// Average R, with newer results counting more when the rule has a half-life (in days).
+function avgOf(rows, at, half) {
+  if (!half) return mean(rows.map((h) => h.r));
+  let w = 0; let sum = 0;
+  for (const h of rows) { const k = 0.5 ** ((at - h.closedAt) / (half * 86400e3)); w += k; sum += k * h.r; }
+  return w ? sum / w : 0;
+}
+
+export function estimate(history, f, rule = 'now', at = Date.now()) {
+  const R = RULES[rule] || RULES.now;
   const n = history.length;
-  if (n < DESK.minHistory) return { verdict: 'learning', score: 50, votes: 0, mult: 0, n, why: [`Learning: ${n} of ${DESK.minHistory} closed signals needed before it scores.`] };
-  const base = mean(history.map((h) => h.r));
+  if (n < DESK.minHistory) return { verdict: 'learning', score: 50, votes: 0, mult: 0, n, rule, why: [`Learning: ${n} of ${DESK.minHistory} closed signals needed before it scores.`] };
+  const base = avgOf(history, at, R.half);
   let votes = 0;
   const why = [];
-  for (const key of ['ch', 'side', 'win']) {
+  for (const key of R.keys) {
     const group = history.filter((h) => h.f[key] === f[key]);
     if (key === 'ch' && group.length < DESK.minChannel) { why.push(group.length ? `${f.ch}: only ${group.length} closed, no vote yet` : 'New channel: no record yet'); continue; }
+    if (key === 'sw' && group.length < 6) continue; // too few to say anything about this side at this hour
     if (!group.length) continue;
-    const avg = mean(group.map((h) => h.r));
+    const avg = avgOf(group, at, R.half);
     const yes = avg > base;
     votes += yes ? 1 : -1;
     why.push(`${yes ? '👍' : '👎'} ${NAME[key](f[key])}: ${rTxt(avg)} over ${group.length}`);
   }
+  if (R.recent) {
+    const group = history.filter((h) => h.f.side === f.side && at - h.closedAt <= R.recent * HOUR);
+    if (group.length >= 3) {
+      const avg = mean(group.map((h) => h.r)); const yes = avg > base;
+      votes += yes ? 1 : -1;
+      why.push(`${yes ? '👍' : '👎'} ${f.side === 'BUY' ? 'Buys' : 'Sells'} in the last ${R.recent} h: ${rTxt(avg)} over ${group.length}`);
+    }
+  }
   const verdict = votes >= 2 ? 'take' : votes === 1 ? 'small' : 'skip';
   return {
-    verdict, votes, n, base: round(base, 3), why,
+    verdict, votes, n, rule, base: round(base, 3), why,
     score: Math.max(0, Math.min(100, 50 + votes * 16)),
     // Real-money lot size: a "take" trades 1.5x, everything else stays off the real account.
     mult: verdict === 'take' ? 1.5 : 0,
@@ -124,34 +156,59 @@ export function estimate(history, f) {
 // Scores a signal that has just arrived. Never throws: null means "no score this time".
 export async function scoreSignal(userId, { source, symbol, side, at = Date.now() }) {
   try {
-    const history = await deskHistory(userId);
+    const [history, state] = await Promise.all([deskHistory(userId), deskState(userId)]);
     let series = history.series || {};
     if (!series[symbol]) series = { ...series, ...(await trendSeries([symbol], at - 5 * 86400e3).catch(() => ({}))) };
     const trend = trendAt(series, symbol, at);
     const known = history.filter((h) => h.closedAt <= at);
-    const est = estimate(known, features({ source, side, at }, trend));
-    return { ...est, trend, win: windowOf(at) };
+    const f = features({ source, side, at }, trend);
+    const rule = ruleOf(state);
+    const est = estimate(known, f, rule, at);
+    // Every other rule scores it too, silently, so their live record builds up (lib/desk.js RULES).
+    const shadow = Object.fromEntries(Object.keys(RULES).map((k) => [k, k === rule ? est.verdict : estimate(known, f, k, at).verdict]));
+    return { ...est, trend, win: windowOf(at), shadow };
   } catch { return null; }
 }
 
 // What gets saved on the signal row (small).
-export const deskStamp = (d) => (d ? { v: d.verdict, s: d.score, n: d.votes, t: d.trend || null, w: d.win, why: (d.why || []).slice(0, 3) } : null);
+export const deskStamp = (d) => (d ? { v: d.verdict, s: d.score, n: d.votes, t: d.trend || null, w: d.win, r: d.rule || 'now', c: d.shadow || null, why: (d.why || []).slice(0, 4) } : null);
 
 // ── Proof on history: each past signal scored with only what had closed before it ──
 const blank = () => ({ n: 0, sum: 0, wins: 0 });
 const add = (b, r) => { b.n += 1; b.sum += r; if (r > 0) b.wins += 1; };
 const done = (b) => ({ n: b.n, avgR: b.n ? round(b.sum / b.n) : null, totalR: round(b.sum, 1), winPct: b.n ? Math.round((b.wins / b.n) * 100) : null });
 
-export function walkForward(history) {
+export function walkForward(history, rule = 'now') {
   const out = { take: blank(), small: blank(), skip: blank(), all: blank() };
+  const seq = [];
   for (let i = 0; i < history.length; i++) {
     const rec = history[i];
     const known = history.slice(0, i).filter((h) => h.closedAt <= rec.at);
     if (known.length < DESK.minHistory) continue;
-    const est = estimate(known, rec.f);
+    const est = estimate(known, rec.f, rule, rec.at);
     add(out[est.verdict], rec.r); add(out.all, rec.r);
+    seq.push([est.verdict, rec.r]);
   }
-  return { take: done(out.take), small: done(out.small), skip: done(out.skip), all: done(out.all), scored: out.all.n, total: history.length };
+  return { take: done(out.take), small: done(out.small), skip: done(out.skip), all: done(out.all), scored: out.all.n, total: history.length, seq };
+}
+
+// What following a rule would have made: a take trades 1.5x, a small 1x, a skip nothing (R).
+const tradedR = (seq) => round(seq.reduce((t, [v, r]) => t + r * (v === 'take' ? 1.5 : v === 'small' ? 1 : 0), 0), 1);
+const avgTake = (seq) => { const t = seq.filter(([v]) => v === 'take'); return t.length ? round(mean(t.map(([, r]) => r))) : null; };
+
+// Which rule has earned the most on signals it could not have seen. A challenger replaces the rule in use only
+// when it made at least 3R more over all of history AND more over the latest 60, with its takes still winning
+// there. Otherwise the Desk keeps what it has.
+export function learnRule(history, current = 'now') {
+  const rows = Object.keys(RULES).map((k) => {
+    const wf = walkForward(history, k);
+    const last = wf.seq.slice(-60);
+    return { rule: k, label: RULES[k].label, all: tradedR(wf.seq), last60: tradedR(last), takeAvg: avgTake(wf.seq), takeAvg60: avgTake(last), takes: wf.take.n, missed: wf.seq.filter(([v, r]) => v === 'skip' && r > 0.5).length, badPicks: wf.seq.filter(([v, r]) => v !== 'skip' && r <= -0.9).length };
+  });
+  const cur = rows.find((r) => r.rule === current) || rows[0];
+  const better = rows.filter((r) => r.rule !== cur.rule && r.all >= cur.all + 3 && r.last60 > cur.last60 && (r.takeAvg60 ?? -1) > 0)
+    .sort((a, b) => b.last60 - a.last60)[0];
+  return { use: better ? better.rule : cur.rule, switched: !!better, rows, scored: rows.length ? walkForward(history, cur.rule).scored : 0 };
 }
 
 // ── Live: signals scored when they arrived, and how they ended ──
@@ -166,8 +223,19 @@ export async function liveResults(userId, history) {
     if (r == null) continue;
     add(out[s.desk.v], r); add(out.all, r);
   }
+  // Each rule's live record from its background scores (desk.c), on the same signals.
+  const rules = {};
+  for (const s of data || []) {
+    const r = rById.get(s.id);
+    if (r == null || !s.desk?.c) continue;
+    for (const [k, v] of Object.entries(s.desk.c)) {
+      const b = rules[k] || (rules[k] = { n: 0, traded: 0 });
+      b.n += 1; b.traded += r * (v === 'take' ? 1.5 : v === 'small' ? 1 : 0);
+    }
+  }
+  for (const b of Object.values(rules)) b.traded = round(b.traded, 1);
   const recent = (data || []).slice(0, 12).map((s) => ({ id: s.id, source: s.source, symbol: s.symbol, side: s.side, at: s.created_at, verdict: s.desk?.v, score: s.desk?.s, votes: s.desk?.n, why: s.desk?.why || [], status: s.status, r: rById.has(s.id) ? round(rById.get(s.id)) : null }));
-  return { take: done(out.take), small: done(out.small), skip: done(out.skip), all: done(out.all), since: rows.length ? rows[rows.length - 1].created_at : null, recent };
+  return { take: done(out.take), small: done(out.small), skip: done(out.skip), all: done(out.all), since: rows.length ? rows[rows.length - 1].created_at : null, recent, rules };
 }
 
 // ── The Desk's own small state (trade_settings.desk): { real, market, reviews, review_tried } ──

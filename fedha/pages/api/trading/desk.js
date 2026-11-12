@@ -1,5 +1,5 @@
 import { requireUser } from '../../../lib/require-user';
-import { deskHistory, deskState, saveDesk, walkForward, liveResults, DESK } from '../../../lib/desk';
+import { deskHistory, deskState, saveDesk, walkForward, liveResults, learnRule, DESK, RULES, ruleOf } from '../../../lib/desk';
 import { marketRead } from '../../../lib/desk-daily';
 
 // Trading → Channels → The Desk: the market read, how the Desk's picks have done (on history and since it went
@@ -18,12 +18,22 @@ export default async function handler(req, res) {
   try {
     const history = await deskHistory(user.id);
     const [state, live] = await Promise.all([deskState(user.id), liveResults(user.id, history)]);
+    const rule = ruleOf(state);
+    // First visit after the update: record the comparison now (it only switches rules in the nightly review).
+    if (!state.rule_check && history.length >= DESK.minHistory) {
+      const check = learnRule(history, rule);
+      state.rule_check = { at: new Date().toISOString(), rows: check.rows, use: rule };
+      await saveDesk(user.id, { rule_check: state.rule_check }).catch(() => null);
+    }
+    const { seq, ...wf } = walkForward(history, rule); // seq is only for the daily rule check
     return res.status(200).json({
       real: state.real === true,
       market: state.market || null,
       reviews: state.reviews || [],
       closed: history.length, needed: DESK.minHistory,
-      history: walkForward(history),
+      history: wf,
+      rule, ruleLabel: RULES[rule].label, ruleCheck: state.rule_check || null, ruleLog: state.rule_log || [],
+      rules: Object.fromEntries(Object.entries(RULES).map(([k, v]) => [k, v.label])),
       live,
     });
   } catch (e) {

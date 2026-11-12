@@ -103,7 +103,30 @@ export default function DeskCard() {
           <Table title="Live" sub={d.live.all.n ? `Scored as they arrived, since ${new Date(d.live.since).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}.` : 'Scored as they arrive. Results appear as signals close.'} t={d.live} />
         </div>
       )}
-      <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 6, lineHeight: 1.5 }}>Three votes per signal: has this channel, this side (buy or sell) and this time of day each done better than your average signal? Take = at least 2 more yes than no. The Live table is the honest test: it could not have seen those results.</div>
+      <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 6, lineHeight: 1.5 }}>Votes per signal: has this channel, this side (buy or sell) and this time of day each done better than your average signal? Take = at least 2 more yes than no. The Live table is the honest test: it could not have seen those results.</div>
+
+      {/* How it learns: the rule in use, and the others it tests in the background */}
+      {!learning && (
+        <div style={{ ...box, marginTop: 10 }}>
+          <div style={label}>How the Desk learns</div>
+          <div style={{ fontSize: 12.5, marginTop: 4, lineHeight: 1.45 }}>Scoring with: <b>{d.ruleLabel}</b></div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2, lineHeight: 1.45 }}>It also scores every signal with the other rules below, without trading on them. Each night it checks them on signals they could not have seen, and switches only when one made at least 3R more on your history and more over the latest 60 signals.</div>
+          {d.ruleCheck?.rows?.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              {d.ruleCheck.rows.map((r) => (
+                <div key={r.rule} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12, padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
+                  <span style={{ flex: 1, minWidth: 0, fontWeight: r.rule === d.rule ? 800 : 500 }}>{r.rule === d.rule ? '● ' : ''}{r.label}</span>
+                  <span className="font-num" title="If you had followed it: take 1.5x, small 1x, skip nothing" style={{ color: tone(r.all), fontWeight: 700 }}>{rTxt(r.all)}</span>
+                  <span className="font-num" style={{ color: 'var(--text-3)', minWidth: 64, textAlign: 'right' }}>last 60 {rTxt(r.last60)}</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>Checked {new Date(d.ruleCheck.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}. R if you had followed each rule (take 1.5x, small 1x, skip nothing).</div>
+            </div>
+          )}
+          {!d.ruleCheck && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>The first check runs with tonight's review.</div>}
+          {d.ruleLog?.length > 0 && <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginTop: 4 }}>Last change: {d.rules[d.ruleLog[0].from]} → {d.rules[d.ruleLog[0].to]} ({new Date(d.ruleLog[0].at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })})</div>}
+        </div>
+      )}
 
       {/* Latest scores */}
       {d.live.recent.length > 0 && (
@@ -135,6 +158,14 @@ export default function DeskCard() {
           <div style={{ fontSize: 13, fontWeight: 700, marginTop: 6, lineHeight: 1.45 }}><span className="font-num" style={{ color: tone(rev.totalR) }}>{rTxt(rev.totalR)}</span> · {rev.headline}</div>
           {rev.worked?.map((x, i) => <div key={`w${i}`} style={{ fontSize: 12, marginTop: 4, color: 'var(--text-2)' }}><span style={{ color: '#22C55E' }}>✓</span> {x}</div>)}
           {rev.hurt?.map((x, i) => <div key={`h${i}`} style={{ fontSize: 12, marginTop: 4, color: 'var(--text-2)' }}><span style={{ color: '#EF4444' }}>✕</span> {x}</div>)}
+          {rev.mistakes?.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 800 }}>The Desk's mistakes</div>
+              {rev.mistakes.map((x, i) => <div key={`m${i}`} style={{ fontSize: 12, marginTop: 3, color: 'var(--text-2)' }}><span style={{ color: '#F59E0B' }}>!</span> {x}</div>)}
+              {rev.lesson && <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.45 }}>{rev.lesson}</div>}
+            </div>
+          )}
+          {rev.ruleNote && <div style={{ fontSize: 12, marginTop: 6, color: 'var(--accent)' }}>🧠 {rev.ruleNote}</div>}
           {rev.change && <div style={{ fontSize: 12, marginTop: 6 }}><b>Worth testing:</b> {rev.change}</div>}
         </div>
       )}

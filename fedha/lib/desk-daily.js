@@ -15,7 +15,7 @@ import { upcomingNews } from './news-guard';
 import { notify } from './trading';
 import { aiJSON } from './ai-json';
 import { supabaseAdmin } from './supabaseAdmin';
-import { deskHistory, deskState, saveDesk, windowOf, WINDOW_LABEL } from './desk';
+import { deskHistory, deskState, saveDesk, windowOf, WINDOW_LABEL, learnRule, ruleOf, RULES } from './desk';
 
 const SYMBOL = 'XAUUSD';
 const HOUR = 3600e3;
@@ -129,6 +129,16 @@ export async function dailyReview(userId, { force = false, now = Date.now() } = 
   const week = history.filter((h) => h.closedAt > now - 8 * 86400e3 && h.closedAt <= now - 24 * HOUR);
   const { data: scored } = await supabaseAdmin.from('trade_signals').select('id, desk').eq('user_id', userId).in('id', day.map((d) => d.id).slice(0, 200));
   const verdictOf = new Map((scored || []).filter((s) => s.desk?.v).map((s) => [s.id, s.desk.v]));
+  const stampOf = new Map((scored || []).filter((s) => s.desk?.v).map((s) => [s.id, s.desk]));
+  // The Desk's own mistakes today: winners it skipped and losers it backed, grouped so a pattern shows.
+  const name = (x) => `${WINDOW_LABEL[windowOf(x.at)].split(' ')[0].toLowerCase()} ${x.side === 'BUY' ? 'buys' : 'sells'}`;
+  const misses = day.filter((x) => verdictOf.get(x.id) === 'skip' && x.r > 0.5);
+  const badPicks = day.filter((x) => ['take', 'small'].includes(verdictOf.get(x.id)) && x.r <= -0.9);
+  const mistakes = [
+    ...bucket(misses, name).map((g) => `Skipped ${g.n} winning ${g.key} (${rTxt(g.totalR)} missed)`),
+    ...bucket(badPicks, name).map((g) => `Backed ${g.n} losing ${g.key} (${rTxt(g.totalR)})`),
+  ].slice(0, 4);
+  const misled = badPicks.map((x) => (stampOf.get(x.id)?.why || []).filter((w) => w.startsWith('👍')).join('; ')).filter(Boolean).slice(0, 3);
   const total = round(day.reduce((s, x) => s + x.r, 0));
   const facts = {
     date: today, signals: day.length, totalR: total, avgR: round(mean(day.map((x) => x.r))), won: day.filter((x) => x.r > 0).length,
@@ -137,6 +147,7 @@ export async function dailyReview(userId, { force = false, now = Date.now() } = 
     timeOfDay: bucket(day, (x) => WINDOW_LABEL[windowOf(x.at)]),
     sides: bucket(day, (x) => (x.side === 'BUY' ? 'Buys' : 'Sells')),
     desk: bucket(day.filter((x) => verdictOf.has(x.id)), (x) => ({ take: 'Desk said take', small: 'Desk said small', skip: 'Desk said skip', learning: 'Not scored' }[verdictOf.get(x.id)] || 'Not scored')),
+    deskMistakes: mistakes, votesThatMisledBadPicks: misled,
     best: (() => { const b = [...day].sort((a, c) => c.r - a.r)[0]; return `${b.source} ${b.side} ${b.symbol} ${rTxt(b.r)}`; })(),
     worst: (() => { const b = [...day].sort((a, c) => a.r - c.r)[0]; return `${b.source} ${b.side} ${b.symbol} ${rTxt(b.r)}`; })(),
   };
@@ -152,10 +163,21 @@ export async function dailyReview(userId, { force = false, now = Date.now() } = 
 TODAY'S NUMBERS:
 ${JSON.stringify(facts)}
 
-Return JSON: {"headline":"one sentence: the result and the single biggest reason for it","worked":["up to 3 short lines, each with its numbers"],"hurt":["up to 3 short lines, each with its numbers"],"change":"ONE concrete change worth testing next, backed by a number above, or empty if nothing stands out"}`, { maxTokens: 800, temperature: 0.2 });
-  if (o?.headline) review = { headline: clip(o.headline, 240), worked: (o.worked || []).map((x) => clip(x, 160)).slice(0, 3), hurt: (o.hurt || []).map((x) => clip(x, 160)).slice(0, 3), change: clip(o.change, 260) };
+Return JSON: {"headline":"one sentence: the result and the single biggest reason for it","lesson":"one plain sentence on what the Desk's own mistakes (deskMistakes) show, or empty if there were none","worked":["up to 3 short lines, each with its numbers"],"hurt":["up to 3 short lines, each with its numbers"],"change":"ONE concrete change worth testing next, backed by a number above, or empty if nothing stands out"}`, { maxTokens: 800, temperature: 0.2 });
+  if (o?.headline) review = { headline: clip(o.headline, 240), lesson: clip(o.lesson, 240), worked: (o.worked || []).map((x) => clip(x, 160)).slice(0, 3), hurt: (o.hurt || []).map((x) => clip(x, 160)).slice(0, 3), change: clip(o.change, 260) };
 
-  const entry = { date: today, n: day.length, totalR: total, won: facts.won, ...review };
+  // Learn: does another rule now beat the one in use on signals it could not have seen? Switch only on evidence.
+  const current = ruleOf(state);
+  const check = learnRule(history, current);
+  const ruleNote = check.switched ? `The Desk now scores with "${RULES[check.use].label}": it made ${check.rows.find((r) => r.rule === check.use).all}R against ${check.rows.find((r) => r.rule === current).all}R on your history, and more over the latest 60 signals.` : '';
+  await saveDesk(userId, {
+    rule: check.use,
+    rule_check: { at: new Date(now).toISOString(), rows: check.rows, use: check.use },
+    ...(check.switched ? { rule_log: [{ at: new Date(now).toISOString(), from: current, to: check.use }, ...(state.rule_log || [])].slice(0, 5) } : {}),
+  });
+  if (check.switched) await notify({ title: '🧠 The Desk changed how it scores', body: ruleNote }, `desk-rule-${today}`);
+
+  const entry = { date: today, n: day.length, totalR: total, won: facts.won, ...review, mistakes, ruleNote };
   const reviews = [entry, ...(state.reviews || []).filter((r) => r.date !== today)].slice(0, 7);
   await saveDesk(userId, { reviews });
   await notify({ title: `📊 Trading day: ${rTxt(total)} from ${day.length} signal${day.length === 1 ? '' : 's'}`, body: review.headline }, `desk-review-${today}`);
