@@ -563,6 +563,8 @@ export const SIDE_BOOKS = {
   diamond: { label: 'Diamonds only', start: 1000, cap: 15, pct: (d) => (d?.diamond ? 15 : 0) },
   // The Coach's own calls (lib/desk-coach.js), sized like Main: take 15%, small 10%, skip 0.25%.
   coach: { label: "Coach's calls", start: 1000, cap: 15, pct: (d, c) => ({ take: 15, small: 10, skip: 0.25 }[c?.verdict] ?? 0) },
+  // The Coach's own sniper entries on gold (lib/coach-sniper.js), never signals: 10-15% by his conviction.
+  coach_own: { label: "Coach's own trades", start: 1000, cap: 15, pct: () => 0 },
 };
 
 export async function sideBookState(userId, name, since) {

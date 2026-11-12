@@ -1,6 +1,7 @@
 import { requireUser } from '../../../lib/require-user';
 import { deskHistory, deskState, saveDesk, walkForward, liveResults, learnRule, DESK, RULES, ruleOf } from '../../../lib/desk';
 import { marketRead } from '../../../lib/desk-daily';
+import { whatIf } from '../../../lib/news-read';
 
 // Trading → Channels → The Desk: the market read, how the Desk's picks have done (on history and since it went
 // live), the latest scored signals, the daily reviews, and the real-money switch.
@@ -13,6 +14,10 @@ export default async function handler(req, res) {
     const b = req.body || {};
     if (typeof b.real === 'boolean') await saveDesk(user.id, { real: b.real });
     if (b.refresh) await marketRead(user.id, { force: true }).catch(() => null);
+    if (b.whatif) {
+      const a = await whatIf(b.whatif).catch(() => null);
+      return a ? res.status(200).json({ whatif: a }) : res.status(502).json({ error: 'The Coach could not answer just now. Try again in a minute.' });
+    }
   } else if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
@@ -32,6 +37,7 @@ export default async function handler(req, res) {
       reviews: state.reviews || [],
       closed: history.length, needed: DESK.minHistory,
       history: wf,
+      news: state.news || null, sniper: state.sniper_last || null,
       coachTrusted: state.coach_trusted === true, coachCheck: state.coach_check || null,
       rule, ruleLabel: RULES[rule].label, ruleCheck: state.rule_check || null, ruleLog: state.rule_log || [],
       rules: Object.fromEntries(Object.entries(RULES).map(([k, v]) => [k, v.label])),

@@ -11,6 +11,7 @@
 // opinion can never lose money before it has proved itself.
 import { aiJSON } from './ai-json';
 import { windowOf } from './desk';
+import { impactsFor } from './news-read';
 
 const clip = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
@@ -42,7 +43,7 @@ function answer(q, history, f, at) {
 const PERSONA = `You are a senior prop-desk trader with 20 years on Wall Street and in London: gold, FX and indices. You trade ICT concepts (liquidity sweeps of prior highs and lows and the Asia range, premium vs discount, fair value gaps, killzones, market structure), sessions, trend, momentum and the news calendar. You coach "the Desk", a statistics engine that scores copied Telegram signals from past results. You are blunt, precise and never flatter. You only use the facts given; you never invent a price level, a news event or a result. When the market read and the record disagree, say which you trust and why.`;
 
 // → { verdict, conviction, first, questions: [{q, a}], reasons, challenge } or null if the AI is unavailable.
-export async function coachReview({ signal, desk, ctx, history }) {
+export async function coachReview({ signal, desk, ctx, history, news = null }) {
   if (!desk || desk.verdict === 'learning' || !ctx) return null;
   const at = Date.now();
   const f = { ch: signal.source, side: signal.side, win: windowOf(at), sw: `${signal.side}@${windowOf(at)}` };
@@ -50,12 +51,13 @@ export async function coachReview({ signal, desk, ctx, history }) {
     signal: { channel: signal.source, market: signal.symbol, side: signal.side, entry: signal.entry, stop: signal.stop_loss, targets: (signal.take_profits || []).slice(0, 3) },
     desk: { verdict: desk.verdict, votes: desk.votes, why: desk.why, diamond: !!desk.diamond },
     market: ctx,
+    newsDesk: { mood: news?.summary || null, forThisMarket: impactsFor(news, signal.symbol) },
   };
   const r1 = await aiJSON(`${PERSONA}
 
 A signal just came in. Before the Desk sorts it, review it.
 FACTS: ${JSON.stringify(facts)}
-(market.trend: with/against/mixed = the trade versus the 15m and 1h trend; sideZone good = buying in discount or selling in premium; sweepFor/fvgFor with = liquidity sweep or fair value gap backing this side; news: clear/caution/danger.)
+(newsDesk = the latest headlines' read for this market; market.trend: with/against/mixed = the trade versus the 15m and 1h trend; sideZone good = buying in discount or selling in premium; sweepFor/fvgFor with = liquidity sweep or fair value gap backing this side; news: clear/caution/danger.)
 
 Questions you may ask the Desk (it answers from the real closed results): ${JSON.stringify(QUESTIONS)}
 Return JSON: {"first":"your first read in one sentence","questions":["up to 3 question ids from the list that would settle it"]}`, { fast: true, maxTokens: 300, temperature: 0.2, timeout: 8000 }).catch(() => null);

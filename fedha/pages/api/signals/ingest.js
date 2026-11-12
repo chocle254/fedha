@@ -84,8 +84,8 @@ export default async function handler(req, res) {
   // 2. The Desk scores it from your own results (lib/desk.js).
   const scored = parsed.ok ? await scoreSignal(userId, { source: base.source, symbol: sigSymbol, side: parsed.side, ctx }) : null;
   // 3. The Coach questions the Desk and makes his own call (lib/desk-coach.js).
-  const coach = scored && result.ok ? await coachReview({ signal: result.signal, desk: scored, ctx, history: scored.history }).catch(() => null) : null;
   const state = await deskState(userId).catch(() => ({}));
+  const coach = scored && result.ok ? await coachReview({ signal: result.signal, desk: scored, ctx, history: scored.history, news: state.news }).catch(() => null) : null;
   // The Coach sorts the signal only once his live record has beaten the Desk's (state.coach_trusted, set nightly).
   const desk = scored && coach && state.coach_trusted ? { ...scored, verdict: coach.verdict, diamond: scored.diamond && coach.verdict === 'take', by: 'coach' } : scored;
   if (desk && result.ok) await supabaseAdmin.from('trade_signals').update({ desk: deskStamp(desk, { x: contextStamp(ctx), c2: coachStamp(coach) }) }).eq('id', result.signal.id).then(() => null, () => null);

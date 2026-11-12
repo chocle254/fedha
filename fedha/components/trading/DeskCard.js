@@ -130,6 +130,8 @@ export default function DeskCard() {
         </div>
       )}
 
+      <NewsDesk news={d.news} sniper={d.sniper} />
+
       {/* Latest scores */}
       {d.live.recent.length > 0 && (
         <div style={{ marginTop: 10 }}>
@@ -185,6 +187,61 @@ export default function DeskCard() {
         <button className={d.real ? 'btn-primary' : 'btn-ghost'} disabled={!!busy} onClick={toggleReal}>{busy === 'real' ? '…' : d.real ? 'On' : 'Off'}</button>
       </div>
       {err && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 6 }}>{err}</div>}
+    </div>
+  );
+}
+
+// The Coach's news desk (lib/news-read.js), his latest sniper call (lib/coach-sniper.js) and "what if" questions.
+function NewsDesk({ news, sniper }) {
+  const [q, setQ] = useState('');
+  const [ans, setAns] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const ask = async () => {
+    if (!q.trim()) return;
+    setBusy(true); setErr(''); setAns(null);
+    try {
+      const r = await fetch('/api/trading/desk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ whatif: q }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'No answer.');
+      setAns(j.whatif);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const arrow = (x) => (x.direction === 'up' ? <span style={{ color: '#22C55E' }}>▲</span> : <span style={{ color: '#EF4444' }}>▼</span>);
+  return (
+    <div style={{ ...box, marginTop: 10 }}>
+      <div style={label}>🎓 The Coach's news desk</div>
+      {news?.summary ? <div style={{ fontSize: 12.5, marginTop: 4, lineHeight: 1.45 }}>{news.summary}</div> : <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>The first read of the headlines arrives within the hour.</div>}
+      {(news?.impacts || []).map((x, i) => (
+        <div key={i} style={{ fontSize: 12, marginTop: 6, lineHeight: 1.4 }}>
+          {arrow(x)} <b>{x.market}</b> <span style={{ color: 'var(--text-3)' }}>{'●'.repeat(x.strength)}{'○'.repeat(3 - x.strength)} · {x.horizon}</span>
+          <div style={{ color: 'var(--text-2)' }}>{x.why}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{x.headline}</div>
+        </div>
+      ))}
+      {news?.at && <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 4 }}>Read {new Date(news.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} from {news.count || 'the'} headlines. A read of the news, not a promise of a move.</div>}
+
+      {sniper && (
+        <div style={{ fontSize: 12, marginTop: 8, lineHeight: 1.45, borderTop: '1px solid var(--border)', paddingTop: 6 }}>
+          🎯 <b>Last sniper setup</b> ({sniper.kz === 'ny' ? 'New York' : 'London'} killzone, {new Date(sniper.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}): {sniper.side} gold, <b>{sniper.taken ? `taken at ${sniper.entry}` : 'passed'}</b> · {sniper.conviction}/5
+          {sniper.taken && <div style={{ color: 'var(--text-3)' }}>SL {sniper.stop} · TP1 {sniper.tps?.[0]} · TP2 {sniper.tps?.[1]}</div>}
+          <div style={{ color: 'var(--text-2)' }}>{sniper.why}</div>
+        </div>
+      )}
+      {!sniper && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 8 }}>🎯 Sniper: the Coach scans gold in the London (10:00-13:00) and New York (15:00-18:00) killzones for a liquidity sweep that turns his way, and trades the ones he rates 3/5 or better on his own account.</div>}
+
+      <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+        <input className="input" style={{ flex: 1 }} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && ask()} placeholder="What if… (e.g. Nvidia's CEO is fired)" />
+        <button className="btn-primary" style={{ width: 'auto', padding: '0 12px' }} disabled={busy || !q.trim()} onClick={ask}>{busy ? '…' : 'Ask'}</button>
+      </div>
+      {err && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 4 }}>{err}</div>}
+      {ans && (
+        <div style={{ marginTop: 8, fontSize: 12.5, lineHeight: 1.5 }}>
+          <div>{ans.answer}</div>
+          {ans.impacts.map((x, i) => <div key={i} style={{ fontSize: 12, marginTop: 3 }}>{arrow(x)} <b>{x.market}</b> <span style={{ color: 'var(--text-3)' }}>{'●'.repeat(x.strength)}{'○'.repeat(3 - x.strength)}</span> · {x.why}</div>)}
+          {ans.watch && <div style={{ fontSize: 12, marginTop: 4 }}><b>Watch:</b> {ans.watch}</div>}
+        </div>
+      )}
     </div>
   );
 }

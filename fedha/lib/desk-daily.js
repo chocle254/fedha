@@ -16,6 +16,9 @@ import { notify } from './trading';
 import { aiJSON } from './ai-json';
 import { supabaseAdmin } from './supabaseAdmin';
 import { deskHistory, deskState, saveDesk, windowOf, WINDOW_LABEL, learnRule, ruleOf, RULES } from './desk';
+import { readNews } from './news-read';
+import { sniperScan } from './coach-sniper';
+import { openPaperTrade, sideBookState, sideBooks } from './trading';
 
 const SYMBOL = 'XAUUSD';
 const HOUR = 3600e3;
@@ -217,5 +220,30 @@ export async function deskTick(userId) {
   if (Date.now() - lastLook < 5 * 60e3) return;
   lastLook = Date.now();
   await marketRead(userId).catch(() => null);
+  await newsTick(userId).catch(() => null);
+  await sniperTick(userId).catch(() => null);
   await dailyReview(userId).catch(() => null);
+}
+
+
+// The news desk, once an hour (lib/news-read.js). A strength-3 impact sends one push per headline.
+async function newsTick(userId) {
+  const state = await deskState(userId);
+  if (state.news?.at && Date.now() - Date.parse(state.news.at) < 55 * 60e3) return;
+  const news = await readNews();
+  if (!news) { await saveDesk(userId, { news: { ...(state.news || {}), at: new Date().toISOString() } }); return; }
+  await saveDesk(userId, { news });
+  const big = news.impacts.filter((x) => x.strength === 3).slice(0, 2);
+  for (const x of big) {
+    const tag = `news-${x.market}-${x.headline.slice(0, 40)}`.replace(/[^\w-]/g, '').slice(0, 64);
+    await notify({ title: `📰 ${x.market} ${x.direction === 'up' ? '▲' : '▼'} ${x.horizon === 'days' ? 'for days' : 'today'}`, body: `${x.headline} · ${x.why}`, url: '/trading' }, tag).catch(() => null);
+  }
+}
+
+// The Coach's own sniper entries, inside the killzones only (lib/coach-sniper.js).
+async function sniperTick(userId) {
+  const state = await deskState(userId);
+  const books = await sideBooks(userId);
+  if (!books.coach_own?.since) return;
+  await sniperScan(userId, { news: state.news, state, saveDesk, openPaperTrade, sideBookState, books, notify });
 }
