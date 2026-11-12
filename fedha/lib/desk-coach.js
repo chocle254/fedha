@@ -58,7 +58,7 @@ FACTS: ${JSON.stringify(facts)}
 (market.trend: with/against/mixed = the trade versus the 15m and 1h trend; sideZone good = buying in discount or selling in premium; sweepFor/fvgFor with = liquidity sweep or fair value gap backing this side; news: clear/caution/danger.)
 
 Questions you may ask the Desk (it answers from the real closed results): ${JSON.stringify(QUESTIONS)}
-Return JSON: {"first":"your first read in one sentence","questions":["up to 3 question ids from the list that would settle it"]}`, { maxTokens: 300, temperature: 0.2, timeout: 15000 }).catch(() => null);
+Return JSON: {"first":"your first read in one sentence","questions":["up to 3 question ids from the list that would settle it"]}`, { fast: true, maxTokens: 300, temperature: 0.2, timeout: 8000 }).catch(() => null);
   if (!r1) return null;
   const qs = (Array.isArray(r1.questions) ? r1.questions : []).filter((q) => QUESTIONS[q]).slice(0, 3);
   const answers = qs.map((q) => ({ q: QUESTIONS[q], a: answer(q, history || [], f, at) }));
@@ -69,7 +69,7 @@ Your first read: ${clip(r1.first, 240)}
 The Desk's answers from the real results: ${JSON.stringify(answers)}
 
 Now make the call. take = full size, small = reduced size, skip = only a tiny watch stake.
-Return JSON: {"verdict":"take|small|skip","conviction":1-5,"reasons":["2-4 short reasons, each naming the fact it rests on (ICT, session, trend, news or the record)"],"challenge":"one sentence on what the Desk got wrong, or 'agree' if nothing"}`, { maxTokens: 500, temperature: 0.2, timeout: 15000 }).catch(() => null);
+Return JSON: {"verdict":"take|small|skip","conviction":1-5,"reasons":["2-4 short reasons, each naming the fact it rests on (ICT, session, trend, news or the record)"],"challenge":"one sentence on what the Desk got wrong, or 'agree' if nothing"}`, { maxTokens: 500, temperature: 0.2, timeout: 8000 }).catch(() => null);
   if (!r2 || !['take', 'small', 'skip'].includes(r2.verdict)) return null;
   return {
     verdict: r2.verdict,

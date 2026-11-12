@@ -29,7 +29,7 @@ async function send(payload) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-ingest-secret': INGEST_SECRET },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(15000)
+        signal: AbortSignal.timeout(60000) // the Coach reviews each signal first (a few seconds)
       });
       if (r.status === 401) { console.error('Ingest rejected the secret (401). Check INGEST_SECRET.'); return null; }
       return await r.json();
