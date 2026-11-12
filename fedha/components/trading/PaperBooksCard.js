@@ -8,6 +8,7 @@ import { fmtUsd, base } from './util';
 const ABOUT = {
   takes: 'Take 25% · small 10% · skip 0.25% watch stake',
   diamond: 'Only 💎 diamonds, 15% each. The closest thing to the real account.',
+  coach: "The Coach's own calls: take 15% · small 10% · skip 0.25%",
 };
 const tone = (v) => (v > 0.005 ? '#22C55E' : v < -0.005 ? '#EF4444' : 'var(--text-3)');
 const pct = (eq, start) => (start > 0 ? ((eq - start) / start) * 100 : 0);
@@ -29,13 +30,13 @@ export default function PaperBooksCard() {
   return (
     <div className="card" style={{ padding: 14 }}>
       <div style={{ fontSize: 15, fontWeight: 800 }}>Paper accounts</div>
-      <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2, lineHeight: 1.45 }}>The same signals on three accounts, each sized its own way. Watch them side by side before any real money moves.</div>
+      <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2, lineHeight: 1.45 }}>The same signals on four accounts, each sized its own way. Watch them side by side before any real money moves.</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8, marginTop: 10 }}>
         {rows.map((b) => {
           const ch = pct(b.equity, b.start);
           return (
             <div key={b.name} style={{ padding: 12, borderRadius: 10, background: 'rgba(132,142,156,.08)', border: b.name === 'diamond' ? '1px solid rgba(56,189,248,.35)' : '1px solid transparent' }}>
-              <div style={{ fontSize: 13, fontWeight: 800 }}>{b.name === 'diamond' ? '💎 ' : b.name === 'takes' ? '🎯 ' : ''}{b.main ? 'Main' : b.label}</div>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>{b.name === 'diamond' ? '💎 ' : b.name === 'takes' ? '🎯 ' : b.name === 'coach' ? '🎓 ' : ''}{b.main ? 'Main' : b.label}</div>
               <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2, lineHeight: 1.4 }}>{b.about}</div>
               <div className="font-num" style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmtUsd(b.equity, false)}</div>
               <div className="font-num" style={{ fontSize: 12, color: tone(ch) }}>{ch >= 0 ? '+' : ''}{ch.toFixed(1)}% from {fmtUsd(b.start, false)}</div>
@@ -73,7 +74,7 @@ export function PaperBooksStrip({ onOpen }) {
     return () => clearInterval(t);
   }, []);
   if (!d || d.error) return null;
-  const rows = [{ ...d.main, short: 'Main' }, ...d.books.map((b) => ({ ...b, short: b.name === 'diamond' ? '💎 Diamonds' : '🎯 Big on takes' }))];
+  const rows = [{ ...d.main, short: 'Main' }, ...d.books.map((b) => ({ ...b, short: b.name === 'diamond' ? '💎 Diamonds' : b.name === 'coach' ? '🎓 Coach' : '🎯 Big on takes' }))];
   return (
     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
       {rows.map((b) => {

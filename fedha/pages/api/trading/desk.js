@@ -32,6 +32,7 @@ export default async function handler(req, res) {
       reviews: state.reviews || [],
       closed: history.length, needed: DESK.minHistory,
       history: wf,
+      coachTrusted: state.coach_trusted === true, coachCheck: state.coach_check || null,
       rule, ruleLabel: RULES[rule].label, ruleCheck: state.rule_check || null, ruleLog: state.rule_log || [],
       rules: Object.fromEntries(Object.entries(RULES).map(([k, v]) => [k, v.label])),
       live,

@@ -326,7 +326,7 @@ export const DESK_SIZE = { take: 1.5, small: 1, learning: 1, skip: 0, none: 0.5 
 const WATCH_PCT = 0.25; // % of equity on a skipped signal
 const MAX_TRADE_PCT = 15; // no single main-book trade risks more than this % of equity
 
-export async function maybeAutoEnter(userId, signal, desk = null) {
+export async function maybeAutoEnter(userId, signal, desk = null, coach = null) {
   try {
     const s = await getSettings(userId);
     if (!s.auto_enabled) return null;
@@ -352,7 +352,7 @@ export async function maybeAutoEnter(userId, signal, desk = null) {
     const r = await openPaperTrade({ userId, signal, riskUsdt: lim ? riskUsdt / 2 : riskUsdt, auto: true });
     const lr = lim && r.ok ? await openPaperTrade({ userId, signal: { ...signal, status: 'pending', entry: lim }, riskUsdt: riskUsdt / 2, auto: true, limitLeg: true }).catch(() => null) : null;
     // Side books (Big on takes, Diamonds only): the same signal on their own accounts, at their own sizes.
-    const side = await enterSideBooks(userId, signal, desk, news, s).catch(() => ({}));
+    const side = await enterSideBooks(userId, signal, desk, news, s, coach).catch(() => ({}));
     // Growth book: the same signal again on the small account, only if its balance and stage support it.
     const g = await growthEnter(userId, s, signal, { mult, confidence, news }).catch((e) => ({ ok: false, error: e.message }));
     if (r.ok) {
@@ -362,7 +362,7 @@ export async function maybeAutoEnter(userId, signal, desk = null) {
       else if (r.fit) msg.body += ` · sized to fit the $${r.equity.toFixed(2)} balance: risk $${r.fit.to.toFixed(2)} instead of $${r.fit.from.toFixed(2)}`;
       if (lr?.ok) msg.body += ` · half at market, half ⏳ limit at ${lim} (cancels if TP1 hits first)`;
       if (news.level !== 'clear') msg.body += ` · 📰 ${news.level === 'danger' ? 'quarter' : 'half'} lot: ${await newsReason(news, signal.symbol)}`;
-      for (const [name, x] of Object.entries(side || {})) if (x?.ok) msg.body += ` · ${name === 'diamond' ? '💎 Diamonds book' : '🎯 Takes book'}: risk $${Number(x.trade.actual_risk_usdt).toFixed(2)}`;
+      for (const [name, x] of Object.entries(side || {})) if (x?.ok) msg.body += ` · ${name === 'diamond' ? '💎 Diamonds book' : name === 'coach' ? '🎓 Coach book' : '🎯 Takes book'}: risk $${Number(x.trade.actual_risk_usdt).toFixed(2)}`;
       if (g) msg.body += g.ok ? ` · 🌱 growth account took it: ${g.trade.qty} ${base(signal.symbol)}, risk $${Number(g.trade.actual_risk_usdt).toFixed(2)} of $${g.equity.toFixed(2)}` : ` · 🌱 growth account skipped: ${g.skipped || g.error}`;
       await notify(msg, `trade-${r.trade.id}-new`);
     }
@@ -561,6 +561,8 @@ export async function refreshTrades(userId, trades) {
 export const SIDE_BOOKS = {
   takes: { label: 'Big on takes', start: 1000, cap: 25, pct: (d) => ({ take: 25, small: 10, skip: 0.25 }[d?.verdict] ?? 0) },
   diamond: { label: 'Diamonds only', start: 1000, cap: 15, pct: (d) => (d?.diamond ? 15 : 0) },
+  // The Coach's own calls (lib/desk-coach.js), sized like Main: take 15%, small 10%, skip 0.25%.
+  coach: { label: "Coach's calls", start: 1000, cap: 15, pct: (d, c) => ({ take: 15, small: 10, skip: 0.25 }[c?.verdict] ?? 0) },
 };
 
 export async function sideBookState(userId, name, since) {
@@ -607,11 +609,11 @@ export async function resetSideBook(userId, name) {
 }
 
 // Called with each new signal after the main book: each side book takes it at its own size, if it has room.
-export async function enterSideBooks(userId, signal, desk, news, settings) {
+export async function enterSideBooks(userId, signal, desk, news, settings, coach = null) {
   const books = await sideBooks(userId, settings).catch(() => ({}));
   const out = {};
   for (const [name, cfg] of Object.entries(SIDE_BOOKS)) {
-    const pct = cfg.pct(desk);
+    const pct = cfg.pct(desk, coach);
     if (!(pct > 0) || !books[name]?.since) continue;
     try {
       const st = await sideBookState(userId, name, books[name].since);

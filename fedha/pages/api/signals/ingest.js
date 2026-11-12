@@ -5,6 +5,8 @@ import { placeSignalOnBrokers, getBrokerSettings, brokersActive } from '../../..
 import { maybeAutoEnter, notify } from '../../../lib/trading';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { scoreSignal, deskStamp, deskState } from '../../../lib/desk';
+import { contextAt, contextStamp } from '../../../lib/market-context';
+import { coachReview, coachStamp } from '../../../lib/desk-coach';
 import { handleFollowUp } from '../../../lib/followups';
 
 // Called by the Telegram listener (telegram-listener/). Tracks the signal, then trades it on the MT5 demo accounts
@@ -76,11 +78,20 @@ export default async function handler(req, res) {
   // MT5 accounts work from the signal's own prices (real XAUUSD), so they run even if the Binance stand-in could not be tracked.
   const parsed = parseSignal(text);
   // The Desk scores it from your own results before anything trades (lib/desk.js); the score stays on the signal.
-  const desk = parsed.ok ? await scoreSignal(userId, { source: base.source, symbol: result.ok ? result.signal.symbol : parsed.symbol, side: parsed.side }) : null;
-  if (desk && result.ok) await supabaseAdmin.from('trade_signals').update({ desk: deskStamp(desk) }).eq('id', result.signal.id).then(() => null, () => null);
-  if (desk?.diamond && result.ok) await notify({ title: `💎 Diamond: ${result.signal.side} ${result.signal.symbol}`, body: `${base.source} · ${(desk.why || []).slice(0, 2).join(' · ')}`, url: '/trading' }, `diamond-${result.signal.id}`).catch(() => null);
+  const sigSymbol = result.ok ? result.signal.symbol : parsed.symbol;
+  // 1. The market right now, measured from candles (session, trend, premium/discount, sweeps, FVG, news).
+  const ctx = parsed.ok ? await contextAt(sigSymbol, parsed.side).catch(() => null) : null;
+  // 2. The Desk scores it from your own results (lib/desk.js).
+  const scored = parsed.ok ? await scoreSignal(userId, { source: base.source, symbol: sigSymbol, side: parsed.side, ctx }) : null;
+  // 3. The Coach questions the Desk and makes his own call (lib/desk-coach.js).
+  const coach = scored && result.ok ? await coachReview({ signal: result.signal, desk: scored, ctx, history: scored.history }).catch(() => null) : null;
+  const state = await deskState(userId).catch(() => ({}));
+  // The Coach sorts the signal only once his live record has beaten the Desk's (state.coach_trusted, set nightly).
+  const desk = scored && coach && state.coach_trusted ? { ...scored, verdict: coach.verdict, diamond: scored.diamond && coach.verdict === 'take', by: 'coach' } : scored;
+  if (desk && result.ok) await supabaseAdmin.from('trade_signals').update({ desk: deskStamp(desk, { x: contextStamp(ctx), c2: coachStamp(coach) }) }).eq('id', result.signal.id).then(() => null, () => null);
+  if (desk?.diamond && result.ok) await notify({ title: `💎 Diamond: ${result.signal.side} ${result.signal.symbol}`, body: `${base.source} · ${(desk.why || []).slice(0, 2).join(' · ')}${coach ? ` · Coach: ${coach.verdict}` : ''}`, url: '/trading' }, `diamond-${result.signal.id}`).catch(() => null);
   // Real money through the Desk: 💎 diamonds only (a take from a channel that wins 60%+), and only with the switch on.
-  const deskReal = desk?.diamond === true && (await deskState(userId).catch(() => ({}))).real === true;
+  const deskReal = desk?.diamond === true && state.real === true;
   const brokerSettings = await getBrokerSettings(userId);
   const onBrokers = parsed.ok && brokersActive(brokerSettings);
   const broker = onBrokers
@@ -91,7 +102,7 @@ export default async function handler(req, res) {
 
   if (result.ok) {
     // Luxe's own paper trade only when no MT5 account is on (or "paper too" is switched on).
-    const trade = !onBrokers || brokerSettings.paper_too ? await maybeAutoEnter(userId, result.signal, desk) : null;
+    const trade = !onBrokers || brokerSettings.paper_too ? await maybeAutoEnter(userId, result.signal, desk, coach) : null;
     const paperTrade = trade ? (trade.ok ? 'entered' : trade.skipped || trade.error) : null;
     const detail = [brokerNote, trade && !trade.ok ? `Paper trade skipped: ${trade.error || trade.skipped}` : null].filter(Boolean).join(' · ') || null;
     // Keep the reason on the signal itself: the inbox only holds the newest 100 messages, so it would be lost.

@@ -138,6 +138,16 @@ export async function dailyReview(userId, { force = false, now = Date.now() } = 
     ...bucket(misses, name).map((g) => `Skipped ${g.n} winning ${g.key} (${rTxt(g.totalR)} missed)`),
     ...bucket(badPicks, name).map((g) => `Backed ${g.n} losing ${g.key} (${rTxt(g.totalR)})`),
   ].slice(0, 4);
+  // What the market read says about today's results (from each signal's measured context, desk.x).
+  const ctxOf = new Map((scored || []).filter((x) => x.desk?.x).map((x) => [x.id, x.desk.x]));
+  const withCtx = day.filter((x) => ctxOf.has(x.id));
+  const market = withCtx.length ? {
+    trend: bucket(withCtx, (x) => ({ with: 'With the 15m and 1h trend', against: 'Against both trends', mixed: 'Trends mixed' }[ctxOf.get(x.id).t] || 'Unknown')),
+    zone: bucket(withCtx, (x) => ({ good: 'Buying discount / selling premium', bad: 'Buying premium / selling discount', mid: 'Mid-range' }[ctxOf.get(x.id).z] || 'Unknown')),
+    sweep: bucket(withCtx, (x) => ({ with: 'After a liquidity sweep for this side', against: 'Into a sweep against this side' }[ctxOf.get(x.id).w] || 'No sweep')),
+    killzone: bucket(withCtx, (x) => ctxOf.get(x.id).k || 'Outside the killzones'),
+  } : null;
+  const coachToday = bucket(day.filter((x) => stampOf.get(x.id)?.c2?.v), (x) => `Coach said ${stampOf.get(x.id).c2.v}`);
   const misled = badPicks.map((x) => (stampOf.get(x.id)?.why || []).filter((w) => w.startsWith('👍')).join('; ')).filter(Boolean).slice(0, 3);
   const total = round(day.reduce((s, x) => s + x.r, 0));
   const facts = {
@@ -147,7 +157,7 @@ export async function dailyReview(userId, { force = false, now = Date.now() } = 
     timeOfDay: bucket(day, (x) => WINDOW_LABEL[windowOf(x.at)]),
     sides: bucket(day, (x) => (x.side === 'BUY' ? 'Buys' : 'Sells')),
     desk: bucket(day.filter((x) => verdictOf.has(x.id)), (x) => ({ take: 'Desk said take', small: 'Desk said small', skip: 'Desk said skip', learning: 'Not scored' }[verdictOf.get(x.id)] || 'Not scored')),
-    deskMistakes: mistakes, votesThatMisledBadPicks: misled,
+    deskMistakes: mistakes, votesThatMisledBadPicks: misled, market, coach: coachToday,
     best: (() => { const b = [...day].sort((a, c) => c.r - a.r)[0]; return `${b.source} ${b.side} ${b.symbol} ${rTxt(b.r)}`; })(),
     worst: (() => { const b = [...day].sort((a, c) => a.r - c.r)[0]; return `${b.source} ${b.side} ${b.symbol} ${rTxt(b.r)}`; })(),
   };
@@ -158,13 +168,13 @@ export async function dailyReview(userId, { force = false, now = Date.now() } = 
     hurt: bottom && bottom.totalR < 0 ? [`${bottom.key}: ${rTxt(bottom.totalR)} from ${bottom.n}`] : [],
     change: '',
   };
-  const o = await aiJSON(`You are an honest trading coach reviewing the last 24 hours of paper trades copied from Telegram signal channels. R = profit divided by the amount risked (+1R = won the stake, -1R = lost it). Use ONLY the numbers below; never invent a trade, a reason or a market event. How the account is sized: a Desk "skip" trades only a 0.25% watch stake (its R barely moves the balance and is there to keep measuring), "small" trades 10% and "take" 15%, so judge the Desk's money mistakes on small and take, not skip. One day is a small sample: say so if a change rests on fewer than 10 trades. Be plain and direct, no flattery, no emoji. One day is a small sample: say so where it matters, and do not call something a pattern from one or two trades.
+  const o = await aiJSON(`You are a senior prop-desk trader (20 years, gold/FX/indices, ICT: liquidity sweeps, premium/discount, fair value gaps, killzones, sessions, trend, news) coaching the Desk, a statistics engine that sorts copied Telegram signals. You review the last 24 hours of its paper trades. Use the market facts (trend, zone, sweep, killzone) to say which conditions made or lost money. R = profit divided by the amount risked (+1R = won the stake, -1R = lost it). Use ONLY the numbers below; never invent a trade, a reason or a market event. How the account is sized: a Desk "skip" trades only a 0.25% watch stake (its R barely moves the balance and is there to keep measuring), "small" trades 10% and "take" 15%, so judge the Desk's money mistakes on small and take, not skip. One day is a small sample: say so if a change rests on fewer than 10 trades. Be plain and direct, no flattery, no emoji. One day is a small sample: say so where it matters, and do not call something a pattern from one or two trades.
 
 TODAY'S NUMBERS:
 ${JSON.stringify(facts)}
 
-Return JSON: {"headline":"one sentence: the result and the single biggest reason for it","lesson":"one plain sentence on what the Desk's own mistakes (deskMistakes) show, or empty if there were none","worked":["up to 3 short lines, each with its numbers"],"hurt":["up to 3 short lines, each with its numbers"],"change":"ONE concrete change worth testing next, backed by a number above, or empty if nothing stands out"}`, { maxTokens: 800, temperature: 0.2 });
-  if (o?.headline) review = { headline: clip(o.headline, 240), lesson: clip(o.lesson, 240), worked: (o.worked || []).map((x) => clip(x, 160)).slice(0, 3), hurt: (o.hurt || []).map((x) => clip(x, 160)).slice(0, 3), change: clip(o.change, 260) };
+Return JSON: {"headline":"one sentence: the result and the single biggest reason for it","market_lesson":"one sentence on which market condition (trend, zone, sweep, killzone) worked or failed today, with its numbers, or empty","lesson":"one plain sentence on what the Desk's own mistakes (deskMistakes) show, or empty if there were none","worked":["up to 3 short lines, each with its numbers"],"hurt":["up to 3 short lines, each with its numbers"],"change":"ONE concrete change worth testing next, backed by a number above, or empty if nothing stands out"}`, { maxTokens: 800, temperature: 0.2 });
+  if (o?.headline) review = { headline: clip(o.headline, 240), lesson: clip(o.lesson, 240), market_lesson: clip(o.market_lesson, 240), worked: (o.worked || []).map((x) => clip(x, 160)).slice(0, 3), hurt: (o.hurt || []).map((x) => clip(x, 160)).slice(0, 3), change: clip(o.change, 260) };
 
   // Learn: does another rule now beat the one in use on signals it could not have seen? Switch only on evidence.
   const current = ruleOf(state);
@@ -177,7 +187,24 @@ Return JSON: {"headline":"one sentence: the result and the single biggest reason
   });
   if (check.switched) await notify({ title: '🧠 The Desk changed how it scores', body: ruleNote }, `desk-rule-${today}`);
 
-  const entry = { date: today, n: day.length, totalR: total, won: facts.won, ...review, mistakes, ruleNote };
+  // The Coach earns the right to sort signals: his live calls against the Desk's on the same closed signals
+  // (take 1.5x, small 1x, skip nothing). Trusted after 20+ shared signals at 3R+ ahead; untrusted if he falls behind.
+  const { data: both } = await supabaseAdmin.from('trade_signals').select('id, desk').eq('user_id', userId).not('desk', 'is', null).order('created_at', { ascending: false }).limit(400);
+  const rOf = new Map(history.map((h) => [h.id, h.r]));
+  const pay = (v, r) => r * (v === 'take' ? 1.5 : v === 'small' ? 1 : 0);
+  let n = 0; let coachR = 0; let deskR = 0;
+  for (const x of both || []) {
+    const r = rOf.get(x.id); const c = x.desk?.c2?.v; const d = x.desk?.c?.[current] || x.desk?.v;
+    if (r == null || !c || !d) continue;
+    n += 1; coachR += pay(c, r); deskR += pay(d, r);
+  }
+  const wasTrusted = state.coach_trusted === true;
+  const trusted = wasTrusted ? n >= 20 && coachR >= deskR : n >= 20 && coachR >= deskR + 3;
+  const coachNote = trusted !== wasTrusted ? (trusted ? `The Coach now sorts the signals: over ${n} closed signals his calls made ${coachR.toFixed(1)}R against the Desk's ${deskR.toFixed(1)}R.` : `The Desk sorts the signals again: the Coach fell behind (${coachR.toFixed(1)}R against ${deskR.toFixed(1)}R over ${n}).`) : '';
+  await saveDesk(userId, { coach_trusted: trusted, coach_check: { at: new Date(now).toISOString(), n, coachR: Math.round(coachR * 10) / 10, deskR: Math.round(deskR * 10) / 10 } });
+  if (coachNote) await notify({ title: trusted ? '🎓 The Coach takes over sorting' : '🎓 The Desk is back in charge', body: coachNote }, `desk-coach-${today}`);
+
+  const entry = { date: today, n: day.length, totalR: total, won: facts.won, ...review, mistakes, ruleNote: [ruleNote, coachNote].filter(Boolean).join(' ') };
   const reviews = [entry, ...(state.reviews || []).filter((r) => r.date !== today)].slice(0, 7);
   await saveDesk(userId, { reviews });
   await notify({ title: `📊 Trading day: ${rTxt(total)} from ${day.length} signal${day.length === 1 ? '' : 's'}`, body: review.headline }, `desk-review-${today}`);

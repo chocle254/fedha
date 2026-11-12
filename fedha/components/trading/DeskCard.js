@@ -125,6 +125,7 @@ export default function DeskCard() {
             </div>
           )}
           {!d.ruleCheck && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>The first check runs with tonight's review.</div>}
+          <div style={{ fontSize: 12, marginTop: 8, lineHeight: 1.45 }}>🎓 <b>The Coach</b> (a senior prop-desk trader: ICT, sessions, trend, news) questions the Desk on every signal and makes his own call. {d.coachTrusted ? <b style={{ color: '#22C55E' }}>He now sorts the signals: his calls beat the Desk's.</b> : 'He trades his own paper account; he sorts the signals only once his live calls beat the Desk\'s over 20+ closed signals by 3R.'}{d.coachCheck?.n ? ` So far: Coach ${d.coachCheck.coachR >= 0 ? '+' : ''}${d.coachCheck.coachR}R vs Desk ${d.coachCheck.deskR >= 0 ? '+' : ''}${d.coachCheck.deskR}R over ${d.coachCheck.n}.` : ''}</div>
           {d.ruleLog?.length > 0 && <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginTop: 4 }}>Last change: {d.rules[d.ruleLog[0].from]} → {d.rules[d.ruleLog[0].to]} ({new Date(d.ruleLog[0].at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })})</div>}
         </div>
       )}
@@ -143,6 +144,8 @@ export default function DeskCard() {
                   <span className="font-num" style={{ color: tone(s.r), fontWeight: 700 }}>{s.r == null ? (['open', 'pending'].includes(s.status) ? 'open' : '—') : rTxt(s.r)}</span>
                 </div>
                 {s.why?.length > 0 && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{s.why.join(' · ')}</div>}
+                {s.coach?.v && <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginTop: 3, lineHeight: 1.4 }}>🎓 <b style={{ color: (VERDICT[s.coach.v] || VERDICT.learning).color }}>Coach: {(VERDICT[s.coach.v] || VERDICT.learning).text}</b>{s.coach.k ? ` (${s.coach.k}/5)` : ''}{s.coach.why?.length ? ` · ${s.coach.why.join(' · ')}` : ''}{s.coach.ch && s.coach.ch.toLowerCase() !== 'agree' ? <div style={{ color: 'var(--text-3)' }}>To the Desk: {s.coach.ch}</div> : null}</div>}
+                {s.ctx && <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 2 }}>{[s.ctx.k || s.ctx.s, s.ctx.t && `${s.ctx.t} trend`, s.ctx.z === 'good' ? 'good side of the range' : s.ctx.z === 'bad' ? 'wrong side of the range' : null, s.ctx.w === 'with' ? 'after a liquidity sweep' : s.ctx.w === 'against' ? 'into a sweep against it' : null, s.ctx.f === 'with' ? 'FVG behind it' : null, s.ctx.n && s.ctx.n !== 'clear' ? `news: ${s.ctx.n}` : null].filter(Boolean).join(' · ')}</div>}
               </div>
             );
           })}
@@ -166,6 +169,7 @@ export default function DeskCard() {
               {rev.lesson && <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.45 }}>{rev.lesson}</div>}
             </div>
           )}
+          {rev.market_lesson && <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.45 }}><b>The market:</b> {rev.market_lesson}</div>}
           {rev.ruleNote && <div style={{ fontSize: 12, marginTop: 6, color: 'var(--accent)' }}>🧠 {rev.ruleNote}</div>}
           {rev.change && <div style={{ fontSize: 12, marginTop: 6 }}><b>Worth testing:</b> {rev.change}</div>}
         </div>

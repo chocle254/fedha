@@ -51,7 +51,7 @@ export async function trendSeries(symbols, fromMs) {
     if (!candles || candles.length < 25) return;
     const closes = candles.map((k) => k.c);
     const fast = ema(closes, 8); const slow = ema(closes, 21);
-    out[symbol] = candles.map((k, i) => ({ t: k.t, up: i >= 21 ? fast[i] > slow[i] : null }));
+    out[symbol] = candles.map((k, i) => ({ t: k.t, up: i >= 21 ? fast[i] > slow[i] : null, h: k.h, l: k.l, c: k.c }));
   }));
   return out;
 }
@@ -64,9 +64,24 @@ export function trendAt(series, symbol, ms) {
   if (at < 0 || s[at].up == null || ms - s[at].t > 6 * HOUR) return null; // stale (weekend gap) = unknown
   return s[at].up ? 'up' : 'down';
 }
+// Premium / discount at a moment from the 1-hour series: where the last close sat in the previous 24 hours' range,
+// side-relative (good = buying in discount or selling in premium). Same cut-offs as lib/market-context.js.
+export function zoneAt(series, symbol, side, ms) {
+  const s = series?.[symbol];
+  if (!s) return null;
+  // Binary search for the last closed candle (cheap: this runs for every past signal on each score).
+  let lo0 = 0; let hi0 = s.length - 1; let at = -1;
+  while (lo0 <= hi0) { const mid = (lo0 + hi0) >> 1; if (s[mid].t + HOUR <= ms) { at = mid; lo0 = mid + 1; } else hi0 = mid - 1; }
+  const closed = at < 0 ? [] : s.slice(Math.max(0, at - 23), at + 1).filter((k) => ms - k.t <= 30 * HOUR);
+  if (closed.length < 12 || closed.some((k) => k.h == null)) return null;
+  const hi = Math.max(...closed.map((k) => k.h)); const lo = Math.min(...closed.map((k) => k.l));
+  const pos = hi > lo ? (closed[closed.length - 1].c - lo) / (hi - lo) : 0.5;
+  const zone = pos > 0.6 ? 'premium' : pos < 0.4 ? 'discount' : 'mid';
+  return zone === 'mid' ? 'mid' : (side === 'BUY') === (zone === 'discount') ? 'good' : 'bad';
+}
 const withTrend = (side, trend) => (trend ? ((side === 'BUY') === (trend === 'up') ? 'with' : 'against') : null);
 
-const features = (rec, trend) => { const win = windowOf(rec.at); return { ch: rec.source, win, side: rec.side, sw: `${rec.side}@${win}`, trend: withTrend(rec.side, trend) }; };
+const features = (rec, trend, pz = null) => { const win = windowOf(rec.at); return { ch: rec.source, win, side: rec.side, sw: `${rec.side}@${win}`, trend: withTrend(rec.side, trend), pz }; };
 
 // ── Rules the Desk can score with. 'now' is the original. The others are lessons from its own misses (e.g. it judged
 // "buys" and "mornings" separately, so it could not see that morning buys won while evening buys lost). Every rule
@@ -77,6 +92,9 @@ export const RULES = {
   time_side: { label: '+ buys or sells at this time of day', keys: ['ch', 'side', 'win', 'sw'] },
   fresh: { label: '+ buys or sells at this time of day, the last 5 days counting most', keys: ['ch', 'side', 'win', 'sw'], half: 5 },
   recent: { label: '+ how the same side did in the last 3 hours', keys: ['ch', 'side', 'win'], recent: 3 },
+  // Reads the market, not just the signal: with or against the 1-hour trend, and buying in discount / selling in
+  // premium (or the opposite). Each needs 8+ closed signals in its group before it votes.
+  market: { label: '+ the market: with the 1-hour trend, and premium or discount', keys: ['ch', 'side', 'win', 'trend', 'pz'] },
 };
 export const ruleOf = (state) => (RULES[state?.rule] ? state.rule : 'now');
 
@@ -101,7 +119,7 @@ export async function deskHistory(userId) {
   const recs = [...by.values()].map((g) => ({ ...g, r: clampR(g.pnl / g.risk) })).sort((a, b) => a.at - b.at).slice(-DESK.maxSignals);
   if (!recs.length) return recs;
   const series = await trendSeries(recs.map((r) => r.symbol), recs[0].at).catch(() => ({}));
-  for (const r of recs) r.f = features(r, trendAt(series, r.symbol, r.at));
+  for (const r of recs) r.f = features(r, trendAt(series, r.symbol, r.at), zoneAt(series, r.symbol, r.side, r.at));
   recs.series = series;
   return recs;
 }
@@ -112,6 +130,8 @@ const rTxt = (r) => `${r >= 0 ? '+' : ''}${r.toFixed(2)}R`;
 
 const swName = (v) => { const [side, win] = String(v).split('@'); return `${win ? `${win[0].toUpperCase()}${win.slice(1)} ` : ''}${side === 'BUY' ? 'buys' : 'sells'}`; };
 NAME.sw = swName;
+NAME.trend = (v) => (v === 'with' ? 'With the 1-hour trend' : 'Against the 1-hour trend');
+NAME.pz = (v) => (v === 'good' ? 'Buying in discount / selling in premium' : v === 'bad' ? 'Buying in premium / selling in discount' : 'Mid-range entries');
 // Average R, with newer results counting more when the rule has a half-life (in days).
 function avgOf(rows, at, half) {
   if (!half) return mean(rows.map((h) => h.r));
@@ -133,6 +153,7 @@ export function estimate(history, f, rule = 'now', at = Date.now()) {
     if (key === 'ch') chGroup = group;
     if (key === 'ch' && group.length < DESK.minChannel) { why.push(group.length ? `${f.ch}: only ${group.length} closed, no vote yet` : 'New channel: no record yet'); continue; }
     if (key === 'sw' && group.length < 6) continue; // too few to say anything about this side at this hour
+    if ((key === 'trend' || key === 'pz') && (f[key] == null || group.length < 8)) continue;
     if (!group.length) continue;
     const avg = avgOf(group, at, R.half);
     const yes = avg > base;
@@ -165,24 +186,25 @@ export function estimate(history, f, rule = 'now', at = Date.now()) {
 }
 
 // Scores a signal that has just arrived. Never throws: null means "no score this time".
-export async function scoreSignal(userId, { source, symbol, side, at = Date.now() }) {
+export async function scoreSignal(userId, { source, symbol, side, at = Date.now(), ctx = null }) {
   try {
     const [history, state] = await Promise.all([deskHistory(userId), deskState(userId)]);
     let series = history.series || {};
     if (!series[symbol]) series = { ...series, ...(await trendSeries([symbol], at - 5 * 86400e3).catch(() => ({}))) };
     const trend = trendAt(series, symbol, at);
     const known = history.filter((h) => h.closedAt <= at);
-    const f = features({ source, side, at }, trend);
+    const f = features({ source, side, at }, trend, ctx?.sideZone ?? zoneAt(series, symbol, side, at));
     const rule = ruleOf(state);
     const est = estimate(known, f, rule, at);
     // Every other rule scores it too, silently, so their live record builds up (lib/desk.js RULES).
     const shadow = Object.fromEntries(Object.keys(RULES).map((k) => [k, k === rule ? est.verdict : estimate(known, f, k, at).verdict]));
-    return { ...est, trend, win: windowOf(at), shadow };
+    // history rides along (not saved) so the Coach can ask questions of the same results.
+    return { ...est, trend, win: windowOf(at), shadow, history: known, f };
   } catch { return null; }
 }
 
 // What gets saved on the signal row (small).
-export const deskStamp = (d) => (d ? { v: d.verdict, d: d.diamond ? 1 : 0, s: d.score, n: d.votes, t: d.trend || null, w: d.win, r: d.rule || 'now', c: d.shadow || null, why: (d.why || []).slice(0, 4) } : null);
+export const deskStamp = (d, extra = {}) => (d ? { ...extra, v: d.verdict, d: d.diamond ? 1 : 0, s: d.score, n: d.votes, t: d.trend || null, w: d.win, r: d.rule || 'now', c: d.shadow || null, why: (d.why || []).slice(0, 4) } : null);
 
 // ── Proof on history: each past signal scored with only what had closed before it ──
 const blank = () => ({ n: 0, sum: 0, wins: 0 });
@@ -241,13 +263,14 @@ export async function liveResults(userId, history) {
   for (const s of data || []) {
     const r = rById.get(s.id);
     if (r == null || !s.desk?.c) continue;
-    for (const [k, v] of Object.entries(s.desk.c)) {
+    const calls = { ...s.desk.c, ...(s.desk.c2?.v ? { coach: s.desk.c2.v } : {}) };
+    for (const [k, v] of Object.entries(calls)) {
       const b = rules[k] || (rules[k] = { n: 0, traded: 0 });
       b.n += 1; b.traded += r * (v === 'take' ? 1.5 : v === 'small' ? 1 : 0);
     }
   }
   for (const b of Object.values(rules)) b.traded = round(b.traded, 1);
-  const recent = (data || []).slice(0, 12).map((s) => ({ id: s.id, source: s.source, symbol: s.symbol, side: s.side, at: s.created_at, verdict: s.desk?.v, diamond: !!s.desk?.d, score: s.desk?.s, votes: s.desk?.n, why: s.desk?.why || [], status: s.status, r: rById.has(s.id) ? round(rById.get(s.id)) : null }));
+  const recent = (data || []).slice(0, 12).map((s) => ({ id: s.id, source: s.source, symbol: s.symbol, side: s.side, at: s.created_at, verdict: s.desk?.v, diamond: !!s.desk?.d, coach: s.desk?.c2 || null, ctx: s.desk?.x || null, score: s.desk?.s, votes: s.desk?.n, why: s.desk?.why || [], status: s.status, r: rById.has(s.id) ? round(rById.get(s.id)) : null }));
   return { take: done(out.take), small: done(out.small), skip: done(out.skip), all: done(out.all), diamond: done(out.diamond), since: rows.length ? rows[rows.length - 1].created_at : null, recent, rules };
 }
 
