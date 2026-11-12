@@ -169,7 +169,7 @@ export function riskAmount(settings, equity) {
 
 // growth: { equity, free, cap } when the growth challenge is on — real broker lots (0.01 lot minimum), the
 // stage's risk ceiling, and margin at 1:1000 (crypto spot needs the full amount free).
-export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, growth = null, limitLeg = false }) {
+export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, growth = null, limitLeg = false, bookName: sideBook = null }) {
   if (!signal || ['won', 'lost', 'expired'].includes(signal.status)) return { ok: false, error: 'That signal is already closed.' };
   if (signal.stop_loss == null) return { ok: false, error: 'This signal has no stop-loss, so the risk cannot be sized.' };
 
@@ -183,7 +183,7 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, g
   const risk = growth ? Math.min(asked, equity) : Math.min(asked, acct.riskRoom);
   if (!(risk >= 0.01)) return { ok: false, error: `Balance fully committed: $${equity.toFixed(2)} equity, $${acct.openRisk.toFixed(2)} already at risk in open trades.` };
 
-  const bookName = growth ? 'growth' : 'main';
+  const bookName = sideBook || (growth ? 'growth' : 'main');
   if (!limitLeg) {
     const { data: same } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId).eq('signal_id', signal.id);
     if ((same || []).some((t) => (t.book || 'main') === bookName)) return { ok: false, error: 'Already entered.' };
@@ -281,7 +281,7 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, g
     // Smart trailing: this channel's learned style, and the market's volatility right now.
     trail_mode: (await trailProfiles(userId))[signal.source]?.mode || TRAIL_DEFAULT,
     trail_atr: await atrBefore(signal.symbol, Date.now()),
-    ...(growth ? { book: 'growth' } : {})
+    ...(growth ? { book: bookName } : {})
   };
   let { data, error } = await supabaseAdmin.from('paper_trades').insert(row).select().single();
   if (growth && error && (missingColumn(error) || error.code === '23505')) return { ok: false, error: 'Run supabase-migration-paper-books.sql to start the growth account.' };
@@ -351,6 +351,8 @@ export async function maybeAutoEnter(userId, signal, desk = null) {
     const lim = limitLevel(signal);
     const r = await openPaperTrade({ userId, signal, riskUsdt: lim ? riskUsdt / 2 : riskUsdt, auto: true });
     const lr = lim && r.ok ? await openPaperTrade({ userId, signal: { ...signal, status: 'pending', entry: lim }, riskUsdt: riskUsdt / 2, auto: true, limitLeg: true }).catch(() => null) : null;
+    // Side books (Big on takes, Diamonds only): the same signal on their own accounts, at their own sizes.
+    const side = await enterSideBooks(userId, signal, desk, news, s).catch(() => ({}));
     // Growth book: the same signal again on the small account, only if its balance and stage support it.
     const g = await growthEnter(userId, s, signal, { mult, confidence, news }).catch((e) => ({ ok: false, error: e.message }));
     if (r.ok) {
@@ -360,6 +362,7 @@ export async function maybeAutoEnter(userId, signal, desk = null) {
       else if (r.fit) msg.body += ` · sized to fit the $${r.equity.toFixed(2)} balance: risk $${r.fit.to.toFixed(2)} instead of $${r.fit.from.toFixed(2)}`;
       if (lr?.ok) msg.body += ` · half at market, half ⏳ limit at ${lim} (cancels if TP1 hits first)`;
       if (news.level !== 'clear') msg.body += ` · 📰 ${news.level === 'danger' ? 'quarter' : 'half'} lot: ${await newsReason(news, signal.symbol)}`;
+      for (const [name, x] of Object.entries(side || {})) if (x?.ok) msg.body += ` · ${name === 'diamond' ? '💎 Diamonds book' : '🎯 Takes book'}: risk $${Number(x.trade.actual_risk_usdt).toFixed(2)}`;
       if (g) msg.body += g.ok ? ` · 🌱 growth account took it: ${g.trade.qty} ${base(signal.symbol)}, risk $${Number(g.trade.actual_risk_usdt).toFixed(2)} of $${g.equity.toFixed(2)}` : ` · 🌱 growth account skipped: ${g.skipped || g.error}`;
       await notify(msg, `trade-${r.trade.id}-new`);
     }
@@ -547,4 +550,78 @@ export async function refreshTrades(userId, trades) {
     if (data && data.length) await notify(msg, `trade-${old.id}-${patch.status}-${patch.tp_hit}`);
   }));
   return trades.map((t) => (byId[t.id] ? { ...t, ...byId[t.id] } : t));
+}
+
+
+// ── Side paper books: the same signals on separate $1,000 accounts, each with its own sizing, so a way of trading
+// can be watched with real fills before the real account is touched. State: broker_settings.books[name].since.
+// The main book is untouched (it measures every channel); side books never count toward channel or Desk records.
+//   takes    Big on takes: Desk take 25%, small 10%, skip only a 0.25% watch stake.
+//   diamond  Diamonds only: a 💎 diamond risks 15% (the real account's 10% seed stage x the Desk's 1.5x); nothing else.
+export const SIDE_BOOKS = {
+  takes: { label: 'Big on takes', start: 1000, cap: 25, pct: (d) => ({ take: 25, small: 10, skip: 0.25 }[d?.verdict] ?? 0) },
+  diamond: { label: 'Diamonds only', start: 1000, cap: 15, pct: (d) => (d?.diamond ? 15 : 0) },
+};
+
+export async function sideBookState(userId, name, since) {
+  const cfg = SIDE_BOOKS[name];
+  const { data: rows } = await supabaseAdmin.from('paper_trades').select('*').eq('user_id', userId).eq('book', name).gte('created_at', since);
+  let realized = 0; let margin = 0; let openRisk = 0;
+  const data = rows || [];
+  for (const t of data) {
+    if (['won', 'lost', 'expired'].includes(t.status)) { realized += Number(t.pnl_usdt) || 0; continue; }
+    if (t.status === 'open') realized += partialRealized(t);
+    const n = (t.take_profits || []).length;
+    const left = n ? Math.max(0, 1 - (t.tp_hit || 0) / n) : 1;
+    margin += ((Number(t.notional) || 0) * left) / (isMt5(t.symbol) ? GROWTH_LEVERAGE : 1);
+    openRisk += (Number(t.actual_risk_usdt) || Number(t.risk_usdt) || 0) * left;
+  }
+  const equity = Math.round((cfg.start + realized) * 100) / 100;
+  const closed = data.filter((t) => ['won', 'lost', 'expired'].includes(t.status));
+  return {
+    name, label: cfg.label, start: cfg.start, since, equity, margin: Math.round(margin * 100) / 100, free: Math.max(0, equity - margin), openRisk: Math.round(openRisk * 100) / 100,
+    trades: data.length, open: data.length - closed.length, wins: closed.filter((t) => Number(t.pnl_usdt) > 0).length, losses: closed.filter((t) => Number(t.pnl_usdt) <= 0).length,
+    recent: [...data].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 8)
+      .map((t) => ({ id: t.id, at: t.created_at, source: t.source, symbol: t.symbol, side: t.side, status: t.status, risk: Number(t.actual_risk_usdt) || 0, pnl: Number(t.pnl_usdt) || 0, eq: Number(t.equity_at_entry) || 0 })),
+  };
+}
+
+// The books' start times; a book with no start yet begins now.
+export async function sideBooks(userId, settings) {
+  const s = settings || await getSettings(userId);
+  const cur = s.broker_settings?.books || {};
+  const missing = Object.keys(SIDE_BOOKS).filter((k) => !cur[k]?.since);
+  if (!missing.length) return cur;
+  const now = new Date().toISOString();
+  const next = { ...cur, ...Object.fromEntries(missing.map((k) => [k, { since: now }])) };
+  await supabaseAdmin.from('trade_settings').update({ broker_settings: { ...(s.broker_settings || {}), books: next } }).eq('user_id', userId);
+  return next;
+}
+
+export async function resetSideBook(userId, name) {
+  if (!SIDE_BOOKS[name]) return null;
+  const s = await getSettings(userId);
+  const books = { ...(s.broker_settings?.books || {}), [name]: { since: new Date().toISOString() } };
+  await supabaseAdmin.from('trade_settings').update({ broker_settings: { ...(s.broker_settings || {}), books } }).eq('user_id', userId);
+  return books[name];
+}
+
+// Called with each new signal after the main book: each side book takes it at its own size, if it has room.
+export async function enterSideBooks(userId, signal, desk, news, settings) {
+  const books = await sideBooks(userId, settings).catch(() => ({}));
+  const out = {};
+  for (const [name, cfg] of Object.entries(SIDE_BOOKS)) {
+    const pct = cfg.pct(desk);
+    if (!(pct > 0) || !books[name]?.since) continue;
+    try {
+      const st = await sideBookState(userId, name, books[name].since);
+      if (!(st.equity > 1)) { out[name] = { ok: false, error: 'blown' }; continue; }
+      const room = Math.max(0, st.equity - st.openRisk); // never risk more than the balance has left after open stops
+      const cap = Math.min((st.equity * cfg.cap) / 100, room);
+      const riskUsdt = Math.round(Math.min((st.equity * pct * (news?.mult ?? 1)) / 100, cap) * 100) / 100;
+      if (!(riskUsdt >= 0.01)) { out[name] = { ok: false, error: 'no room' }; continue; }
+      out[name] = await openPaperTrade({ userId, signal, riskUsdt, auto: true, growth: { equity: st.equity, free: st.free, cap: cap * 1.0001 }, bookName: name });
+    } catch (e) { out[name] = { ok: false, error: e.message }; }
+  }
+  return out;
 }

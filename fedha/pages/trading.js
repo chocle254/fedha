@@ -10,6 +10,7 @@ import WalletPanel from '../components/trading/WalletPanel';
 import BrokerPanel from '../components/trading/BrokerPanel';
 import NewsStrip from '../components/trading/NewsStrip';
 import GrowthCard from '../components/trading/GrowthCard';
+import PaperBooksCard from '../components/trading/PaperBooksCard';
 import PotentialCard from '../components/trading/PotentialCard';
 import DaysCard from '../components/trading/DaysCard';
 import DeskCard from '../components/trading/DeskCard';
@@ -644,6 +645,7 @@ export default function TradingPage() {
           {tab === 'channels' && (
             <div className="sx">
               <div className="sx-wrap"><DeskCard /></div>
+              <div className="sx-wrap" style={{ marginTop: 10 }}><PaperBooksCard /></div>
               <div className="sx-wrap"><PotentialCard trades={trades} settings={settings} /></div>
               <div className="sx-wrap"><DaysCard /></div>
 
