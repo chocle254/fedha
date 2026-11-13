@@ -3,6 +3,7 @@ import Head from 'next/head';
 import Layout from '../components/Layout';
 import Link from 'next/link';
 import { prefetchReels } from '../lib/reels';
+import { tasteSignals, tasteWeights, byTaste, genreTokens } from '../lib/chill-taste';
 import { fetchLibrary, organise, loadArt, getProgress, markPlayed, setWatched, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback, sameTitle, loadParts, seasonsOf, connection, trailerFor, trailerSrc } from '../lib/chill';
 
 // Chill Room: your downloaded movies and series (Download / Telegram on the phone), laid out like Apple TV.
@@ -21,6 +22,9 @@ const bg = (url) => (url ? { backgroundImage: `url("${url}")` } : undefined);
 // Sound mode for Luxe's player (remembered on this phone).
 const SOUNDS = [['theater', '🔊 Theater'], ['max', '💥 Max bass'], ['off', '🔈 Plain']];
 const getSound = () => { try { return localStorage.getItem('luxe_sound') || 'theater'; } catch { return 'theater'; } };
+// Top tabs: Home (what you're watching) and the three shelves, each with Yours / You might like / Trending / Latest.
+const CATS = [['home', '🏠 Home'], ['series', '📺 Series'], ['movies', '🎬 Movies'], ['animation', '🐉 Animation']];
+const getCat = () => { try { const c = localStorage.getItem('luxe_chill_cat'); return CATS.some(([k]) => k === c) ? c : 'home'; } catch { return 'home'; } };
 
 function Session({ windows, now }) {
   if (!windows.length) return null;
@@ -98,6 +102,11 @@ export default function Chill() {
   const [sugBusy, setSugBusy] = useState(false);
   const [sound, setSound] = useState('theater');
   const [trailer, setTrailer] = useState(null); // { title, id | null, loading, wifi }
+  const [cat, setCatState] = useState('home');
+  const [disc, setDisc] = useState(null); // /api/chill/discover: { series|movies|animation: { trending, latest } }
+  useEffect(() => { setCatState(getCat()); }, []);
+  const setCat = (c) => { setCatState(c); try { localStorage.setItem('luxe_chill_cat', c); } catch { /* ignore */ } window.scrollTo({ top: 0 }); };
+  useEffect(() => { if (cat !== 'home' && !disc) fetch('/api/chill/discover').then((r) => r.json()).then(setDisc).catch(() => setDisc({})); }, [cat, disc]);
   // ▶ Trailer: looked up once, played only on a tap, lowest quality on mobile data.
   const openTrailer = async (name, extra = '') => {
     const c = connection();
@@ -162,6 +171,12 @@ export default function Chill() {
   };
   const refreshSug = async () => { setSugBusy(true); try { setSug(await fetchSuggest(true)); } finally { setSugBusy(false); } };
   const react = async (title, value) => { setProg(await setFeedback(prog, title, value, open?.item)); setOpen(null); };
+  // ❤️ on something you watched: the strongest signal for your taste. Stays open so you can keep going.
+  const love = async (title, item) => setProg(await setFeedback(prog, title, prog.feedback?.[title] === 'loved' ? null : 'loved', item));
+  const openSug = (x) => {
+    setOpen({ type: 'sug', item: x });
+    if (!art[`${x.type === 'movie' ? 'movie' : 'show'}:${x.title}`]) loadArt({ shows: [], movies: [], extra: [x] }, setArt).catch(() => {});
+  };
   const showArt = (s) => art[`show:${s.title}`] || {};
   const movieArt = (m) => art[`movie:${m.title}`] || {};
   const kindOf = (x) => (x.type === 'movie' ? 'movie' : x.type === 'series' ? 'show' : art[`any:${x.title}`]?.kind || 'show');
@@ -203,6 +218,25 @@ export default function Chill() {
   const wanted = Object.entries(prog.feedback || {}).filter(([, v]) => v === 'want')
     .map(([t]) => (sug?.items || []).find((x) => x.title === t) || { title: t, ...(prog.meta?.[t] || {}) }).filter(notOwned);
 
+  // ── The shelves (Series / Movies / Animation) ──
+  const discIndex = useMemo(() => {
+    const m = {};
+    for (const c of ['series', 'movies', 'animation']) for (const r of ['trending', 'latest']) for (const x of disc?.[c]?.[r] || []) m[x.title] = x;
+    return m;
+  }, [disc]);
+  const genresOf = (t) => art[`show:${t}`]?.genres || art[`movie:${t}`]?.genres || discIndex[t]?.genres || (sug?.items || []).find((x) => x.title === t)?.genres || [];
+  const weights = useMemo(() => tasteWeights(tasteSignals({ shows, movies, prog }), genresOf), [shows, movies, prog, art, discIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+  const animated = (t, x) => !!x?.animation || genreTokens(genresOf(t)).some((g) => g === 'anime' || g === 'animation');
+  const fresh = (x) => notOwned(x) && !['no', 'seen', 'loved'].includes(prog.feedback?.[x.title]);
+  const shelf = cat === 'home' ? null : {
+    shows: shows.filter((s) => (cat === 'animation') === animated(s.title)).filter(() => cat !== 'movies'),
+    movies: movies.filter((m) => (cat === 'animation') === animated(m.title)).filter(() => cat !== 'series'),
+    picks: forYou.filter((x) => (cat === 'animation' ? animated(x.title, x) : !animated(x.title, x) && (cat === 'movies' ? x.type === 'movie' : x.type !== 'movie'))),
+    trending: byTaste((disc?.[cat]?.trending || []).filter(fresh), weights),
+    latest: byTaste((disc?.[cat]?.latest || []).filter(fresh), weights),
+  };
+  const discTag = (x) => (x.match ? '✨ Your taste' : x.note || (x.type === 'movie' && cat === 'animation' ? 'Movie' : null));
+
   // Coming Soon: the next episode of your series and of the AI's picks that are still airing, soonest first.
   const today = new Date().toISOString().slice(0, 10);
   const comingSoon = [
@@ -230,6 +264,9 @@ export default function Chill() {
             <button type="button" className="cr-pill" onClick={cycleSound} aria-label="Sound mode">{SOUNDS.find(([k]) => k === sound)?.[1]}</button>
             <Link href="/reels" className="cr-pill" style={{ textDecoration: 'none', background: 'linear-gradient(135deg,#e50914,#7c3aed)', color: '#fff' }}>🎬 Reels</Link>
           </div>
+          <div className="cr-cats" role="tablist">
+            {CATS.map(([k, l]) => <button type="button" key={k} role="tab" aria-selected={cat === k} className={cat === k ? 'on' : ''} onClick={() => setCat(k)}>{l}</button>)}
+          </div>
         </header>
 
         {!lib && <div className="cr-note">Loading your library…</div>}
@@ -242,6 +279,37 @@ export default function Chill() {
           </div>
         )}
 
+        {shelf && (
+          <>
+            {(shelf.shows.length > 0 || shelf.movies.length > 0) && (
+              <section className="cr-row">
+                <h3>Yours</h3>
+                <div className="cr-scroll">
+                  {shelf.shows.map((s) => <Folder key={s.title} img={showArt(s).poster} title={s.title} count={`${s.episodes.length} ep${s.episodes.length > 1 ? 's' : ''}`} seasons={s.seasons.map((n) => `S${n}`).join(' ')} onClick={() => { setSeason(null); setOpen({ type: 'show', item: s }); }} />)}
+                  {shelf.movies.map((m) => <Poster key={m.key} img={movieArt(m).poster} title={m.title} onClick={() => setOpen({ type: 'movie', item: m })} badge={prog.feedback?.[m.title] === 'loved' ? '❤' : isPlayed(prog, m) ? '✓' : null} />)}
+                </div>
+              </section>
+            )}
+            <section className="cr-row">
+              <div className="cr-rowHead"><h3>{cat === 'series' ? 'Series you might like' : cat === 'movies' ? 'Movies you might like' : 'Animation you might like'}</h3><button type="button" className="cr-chip" disabled={sugBusy} onClick={refreshSug}>{sugBusy ? '…' : '↻'}</button></div>
+              {sug?.taste && <div className="cr-taste">{sug.taste}</div>}
+              {shelf.picks.length > 0
+                ? <div className="cr-scroll">{shelf.picks.map((x) => <Poster key={x.title} img={sugArt(x).poster} title={x.title} tag={sizeLabel(x)} onClick={() => setOpen({ type: 'sug', item: x })} />)}</div>
+                : <div className="cr-taste">{sug ? 'Tap ↻ for fresh picks. ❤️ the ones you enjoy and they get sharper.' : 'Finding picks for you…'}</div>}
+            </section>
+            {[['🔥 Trending now', shelf.trending], ['🆕 Latest', shelf.latest]].map(([h, list]) => (
+              <section className="cr-row" key={h}>
+                <h3>{h}</h3>
+                {!disc ? <div className="cr-taste">Loading…</div> : list.length ? (
+                  <div className="cr-scroll">{list.map((x) => <Poster key={`${h}${x.title}`} img={sugArt(x).poster || x.poster} title={x.title} tag={discTag(x)} onClick={() => openSug(x)} />)}</div>
+                ) : <div className="cr-taste">Nothing new here right now.</div>}
+              </section>
+            ))}
+            <div className="cr-note">Learns from what you watch: series you binge, movies you finish and the ones you ❤️ move up. ✨ marks the best fits.</div>
+          </>
+        )}
+
+        {cat === 'home' && <>
         {(heroShow || heroMovie) && (
           <section className="cr-hero" style={bg(ha.backdrop || ha.poster)}>
             <div className="cr-shade" />
@@ -334,21 +402,24 @@ export default function Chill() {
           </section>
         )}
 
+        </>}
+
         {lib?.scanned_at && <div className="cr-note">Scanned {new Date(lib.scanned_at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · rescans by itself when you open the Chill Room</div>}
       </div>
 
       {open && (
         <div className="cr-sheet" onClick={(e) => e.target === e.currentTarget && setOpen(null)}>
           <div className="cr-panel">
-            <div className="cr-pHead" style={bg(dArt.backdrop || dArt.poster)}>
+            <div className="cr-pHead" style={bg(dArt.backdrop || dArt.poster || open.item.poster)}>
               <div className="cr-shade" />
               <button type="button" className="cr-x" onClick={() => setOpen(null)} aria-label="Close">✕</button>
               <h2>{detail ? `📁 ${detail.title}` : open.item.title}</h2>
-              <div className="cr-meta">{[dArt.year || open.item.year, (dArt.genres || []).slice(0, 3).join(' · ')].filter(Boolean).join('  ·  ')}</div>
+              <div className="cr-meta">{[dArt.year || open.item.year, (dArt.genres?.length ? dArt.genres : open.item.genres || []).slice(0, 3).join(' · '), open.item.where, open.item.rating ? `★ ${open.item.rating}` : null].filter(Boolean).join('  ·  ')}</div>
             </div>
             {(detail || open.type === 'movie') && (
               <div className="cr-pad" style={{ paddingBottom: 0 }}>
                 <button type="button" className="cr-btnG dark" onClick={() => openTrailer(detail ? detail.title : open.item.title, detail ? '' : String(open.item.year || ''))}>{trailerLabel}</button>
+                {(() => { const t = detail ? detail.title : open.item.title; const on = prog.feedback?.[t] === 'loved'; return <button type="button" className="cr-btnG dark" style={{ marginLeft: 8, color: on ? '#ff375f' : '#fff' }} onClick={() => love(t, { type: detail ? 'series' : 'movie' })}>{on ? '❤️ Loved' : '♡ Loved it'}</button>; })()}
                 {dArt.next?.airdate && <span className="cr-meta" style={{ marginLeft: 10 }}>Next: S{String(dArt.next.season).padStart(2, '0')}E{String(dArt.next.number).padStart(2, '0')} · {dayLabel(dArt.next.airdate)}</span>}
               </div>
             )}
@@ -399,6 +470,7 @@ export default function Chill() {
                 <div className="cr-btns">
                   <button type="button" className="cr-btnG dark" onClick={() => openTrailer(open.item.title, open.item.year ? String(open.item.year) : '')}>{trailerLabel}</button>
                   <button type="button" className="cr-btnW" onClick={() => react(open.item.title, prog.feedback?.[open.item.title] === 'want' ? null : 'want')}>{prog.feedback?.[open.item.title] === 'want' ? '✓ On your list' : '＋ Want'}</button>
+                  <button type="button" className="cr-btnG dark" onClick={() => react(open.item.title, 'loved')}>❤️ Seen, loved it</button>
                   <button type="button" className="cr-btnG dark" onClick={() => react(open.item.title, 'seen')}>Seen it</button>
                   <button type="button" className="cr-btnG dark" onClick={() => react(open.item.title, 'no')}>Not for me</button>
                 </div>
@@ -442,6 +514,11 @@ export default function Chill() {
         .cr-pills { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
         .cr-pills::-webkit-scrollbar { display: none; }
         .cr-pills > * { flex-shrink: 0; }
+        .cr-cats { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 2px 16px 0; }
+        .cr-cats::-webkit-scrollbar { display: none; }
+        .cr-cats button { flex-shrink: 0; border: 0; font-family: inherit; cursor: pointer; font-size: 13.5px; font-weight: 700; padding: 8px 14px; border-radius: 999px; background: transparent; color: #8e8e93; }
+        .cr-cats button.on { background: #f5f5f7; color: #000; }
+        .cr-taste { font-size: 12.5px; color: #8e8e93; margin: -4px 16px 10px; line-height: 1.4; }
         .cr-scan { border: 0; cursor: pointer; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,0.1); color: #fff; text-decoration: none; font-size: 17px; flex-shrink: 0; }
         .cr-hero { -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent); mask-image: linear-gradient(to bottom, #000 72%, transparent); position: relative; height: 56vh; min-height: 320px; background: #111 center top / cover no-repeat; display: flex; align-items: flex-end; }
         .cr-shade { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 2%, rgba(0,0,0,0.7) 32%, rgba(0,0,0,0.1) 65%, rgba(0,0,0,0.3)); pointer-events: none; }

@@ -2,6 +2,7 @@ import { requireUser } from '../../../lib/require-user';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { nvidiaChat } from '../../../lib/nvidia-client';
 import { organise } from '../../../lib/chill-names';
+import { tasteSignals } from '../../../lib/chill-taste';
 
 // "For You" in the Chill Room: series and movies like the ones you have, watched and liked, picked by the AI
 // (NVIDIA, Groq as backup). Your taste comes from: the titles on your phone (chill_library), what you played and
@@ -28,32 +29,50 @@ export default async function handler(req, res) {
   const played = Object.keys(room?.played || {}).map((k) => k.replace(/^movie:/, '').split('|')[0]);
   const fb = room?.feedback || {};
   const liked = Object.keys(fb).filter((t) => fb[t] === 'want');
+  const loved = Object.keys(fb).filter((t) => fb[t] === 'loved');
+  // Learned from what you actually watched: series you binged (3+ episodes), films you played, and series you
+  // tried once and left.
+  const sig = tasteSignals({ shows, movies, prog: room || {} });
+  const binged = Object.keys(sig).filter((t) => sig[t] >= 1.5 && !fb[t]);
+  const dropped = Object.keys(sig).filter((t) => sig[t] < 0 && !fb[t]);
   const seen = Object.keys(fb).filter((t) => fb[t] === 'seen');
   const no = Object.keys(fb).filter((t) => fb[t] === 'no');
-  const basis = JSON.stringify([owned.length, played.length, Object.keys(fb).length]);
+  const basis = JSON.stringify([owned.length, played.length, Object.values(fb).sort().join(''), binged.length, dropped.length]);
 
   const fresh = cache && cache.basis === basis && Date.now() - new Date(cache.at).getTime() < 24 * 3600e3;
   if (fresh && !req.query.refresh) return res.status(200).json(cache);
+  // What's trending and new right now (our own public feed, cached at the CDN), so picks aren't only old classics.
+  let now = '';
+  try {
+    const d = await (await fetch(`https://${req.headers.host}/api/chill/discover`)).json();
+    const names = (l) => (l || []).slice(0, 10).map((x) => x.title).join(', ');
+    now = `Trending now: series: ${names(d.series?.trending)}; movies: ${names(d.movies?.trending)}; animation: ${names(d.animation?.trending)}. Just out: ${names(d.series?.latest)}; ${names(d.movies?.latest)}.`;
+  } catch { /* picks still work without it */ }
   if (!owned.length && !played.length && !liked.length) return res.status(200).json({ items: [], taste: null, at: new Date().toISOString() });
 
   const prompt = `You are a film and TV curator for one person in Kenya who loves watching series and movies in the evening (usually relaxed and a bit high, so gripping, binge-able, great-atmosphere picks work best).
 
 On their phone now: ${owned.join('; ') || 'nothing yet'}.
 Played recently: ${[...new Set(played)].join(', ') || 'none'}.
+LOVED (strongest signal, weigh these most): ${loved.join(', ') || 'none yet'}.
+Binged or finished (they clearly enjoyed): ${binged.join(', ') || 'none yet'}.
+Tried one episode and stopped (probably not their thing): ${dropped.join(', ') || 'none'}.
 They want to watch (liked your earlier picks): ${liked.join(', ') || 'none'}.
 Already seen: ${seen.join(', ') || 'none'}.
 Not interested: ${no.join(', ') || 'none'}.
 
-Suggest 12 titles they have not seen and do not already have: 8 series and 4 movies, closest to their taste first. Never suggest anything listed above. Real, well-known titles only, with the exact official title and first-release year.
+${now}
+
+Suggest 18 titles they have not seen and do not already have: 7 live-action series, 6 live-action movies and 5 animated titles (anime or animated series/films for adults, set "animation": true), closest to their taste first. Learn from what they loved and binged: match its genres, tone and pace, and avoid what they dropped. Include a few from "Trending now" / "Just out" when they fit the taste. Never suggest anything listed above. Real titles only, with the exact official title and first-release year.
 Return JSON only:
-{"taste":"one sentence describing their taste, in second person","items":[{"title":"...","type":"series"|"movie","year":2008,"because":"one title from their list it is like","why":"one short sentence on why they'd love it, no spoilers"}]}`;
+{"taste":"one sentence describing their taste, in second person","items":[{"title":"...","type":"series"|"movie","animation":false,"year":2008,"because":"one title from their list it is like","why":"one short sentence on why they'd love it, no spoilers"}]}`;
 
   try {
-    const out = await nvidiaChat({ prompt, system: 'You output only valid JSON. No markdown, no commentary.', temperature: 0.7, maxTokens: 1400 });
+    const out = await nvidiaChat({ prompt, system: 'You output only valid JSON. No markdown, no commentary.', temperature: 0.7, maxTokens: 2200 });
     const j = parseJSON(out);
     const ownedTitles = new Set([...shows.map((s) => s.title), ...movies.map((m) => m.title), ...Object.keys(fb)].map((t) => t.toLowerCase()));
-    const items = (j?.items || []).filter((x) => x?.title && !ownedTitles.has(String(x.title).toLowerCase())).slice(0, 12)
-      .map((x) => ({ title: String(x.title).slice(0, 80), type: x.type === 'movie' ? 'movie' : 'series', year: Number(x.year) || null, because: String(x.because || '').slice(0, 60), why: String(x.why || '').slice(0, 200) }));
+    const items = (j?.items || []).filter((x) => x?.title && !ownedTitles.has(String(x.title).toLowerCase())).slice(0, 18)
+      .map((x) => ({ title: String(x.title).slice(0, 80), type: x.type === 'movie' ? 'movie' : 'series', animation: !!x.animation, year: Number(x.year) || null, because: String(x.because || '').slice(0, 60), why: String(x.why || '').slice(0, 200) }));
     const value = { items, taste: j?.taste ? String(j.taste).slice(0, 240) : null, at: new Date().toISOString(), basis };
     if (items.length) await supabaseAdmin.from('settings').upsert({ user_id: user.id, key: 'chill_suggest', value, updated_at: new Date().toISOString() }, { onConflict: 'user_id,key' });
     return res.status(200).json(items.length ? value : cache || value);

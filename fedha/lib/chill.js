@@ -28,7 +28,7 @@ async function showArt(title) {
   const eps = s._embedded?.episodes || [];
   return {
     poster: s.image?.original || s.image?.medium || null, backdrop: bg?.resolutions?.original?.url || null,
-    summary: strip(s.summary), year: (s.premiered || '').slice(0, 4), genres: s.genres || [], rating: s.rating?.average || null,
+    summary: strip(s.summary), year: (s.premiered || '').slice(0, 4), genres: [...(s.genres || []), ...(s.type === 'Animation' ? ['Animation'] : [])], rating: s.rating?.average || null, // 'Animation' for the Animation shelf
     names: Object.fromEntries(eps.map((e) => [epCode(e.season, e.number), e.name])),
     imdb: s.externals?.imdb || null, // for intro / credits times in Luxe's player
     status: s.status || null,
@@ -41,7 +41,7 @@ async function movieArt(title, year) {
   const d = await (await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(title)}&limit=10`)).json();
   const hits = (d.results || []).filter((r) => r.kind === 'feature-movie');
   const m = hits.find((r) => !year || String(r.releaseDate || '').startsWith(String(year))) || hits[0];
-  return m ? { poster: big(m.artworkUrl100, '600x900'), backdrop: big(m.artworkUrl100, '1200x675'), summary: m.longDescription || '', genres: [m.primaryGenreName].filter(Boolean), rating: m.contentAdvisoryRating || null, year: (m.releaseDate || '').slice(0, 4) } : {};
+  return m ? { poster: big(m.artworkUrl100, '600x900'), backdrop: big(m.artworkUrl100, '1200x675'), summary: m.longDescription || '', genres: [m.primaryGenreName, m.primaryGenreName === 'Anime' || (m.primaryGenreName === 'Kids & Family' && /animat|pixar|dreamworks|illumination/i.test(m.longDescription || '')) ? 'Animation' : null].filter(Boolean), rating: m.contentAdvisoryRating || null, year: (m.releaseDate || '').slice(0, 4) } : {};
 }
 
 // A title whose type isn't known (saved from Reels before the type was kept): a movie if Apple has a film with that
@@ -68,9 +68,9 @@ export async function loadArt({ shows, movies, extra = [] }, onUpdate) {
       kind = art[`any:${title}`].kind;
     }
     const k = `${kind}:${title}`;
-    if (art[k] && art[k].v === 5) continue;
-    try { art[k] = { v: 5, ...(kind === 'show' ? await showArt(title) : await movieArt(title, year)) }; }
-    catch { art[k] = { v: 5 }; }
+    if (art[k] && art[k].v === 6) continue; // v6: animated titles carry 'Animation' in genres
+    try { art[k] = { ...(art[k]?.parts ? { parts: art[k].parts, series: art[k].series } : {}), v: 6, ...(kind === 'show' ? await showArt(title) : await movieArt(title, year)) }; }
+    catch { art[k] = { ...(art[k] || {}), v: 6 }; }
     changed = true;
     onUpdate({ ...art });
   }
