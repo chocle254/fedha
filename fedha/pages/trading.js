@@ -49,6 +49,10 @@ export default function TradingPage() {
   const [picker, setPicker] = useState(false);
   const [picked, setPicked] = useState(null);
   const [tab, setTab] = useState('signals');
+  // Channels tab is split into views so nothing needs a long scroll; the last one opened is remembered.
+  const [chView, setChViewRaw] = useState('review');
+  useEffect(() => { try { const v = localStorage.getItem('fedha.chView'); if (v) setChViewRaw(v); } catch {} }, []);
+  const setChView = (v) => { setChViewRaw(v); try { localStorage.setItem('fedha.chView', v); } catch {} };
   const [openGroup, setOpenGroup] = useState(null); // Signals tab: which channel card is expanded
   const [allGroups, setAllGroups] = useState(false);
   const [showHow, setShowHow] = useState(false);
@@ -584,7 +588,7 @@ export default function TradingPage() {
               <div className="tx-hero-tiles">
                 {tiles.map(([k, v, c]) => <div key={k}><span>{k}</span><b style={c ? { color: c } : undefined}>{v}</b></div>)}
               </div>
-              <PaperBooksStrip onOpen={() => { setTab('channels'); setTimeout(() => document.getElementById('paper-books')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); }} />
+              <PaperBooksStrip onOpen={() => { setTab('channels'); setChView('accounts'); setTimeout(() => document.getElementById('paper-books')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); }} />
               <button className="tx-hero-vault" onClick={() => { setTab('mt5'); setTimeout(() => document.getElementById('tx-bottom')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}>🔒 Real Money Vault <span>open ›</span></button>
             </div>
           );
@@ -645,12 +649,19 @@ export default function TradingPage() {
           )}
           {tab === 'channels' && (
             <div className="sx">
-              <div className="sx-wrap"><DeskCard /></div>
-              <div className="sx-wrap" id="paper-books" style={{ marginTop: 10 }}><PaperBooksCard /></div>
-              <div className="sx-wrap"><PotentialCard trades={trades} settings={settings} /></div>
-              <div className="sx-wrap"><DaysCard /></div>
+              <div className="sx-views">
+                {[['review', '📋 Today'], ['channels', `🏆 Channels${groups.length ? ` ${groups.length}` : ''}`], ['coach', '🎓 Coach'], ['accounts', '💼 Accounts'], ['desk', '🧠 Desk']].map(([k, l]) => (
+                  <button key={k} className={chView === k ? 'on' : ''} onClick={() => setChView(k)}>{l}</button>
+                ))}
+              </div>
+              {['review', 'coach', 'desk'].includes(chView) && <div className="sx-wrap"><DeskCard view={chView} /></div>}
+              {chView === 'accounts' && <>
+                <div className="sx-wrap" id="paper-books"><PaperBooksCard /></div>
+                <div className="sx-wrap"><PotentialCard trades={trades} settings={settings} /></div>
+                <div className="sx-wrap"><DaysCard /></div>
+              </>}
 
-              {groups.length > 0 && (
+              {chView === 'channels' && groups.length > 0 && (
                 <>
                   {(() => {
                     // Trial → Proven → Real (lib/ladder.js). The Proven book holds only promoted channels, on their own.
@@ -743,7 +754,7 @@ export default function TradingPage() {
                   })()}
                 </>
               )}
-              {!groups.length && <div className="sx-empty">No channel results yet.</div>}
+              {chView === 'channels' && !groups.length && <div className="sx-empty">No channel results yet.</div>}
             </div>
           )}
           {tab === 'telegram' && (
@@ -983,6 +994,10 @@ export default function TradingPage() {
         .tx-board-row { display: grid; grid-template-columns: 1.6fr 1fr 1fr .5fr; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--tx-line); font-size: 12px; }
         .tx-board-row b:last-child { text-align: right; }
         .sx { padding: 6px 10px 14px; }
+        .sx-views { display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 10px; scrollbar-width: none; }
+        .sx-views::-webkit-scrollbar { display: none; }
+        .sx-views button { flex: none; padding: 7px 12px; border-radius: 99px; border: 1px solid rgba(132,142,156,.25); background: transparent; color: var(--tx-dim, #848E9C); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+        .sx-views button.on { background: rgba(240,185,11,.14); border-color: rgba(240,185,11,.5); color: #F0B90B; }
         .sx-h { display: flex; align-items: center; gap: 8px; margin: 18px 2px 10px; font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--tx-dim); }
         .sx-h small { font-size: 11px; font-weight: 700; color: var(--tx-dim); background: #2B3139; border-radius: 999px; padding: 2px 8px; }
         .sx-how { margin-left: auto; font-size: 12px !important; font-weight: 500; color: var(--tx-dim) !important; }

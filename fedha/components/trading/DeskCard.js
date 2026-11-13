@@ -36,7 +36,9 @@ function Table({ title, sub, t }) {
   );
 }
 
-export default function DeskCard() {
+// view: which part to show (the Channels tab is split so nothing needs a long scroll):
+//   'review' the day's review + gold now · 'coach' news desk, sniper, what-if · 'desk' scores, rules, real switch.
+export default function DeskCard({ view = 'review' }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState('');
@@ -68,9 +70,34 @@ export default function DeskCard() {
   return (
     <div className="card" style={{ padding: 14 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <div style={{ fontWeight: 800, fontSize: 15, flex: 1 }}>🧠 The Desk</div>
-        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>scores every signal from your own results</span>
+        <div style={{ fontWeight: 800, fontSize: 15, flex: 1 }}>{{ review: '📋 Today', coach: '🎓 The Coach', desk: '🧠 The Desk' }[view]}</div>
+        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{{ review: 'the day\'s review and gold now', coach: 'news, sniper entries, what if', desk: 'scores every signal from your own results' }[view]}</span>
       </div>
+
+{view === 'review' && <>
+      {/* Review of the day */}
+      {rev && (
+        <div style={{ ...box, marginTop: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ ...label, flex: 1 }}>Review of the day</div>
+            {d.reviews.map((r, i) => <button key={r.date} onClick={() => setOpenReview(i)} style={{ all: 'unset', cursor: 'pointer', fontSize: 11, padding: '2px 7px', borderRadius: 8, background: i === openReview ? 'var(--accent-dim)' : 'transparent', color: i === openReview ? 'var(--accent)' : 'var(--text-3)' }}>{new Date(`${r.date}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</button>)}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginTop: 6, lineHeight: 1.45 }}><span className="font-num" style={{ color: tone(rev.totalR) }}>{rTxt(rev.totalR)}</span> · {rev.headline}</div>
+          {rev.worked?.map((x, i) => <div key={`w${i}`} style={{ fontSize: 12, marginTop: 4, color: 'var(--text-2)' }}><span style={{ color: '#22C55E' }}>✓</span> {x}</div>)}
+          {rev.hurt?.map((x, i) => <div key={`h${i}`} style={{ fontSize: 12, marginTop: 4, color: 'var(--text-2)' }}><span style={{ color: '#EF4444' }}>✕</span> {x}</div>)}
+          {rev.mistakes?.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 800 }}>The Desk's mistakes</div>
+              {rev.mistakes.map((x, i) => <div key={`m${i}`} style={{ fontSize: 12, marginTop: 3, color: 'var(--text-2)' }}><span style={{ color: '#F59E0B' }}>!</span> {x}</div>)}
+              {rev.lesson && <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.45 }}>{rev.lesson}</div>}
+            </div>
+          )}
+          {rev.market_lesson && <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.45 }}><b>The market:</b> {rev.market_lesson}</div>}
+          {rev.ruleNote && <div style={{ fontSize: 12, marginTop: 6, color: 'var(--accent)' }}>🧠 {rev.ruleNote}</div>}
+          {rev.change && <div style={{ fontSize: 12, marginTop: 6 }}><b>Worth testing:</b> {rev.change}</div>}
+        </div>
+      )}
+      {!rev && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 10 }}>The first review of the day arrives after 21:00.</div>}
 
       {/* The market now */}
       <div style={{ ...box, marginTop: 10 }}>
@@ -95,6 +122,8 @@ export default function DeskCard() {
         ) : <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginTop: 4 }}>The first read arrives within the hour. Tap ↻ to get it now.</div>}
       </div>
 
+</>}
+      {view === 'desk' && <>
       {/* Do its picks beat everything else? */}
       {learning ? (
         <div style={{ ...box, marginTop: 10, fontSize: 12.5, color: 'var(--text-2)' }}>Learning: {d.closed} of {d.needed} closed signals needed before the Desk starts scoring.</div>
@@ -130,7 +159,12 @@ export default function DeskCard() {
         </div>
       )}
 
-      <NewsDesk news={d.news} sniper={d.sniper} />
+</>}
+      {view === 'coach' && <>
+        <div style={{ fontSize: 12, marginTop: 8, lineHeight: 1.45 }}>🎓 <b>The Coach</b> questions the Desk on every signal and trades his own sniper entries on gold (London 10:00-13:00, New York 15:00-18:00 Kenya).{d.coachCheck?.n ? ` His calls so far: ${d.coachCheck.coachR >= 0 ? '+' : ''}${d.coachCheck.coachR}R vs the Desk's ${d.coachCheck.deskR >= 0 ? '+' : ''}${d.coachCheck.deskR}R over ${d.coachCheck.n}.` : ''}</div>
+        <NewsDesk news={d.news} sniper={d.sniper} />
+      </>}
+      {view === 'desk' && <>
 
       {/* Latest scores */}
       {d.live.recent.length > 0 && (
@@ -154,30 +188,6 @@ export default function DeskCard() {
         </div>
       )}
 
-      {/* Review of the day */}
-      {rev && (
-        <div style={{ ...box, marginTop: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
-            <div style={{ ...label, flex: 1 }}>Review of the day</div>
-            {d.reviews.map((r, i) => <button key={r.date} onClick={() => setOpenReview(i)} style={{ all: 'unset', cursor: 'pointer', fontSize: 11, padding: '2px 7px', borderRadius: 8, background: i === openReview ? 'var(--accent-dim)' : 'transparent', color: i === openReview ? 'var(--accent)' : 'var(--text-3)' }}>{new Date(`${r.date}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</button>)}
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 700, marginTop: 6, lineHeight: 1.45 }}><span className="font-num" style={{ color: tone(rev.totalR) }}>{rTxt(rev.totalR)}</span> · {rev.headline}</div>
-          {rev.worked?.map((x, i) => <div key={`w${i}`} style={{ fontSize: 12, marginTop: 4, color: 'var(--text-2)' }}><span style={{ color: '#22C55E' }}>✓</span> {x}</div>)}
-          {rev.hurt?.map((x, i) => <div key={`h${i}`} style={{ fontSize: 12, marginTop: 4, color: 'var(--text-2)' }}><span style={{ color: '#EF4444' }}>✕</span> {x}</div>)}
-          {rev.mistakes?.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 800 }}>The Desk's mistakes</div>
-              {rev.mistakes.map((x, i) => <div key={`m${i}`} style={{ fontSize: 12, marginTop: 3, color: 'var(--text-2)' }}><span style={{ color: '#F59E0B' }}>!</span> {x}</div>)}
-              {rev.lesson && <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.45 }}>{rev.lesson}</div>}
-            </div>
-          )}
-          {rev.market_lesson && <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.45 }}><b>The market:</b> {rev.market_lesson}</div>}
-          {rev.ruleNote && <div style={{ fontSize: 12, marginTop: 6, color: 'var(--accent)' }}>🧠 {rev.ruleNote}</div>}
-          {rev.change && <div style={{ fontSize: 12, marginTop: 6 }}><b>Worth testing:</b> {rev.change}</div>}
-        </div>
-      )}
-      {!rev && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 10 }}>The first review of the day arrives after 21:00.</div>}
-
       {/* Real money */}
       <div style={{ ...box, marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', border: d.real ? '1px solid rgba(34,197,94,.4)' : '1px solid transparent' }}>
         <div style={{ flex: 1 }}>
@@ -186,6 +196,7 @@ export default function DeskCard() {
         </div>
         <button className={d.real ? 'btn-primary' : 'btn-ghost'} disabled={!!busy} onClick={toggleReal}>{busy === 'real' ? '…' : d.real ? 'On' : 'Off'}</button>
       </div>
+</>}
       {err && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 6 }}>{err}</div>}
     </div>
   );
