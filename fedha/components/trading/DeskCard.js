@@ -214,7 +214,7 @@ function NewsDesk({ news, sniper }) {
       {news?.summary ? <div style={{ fontSize: 12.5, marginTop: 4, lineHeight: 1.45 }}>{news.summary}</div> : <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>The first read of the headlines arrives within the hour.</div>}
       {(news?.impacts || []).map((x, i) => (
         <div key={i} style={{ fontSize: 12, marginTop: 6, lineHeight: 1.4 }}>
-          {arrow(x)} <b>{x.market}</b> <span style={{ color: 'var(--text-3)' }}>{'●'.repeat(x.strength)}{'○'.repeat(3 - x.strength)} · {x.horizon}</span>
+          {arrow(x)} <b>{x.market}</b>{x.story ? <span style={{ color: 'var(--text-2)' }}> · {x.story}</span> : null} <span style={{ color: 'var(--text-3)' }}>{'●'.repeat(x.strength)}{'○'.repeat(3 - x.strength)} · {x.horizon}</span>
           <div style={{ color: 'var(--text-2)' }}>{x.why}</div>
           <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{x.headline}</div>
         </div>
@@ -238,7 +238,7 @@ function NewsDesk({ news, sniper }) {
       {ans && (
         <div style={{ marginTop: 8, fontSize: 12.5, lineHeight: 1.5 }}>
           <div>{ans.answer}</div>
-          {ans.impacts.map((x, i) => <div key={i} style={{ fontSize: 12, marginTop: 3 }}>{arrow(x)} <b>{x.market}</b> <span style={{ color: 'var(--text-3)' }}>{'●'.repeat(x.strength)}{'○'.repeat(3 - x.strength)}</span> · {x.why}</div>)}
+          {ans.impacts.map((x, i) => <div key={i} style={{ fontSize: 12, marginTop: 3 }}>{arrow(x)} <b>{x.market}</b>{x.story ? <span style={{ color: 'var(--text-2)' }}> · {x.story}</span> : null} <span style={{ color: 'var(--text-3)' }}>{'●'.repeat(x.strength)}{'○'.repeat(3 - x.strength)}</span> · {x.why}</div>)}
           {ans.watch && <div style={{ fontSize: 12, marginTop: 4 }}><b>Watch:</b> {ans.watch}</div>}
         </div>
       )}

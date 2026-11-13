@@ -232,10 +232,18 @@ async function newsTick(userId) {
   if (state.news?.at && Date.now() - Date.parse(state.news.at) < 55 * 60e3) return;
   const news = await readNews();
   if (!news) { await saveDesk(userId, { news: { ...(state.news || {}), at: new Date().toISOString() } }); return; }
-  await saveDesk(userId, { news });
-  const big = news.impacts.filter((x) => x.strength === 3).slice(0, 2);
+  // One push per story per 12 hours: a story that keeps making headlines (Nvidia all day) pushes once, not hourly.
+  const now = Date.now();
+  const pushed = (state.newsPushed || []).filter((p) => now - Date.parse(p.at) < 12 * 3600e3);
+  const big = [];
+  for (const x of news.impacts.filter((i) => i.strength === 3)) {
+    const k = (x.story || x.headline).toLowerCase().slice(0, 40);
+    if (big.length >= 2 || pushed.some((p) => p.k === k) || big.some((b) => b.k === k)) continue;
+    big.push({ ...x, k });
+  }
+  await saveDesk(userId, { news, newsPushed: [...pushed, ...big.map((b) => ({ k: b.k, at: new Date(now).toISOString() }))].slice(-20) });
   for (const x of big) {
-    const tag = `news-${x.market}-${x.headline.slice(0, 40)}`.replace(/[^\w-]/g, '').slice(0, 64);
+    const tag = `news-${x.k}`.replace(/[^\w-]/g, '').slice(0, 64);
     await notify({ title: `📰 ${x.market} ${x.direction === 'up' ? '▲' : '▼'} ${x.horizon === 'days' ? 'for days' : 'today'}`, body: `${x.headline} · ${x.why}`, url: '/trading' }, tag).catch(() => null);
   }
 }

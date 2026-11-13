@@ -5,18 +5,24 @@
 // Saved in trade_settings.desk.news (small: the latest read only). Big moves send one push each.
 import { aiJSON } from './ai-json';
 
+// Business feeds alone are flooded by whatever company is in the news that day (one Nvidia story could fill the
+// whole read), so world news and a war / oil-supply search sit beside them, and the list is taken round-robin
+// across feeds: every feed gets its share. Slow-burning stories (a war, Hormuz) get a 12-hour window.
+const G = (q) => `https://news.google.com/rss/search?q=${encodeURIComponent(q)}%20when:1d&hl=en-US&gl=US&ceid=US:en`;
 const FEEDS = [
-  'https://finance.yahoo.com/news/rssindex',
-  'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en',
-  'https://news.google.com/rss/search?q=(gold%20OR%20dollar%20OR%20Fed%20OR%20stocks%20OR%20Nasdaq%20OR%20oil%20OR%20tariffs)%20when:1d&hl=en-US&gl=US&ceid=US:en',
+  { url: 'https://finance.yahoo.com/news/rssindex', hours: 6 },
+  { url: 'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en', hours: 6 },
+  { url: G('(gold OR dollar OR Fed OR Nasdaq OR oil OR tariffs OR yields OR inflation)'), hours: 6 },
+  { url: 'https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en', hours: 12 },
+  { url: G('(Iran OR Hormuz OR Ukraine OR Russia OR Israel OR OPEC OR sanctions OR China Taiwan OR missile OR ceasefire)'), hours: 12 },
 ];
 export const MARKETS = ['XAUUSD (gold)', 'NAS100', 'US30', 'EURUSD', 'GBPUSD', 'USDJPY', 'USOIL', 'BTC'];
 const clip = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 const unxml = (s) => String(s || '').replace(/<!\[CDATA\[|\]\]>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/<[^>]+>/g, '');
 
-export async function headlines({ hours = 6, max = 30 } = {}) {
+export async function headlines({ max = 36 } = {}) {
   const now = Date.now();
-  const lists = await Promise.all(FEEDS.map(async (url) => {
+  const lists = await Promise.all(FEEDS.map(async ({ url, hours }) => {
     try {
       const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Luxe news reader)' }, signal: AbortSignal.timeout(7000) });
       if (!r.ok) return [];
@@ -24,14 +30,21 @@ export async function headlines({ hours = 6, max = 30 } = {}) {
       return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].map((m) => {
         const title = clip(unxml((m[1].match(/<title>([\s\S]*?)<\/title>/) || [])[1]), 180);
         const at = Date.parse((m[1].match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1] || '') || null;
-        return { title, at };
-      });
+        return { title: title.replace(/ - [^-]{2,40}$/, ''), at };
+      }).filter((h) => h.title && (!h.at || now - h.at <= hours * 3600e3)).sort((a, b) => (b.at || 0) - (a.at || 0));
     } catch { return []; }
   }));
-  const seen = new Set();
-  return lists.flat().filter((h) => h.title && (!h.at || now - h.at <= hours * 3600e3))
-    .filter((h) => { const k = h.title.toLowerCase().slice(0, 60); if (seen.has(k)) return false; seen.add(k); return true; })
-    .sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, max);
+  // Round-robin: one from each feed in turn, skipping repeats, so no single feed or story fills the list.
+  const seen = new Set(), out = [];
+  for (let i = 0; out.length < max && lists.some((l) => l.length > i); i++) {
+    for (const l of lists) {
+      const h = l[i]; if (!h) continue;
+      const k = h.title.toLowerCase().replace(/[^a-z0-9 ]/g, '').slice(0, 50);
+      if (seen.has(k)) continue; seen.add(k); out.push(h);
+      if (out.length >= max) break;
+    }
+  }
+  return out;
 }
 
 const PERSONA = 'You are a senior macro and prop-desk trader (20 years: gold, FX, US indices, oil, crypto). You read headlines the way a trading desk does: what moves, which way, how hard, how long, and through which chain (risk-on/off, the dollar, yields, the Fed, oil, safe havens, sector leaders). You only use the headlines given and never invent an event or a number. Most headlines move nothing: say so.';
@@ -42,18 +55,21 @@ export async function readNews() {
   if (!list.length) return null;
   const o = await aiJSON(`${PERSONA}
 
-HEADLINES (last 6 hours, newest first):
+HEADLINES (business news from the last 6 hours, world news and conflicts from the last 12):
 ${list.map((h, i) => `${i + 1}. ${h.title}`).join('\n')}
 
 Markets: ${MARKETS.join(', ')}.
-Return JSON: {"summary":"one or two sentences: the market mood these headlines set, or 'quiet' if nothing matters","impacts":[{"market":"one of the markets","direction":"up|down","strength":1-3,"horizon":"hours|days","headline":"the headline number it comes from","why":"the chain in one sentence"}]}
-Up to 6 impacts, only ones with a clear reason; strength 3 = a move a desk would act on today.`, { maxTokens: 900, temperature: 0.2, timeout: 20000 }).catch(() => null);
+Return JSON: {"summary":"one or two sentences: the market mood these headlines set, naming the main stories, or 'quiet' if nothing matters","impacts":[{"story":"2-4 word name of the story, e.g. 'Nvidia earnings', 'Strait of Hormuz', 'Ukraine war'","market":"one of the markets","direction":"up|down","strength":1-3,"horizon":"hours|days","headline":"the headline number it comes from","why":"the chain in one sentence"}]}
+Up to 6 impacts, only ones with a clear reason; strength 3 = a move a desk would act on today.
+Cover the different stories, not one story many times: at most 2 impacts per story. Do not route a story through a far-fetched chain (one company's news does not move oil unless it plainly touches energy demand). Wars, shipping lanes (Hormuz, Red Sea), sanctions and OPEC are oil and gold stories first. A single company's product news (a game launch, a phone) moves that company, not these markets, unless it is big enough to move the Nasdaq.`, { maxTokens: 900, temperature: 0.2, timeout: 20000 }).catch(() => null);
   if (!o) return null;
   const impacts = (Array.isArray(o.impacts) ? o.impacts : []).map((x) => {
     const n = Number(String(x.headline).replace(/\D/g, ''));
-    return { market: clip(x.market, 20), direction: x.direction === 'down' ? 'down' : 'up', strength: Math.max(1, Math.min(3, Math.round(Number(x.strength) || 1))), horizon: x.horizon === 'days' ? 'days' : 'hours', headline: clip(list[n - 1]?.title || x.headline, 180), why: clip(x.why, 220) };
-  }).filter((x) => x.market && x.why).slice(0, 6);
-  return { at: new Date().toISOString(), summary: clip(o.summary, 300), impacts, count: list.length };
+    return { story: clip(x.story, 40), market: clip(x.market, 20), direction: x.direction === 'down' ? 'down' : 'up', strength: Math.max(1, Math.min(3, Math.round(Number(x.strength) || 1))), horizon: x.horizon === 'days' ? 'days' : 'hours', headline: clip(list[n - 1]?.title || x.headline, 180), why: clip(x.why, 220) };
+  }).filter((x) => x.market && x.why);
+  const perStory = {};
+  const kept = impacts.filter((x) => { const k = (x.story || x.headline).toLowerCase(); perStory[k] = (perStory[k] || 0) + 1; return perStory[k] <= 2; }).slice(0, 6);
+  return { at: new Date().toISOString(), summary: clip(o.summary, 300), impacts: kept, count: list.length };
 }
 
 // What the news read says about one market (for the Coach's facts on a signal).
