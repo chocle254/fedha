@@ -885,6 +885,12 @@ export default function PlannerPage() {
   }, [completedIds, blocks]); // eslint-disable-line react-hooks/exhaustive-deps
   const [now, setNow] = useState(new Date());
   const [tab, setTab] = useState('today');
+  // /planner#night-out (from the Night out block or its reminder) opens the Fun tab, where the panel opens itself.
+  useEffect(() => {
+    const go = () => { if (window.location.hash === '#night-out') setTab('fun'); };
+    go(); window.addEventListener('hashchange', go);
+    return () => window.removeEventListener('hashchange', go);
+  }, []);
   const [editBlock, setEditBlock] = useState(null);
   const [usingAI, setUsingAI] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
@@ -1239,28 +1245,42 @@ export default function PlannerPage() {
           </div>
           <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:16 }}>{format(now,'EEEE, d MMMM yyyy')} · {usingAI ? 'planned from when you woke up' : "auto-built from Tech Hub, My Jobs & today's workout"}</div>
 
+          <div className="pl-tabs">
+            {[['today', '📋 Today'], ['fun', nightOutTonight ? '🪩 Tonight' : '🎈 Fun & nights'], ['day', '🌤 Weather & routine'], ['stats', '📊 Stats'], ['edit', '⚙️ Edit']].map(([k, l]) => (
+              <button key={k} className={`chip ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>{l}{k === 'fun' && nightOutTonight ? <i className="pl-dot" /> : null}</button>
+            ))}
+          </div>
+          <style jsx>{`
+            .pl-tabs { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -2px 14px; padding: 0 2px; }
+            .pl-tabs::-webkit-scrollbar { display: none; }
+            .pl-tabs :global(button) { flex: none; white-space: nowrap; position: relative; }
+            .pl-dot { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 99px; background: #EC4899; }
+          `}</style>
+          {tab === 'today' && <>
           <ThreeCard blocks={blocks} completedIds={completedIds} onToggle={toggleDone} nowMins={now.getHours() * 60 + now.getMinutes()} wins={wins} onReplan={planFromNow} replanning={aiGenerating} />
 
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:14 }}>
           <button onClick={planFromNow} disabled={aiGenerating}
-            style={{ width:'100%', padding:'14px 16px', background: usingAI ? 'var(--card-2)' : 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.15))', border: `1px solid ${usingAI ? 'var(--border)' : 'rgba(16,185,129,0.35)'}`, borderRadius:12, display:'flex', alignItems:'center', gap:12, cursor: aiGenerating ? 'default' : 'pointer', marginBottom:14, textAlign:'left', fontFamily:'Onest' }}>
-            <span style={{ fontSize:22 }}>{aiGenerating ? '⏳' : '☀️'}</span>
+            style={{ width:'100%', padding:'12px',  background: usingAI ? 'var(--card-2)' : 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.15))', border: `1px solid ${usingAI ? 'var(--border)' : 'rgba(16,185,129,0.35)'}`, borderRadius:12, display:'flex', alignItems:'center', gap:12, cursor: aiGenerating ? 'default' : 'pointer', textAlign:'left', fontFamily:'Onest' }}>
+            <span style={{ fontSize:20 }}>{aiGenerating ? '⏳' : '☀️'}</span>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:14, fontWeight:700, color:'var(--text)' }}>
-                {aiGenerating ? 'Planning your day…' : usingAI ? 'Re-plan From Now' : "I'm Awake — Plan My Day"}
+                {aiGenerating ? 'Planning…' : usingAI ? 'Re-plan from now' : "I'm awake"}
               </div>
-              <div style={{ fontSize:12, color:'var(--text-3)' }}>
-                {aiGenerating ? 'Fitting your day around lunch and dinner' : 'Rebuilds the rest of today from right now. Lunch stays at 1 PM, dinner at 7 PM, work fills the gaps'}
+              <div style={{ fontSize:11.5, color:'var(--text-3)', lineHeight:1.35 }}>
+                {aiGenerating ? 'Fitting it around meals' : 'Rebuilds the rest of today from now'}
               </div>
             </div>
           </button>
           <button onClick={toggleLow}
-            style={{ width:'100%', padding:'12px 16px', margin:'10px 0 14px', background: low ? 'rgba(125,211,252,0.10)' : 'var(--card-2)', border:`1px solid ${low ? 'rgba(125,211,252,0.4)' : 'var(--border)'}`, borderRadius:12, display:'flex', alignItems:'center', gap:12, cursor:'pointer', textAlign:'left', color:'var(--text)' }}>
-            <span style={{ fontSize:22 }}>🫧</span>
+            style={{ width:'100%', padding:'12px', margin:0, background: low ? 'rgba(125,211,252,0.10)' : 'var(--card-2)', border:`1px solid ${low ? 'rgba(125,211,252,0.4)' : 'var(--border)'}`, borderRadius:12, display:'flex', alignItems:'center', gap:12, cursor:'pointer', textAlign:'left', color:'var(--text)' }}>
+            <span style={{ fontSize:20 }}>🫧</span>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:14, fontWeight:700 }}>{low ? 'Low day is on' : 'Low day'}</div>
-              <div style={{ fontSize:12, color:'var(--text-3)', lineHeight:1.45 }}>{low ? 'Only the basics and one small thing today. Nothing else counts, and nothing is marked missed. Tap to bring the full day back.' : 'Heavy day? Shrink today to meals, rest, ten minutes of moving and one small 25-minute task.'}</div>
+              <div style={{ fontSize:11.5, color:'var(--text-3)', lineHeight:1.35 }}>{low ? 'Basics only. Tap for the full day' : 'Heavy day? Just the basics'}</div>
             </div>
           </button>
+          </div>
           {low && <a href="/support" style={{ display:'block', margin:'-6px 0 14px', fontSize:12.5, color:'var(--text-3)', textDecoration:'none' }}>If today is more than heavy: <b style={{ color:'var(--accent)' }}>people to call and your own plan →</b></a>}
           {aiError && (
             <div style={{ padding:'10px 14px', background:'var(--red-dim)', border:'1px solid rgba(239,68,68,0.2)', borderRadius:10, fontSize:13, color:'var(--red)', marginBottom:14 }}>
@@ -1304,6 +1324,8 @@ export default function PlannerPage() {
             </div>
           )}
 
+          </>}
+          {tab === 'day' && <>
           {/* Your real day: weather, soap batches, bath & walk */}
           <div className="card" style={{ padding:'14px 16px', marginBottom:14 }}>
             <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -1401,15 +1423,13 @@ export default function PlannerPage() {
             {anchorWarnings.map((w) => <div key={w} style={{ fontSize:12, color:'#FCD34D', marginTop:8 }}>⚠️ {w}</div>)}
           </div>
 
+          </>}
+          {tab === 'fun' && <>
           <NightOut homeLoc={homeLoc} floating={floating} scheduled={nightOutTonight?.budget || 0} birthday={nightOutTonight?.birthday || 0} nextNight={nextNight} onSkip={skipNightOut} onChange={loadLiving} />
 
           <FunPicks blocks={blocks} weather={weather} homeLoc={homeLoc} floating={floating} currency={currency} nowMin={nowMins} added={funBlocks} onAdd={addFun} onRemove={removeFun} />
 
-          <div style={{ display:'flex', gap:8 }}>
-            <button className={`chip ${tab==='today'?'active':''}`} onClick={() => setTab('today')}>Today</button>
-            <button className={`chip ${tab==='stats'?'active':''}`} onClick={() => setTab('stats')}>Stats</button>
-            <button className={`chip ${tab==='edit'?'active':''}`} onClick={() => setTab(t => t==='edit'?'today':'edit')}>⚙️ Edit</button>
-          </div>
+          </>}
         </div>
 
         <div style={{ padding:'0 20px' }}>
@@ -1539,7 +1559,7 @@ export default function PlannerPage() {
                           <span className="pl-type" style={{ background: c.dot }} />
                         </div>
                         {isNow && <div style={{ fontSize:12, color:'var(--text-2)', marginTop:6, lineHeight:1.5, borderTop:'1px solid var(--border)', paddingTop:6 }}>{block.note}</div>}
-                        {(() => { const l = blockLink(block, { startups, hackathons }); return l && <a href={l.href} onClick={(e)=>e.stopPropagation()} style={{ display:'inline-block', marginTop:8, padding:'7px 14px', borderRadius:10, background:'#f5f5f7', color:'#000', fontSize:12.5, fontWeight:700, textDecoration:'none' }}>{l.text}</a>; })()}
+                        {(() => { const l = blockLink(block, { startups, hackathons }); return l && <a href={l.href} onClick={(e)=>{ e.stopPropagation(); if (l.href.startsWith('/planner#')) { e.preventDefault(); setTab('fun'); const h = l.href.split('#')[1]; history.replaceState(null, '', '/planner'); setTimeout(() => { window.location.hash = h; }, 60); } }} style={{ display:'inline-block', marginTop:8, padding:'7px 14px', borderRadius:10, background:'#f5f5f7', color:'#000', fontSize:12.5, fontWeight:700, textDecoration:'none' }}>{l.text}</a>; })()}
                       </div>
                     </div>
                   );
