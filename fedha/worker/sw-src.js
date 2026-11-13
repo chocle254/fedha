@@ -16,6 +16,22 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// ─── APP FILES (/_next/static) ───────────────────────────────────────────────
+// Registered BEFORE the precache route so it wins. Every build file the app loads is kept here (names are hashed,
+// so they never go stale). Without this, each update deleted the previous build's files from the precache, while
+// pages saved for offline still pointed at them: offline, the page loaded but its code did not (blank screen).
+// On a miss with no network, fall back to any cache that has it (the precache stores it with a revision query).
+registerRoute(
+  ({ url }) => url.origin === self.location.origin && url.pathname.startsWith('/_next/static/'),
+  new CacheFirst({
+    cacheName: 'fedha-next',
+    plugins: [
+      new ExpirationPlugin({ maxEntries: 600, maxAgeSeconds: 45 * 24 * 60 * 60 }),
+      { handlerDidError: async ({ request }) => (await caches.match(request.url, { ignoreSearch: true })) || undefined },
+    ],
+  })
+);
+
 // ─── PRECACHE ────────────────────────────────────────────────────────────────
 // Next-pwa injects the current build's JS/CSS/static assets here.
 precacheAndRoute(self.__WB_MANIFEST);
@@ -38,6 +54,16 @@ registerRoute(
           maxEntries: 50,
           maxAgeSeconds: 7 * 24 * 60 * 60,
         }),
+        // Offline and this exact page was never saved (or was saved with a different ?query): serve the same page
+        // without the query, else the home page, so the app still opens and its own router takes over.
+        {
+          handlerDidError: async ({ request }) => {
+            const u = new URL(request.url);
+            return (await caches.match(u.origin + u.pathname, { ignoreSearch: true }))
+              || (await caches.match(u.origin + '/', { ignoreSearch: true }))
+              || undefined;
+          },
+        },
       ],
     })
   )

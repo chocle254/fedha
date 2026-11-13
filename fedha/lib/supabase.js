@@ -35,9 +35,14 @@ function storedSession() {
 // Offline with an expired token, supabase-js cannot refresh it and answers "no session" (while keeping the login
 // saved). That used to send you to the login page, which cannot load offline. So: when the refresh failed because
 // there is no network, carry on with the saved login; the token refreshes by itself once you're back online.
+// Offline at launch, supabase-js keeps retrying the token refresh and getSession() can hang for a long time, which
+// left the app on a blank screen. So: offline, use the saved login straight away; online, wait at most 4 s.
 export async function getSession() {
   if (!supabase) return null;
-  const { data, error } = await supabase.auth.getSession();
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) { const saved = storedSession(); if (saved) return saved; }
+  const res = await Promise.race([supabase.auth.getSession(), new Promise((r) => setTimeout(() => r({ timedOut: true }), 4000))]);
+  if (res.timedOut) return storedSession();
+  const { data, error } = res;
   if (data?.session) return data.session;
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
   const network = error && (error.name === 'AuthRetryableFetchError' || /fetch|network|failed to fetch|load failed/i.test(error.message || ''));

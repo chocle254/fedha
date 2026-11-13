@@ -232,10 +232,21 @@ function useOfflinePages() {
     const t = setTimeout(async () => {
       try {
         const day = new Date().toDateString();
-        if (localStorage.getItem('luxe_offline_pages') === day) return;
+        if (localStorage.getItem('luxe_offline_pages2') === day) return;
         const cache = await caches.open('fedha-pages');
-        for (const p of OFFLINE_PAGES) { try { const r = await fetch(p, { credentials: 'same-origin' }); if (r.ok) await cache.put(new Request(new URL(p, location.origin).href), r); } catch { /* next one */ } }
-        localStorage.setItem('luxe_offline_pages', day);
+        const files = new Set();
+        for (const p of OFFLINE_PAGES) {
+          try {
+            const r = await fetch(p, { credentials: 'same-origin' });
+            if (!r.ok) continue;
+            const html = await r.clone().text();
+            await cache.put(new Request(new URL(p, location.origin).href), r);
+            // The code each saved page needs, so it also runs offline (the service worker keeps it in 'fedha-next').
+            for (const m of html.matchAll(/\/_next\/static\/[^"'\s>]+\.(?:js|css)/g)) files.add(m[0]);
+          } catch { /* next one */ }
+        }
+        for (const f of files) { try { await fetch(f); } catch { /* next one */ } }
+        localStorage.setItem('luxe_offline_pages2', day);
       } catch { /* caches unavailable */ }
     }, 12000); // after the app has settled
     return () => clearTimeout(t);
