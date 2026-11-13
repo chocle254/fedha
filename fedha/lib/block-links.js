@@ -10,6 +10,10 @@ export function blockLink(block, ctx = {}) {
   const type = block.type;
 
   if (/^(series|movies)/.test(id)) return { href: '/chill', text: '🍿 Open Chill Room' };
+  if (id === 'night_out') return { href: '/planner#night-out', text: '🪩 Night out: pick where to go' };
+  if (id === 'go_out_ready') return { href: '/planner#night-out', text: '🪩 See tonight\'s plan' };
+  if (id === 'upkeep') return { href: '/living#upkeep', text: '🌤 Open Live a little' };
+  if (id === 'first_time') return { href: '/living#firsts', text: '✨ Find where to get it' };
   if (id.startsWith('startup_')) {
     const s = (ctx.startups || []).find((x) => id.startsWith(`startup_${x.id}_`));
     if (s) return { href: `/startup/${s.id}`, text: `🚀 Open ${s.name}` };

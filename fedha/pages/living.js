@@ -75,7 +75,7 @@ function Upkeep() {
   };
 
   return (
-    <div className="card" style={card}>
+    <div id="upkeep" className="card" style={{ ...card, scrollMarginTop: 70 }}>
       <div style={label}>Upkeep forecast</div>
       <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.5 }}>Set aside <b>{kes(Math.ceil(weekly / 10) * 10)} a week</b> and none of these will surprise you.</div>
 
@@ -169,7 +169,7 @@ function FirstTimes({ city, geo }) {
   const order = [...list].sort((a, b) => Number(!!a.done) - Number(!!b.done));
 
   return (
-    <div className="card" style={card}>
+    <div id="firsts" className="card" style={{ ...card, scrollMarginTop: 70 }}>
       <div style={{ display: 'flex', alignItems: 'baseline' }}><div style={{ ...label, flex: 1 }}>First times</div><span className="font-num" style={{ fontSize: 12, color: 'var(--text-3)' }}>{done} done</span></div>
       <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.5 }}>Things you have never had or done. Luxe finds where{city ? ` in ${city}` : ''} and what it costs.</div>
       <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
@@ -233,7 +233,7 @@ function DayOut({ city, geo, floating }) {
   };
 
   return (
-    <div className="card" style={card}>
+    <div id="dayout" className="card" style={{ ...card, scrollMarginTop: 70 }}>
       <div style={label}>A day out, by yourself</div>
       {!plan ? (
         <>
@@ -286,7 +286,7 @@ function BuilderDay() {
   };
   const n = BUILDER.filter(([k]) => done[k]).length;
   return (
-    <div className="card" style={card}>
+    <div id="builder" className="card" style={{ ...card, scrollMarginTop: 70 }}>
       <div style={{ display: 'flex', alignItems: 'baseline' }}><div style={{ ...label, flex: 1 }}>Builder day</div><span className="font-num" style={{ fontSize: 12, color: n === 4 ? '#22C55E' : 'var(--text-3)' }}>{n}/4</span></div>
       <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.5 }}>A day that moves your future in tech forward: learn, build, ship, reach. About four hours in all. One of these a week is worth more than five busy days.</div>
       {BUILDER.map(([k, emoji, title, what, href, time]) => (
@@ -309,6 +309,8 @@ export default function Living() {
   const [geo, setGeo] = useState(null); // home lat/lon, so places are checked against the map near you
   useEffect(() => { getHomeLocation().then((l) => { setCity(l?.name ? String(l.name).split(',')[0] : ''); if (l?.lat != null) setGeo({ lat: l.lat, lon: l.lon }); }).catch(() => {}); }, []);
   const hello = useMemo(() => { const h = new Date().getHours(); return h < 12 ? 'Morning' : h < 17 ? 'Afternoon' : 'Evening'; }, []);
+  // Opened from a planner block (/living#upkeep, #firsts): scroll there once the cards have loaded their lists.
+  useEffect(() => { const id = window.location.hash.slice(1); if (!id) return undefined; const t = setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 700); return () => clearTimeout(t); }, []);
   return (
     <Layout fab={false}>
       <Head><title>Live a little · Luxe</title></Head>

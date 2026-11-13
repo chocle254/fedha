@@ -13,7 +13,19 @@ const kes = (n) => `KSh ${Math.round(Number(n) || 0).toLocaleString('en-KE')}`;
 const LABEL = { ride_home: ['🏠', 'Ride home (do not touch)'], transport_there: ['🛵', 'Getting there'], entry: ['🎟️', 'Entry'], drinks: ['🍹', 'Drinks'], food: ['🍗', 'Food'], buffer: ['🛟', 'Buffer'] };
 const fmt12 = (t) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${pad(m)} ${h >= 12 ? 'PM' : 'AM'}`; };
 
-export default function NightOut({ homeLoc, floating }) {
+// What tonight can cost, from your own money: about a tenth of last month's income over 4 weekends, never more
+// than a third of the cash free right now. Also used by the planner to decide whether Saturday gets a night out.
+export function nightOutBudget(transactions = [], floating = 0) {
+  const from = Date.now() - 30 * 864e5;
+  const income = transactions.filter((t) => t.type === 'income' && t.category !== 'investment' && new Date(t.date).getTime() >= from).reduce((s, t) => s + Number(t.amount || 0), 0);
+  const byIncome = (income * 0.1) / 4;
+  const byCash = Math.max(0, Number(floating) || 0) / 3;
+  const n = Math.floor(Math.min(byIncome || byCash, byCash) / 50) * 50;
+  return { n: Math.max(0, n), income };
+}
+
+// The planner's 🪩 Night Out block links to /planner#night-out: that opens this panel and scrolls to it.
+export default function NightOut({ homeLoc, floating, onSkip, scheduled }) {
   const { transactions = [] } = useApp();
   const [open, setOpen] = useState(false);
   const [plan, setPlan] = useState(null);
@@ -25,14 +37,12 @@ export default function NightOut({ homeLoc, floating }) {
   const weekend = [5, 6, 0].includes(new Date().getDay());
 
   // What you can afford, from your own money.
-  const suggest = useMemo(() => {
-    const from = Date.now() - 30 * 864e5;
-    const income = transactions.filter((t) => t.type === 'income' && t.category !== 'investment' && new Date(t.date).getTime() >= from).reduce((s, t) => s + Number(t.amount || 0), 0);
-    const byIncome = (income * 0.1) / 4;
-    const byCash = Math.max(0, Number(floating) || 0) / 3;
-    const n = Math.floor(Math.min(byIncome || byCash, byCash) / 50) * 50;
-    return { n: Math.max(0, n), income };
-  }, [transactions, floating]);
+  const suggest = useMemo(() => nightOutBudget(transactions, floating), [transactions, floating]);
+  useEffect(() => {
+    const go = () => { if (window.location.hash !== '#night-out') return; setOpen(true); setTimeout(() => document.getElementById('night-out')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); };
+    go(); window.addEventListener('hashchange', go);
+    return () => window.removeEventListener('hashchange', go);
+  }, []);
 
   useEffect(() => { getSetting('night_out', null).then((p) => { if (p?.day === dayKey() && p.plan) { setPlan(p.plan); setOpen(true); } }).catch(() => {}); }, []);
   useEffect(() => { if (!budget && suggest.n >= 200) setBudget(String(suggest.n)); }, [suggest.n]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -52,20 +62,21 @@ export default function NightOut({ homeLoc, floating }) {
   const label = { fontSize: 11, fontWeight: 800, letterSpacing: 0.6, color: 'var(--text-3)', textTransform: 'uppercase' };
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} style={{ width: '100%', padding: '12px 16px', marginBottom: 14, background: weekend ? 'linear-gradient(135deg, rgba(236,72,153,.16), rgba(139,92,246,.14))' : 'var(--card-2)', border: `1px solid ${weekend ? 'rgba(236,72,153,.4)' : 'var(--border)'}`, borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', textAlign: 'left', color: 'var(--text)' }}>
+      <button id="night-out" onClick={() => setOpen(true)} style={{ scrollMarginTop: 70, width: '100%', padding: '12px 16px', marginBottom: 14, background: weekend ? 'linear-gradient(135deg, rgba(236,72,153,.16), rgba(139,92,246,.14))' : 'var(--card-2)', border: `1px solid ${weekend ? 'rgba(236,72,153,.4)' : 'var(--border)'}`, borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', textAlign: 'left', color: 'var(--text)' }}>
         <span style={{ fontSize: 22 }}>🪩</span>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 700 }}>Night out</div>
-          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Where to go, how much to take and on what, when to head home.</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{scheduled ? `On your plan tonight (about ${kes(scheduled)}). Tap to pick where to go.` : 'Where to go, how much to take and on what, when to head home.'}</div>
         </div>
       </button>
     );
   }
 
   return (
-    <div className="card" style={{ padding: 14, marginBottom: 14, borderColor: 'rgba(236,72,153,.35)' }}>
-      <div style={{ display: 'flex', alignItems: 'center' }}>
+    <div id="night-out" className="card" style={{ scrollMarginTop: 70, padding: 14, marginBottom: 14, borderColor: 'rgba(236,72,153,.35)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <div style={{ flex: 1, fontSize: 15, fontWeight: 800 }}>🪩 Night out{city ? ` in ${city}` : ''}</div>
+        {scheduled && onSkip && <button className="btn-ghost" style={{ width: 'auto', padding: '4px 10px', fontSize: 12 }} onClick={() => { if (window.confirm('Skip tonight\'s night out? Your evening goes back to the usual plan.')) { onSkip(); setOpen(false); } }}>Not tonight</button>}
         <button className="btn-ghost" style={{ width: 'auto', padding: '4px 10px', fontSize: 12 }} onClick={() => setOpen(false)}>Hide</button>
       </div>
 
