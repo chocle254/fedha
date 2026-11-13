@@ -39,7 +39,7 @@ export default async function handler(req, res) {
 
   const o = await aiJSON(`Plan a night out for ONE person in ${city}, Kenya, this ${day}. They are in their early twenties, an introvert who loves a good party at the weekend, usually goes alone or with one or two friends, and smokes weed sometimes. Tonight is a reward for money they earned. Tonight's total budget is KSh ${budget}, and it must cover everything including getting home.
 Their own prices: a full bottle of spirits costs about KSh ${bottle} (that is the drink for the whole night, with mixers and water), the fare there about KSh ${fareThere}, and the fare home late at night about KSh ${fareHome}.
-They want to have real fun and NOT overdo it to the point of forgetting themselves: the plan must pace the bottle over the night.${vibe ? ` They said they want: ${vibe}.` : ''}
+${Number(b.birthday) > 0 ? `TONIGHT IS THEIR ${Math.round(Number(b.birthday))}TH BIRTHDAY: make it feel like a celebration (a place with a good crowd and music, somewhere friends can join, a toast moment), the budget covers a second bottle to share. ` : ''}They want to have real fun and NOT overdo it to the point of forgetting themselves: the plan must pace the bottle over the night.${vibe ? ` They said they want: ${vibe}.` : ''}
 
 WEB SEARCH RESULTS about nightlife in ${city} (the ONLY source for venue names; never invent a venue):
 ${found || '(no results came back)'}

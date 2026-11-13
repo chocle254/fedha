@@ -8,6 +8,7 @@ import { loadAll, record, levelOf, rankOf } from '../lib/study';
 import { fireConfetti } from '../lib/confetti';
 import { speak, stopSpeaking } from '../lib/voice';
 import { formatShort } from '../lib/utils';
+import { birthdayNightCost, NIGHT_PRICES } from './NightOut';
 import Md from './learn/Md';
 
 // The Birthday Hub (5 December): a letter Luxe writes from your real year (opens on the day, like an envelope),
@@ -95,10 +96,22 @@ export default function BirthdayHub({ onClose, startTab }) {
   const makePlan = async () => {
     setBusy(true); setErr(''); setAdded(false);
     try {
-      const r = await fetch('/api/celebrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'plan', age: b.age, budget: Number(budget) || Math.round(Math.max(500, Math.min(5000, totalBalance * 0.1)) / 100) * 100, wishes: rec.wishes.map((w) => w.text), likes }) });
+      const r = await fetch('/api/celebrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'plan', age: b.age, eveningOut: true, budget: Number(budget) || Math.round(Math.max(500, Math.min(5000, totalBalance * 0.1)) / 100) * 100, wishes: rec.wishes.map((w) => w.text), likes }) });
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Could not plan the day.');
       await save({ ...rec, plan: j.plan });
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  // Birthday fund: the day plan + the birthday night (your Night out prices), saved for over the weeks left.
+  const [nightPrices, setNightPrices] = useState(NIGHT_PRICES);
+  useEffect(() => { getSetting('night_out_prices', null).then((p) => p && setNightPrices({ ...NIGHT_PRICES, ...p })).catch(() => {}); }, []);
+  const nightCostB = birthdayNightCost(nightPrices);
+  const dayCost = Number(rec.plan?.budget || 0);
+  const fundTarget = Math.ceil((nightCostB + dayCost) / 100) * 100;
+  const weeksLeft = Math.max(1, Math.ceil(b.days / 7));
+  const fundGoal = goals.find((g) => String(g.name || '').startsWith(`🎂 ${b.age}`));
+  const startFund = async () => {
+    if (fundGoal) return;
+    await addGoal?.({ name: `🎂 ${b.age}th birthday`, target: fundTarget, current: 0, icon: '🎂', color: '#EC4899', deadline: b.iso });
   };
   const addToPlanner = async () => {
     const key = `planner_fun_${b.iso}`;
@@ -165,6 +178,17 @@ export default function BirthdayHub({ onClose, startTab }) {
               <button className="btn-primary" disabled={busy} onClick={makePlan}>{busy ? '…' : rec.plan ? '↻ Replan' : '✨ Plan it'}</button>
             </div>
             <input className="input" style={{ marginTop: 8 }} value={likes} onChange={(e) => setLikes(e.target.value)} placeholder="What would make it great? (food, places, people, adventure…)" />
+            {!b.isToday && (
+              <div className="card-2" style={{ padding: 12, marginTop: 12, border: '1px solid rgba(236,72,153,.35)' }}>
+                <div style={{ fontWeight: 800 }}>🎂 Birthday fund</div>
+                <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.5 }}>
+                  The birthday night is about <b>KSh {nightCostB.toLocaleString()}</b> at your Night out prices (a proper night plus a second bottle to share){dayCost ? <>, and the day plan about <b>KSh {dayCost.toLocaleString()}</b></> : null}. That's <b>KSh {fundTarget.toLocaleString()}</b>: about <b>KSh {Math.ceil(fundTarget / weeksLeft / 50) * 50 > 0 ? (Math.ceil(fundTarget / weeksLeft / 50) * 50).toLocaleString() : 0} a week</b> for the {weeksLeft} week{weeksLeft === 1 ? '' : 's'} left. It goes on your planner that evening when your free cash covers the night.
+                </div>
+                {fundGoal
+                  ? <div style={{ fontSize: 12.5, marginTop: 8 }}>Saved so far: <b>KSh {Math.round(Number(fundGoal.current || 0)).toLocaleString()}</b> of {Math.round(Number(fundGoal.target || 0)).toLocaleString()}. Add to it from Goals.</div>
+                  : <button className="btn-primary" style={{ marginTop: 8 }} onClick={startFund}>Start a birthday goal (KSh {fundTarget.toLocaleString()})</button>}
+              </div>
+            )}
             {rec.plan && (
               <div className="card-2" style={{ padding: 12, marginTop: 12 }}>
                 <div style={{ fontWeight: 800 }}>{rec.plan.title}</div>

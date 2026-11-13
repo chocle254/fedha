@@ -52,7 +52,7 @@ Write 170-230 words: open with a warm happy birthday, then what they genuinely a
       const text = `Plan their ${nth(age)} birthday (in or near ${clip(b.city, 60) || 'Nairobi, Kenya'}). Budget: about KSh ${Math.max(0, Math.round(Number(b.budget) || 0))} total (stay within it; free things count).
 Their wishes: ${(Array.isArray(b.wishes) ? b.wishes : []).map((w) => clip(w, 80)).join('; ') || 'none listed'}.
 What they enjoy: ${clip(b.likes, 300) || 'music, building things, good food, a little adventure, time to reflect'}.
-Make it feel special, not generic: a slow good morning, something fun or adventurous, a treat meal, a moment to reflect and set goals for the year, an evening they will remember. 5-8 items across the day.
+Make it feel special, not generic: a slow good morning, something fun or adventurous, a treat meal, a moment to reflect and set goals for the year${b.eveningOut ? '. The evening is already planned as their birthday night out (it has its own budget), so plan the day only, finishing by 19:00 and leaving time to rest and get ready' : ', an evening they will remember'}. 5-8 items across the day.
 Return JSON: {"plan":{"title":"","budget":0,"items":[{"time":"HH:MM","title":"","emoji":"","minutes":60,"cost":0,"note":"one helpful line"}]}}`;
       const obj = parse(await ask(text, true));
       const items = (obj?.plan?.items || []).filter((x) => x?.title && /^\d{1,2}:\d{2}$/.test(x.time || '')).slice(0, 9).map((x) => ({

@@ -25,6 +25,8 @@ export function nightCost(p = NIGHT_PRICES) {
 // below a proper night (bottle and fares): either you can afford a real one, or it waits. Affordable = it takes at
 // most half of the cash free right now. More income lets it grow (a tenth of last month's income over 4 weekends).
 // Also used by the planner to decide whether Saturday gets a night out.
+// Your birthday night: a proper night plus a second bottle to share with whoever comes.
+export function birthdayNightCost(p = NIGHT_PRICES) { const q = { ...NIGHT_PRICES, ...(p || {}) }; return nightCost(q) + r50(Number(q.bottle) * 1.1); }
 export function nightOutBudget(transactions = [], floating = 0, prices = NIGHT_PRICES) {
   const now = Date.now();
   const inc = (days) => transactions.filter((t) => t.type === 'income' && t.category !== 'investment' && new Date(t.date).getTime() >= now - days * 864e5).reduce((s, t) => s + Number(t.amount || 0), 0);
@@ -37,7 +39,7 @@ export function nightOutBudget(transactions = [], floating = 0, prices = NIGHT_P
 }
 
 // The planner's 🪩 Night Out block links to /planner#night-out: that opens this panel and scrolls to it.
-export default function NightOut({ homeLoc, floating, onSkip, scheduled, onChange }) {
+export default function NightOut({ homeLoc, floating, onSkip, scheduled, onChange, birthday = 0 }) {
   const { transactions = [] } = useApp();
   const [open, setOpen] = useState(false);
   const [plan, setPlan] = useState(null);
@@ -61,12 +63,12 @@ export default function NightOut({ homeLoc, floating, onSkip, scheduled, onChang
   }, []);
 
   useEffect(() => { getSetting('night_out', null).then((p) => { if (p?.day === dayKey() && p.plan) { setPlan(p.plan); setOpen(true); } }).catch(() => {}); }, []);
-  useEffect(() => { if (suggest.n >= 200) setBudget(String(suggest.n)); }, [suggest.n]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (birthday && scheduled) setBudget(String(scheduled)); else if (suggest.n >= 200) setBudget(String(suggest.n)); }, [suggest.n, scheduled, birthday]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const make = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await fetch('/api/night-out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ city, ...(homeLoc?.lat != null ? { lat: homeLoc.lat, lon: homeLoc.lon } : {}), budget: Number(String(budget).replace(/[^\d.]/g, '')), vibe, bottle: prices.bottle, fareThere: prices.fareThere, fareHome: prices.fareHome, day: new Date().toLocaleDateString('en-GB', { weekday: 'long' }) }) });
+      const r = await fetch('/api/night-out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ city, ...(homeLoc?.lat != null ? { lat: homeLoc.lat, lon: homeLoc.lon } : {}), budget: Number(String(budget).replace(/[^\d.]/g, '')), vibe, birthday: birthday || 0, bottle: prices.bottle, fareThere: prices.fareThere, fareHome: prices.fareHome, day: new Date().toLocaleDateString('en-GB', { weekday: 'long' }) }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Could not plan it.');
       setPlan(j); await setSetting('night_out', { day: dayKey(), plan: j }); onChange?.();
@@ -81,7 +83,7 @@ export default function NightOut({ homeLoc, floating, onSkip, scheduled, onChang
       <button id="night-out" onClick={() => setOpen(true)} style={{ scrollMarginTop: 70, width: '100%', padding: '12px 16px', marginBottom: 14, background: weekend ? 'linear-gradient(135deg, rgba(236,72,153,.16), rgba(139,92,246,.14))' : 'var(--card-2)', border: `1px solid ${weekend ? 'rgba(236,72,153,.4)' : 'var(--border)'}`, borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', textAlign: 'left', color: 'var(--text)' }}>
         <span style={{ fontSize: 22 }}>🪩</span>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>Night out</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{birthday && scheduled ? '🎂 Birthday night out' : 'Night out'}</div>
           <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{scheduled ? `On your plan tonight (about ${kes(scheduled)}). Tap to pick where to go.` : 'Where to go, how much to take and on what, when to head home.'}</div>
         </div>
       </button>
@@ -99,7 +101,7 @@ export default function NightOut({ homeLoc, floating, onSkip, scheduled, onChang
       {!plan && (
         <>
           <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 8, lineHeight: 1.5 }}>
-            {suggest.ok
+            {birthday && scheduled ? <>🎂 It's your {birthday}th birthday. Tonight: <b>{kes(scheduled)}</b>, a proper night plus a second bottle to share. You earned this one.</> : suggest.ok
               ? <>{suggest.week > 0 ? <>You brought in <b>{kes(suggest.week)}</b> this week: this one is earned. </> : null}Tonight: <b>{kes(suggest.n)}</b>. A proper night at your prices is {kes(suggest.cost)} (the bottle, both fares, entry and a bite, plus a buffer), and it uses no more than half of your free cash.</>
               : <>A proper night at your prices is <b>{kes(suggest.cost)}</b>. It goes on the plan once your free cash is {kes(suggest.need)} (so half is left after): <b>{kes(suggest.short)} to go</b>. Money in first, then the reward.</>}
           </div>

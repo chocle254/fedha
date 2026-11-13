@@ -12,7 +12,8 @@ import { showNotif, VIBRATE } from '../lib/notifications';
 import { pruneEndedEvents, todaysEventBlocks, eventWindow } from '../lib/events';
 import { format } from 'date-fns';
 import FunPicks from '../components/FunPicks';
-import NightOut, { nightOutBudget } from '../components/NightOut';
+import NightOut, { nightOutBudget, birthdayNightCost } from '../components/NightOut';
+import { birthdayInfo } from '../lib/holidays';
 
 // ─── DAY ANCHORS ───────────────────────────────────────────────────────────
 // Bedtime is a protected window, not a "whatever's left after everything
@@ -489,7 +490,7 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
     // reminder while you're out. Times from tonight's Night out plan when you've made one.
     const pc = nightOut.pace || {};
     const at = (t) => (t ? m2t12(t) : null);
-    want('eve', 'night_out', 'Night Out 🪩', 'personal', '🪩', `Tap Night out to pick where to go: real places near you, how to split the money, when to leave and when to head home.${pc.first_drink ? ` First drink after ${at(pc.first_drink)}, once you've eaten.` : ' Eat before the first drink.'}`, PRIORITY.essential, 75, 90, { grow: true, max: 165 });
+    want('eve', 'night_out', nightOut.birthday ? `Birthday Night Out 🎂🪩` : 'Night Out 🪩', 'personal', '🪩', `Tap Night out to pick where to go: real places near you, how to split the money, when to leave and when to head home.${pc.first_drink ? ` First drink after ${at(pc.first_drink)}, once you've eaten.` : ' Eat before the first drink.'}`, PRIORITY.essential, 75, 90, { grow: true, max: 165 });
     want('eve', 'night_check', 'Water & Check-in 💧', 'personal', '💧', 'A full glass of water now. Mixer with every drink. Ride-home money still untouched? Drink still in your hand? Good, carry on.', PRIORITY.essential, 10, 10);
     want('eve', 'night_out2', 'Night Out (continued) 🪩', 'personal', '🪩', 'Enjoy it. Water after each drink; go lighter on the bottle if you smoked.', PRIORITY.essential, 60, 75, { grow: true, max: 165 });
     want('eve', 'night_pace', 'Pace Check 🧭', 'personal', '🧭', `${pc.last_drink ? `Last drink by ${at(pc.last_drink)}, home by ${at(pc.home_by) || '1:30 AM'}.` : 'Last drink within the hour, home by about 1:30 AM.'} Lost count, or want to spend the ride money? That's the sign: order the ride now.`, PRIORITY.essential, 20, 20);
@@ -800,7 +801,7 @@ function EditModal({ block, onSave, onClose }) {
 }
 
 export default function PlannerPage() {
-  const { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, wallets, currency, transactions } = useApp();
+  const { hackathons, startups, projects, onlineJobs, research, clientProjects, courses, wallets, currency, transactions, goals } = useApp();
   const { floating } = useFloatingCash();
   // Wait for wallets to load — before that the balance reads as 0.
   const lowCash = (wallets || []).length > 0 && floating < LOW_CASH;
@@ -841,7 +842,15 @@ export default function PlannerPage() {
   }, [living.upkeep]);
   const firstTime = living.firsts.length ? (living.firsts.find((x) => !x.done)?.name || null) : 'Pizza';
   const nightMoney = nightOutBudget(transactions || [], floating, living.prices || undefined);
-  const nightOutTonight = new Date().getDay() === NIGHT_OUT_DAY && !lowCash && !living.skipNight && nightMoney.ok ? { budget: nightMoney.n, pace: living.pace } : null;
+  // Your birthday: a birthday night out on the plan whatever the weekday, sized for a celebration (a second bottle),
+  // as long as the free cash covers it (the birthday fund in the Birthday hub is how you make sure it does).
+  const bday = birthdayInfo();
+  const bdayCost = birthdayNightCost(living.prices || undefined);
+  // Money saved in the birthday goal (Birthday hub) is for exactly this night, so it counts.
+  const bdayFund = Number((goals || []).find((g) => String(g.name || '').startsWith(`🎂 ${bday.age}`))?.current || 0);
+  const nightOutTonight = living.skipNight ? null
+    : bday.isToday ? (floating + bdayFund >= bdayCost ? { budget: bdayCost, pace: living.pace, birthday: bday.age } : null)
+    : new Date().getDay() === NIGHT_OUT_DAY && !lowCash && nightMoney.ok ? { budget: nightMoney.n, pace: living.pace } : null;
   const skipNightOut = async () => { await setSetting(`night_out_skip_${todayISO()}`, true).catch(() => {}); await setSetting(`planner_ai_blocks_${todayISO()}`, null).catch(() => {}); setLiving((l) => ({ ...l, skipNight: true })); };
   const planCtx = { nightOut: nightOutTonight, upkeepDue, firstTime, hackathons, startups, projects, onlineJobs, research, clientProjects, courses, lowCash, workoutMode: prefs?.workoutMode, workoutStreak: prefs?.workoutStreak, anchorBath: true, dayWake: prefs?.dayWake, dayStart: prefs?.dayStart, funToday: funBlocks.length > 0 };
   const [allDayEvents, setAllDayEvents] = useState([]);
@@ -1383,7 +1392,7 @@ export default function PlannerPage() {
             {anchorWarnings.map((w) => <div key={w} style={{ fontSize:12, color:'#FCD34D', marginTop:8 }}>⚠️ {w}</div>)}
           </div>
 
-          <NightOut homeLoc={homeLoc} floating={floating} scheduled={nightOutTonight?.budget || 0} onSkip={skipNightOut} onChange={loadLiving} />
+          <NightOut homeLoc={homeLoc} floating={floating} scheduled={nightOutTonight?.budget || 0} birthday={nightOutTonight?.birthday || 0} onSkip={skipNightOut} onChange={loadLiving} />
 
           <FunPicks blocks={blocks} weather={weather} homeLoc={homeLoc} floating={floating} currency={currency} nowMin={nowMins} added={funBlocks} onAdd={addFun} onRemove={removeFun} />
 
