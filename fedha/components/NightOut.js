@@ -15,7 +15,12 @@ const fmt12 = (t) => { const [h, m] = t.split(':').map(Number); return `${h % 12
 
 // Your own prices (setting 'night_out_prices'): a full bottle, the fare there, the fare home at night (it costs more
 // late), and entry + a bite. A proper night is their sum plus a 10% buffer.
-export const NIGHT_PRICES = { bottle: 1500, fareThere: 300, fareHome: 600, extras: 400 };
+// size: the drink for the night. A half bottle (350 ml) of a shop-priced spirit is the default: about half the
+// money of a full one, and enough for one person over a paced night. Club prices run 2-3x the shop's.
+export const DRINK_SIZES = { quarter: ['Quarter (250 ml)', 400], half: ['Half bottle (350 ml)', 800], full: ['Full bottle (750 ml)', 1500] };
+export const NIGHT_PRICES = { size: 'half', bottle: 800, fareThere: 300, fareHome: 600, extras: 400 };
+// How often a night out goes on the plan (days); the Saturdays between are chill nights at home.
+export const NIGHT_EVERY = [[7, 'Every week'], [14, 'Every 2 weeks'], [28, 'Once a month']];
 const r50 = (n) => Math.ceil(n / 50) * 50;
 export function nightCost(p = NIGHT_PRICES) {
   const q = { ...NIGHT_PRICES, ...(p || {}) };
@@ -39,7 +44,7 @@ export function nightOutBudget(transactions = [], floating = 0, prices = NIGHT_P
 }
 
 // The planner's 🪩 Night Out block links to /planner#night-out: that opens this panel and scrolls to it.
-export default function NightOut({ homeLoc, floating, onSkip, scheduled, onChange, birthday = 0 }) {
+export default function NightOut({ homeLoc, floating, onSkip, scheduled, onChange, birthday = 0, nextNight = null }) {
   const { transactions = [] } = useApp();
   const [open, setOpen] = useState(false);
   const [plan, setPlan] = useState(null);
@@ -53,8 +58,9 @@ export default function NightOut({ homeLoc, floating, onSkip, scheduled, onChang
   // What you can afford, from your own money.
   const [prices, setPrices] = useState(NIGHT_PRICES);
   const [editPrices, setEditPrices] = useState(false);
-  useEffect(() => { getSetting('night_out_prices', null).then((p) => { if (p) setPrices({ ...NIGHT_PRICES, ...p }); }).catch(() => {}); }, []);
-  const setPrice = (k, v) => { const next = { ...prices, [k]: Math.max(0, Math.round(Number(String(v).replace(/[^\d]/g, '')) || 0)) }; setPrices(next); setSetting('night_out_prices', next).catch(() => {}); onChange?.(); };
+  // Prices saved before drink sizes existed were for a full bottle.
+  useEffect(() => { getSetting('night_out_prices', null).then((p) => { if (p) setPrices({ ...NIGHT_PRICES, ...(p.size ? {} : { size: Number(p.bottle) >= 1200 ? 'full' : 'half' }), ...p }); }).catch(() => {}); }, []);
+  const setPrice = (k, v) => { const next = k === 'size' ? { ...prices, size: v, bottle: DRINK_SIZES[v][1] } : k === 'every' ? { ...prices, every: Number(v) } : { ...prices, [k]: Math.max(0, Math.round(Number(String(v).replace(/[^\d]/g, '')) || 0)) }; setPrices(next); setSetting('night_out_prices', next).catch(() => {}); onChange?.(); };
   const suggest = useMemo(() => nightOutBudget(transactions, floating, prices), [transactions, floating, prices]);
   useEffect(() => {
     const go = () => { if (window.location.hash !== '#night-out') return; setOpen(true); setTimeout(() => document.getElementById('night-out')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); };
@@ -68,7 +74,7 @@ export default function NightOut({ homeLoc, floating, onSkip, scheduled, onChang
   const make = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await fetch('/api/night-out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ city, ...(homeLoc?.lat != null ? { lat: homeLoc.lat, lon: homeLoc.lon } : {}), budget: Number(String(budget).replace(/[^\d.]/g, '')), vibe, birthday: birthday || 0, bottle: prices.bottle, fareThere: prices.fareThere, fareHome: prices.fareHome, day: new Date().toLocaleDateString('en-GB', { weekday: 'long' }) }) });
+      const r = await fetch('/api/night-out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ city, ...(homeLoc?.lat != null ? { lat: homeLoc.lat, lon: homeLoc.lon } : {}), budget: Number(String(budget).replace(/[^\d.]/g, '')), vibe, birthday: birthday || 0, size: DRINK_SIZES[prices.size || 'half']?.[0] || 'Half bottle (350 ml)', bottle: prices.bottle, fareThere: prices.fareThere, fareHome: prices.fareHome, day: new Date().toLocaleDateString('en-GB', { weekday: 'long' }) }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Could not plan it.');
       setPlan(j); await setSetting('night_out', { day: dayKey(), plan: j }); onChange?.();
@@ -84,7 +90,7 @@ export default function NightOut({ homeLoc, floating, onSkip, scheduled, onChang
         <span style={{ fontSize: 22 }}>🪩</span>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 700 }}>{birthday && scheduled ? '🎂 Birthday night out' : 'Night out'}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{scheduled ? `On your plan tonight (about ${kes(scheduled)}). Tap to pick where to go.` : 'Where to go, how much to take and on what, when to head home.'}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{scheduled ? `On your plan tonight (about ${kes(scheduled)}). Tap to pick where to go.` : nextNight ? `Next night out on your plan: ${nextNight}. Tonight is a chill night in.` : 'Where to go, how much to take and on what, when to head home.'}</div>
         </div>
       </button>
     );
@@ -106,11 +112,18 @@ export default function NightOut({ homeLoc, floating, onSkip, scheduled, onChang
               : <>A proper night at your prices is <b>{kes(suggest.cost)}</b>. It goes on the plan once your free cash is {kes(suggest.need)} (so half is left after): <b>{kes(suggest.short)} to go</b>. Money in first, then the reward.</>}
           </div>
           <div style={{ fontSize: 12, marginTop: 6 }}>
-            <button className="btn-ghost" style={{ width: 'auto', padding: '3px 10px', fontSize: 12 }} onClick={() => setEditPrices((v) => !v)}>{editPrices ? 'Done' : `Your prices: bottle ${kes(prices.bottle)} · fare home ${kes(prices.fareHome)}`}</button>
+            <button className="btn-ghost" style={{ width: 'auto', padding: '3px 10px', fontSize: 12 }} onClick={() => setEditPrices((v) => !v)}>{editPrices ? 'Done' : `Your drink: ${(DRINK_SIZES[prices.size || 'full'] || DRINK_SIZES.full)[0].toLowerCase()} ${kes(prices.bottle)} · fare home ${kes(prices.fareHome)} · ${(NIGHT_EVERY.find(([d]) => d === (prices.every || 14)) || NIGHT_EVERY[1])[1].toLowerCase()}`}</button>
           </div>
           {editPrices && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
-              {[['bottle', '🍾 A full bottle'], ['fareThere', '🛵 Fare there'], ['fareHome', '🏠 Fare home at night'], ['extras', '🎟️ Entry + a bite']].map(([k, l]) => (
+              <label style={{ fontSize: 11.5, color: 'var(--text-3)' }}>🥃 Your drink
+                <select className="input" style={{ marginTop: 3 }} value={prices.size || 'full'} onChange={(e) => setPrice('size', e.target.value)}>{Object.entries(DRINK_SIZES).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}</select>
+              </label>
+              <label style={{ fontSize: 11.5, color: 'var(--text-3)' }}>📅 Night out
+                <select className="input" style={{ marginTop: 3 }} value={prices.every || 14} onChange={(e) => setPrice('every', e.target.value)}>{NIGHT_EVERY.map(([d, l]) => <option key={d} value={d}>{l}</option>)}</select>
+              </label>
+              <div style={{ gridColumn: '1 / -1', fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.45 }}>Buy it at a shop or supermarket on the way: club prices are often 2-3 times more. Spirits are all about the same strength (around 40%), so the cheapest is the one with the lowest price per 100 ml, not a "stronger" brand.</div>
+              {[['bottle', '🍾 What your drink costs'], ['fareThere', '🛵 Fare there'], ['fareHome', '🏠 Fare home at night'], ['extras', '🎟️ Entry + a bite']].map(([k, l]) => (
                 <label key={k} style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{l}
                   <input className="input font-num" inputMode="numeric" style={{ marginTop: 3 }} value={prices[k]} onChange={(e) => setPrice(k, e.target.value)} />
                 </label>

@@ -497,7 +497,8 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
   } else {
     work('eve', 'work_eve1', continued(pickWork(workItems, 1)), 60);
     want('eve', 'smoke', 'Smoke Break 🌿', 'personal', '🌿', 'Roll up, step out, drink some water. The Chill Room opens next.', PRIORITY.essential, 15, 20);
-    want('eve', 'series', 'Chill Room — Series & Movies 📺', 'personal', '📺', `Open the Chill Room and pick up where you left off. ${WATCH_MIN / 60} hours, then wind down.`, PRIORITY.essential, WATCH_MIN, WATCH_MIN);
+    if (ctx.chillNight) want('eve', 'series', 'Chill Night In 🌿📺', 'personal', '🌿', `A night in that costs almost nothing: snacks from earlier, your smoke, a good movie or a run of episodes in the Chill Room. ${WATCH_MIN / 60} hours, then wind down. The next night out is already on the plan.`, PRIORITY.essential, WATCH_MIN, WATCH_MIN);
+    else want('eve', 'series', 'Chill Room — Series & Movies 📺', 'personal', '📺', `Open the Chill Room and pick up where you left off. ${WATCH_MIN / 60} hours, then wind down.`, PRIORITY.essential, WATCH_MIN, WATCH_MIN);
     want('eve', 'review', 'Daily Review', 'routine', '📝', 'What did you learn today? What to do differently? Write 3 lines.', PRIORITY.chores, 5, 15);
     want('eve', 'night_prep', 'Night Prep', 'routine', '🌙', 'Set clothes, pack bag, set alarm. Drink milk before bed.', PRIORITY.essential, 10, 15);
   }
@@ -830,9 +831,9 @@ export default function PlannerPage() {
     await setSetting(`planner_fun_${todayISO()}`, next);
   }
   // Live a little + Night out data for the plan (settings written by pages/living.js and components/NightOut.js).
-  const [living, setLiving] = useState({ upkeep: [], firsts: [], skipNight: false, prices: null, pace: null });
-  const loadLiving = () => Promise.all([getSetting('upkeep_items', null), getSetting('first_times', null), getSetting(`night_out_skip_${todayISO()}`, false), getSetting('night_out_prices', null), getSetting('night_out', null)])
-    .then(([u, f, k, pr, no]) => setLiving({ upkeep: Array.isArray(u) ? u : [], firsts: Array.isArray(f) ? f : [], skipNight: !!k, prices: pr || null, pace: no?.plan?.pace && String(no.day) === todayISO() ? no.plan.pace : null })).catch(() => {});
+  const [living, setLiving] = useState({ upkeep: [], firsts: [], skipNight: false, prices: null, pace: null, last: null, ready: false });
+  const loadLiving = () => Promise.all([getSetting('upkeep_items', null), getSetting('first_times', null), getSetting(`night_out_skip_${todayISO()}`, false), getSetting('night_out_prices', null), getSetting('night_out', null), getSetting('night_out_last', null)])
+    .then(([u, f, k, pr, no, last]) => setLiving({ upkeep: Array.isArray(u) ? u : [], firsts: Array.isArray(f) ? f : [], skipNight: !!k, prices: pr || null, pace: no?.plan?.pace && String(no.day) === todayISO() ? no.plan.pace : null, last: last || null, ready: true })).catch(() => {});
   useEffect(() => { loadLiving(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const upkeepDue = useMemo(() => {
     const end = new Date(); end.setHours(23, 59, 59, 999);
@@ -848,11 +849,19 @@ export default function PlannerPage() {
   const bdayCost = birthdayNightCost(living.prices || undefined);
   // Money saved in the birthday goal (Birthday hub) is for exactly this night, so it counts.
   const bdayFund = Number((goals || []).find((g) => String(g.name || '').startsWith(`🎂 ${bday.age}`))?.current || 0);
-  const nightOutTonight = living.skipNight ? null
+  // How often (Night out panel, default every 2 weeks): the Saturdays between are chill nights at home.
+  const every = Number(living.prices?.every) || 14;
+  const sinceLast = living.last ? Math.round((new Date(`${todayISO()}T12:00:00`) - new Date(`${living.last}T12:00:00`)) / 864e5) : null;
+  const nightDue = sinceLast == null || sinceLast === 0 || sinceLast >= every - 1;
+  const nextNight = !nightDue ? (() => { const d = new Date(`${living.last}T12:00:00`); d.setDate(d.getDate() + every); while (d.getDay() !== NIGHT_OUT_DAY) d.setDate(d.getDate() + 1); return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }); })() : null;
+  const nightOutTonight = living.skipNight || !living.ready ? null
     : bday.isToday ? (floating + bdayFund >= bdayCost ? { budget: bdayCost, pace: living.pace, birthday: bday.age } : null)
-    : new Date().getDay() === NIGHT_OUT_DAY && !lowCash && nightMoney.ok ? { budget: nightMoney.n, pace: living.pace } : null;
-  const skipNightOut = async () => { await setSetting(`night_out_skip_${todayISO()}`, true).catch(() => {}); await setSetting(`planner_ai_blocks_${todayISO()}`, null).catch(() => {}); setLiving((l) => ({ ...l, skipNight: true })); };
-  const planCtx = { nightOut: nightOutTonight, upkeepDue, firstTime, hackathons, startups, projects, onlineJobs, research, clientProjects, courses, lowCash, workoutMode: prefs?.workoutMode, workoutStreak: prefs?.workoutStreak, anchorBath: true, dayWake: prefs?.dayWake, dayStart: prefs?.dayStart, funToday: funBlocks.length > 0 };
+    : new Date().getDay() === NIGHT_OUT_DAY && !lowCash && nightDue && nightMoney.ok ? { budget: nightMoney.n, pace: living.pace } : null;
+  const chillNight = new Date().getDay() === NIGHT_OUT_DAY && !nightOutTonight;
+  // Remember the night out once it is on today's plan (a birthday night does not reset the count).
+  useEffect(() => { if (nightOutTonight && !nightOutTonight.birthday && living.last !== todayISO()) { setSetting('night_out_last', todayISO()).catch(() => {}); setLiving((l) => ({ ...l, last: todayISO() })); } }, [!!nightOutTonight]); // eslint-disable-line react-hooks/exhaustive-deps
+  const skipNightOut = async () => { await setSetting(`night_out_skip_${todayISO()}`, true).catch(() => {}); if (living.last === todayISO()) await setSetting('night_out_last', null).catch(() => {}); await setSetting(`planner_ai_blocks_${todayISO()}`, null).catch(() => {}); setLiving((l) => ({ ...l, skipNight: true })); };
+  const planCtx = { chillNight, nightOut: nightOutTonight, upkeepDue, firstTime, hackathons, startups, projects, onlineJobs, research, clientProjects, courses, lowCash, workoutMode: prefs?.workoutMode, workoutStreak: prefs?.workoutStreak, anchorBath: true, dayWake: prefs?.dayWake, dayStart: prefs?.dayStart, funToday: funBlocks.length > 0 };
   const [allDayEvents, setAllDayEvents] = useState([]);
   const isWeekend = [0,6].includes(new Date().getDay());
   const [fullBlocks, setBlocks] = useState([]);
@@ -895,7 +904,7 @@ export default function PlannerPage() {
   const workSignature = JSON.stringify([
     hackathons?.map((h) => [h.id, hackStatus(h), h.deadline, (h.tasks || []).filter((t) => !t.done).length, h.results_date, h.results_time]) || [],
     lowCash,
-    !!nightOutTonight, living.pace?.last_drink || '', living.pace?.home_by || '', upkeepDue.map((u) => u.name), firstTime,
+    !!nightOutTonight, chillNight, living.pace?.last_drink || '', living.pace?.home_by || '', upkeepDue.map((u) => u.name), firstTime,
     startups?.map((s) => [s.id, !!s.paused, !!(s.focus && !s.focus.done), (s.roadmap?.tasks || []).filter((t) => t.date && t.date <= todayISO()).map((t) => [t.id, t.done, t.time || ''])]) || [],
     projects?.map((p) => [p.id, projectStatus(p)]) || [],
     clientProjects?.map((p) => [p.id, p.status, p.deadline, p.agreed_amount, p.previously_paid, (p.payments || []).length, (p.change_requests || []).length, p.estimated_days]) || [],
@@ -1392,7 +1401,7 @@ export default function PlannerPage() {
             {anchorWarnings.map((w) => <div key={w} style={{ fontSize:12, color:'#FCD34D', marginTop:8 }}>⚠️ {w}</div>)}
           </div>
 
-          <NightOut homeLoc={homeLoc} floating={floating} scheduled={nightOutTonight?.budget || 0} birthday={nightOutTonight?.birthday || 0} onSkip={skipNightOut} onChange={loadLiving} />
+          <NightOut homeLoc={homeLoc} floating={floating} scheduled={nightOutTonight?.budget || 0} birthday={nightOutTonight?.birthday || 0} nextNight={nextNight} onSkip={skipNightOut} onChange={loadLiving} />
 
           <FunPicks blocks={blocks} weather={weather} homeLoc={homeLoc} floating={floating} currency={currency} nowMin={nowMins} added={funBlocks} onAdd={addFun} onRemove={removeFun} />
 

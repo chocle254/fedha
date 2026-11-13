@@ -38,7 +38,7 @@ export default async function handler(req, res) {
   } catch { /* plan without venues */ }
 
   const o = await aiJSON(`Plan a night out for ONE person in ${city}, Kenya, this ${day}. They are in their early twenties, an introvert who loves a good party at the weekend, usually goes alone or with one or two friends, and smokes weed sometimes. Tonight is a reward for money they earned. Tonight's total budget is KSh ${budget}, and it must cover everything including getting home.
-Their own prices: a full bottle of spirits costs about KSh ${bottle} (that is the drink for the whole night, with mixers and water), the fare there about KSh ${fareThere}, and the fare home late at night about KSh ${fareHome}.
+Their own prices: their drink for the night is a ${clip(b.size, 30) || 'half bottle (350 ml)'} of spirits at about KSh ${bottle}, bought at a shop or supermarket on the way (club prices run 2-3x) — that is the whole night's drink, with mixers and water, the fare there about KSh ${fareThere}, and the fare home late at night about KSh ${fareHome}.
 ${Number(b.birthday) > 0 ? `TONIGHT IS THEIR ${Math.round(Number(b.birthday))}TH BIRTHDAY: make it feel like a celebration (a place with a good crowd and music, somewhere friends can join, a toast moment), the budget covers a second bottle to share. ` : ''}They want to have real fun and NOT overdo it to the point of forgetting themselves: the plan must pace the bottle over the night.${vibe ? ` They said they want: ${vibe}.` : ''}
 
 WEB SEARCH RESULTS about nightlife in ${city} (the ONLY source for venue names; never invent a venue):
@@ -47,7 +47,7 @@ ${found || '(no results came back)'}
 Return JSON:
 {"venues":[{"name":"a real venue from the results","area":"part of town","why":"why it suits them tonight, one line","music":"what it usually plays, if the results say","entry":"what the results say about entry or 'not stated'","note":"anything worth knowing (dress code, busy time), or empty"}],
  "split":{"transport_there":0,"entry":0,"drinks":0,"food":0,"ride_home":0,"buffer":0},
- "drinks_plan":"what that drinks money buys there in plain terms (how many, what kind), and the cheapest sensible way to do it",
+ "drinks_plan":"what that drinks money buys in plain terms: the bottle from the shop, mixers, water, and at most one drink bought inside if the money allows; the cheapest sensible way to do it",
  "timeline":[{"time":"HH:MM in 24-hour","what":"short"}],
  "carry":["what to leave the house with, each short"],
  "leave_at_home":["what to leave behind, each short"],
@@ -60,7 +60,7 @@ Rules for the plan:
 - timeline: eat at home first, when to leave home, arrive, a "last drink" time, and the time to head home; home by about 01:30.
 - pace: last_drink about an hour before home_by; first_drink only after eating.
 - carry: ID, phone charged, only tonight's money on M-Pesa, the ride-home money kept apart, and so on. leave_at_home: bank cards, the rest of the money, valuables.
-- rules: practical and non-judgemental (water between drinks, the drink stays in your hand, if you smoked go lighter on the alcohol, tell one person where you are).
+- rules: practical and non-judgemental (water between drinks, the drink stays in your hand, alcohol and weed together hit much harder than either alone so on a night out pick one or go very light on both, tell one person where you are).
 Plain English, no slang.`, { maxTokens: 1700, temperature: 0.5, timeout: 40000 });
   if (!o) return res.status(502).json({ error: 'Could not plan it just now. Try again in a minute.' });
 
