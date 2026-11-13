@@ -13,19 +13,31 @@ const kes = (n) => `KSh ${Math.round(Number(n) || 0).toLocaleString('en-KE')}`;
 const LABEL = { ride_home: ['🏠', 'Ride home (do not touch)'], transport_there: ['🛵', 'Getting there'], entry: ['🎟️', 'Entry'], drinks: ['🍹', 'Drinks'], food: ['🍗', 'Food'], buffer: ['🛟', 'Buffer'] };
 const fmt12 = (t) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${pad(m)} ${h >= 12 ? 'PM' : 'AM'}`; };
 
-// What tonight can cost, from your own money: about a tenth of last month's income over 4 weekends, never more
-// than a third of the cash free right now. Also used by the planner to decide whether Saturday gets a night out.
-export function nightOutBudget(transactions = [], floating = 0) {
-  const from = Date.now() - 30 * 864e5;
-  const income = transactions.filter((t) => t.type === 'income' && t.category !== 'investment' && new Date(t.date).getTime() >= from).reduce((s, t) => s + Number(t.amount || 0), 0);
-  const byIncome = (income * 0.1) / 4;
-  const byCash = Math.max(0, Number(floating) || 0) / 3;
-  const n = Math.floor(Math.min(byIncome || byCash, byCash) / 50) * 50;
-  return { n: Math.max(0, n), income };
+// Your own prices (setting 'night_out_prices'): a full bottle, the fare there, the fare home at night (it costs more
+// late), and entry + a bite. A proper night is their sum plus a 10% buffer.
+export const NIGHT_PRICES = { bottle: 1500, fareThere: 300, fareHome: 600, extras: 400 };
+const r50 = (n) => Math.ceil(n / 50) * 50;
+export function nightCost(p = NIGHT_PRICES) {
+  const q = { ...NIGHT_PRICES, ...(p || {}) };
+  return r50((Number(q.bottle) + Number(q.fareThere) + Number(q.fareHome) + Number(q.extras)) * 1.1);
+}
+// What tonight can cost, from your own money. A night out is a reward for money that came in, so it is never cut
+// below a proper night (bottle and fares): either you can afford a real one, or it waits. Affordable = it takes at
+// most half of the cash free right now. More income lets it grow (a tenth of last month's income over 4 weekends).
+// Also used by the planner to decide whether Saturday gets a night out.
+export function nightOutBudget(transactions = [], floating = 0, prices = NIGHT_PRICES) {
+  const now = Date.now();
+  const inc = (days) => transactions.filter((t) => t.type === 'income' && t.category !== 'investment' && new Date(t.date).getTime() >= now - days * 864e5).reduce((s, t) => s + Number(t.amount || 0), 0);
+  const income = inc(30); const week = inc(7);
+  const cost = nightCost(prices);
+  const free = Math.max(0, Number(floating) || 0);
+  const ok = cost <= free / 2;
+  const n = ok ? Math.min(Math.max(cost, Math.floor((income * 0.1) / 4 / 50) * 50), Math.floor(free / 2 / 50) * 50) : 0;
+  return { n, cost, ok, need: cost * 2, short: ok ? 0 : cost * 2 - free, income, week };
 }
 
 // The planner's 🪩 Night Out block links to /planner#night-out: that opens this panel and scrolls to it.
-export default function NightOut({ homeLoc, floating, onSkip, scheduled }) {
+export default function NightOut({ homeLoc, floating, onSkip, scheduled, onChange }) {
   const { transactions = [] } = useApp();
   const [open, setOpen] = useState(false);
   const [plan, setPlan] = useState(null);
@@ -37,7 +49,11 @@ export default function NightOut({ homeLoc, floating, onSkip, scheduled }) {
   const weekend = [5, 6, 0].includes(new Date().getDay());
 
   // What you can afford, from your own money.
-  const suggest = useMemo(() => nightOutBudget(transactions, floating), [transactions, floating]);
+  const [prices, setPrices] = useState(NIGHT_PRICES);
+  const [editPrices, setEditPrices] = useState(false);
+  useEffect(() => { getSetting('night_out_prices', null).then((p) => { if (p) setPrices({ ...NIGHT_PRICES, ...p }); }).catch(() => {}); }, []);
+  const setPrice = (k, v) => { const next = { ...prices, [k]: Math.max(0, Math.round(Number(String(v).replace(/[^\d]/g, '')) || 0)) }; setPrices(next); setSetting('night_out_prices', next).catch(() => {}); onChange?.(); };
+  const suggest = useMemo(() => nightOutBudget(transactions, floating, prices), [transactions, floating, prices]);
   useEffect(() => {
     const go = () => { if (window.location.hash !== '#night-out') return; setOpen(true); setTimeout(() => document.getElementById('night-out')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); };
     go(); window.addEventListener('hashchange', go);
@@ -45,18 +61,18 @@ export default function NightOut({ homeLoc, floating, onSkip, scheduled }) {
   }, []);
 
   useEffect(() => { getSetting('night_out', null).then((p) => { if (p?.day === dayKey() && p.plan) { setPlan(p.plan); setOpen(true); } }).catch(() => {}); }, []);
-  useEffect(() => { if (!budget && suggest.n >= 200) setBudget(String(suggest.n)); }, [suggest.n]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (suggest.n >= 200) setBudget(String(suggest.n)); }, [suggest.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const make = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await fetch('/api/night-out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ city, ...(homeLoc?.lat != null ? { lat: homeLoc.lat, lon: homeLoc.lon } : {}), budget: Number(String(budget).replace(/[^\d.]/g, '')), vibe, day: new Date().toLocaleDateString('en-GB', { weekday: 'long' }) }) });
+      const r = await fetch('/api/night-out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ city, ...(homeLoc?.lat != null ? { lat: homeLoc.lat, lon: homeLoc.lon } : {}), budget: Number(String(budget).replace(/[^\d.]/g, '')), vibe, bottle: prices.bottle, fareThere: prices.fareThere, fareHome: prices.fareHome, day: new Date().toLocaleDateString('en-GB', { weekday: 'long' }) }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Could not plan it.');
-      setPlan(j); await setSetting('night_out', { day: dayKey(), plan: j });
+      setPlan(j); await setSetting('night_out', { day: dayKey(), plan: j }); onChange?.();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
-  const clear = async () => { setPlan(null); await setSetting('night_out', null); };
+  const clear = async () => { setPlan(null); await setSetting('night_out', null); onChange?.(); };
 
   const box = { padding: 12, borderRadius: 12, background: 'var(--card-2)', marginTop: 10 };
   const label = { fontSize: 11, fontWeight: 800, letterSpacing: 0.6, color: 'var(--text-3)', textTransform: 'uppercase' };
@@ -83,10 +99,22 @@ export default function NightOut({ homeLoc, floating, onSkip, scheduled }) {
       {!plan && (
         <>
           <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 8, lineHeight: 1.5 }}>
-            {suggest.n >= 200
-              ? <>Luxe suggests <b>{kes(suggest.n)}</b> tonight: about a tenth of the {kes(suggest.income)} you brought in over the last 30 days, shared over four weekends, and no more than a third of your free cash.</>
-              : 'There is not much free cash right now. A night in, or a very small one, is the honest call. You can still set an amount.'}
+            {suggest.ok
+              ? <>{suggest.week > 0 ? <>You brought in <b>{kes(suggest.week)}</b> this week: this one is earned. </> : null}Tonight: <b>{kes(suggest.n)}</b>. A proper night at your prices is {kes(suggest.cost)} (the bottle, both fares, entry and a bite, plus a buffer), and it uses no more than half of your free cash.</>
+              : <>A proper night at your prices is <b>{kes(suggest.cost)}</b>. It goes on the plan once your free cash is {kes(suggest.need)} (so half is left after): <b>{kes(suggest.short)} to go</b>. Money in first, then the reward.</>}
           </div>
+          <div style={{ fontSize: 12, marginTop: 6 }}>
+            <button className="btn-ghost" style={{ width: 'auto', padding: '3px 10px', fontSize: 12 }} onClick={() => setEditPrices((v) => !v)}>{editPrices ? 'Done' : `Your prices: bottle ${kes(prices.bottle)} · fare home ${kes(prices.fareHome)}`}</button>
+          </div>
+          {editPrices && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
+              {[['bottle', '🍾 A full bottle'], ['fareThere', '🛵 Fare there'], ['fareHome', '🏠 Fare home at night'], ['extras', '🎟️ Entry + a bite']].map(([k, l]) => (
+                <label key={k} style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{l}
+                  <input className="input font-num" inputMode="numeric" style={{ marginTop: 3 }} value={prices[k]} onChange={(e) => setPrice(k, e.target.value)} />
+                </label>
+              ))}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
             <input className="input" style={{ flex: 1 }} inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Tonight's total, KSh" />
             <button className="btn-primary" style={{ width: 'auto', padding: '0 14px' }} disabled={busy || !city} onClick={make}>{busy ? 'Planning…' : 'Plan it'}</button>
@@ -123,6 +151,18 @@ export default function NightOut({ homeLoc, floating, onSkip, scheduled }) {
             {plan.venues_from === 'map' && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 6 }}>The web search named no venue that is really on the map, so these are clubs and bars straight from the map near you.</div>}
             <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 8 }}>Venues are checked against the map. Prices and opening nights change: check the venue's page before you go.</div>
           </div>
+
+          {plan.pace && (
+            <div style={{ ...box, border: '1px solid rgba(56,189,248,.35)' }}>
+              <div style={label}>Pace: enjoy it, stay yourself</div>
+              {[['first_drink', '🥃 First drink'], ['last_drink', '🛑 Last drink'], ['home_by', '🏠 Home by']].filter(([k]) => /^\d{1,2}:\d{2}$/.test(plan.pace[k] || '')).map(([k, l]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 6 }}><span>{l}</span><b className="font-num">{fmt12(plan.pace[k])}</b></div>
+              ))}
+              {plan.pace.rhythm && <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 8, lineHeight: 1.45 }}>{plan.pace.rhythm}</div>}
+              {plan.pace.stop_signs?.length > 0 && <><div style={{ ...label, marginTop: 10 }}>Time to order the ride if</div>{plan.pace.stop_signs.map((x, i) => <div key={i} style={{ fontSize: 12.5, marginTop: 4, color: 'var(--text-2)' }}>• {x}</div>)}</>}
+              <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 8 }}>Your planner checks in during the night (water, then a pace check) so you don't have to remember.</div>
+            </div>
+          )}
 
           {plan.timeline?.length > 0 && (
             <div style={box}>

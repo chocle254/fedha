@@ -11,6 +11,7 @@ export function blockLink(block, ctx = {}) {
 
   if (/^(series|movies)/.test(id)) return { href: '/chill', text: '🍿 Open Chill Room' };
   if (id === 'night_out') return { href: '/planner#night-out', text: '🪩 Night out: pick where to go' };
+  if (/^night_(out2|check|pace)$/.test(id)) return { href: '/planner#night-out', text: '🧭 Tonight\'s pace plan' };
   if (id === 'go_out_ready') return { href: '/planner#night-out', text: '🪩 See tonight\'s plan' };
   if (id === 'upkeep') return { href: '/living#upkeep', text: '🌤 Open Live a little' };
   if (id === 'first_time') return { href: '/living#firsts', text: '✨ Find where to get it' };

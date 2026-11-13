@@ -40,7 +40,6 @@ const WATCH_MIN = 120;
 // Night out (Saturdays you can afford one): the evening after dinner becomes getting ready, then the night itself,
 // ending at the planner's midnight line (the Night out plan sets the real time to head home).
 const NIGHT_OUT_DAY = 6;            // Saturday
-const NIGHT_OUT_MIN_BUDGET = 300;   // KSh: below this a night out is not on the plan
 const NIGHT_OUT_END = 24 * 60 - 5;  // 23:55 on the planner clock
 // Scheduled scrolling, so it has a time and an end instead of leaking into the whole day.
 const SCROLL_MIN = { weekday: 30, weekend: 45 };             // in a tight stretch a work block may shrink this far before it is dropped
@@ -160,6 +159,7 @@ const colorsFor = (type) => TYPE_COLORS[type] || TYPE_COLORS.personal;
 const TYPE_LABELS = { routine:'Routine', meal:'Meal', coding:'Work', personal:'Personal', chores:'Chores', workout:'Workout', health:'Health', gaming:'Gaming', sleep:'Sleep', research:'Research', event:'Event' };
 
 function t2m(t) { const [h,m] = t.split(':').map(Number); return h*60+m; }
+function m2t12(t) { const [h, m] = String(t).split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; }
 function m2t(m) { return `${String(Math.floor(m/60)%24).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`; }
 function fmt12(t) { const [h,m] = t.split(':').map(Number); return `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`; }
 function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
@@ -485,7 +485,14 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
   if (nightOut) {
     want('eve', 'smoke', 'Smoke Break 🌿', 'personal', '🌿', 'Roll up, step out, drink some water. Then get ready.', PRIORITY.essential, 15, 15);
     want('eve', 'go_out_ready', 'Get Ready to Go Out 👔', 'routine', '👔', `Shower, dress, phone charged. Put the ride-home money aside first; take about KSh ${Number(nightOut.budget).toLocaleString('en-KE')} in all.`, PRIORITY.essential, 30, 40);
-    want('eve', 'night_out', 'Night Out 🪩', 'personal', '🪩', 'Tap Night out to pick where to go: real places near you, how to split the money, when to leave and when to head home. Text someone when you are home, drink water.', PRIORITY.essential, 150, 180, { grow: true, max: 330 });
+    // Paced: the night is split by a water check-in and ends on the planner with a pace check, so each one sends a
+    // reminder while you're out. Times from tonight's Night out plan when you've made one.
+    const pc = nightOut.pace || {};
+    const at = (t) => (t ? m2t12(t) : null);
+    want('eve', 'night_out', 'Night Out 🪩', 'personal', '🪩', `Tap Night out to pick where to go: real places near you, how to split the money, when to leave and when to head home.${pc.first_drink ? ` First drink after ${at(pc.first_drink)}, once you've eaten.` : ' Eat before the first drink.'}`, PRIORITY.essential, 75, 90, { grow: true, max: 165 });
+    want('eve', 'night_check', 'Water & Check-in 💧', 'personal', '💧', 'A full glass of water now. Mixer with every drink. Ride-home money still untouched? Drink still in your hand? Good, carry on.', PRIORITY.essential, 10, 10);
+    want('eve', 'night_out2', 'Night Out (continued) 🪩', 'personal', '🪩', 'Enjoy it. Water after each drink; go lighter on the bottle if you smoked.', PRIORITY.essential, 60, 75, { grow: true, max: 165 });
+    want('eve', 'night_pace', 'Pace Check 🧭', 'personal', '🧭', `${pc.last_drink ? `Last drink by ${at(pc.last_drink)}, home by ${at(pc.home_by) || '1:30 AM'}.` : 'Last drink within the hour, home by about 1:30 AM.'} Lost count, or want to spend the ride money? That's the sign: order the ride now.`, PRIORITY.essential, 20, 20);
   } else {
     work('eve', 'work_eve1', continued(pickWork(workItems, 1)), 60);
     want('eve', 'smoke', 'Smoke Break 🌿', 'personal', '🌿', 'Roll up, step out, drink some water. The Chill Room opens next.', PRIORITY.essential, 15, 20);
@@ -822,11 +829,10 @@ export default function PlannerPage() {
     await setSetting(`planner_fun_${todayISO()}`, next);
   }
   // Live a little + Night out data for the plan (settings written by pages/living.js and components/NightOut.js).
-  const [living, setLiving] = useState({ upkeep: [], firsts: [], skipNight: false });
-  useEffect(() => {
-    Promise.all([getSetting('upkeep_items', null), getSetting('first_times', null), getSetting(`night_out_skip_${todayISO()}`, false)])
-      .then(([u, f, k]) => setLiving({ upkeep: Array.isArray(u) ? u : [], firsts: Array.isArray(f) ? f : [], skipNight: !!k })).catch(() => {});
-  }, []);
+  const [living, setLiving] = useState({ upkeep: [], firsts: [], skipNight: false, prices: null, pace: null });
+  const loadLiving = () => Promise.all([getSetting('upkeep_items', null), getSetting('first_times', null), getSetting(`night_out_skip_${todayISO()}`, false), getSetting('night_out_prices', null), getSetting('night_out', null)])
+    .then(([u, f, k, pr, no]) => setLiving({ upkeep: Array.isArray(u) ? u : [], firsts: Array.isArray(f) ? f : [], skipNight: !!k, prices: pr || null, pace: no?.plan?.pace && String(no.day) === todayISO() ? no.plan.pace : null })).catch(() => {});
+  useEffect(() => { loadLiving(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const upkeepDue = useMemo(() => {
     const end = new Date(); end.setHours(23, 59, 59, 999);
     // Never logged counts as due (same as Live a little); 'A meal out' is a treat, not an errand.
@@ -834,8 +840,8 @@ export default function PlannerPage() {
       .map((it) => ({ name: it.name, emoji: it.emoji, cost: it.cost }));
   }, [living.upkeep]);
   const firstTime = living.firsts.length ? (living.firsts.find((x) => !x.done)?.name || null) : 'Pizza';
-  const nightBudget = nightOutBudget(transactions || [], floating).n;
-  const nightOutTonight = new Date().getDay() === NIGHT_OUT_DAY && !lowCash && !living.skipNight && nightBudget >= NIGHT_OUT_MIN_BUDGET ? { budget: nightBudget } : null;
+  const nightMoney = nightOutBudget(transactions || [], floating, living.prices || undefined);
+  const nightOutTonight = new Date().getDay() === NIGHT_OUT_DAY && !lowCash && !living.skipNight && nightMoney.ok ? { budget: nightMoney.n, pace: living.pace } : null;
   const skipNightOut = async () => { await setSetting(`night_out_skip_${todayISO()}`, true).catch(() => {}); await setSetting(`planner_ai_blocks_${todayISO()}`, null).catch(() => {}); setLiving((l) => ({ ...l, skipNight: true })); };
   const planCtx = { nightOut: nightOutTonight, upkeepDue, firstTime, hackathons, startups, projects, onlineJobs, research, clientProjects, courses, lowCash, workoutMode: prefs?.workoutMode, workoutStreak: prefs?.workoutStreak, anchorBath: true, dayWake: prefs?.dayWake, dayStart: prefs?.dayStart, funToday: funBlocks.length > 0 };
   const [allDayEvents, setAllDayEvents] = useState([]);
@@ -880,7 +886,7 @@ export default function PlannerPage() {
   const workSignature = JSON.stringify([
     hackathons?.map((h) => [h.id, hackStatus(h), h.deadline, (h.tasks || []).filter((t) => !t.done).length, h.results_date, h.results_time]) || [],
     lowCash,
-    !!nightOutTonight, upkeepDue.map((u) => u.name), firstTime,
+    !!nightOutTonight, living.pace?.last_drink || '', living.pace?.home_by || '', upkeepDue.map((u) => u.name), firstTime,
     startups?.map((s) => [s.id, !!s.paused, !!(s.focus && !s.focus.done), (s.roadmap?.tasks || []).filter((t) => t.date && t.date <= todayISO()).map((t) => [t.id, t.done, t.time || ''])]) || [],
     projects?.map((p) => [p.id, projectStatus(p)]) || [],
     clientProjects?.map((p) => [p.id, p.status, p.deadline, p.agreed_amount, p.previously_paid, (p.payments || []).length, (p.change_requests || []).length, p.estimated_days]) || [],
@@ -1377,7 +1383,7 @@ export default function PlannerPage() {
             {anchorWarnings.map((w) => <div key={w} style={{ fontSize:12, color:'#FCD34D', marginTop:8 }}>⚠️ {w}</div>)}
           </div>
 
-          <NightOut homeLoc={homeLoc} floating={floating} scheduled={nightOutTonight?.budget || 0} onSkip={skipNightOut} />
+          <NightOut homeLoc={homeLoc} floating={floating} scheduled={nightOutTonight?.budget || 0} onSkip={skipNightOut} onChange={loadLiving} />
 
           <FunPicks blocks={blocks} weather={weather} homeLoc={homeLoc} floating={floating} currency={currency} nowMin={nowMins} added={funBlocks} onAdd={addFun} onRemove={removeFun} />
 
