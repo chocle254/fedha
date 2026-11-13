@@ -13,6 +13,7 @@ import { pruneEndedEvents, todaysEventBlocks, eventWindow } from '../lib/events'
 import { format } from 'date-fns';
 import FunPicks from '../components/FunPicks';
 import NightOut, { nightOutBudget, birthdayNightCost } from '../components/NightOut';
+import WeedNight, { WEED_PRICE } from '../components/WeedNight';
 import { birthdayInfo } from '../lib/holidays';
 
 // ─── DAY ANCHORS ───────────────────────────────────────────────────────────
@@ -495,9 +496,11 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
     want('eve', 'night_out2', 'Night Out (continued) 🪩', 'personal', '🪩', 'Enjoy it. Water after each drink; go lighter on the bottle if you smoked.', PRIORITY.essential, 60, 75, { grow: true, max: 165 });
     want('eve', 'night_pace', 'Pace Check 🧭', 'personal', '🧭', `${pc.last_drink ? `Last drink by ${at(pc.last_drink)}, home by ${at(pc.home_by) || '1:30 AM'}.` : 'Last drink within the hour, home by about 1:30 AM.'} Lost count, or want to spend the ride money? That's the sign: order the ride now.`, PRIORITY.essential, 20, 20);
   } else {
+    // Saturday with no night out: the KSh 100 weed night in. Pick it up before dark, then work, smoke, Chill Room.
+    if (ctx.chillNight) want('eve', 'weed_pickup', `Pick Up Your 🌿 (KSh ${WEED_PRICE})`, 'personal', '🛒', `KSh ${WEED_PRICE} for tonight, plus snacks if you have none at home. Go while it's light and carry only that amount.`, PRIORITY.essential, 15, 20);
     work('eve', 'work_eve1', continued(pickWork(workItems, 1)), 60);
     want('eve', 'smoke', 'Smoke Break 🌿', 'personal', '🌿', 'Roll up, step out, drink some water. The Chill Room opens next.', PRIORITY.essential, 15, 20);
-    if (ctx.chillNight) want('eve', 'series', 'Chill Night In 🌿📺', 'personal', '🌿', `A night in that costs almost nothing: snacks from earlier, your smoke, a good movie or a run of episodes in the Chill Room. ${WATCH_MIN / 60} hours, then wind down. The next night out is already on the plan.`, PRIORITY.essential, WATCH_MIN, WATCH_MIN);
+    if (ctx.chillNight) want('eve', 'series', 'Weed Night In 🌿📺', 'personal', '🌿', `Tonight's reward for KSh ${WEED_PRICE}: your smoke, snacks and a good movie or a run of episodes in the Chill Room. Water next to you, no alcohol on top, no trades or money moves while high. ${WATCH_MIN / 60} hours, then wind down.`, PRIORITY.essential, WATCH_MIN, WATCH_MIN);
     else want('eve', 'series', 'Chill Room — Series & Movies 📺', 'personal', '📺', `Open the Chill Room and pick up where you left off. ${WATCH_MIN / 60} hours, then wind down.`, PRIORITY.essential, WATCH_MIN, WATCH_MIN);
     want('eve', 'review', 'Daily Review', 'routine', '📝', 'What did you learn today? What to do differently? Write 3 lines.', PRIORITY.chores, 5, 15);
     want('eve', 'night_prep', 'Night Prep', 'routine', '🌙', 'Set clothes, pack bag, set alarm. Drink milk before bed.', PRIORITY.essential, 10, 15);
@@ -887,7 +890,7 @@ export default function PlannerPage() {
   const [tab, setTab] = useState('today');
   // /planner#night-out (from the Night out block or its reminder) opens the Fun tab, where the panel opens itself.
   useEffect(() => {
-    const go = () => { if (window.location.hash === '#night-out') setTab('fun'); };
+    const go = () => { if (['#night-out', '#weed-night'].includes(window.location.hash)) setTab('fun'); };
     go(); window.addEventListener('hashchange', go);
     return () => window.removeEventListener('hashchange', go);
   }, []);
@@ -1246,8 +1249,8 @@ export default function PlannerPage() {
           <div style={{ fontSize:13, color:'var(--text-3)', marginBottom:16 }}>{format(now,'EEEE, d MMMM yyyy')} · {usingAI ? 'planned from when you woke up' : "auto-built from Tech Hub, My Jobs & today's workout"}</div>
 
           <div className="pl-tabs">
-            {[['today', '📋 Today'], ['fun', nightOutTonight ? '🪩 Tonight' : '🎈 Fun & nights'], ['day', '🌤 Weather & routine'], ['stats', '📊 Stats'], ['edit', '⚙️ Edit']].map(([k, l]) => (
-              <button key={k} className={`chip ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>{l}{k === 'fun' && nightOutTonight ? <i className="pl-dot" /> : null}</button>
+            {[['today', '📋 Today'], ['fun', nightOutTonight ? '🪩 Tonight' : chillNight ? '🌿 Tonight' : '🎈 Fun & nights'], ['day', '🌤 Weather & routine'], ['stats', '📊 Stats'], ['edit', '⚙️ Edit']].map(([k, l]) => (
+              <button key={k} className={`chip ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>{l}{k === 'fun' && (nightOutTonight || chillNight) ? <i className="pl-dot" /> : null}</button>
             ))}
           </div>
           <style jsx>{`
@@ -1425,6 +1428,7 @@ export default function PlannerPage() {
 
           </>}
           {tab === 'fun' && <>
+          {chillNight && <WeedNight floating={floating} reason={living.skipNight ? 'You skipped the night out, so tonight is the cheap one. On your schedule.' : nextNight ? `On your schedule tonight. Next night out: ${nextNight}.` : !nightMoney.ok ? `On your schedule tonight. A night out needs ${'KSh ' + nightMoney.need.toLocaleString('en-KE')} free; you're ${'KSh ' + Math.round(nightMoney.short).toLocaleString('en-KE')} short.` : ''} />}
           <NightOut homeLoc={homeLoc} floating={floating} scheduled={nightOutTonight?.budget || 0} birthday={nightOutTonight?.birthday || 0} nextNight={nextNight} onSkip={skipNightOut} onChange={loadLiving} />
 
           <FunPicks blocks={blocks} weather={weather} homeLoc={homeLoc} floating={floating} currency={currency} nowMin={nowMins} added={funBlocks} onAdd={addFun} onRemove={removeFun} />
