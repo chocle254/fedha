@@ -57,7 +57,7 @@ Played recently: ${[...new Set(played)].join(', ') || 'none'}.
 LOVED (strongest signal, weigh these most): ${loved.join(', ') || 'none yet'}.
 Binged or finished (they clearly enjoyed): ${binged.join(', ') || 'none yet'}.
 Tried one episode and stopped (probably not their thing): ${dropped.join(', ') || 'none'}.
-They want to watch (liked your earlier picks): ${liked.join(', ') || 'none'}.
+On their Want to Watch list (a taste signal: suggest more like these, but never these titles themselves): ${liked.join(', ') || 'none'}.
 Already seen: ${seen.join(', ') || 'none'}.
 Not interested: ${no.join(', ') || 'none'}.
 

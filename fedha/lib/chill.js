@@ -173,6 +173,16 @@ export async function fetchSimilar(item, refresh = false) {
   return items;
 }
 
+// Holiday picks (pages/api/chill/season.js), kept on this phone for the season (one at a time).
+export async function fetchSeason(season, refresh = false) {
+  let c = null; try { c = JSON.parse(localStorage.getItem('luxe_chill_season') || 'null'); } catch { /* private */ }
+  if (!refresh && c?.id === season.id && c.items?.length) return c.items;
+  const r = await fetch(`/api/chill/season?key=${season.key}`, { cache: 'no-store' });
+  const items = r.ok ? (await r.json()).items || [] : [];
+  if (items.length) try { localStorage.setItem('luxe_chill_season', JSON.stringify({ id: season.id, items })); } catch { /* full */ }
+  return items;
+}
+
 // For You picks from the AI (pages/api/chill/suggest.js).
 export async function fetchSuggest(refresh = false) {
   const r = await fetch(`/api/chill/suggest${refresh ? '?refresh=1' : ''}`, { cache: 'no-store' });

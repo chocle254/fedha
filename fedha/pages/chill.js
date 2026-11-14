@@ -4,7 +4,8 @@ import Layout from '../components/Layout';
 import Link from 'next/link';
 import { prefetchReels } from '../lib/reels';
 import { tasteSignals, tasteWeights, byTaste, genreTokens } from '../lib/chill-taste';
-import { fetchLibrary, organise, loadArt, getProgress, markPlayed, setWatched, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback, searchTitles, fetchSimilar, sameTitle, loadParts, seasonsOf, connection, trailerFor, trailerSrc } from '../lib/chill';
+import { watchSeason } from '../lib/chill-seasons';
+import { fetchLibrary, organise, loadArt, getProgress, markPlayed, setWatched, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback, searchTitles, fetchSimilar, fetchSeason, sameTitle, loadParts, seasonsOf, connection, trailerFor, trailerSrc } from '../lib/chill';
 
 // Chill Room: your downloaded movies and series (Download / Telegram on the phone), laid out like Apple TV.
 //   hero      the series you're in the middle of (backdrop, ▶ next episode)
@@ -107,6 +108,16 @@ export default function Chill() {
   const [search, setSearch] = useState(null); // { q, items, busy } while the search sheet is open
   const [sim, setSim] = useState({}); // 'series:Title' → { items, busy }
   const [because, setBecause] = useState([]); // [{ title, items }] for the titles you loved most recently
+  // 🎄 Holiday row: Halloween, Christmas, New Year, Valentine's, Easter (from 2 weeks before).
+  const season = useMemo(() => watchSeason(), []);
+  const [holi, setHoli] = useState({ items: [], busy: false });
+  const loadHoli = async (refresh = false) => {
+    if (!season) return;
+    setHoli((h) => ({ ...h, busy: true }));
+    const items = await fetchSeason(season, refresh).catch(() => []);
+    setHoli({ items, busy: false, tried: true });
+  };
+  useEffect(() => { if (season) loadHoli(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [disc, setDisc] = useState(null); // /api/chill/discover: { series|movies|animation: { trending, latest } }
   useEffect(() => { setCatState(getCat()); }, []);
   const setCat = (c) => { setCatState(c); try { localStorage.setItem('luxe_chill_cat', c); } catch { /* ignore */ } window.scrollTo({ top: 0 }); };
@@ -249,7 +260,8 @@ export default function Chill() {
   const genresOf = (t) => art[`show:${t}`]?.genres || art[`movie:${t}`]?.genres || prog.meta?.[t]?.genres || discIndex[t]?.genres || (sug?.items || []).find((x) => x.title === t)?.genres || [];
   const weights = useMemo(() => tasteWeights(tasteSignals({ shows, movies, prog }), genresOf), [shows, movies, prog, art, discIndex]); // eslint-disable-line react-hooks/exhaustive-deps
   const animated = (t, x) => !!x?.animation || genreTokens(genresOf(t)).some((g) => g === 'anime' || g === 'animation');
-  const fresh = (x) => notOwned(x) && !['no', 'seen', 'loved'].includes(prog.feedback?.[x.title]);
+  // Anything you've reacted to (＋ Want included: it's on your list already, and it teaches your taste) is never suggested again.
+  const fresh = (x) => notOwned(x) && !prog.feedback?.[x.title];
   const shelf = cat === 'home' ? null : {
     shows: shows.filter((s) => (cat === 'animation') === animated(s.title)).filter(() => cat !== 'movies'),
     movies: movies.filter((m) => (cat === 'animation') === animated(m.title)).filter(() => cat !== 'series'),
@@ -287,8 +299,18 @@ export default function Chill() {
 
   // "Because you loved…" rows and (on the shelves) your ❤️ Loved row.
   const lovedRows = () => {
+    const holiItems = byTaste(holi.items.filter(fresh).filter(inCat), weights);
+    const holiRow = season && (holiItems.length > 0 || holi.busy) && (
+      <section className="cr-row">
+        <div className="cr-rowHead"><h3>{season.icon} {season.name} picks</h3><button type="button" className="cr-chip" disabled={holi.busy} onClick={() => loadHoli(true)}>{holi.busy ? '…' : '↻'}</button></div>
+        <div className="cr-taste">{season.soon ? `${season.name} season starts in ${season.soon} day${season.soon > 1 ? 's' : ''}: time to download a few.` : `For ${season.name}, picked for your taste.`}</div>
+        {holiItems.length ? <div className="cr-scroll">{holiItems.map((x) => <Poster key={x.title} img={x.poster || sugArt(x).poster} title={x.title} tag={x.match ? '✨ Your taste' : x.type === 'movie' ? 'Movie' : 'Series'} onClick={() => openSug(x)} />)}</div>
+          : <div className="cr-taste">Finding {season.name} picks…</div>}
+      </section>
+    );
           const lovedHere = lovedList.filter(inCat);
           return <>
+            {holiRow}
             {becauseRows.map((r) => (
               <section className="cr-row" key={`b${r.title}`}>
                 <h3>Because you loved {r.title}</h3>
