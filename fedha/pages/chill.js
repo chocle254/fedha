@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
 import Layout from '../components/Layout';
 import Link from 'next/link';
 import { prefetchReels } from '../lib/reels';
 import { tasteSignals, tasteWeights, byTaste, genreTokens } from '../lib/chill-taste';
-import { fetchLibrary, organise, loadArt, getProgress, markPlayed, setWatched, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback, sameTitle, loadParts, seasonsOf, connection, trailerFor, trailerSrc } from '../lib/chill';
+import { fetchLibrary, organise, loadArt, getProgress, markPlayed, setWatched, isPlayed, upNext, watchWindow, watchLink, progressKey, scanLink, epCode, fetchSuggest, setFeedback, searchTitles, fetchSimilar, sameTitle, loadParts, seasonsOf, connection, trailerFor, trailerSrc } from '../lib/chill';
 
 // Chill Room: your downloaded movies and series (Download / Telegram on the phone), laid out like Apple TV.
 //   hero      the series you're in the middle of (backdrop, ▶ next episode)
@@ -103,6 +103,10 @@ export default function Chill() {
   const [sound, setSound] = useState('theater');
   const [trailer, setTrailer] = useState(null); // { title, id | null, loading, wifi }
   const [cat, setCatState] = useState('home');
+  // 🔍 Search: find any series or movie (watched elsewhere too), ❤️ it, get more like it.
+  const [search, setSearch] = useState(null); // { q, items, busy } while the search sheet is open
+  const [sim, setSim] = useState({}); // 'series:Title' → { items, busy }
+  const [because, setBecause] = useState([]); // [{ title, items }] for the titles you loved most recently
   const [disc, setDisc] = useState(null); // /api/chill/discover: { series|movies|animation: { trending, latest } }
   useEffect(() => { setCatState(getCat()); }, []);
   const setCat = (c) => { setCatState(c); try { localStorage.setItem('luxe_chill_cat', c); } catch { /* ignore */ } window.scrollTo({ top: 0 }); };
@@ -173,6 +177,24 @@ export default function Chill() {
   const react = async (title, value) => { setProg(await setFeedback(prog, title, value, open?.item)); setOpen(null); };
   // ❤️ on something you watched: the strongest signal for your taste. Stays open so you can keep going.
   const love = async (title, item) => setProg(await setFeedback(prog, title, prog.feedback?.[title] === 'loved' ? null : 'loved', item));
+  const simKey = (x) => `${x.type === 'movie' ? 'movie' : 'series'}:${x.title}`;
+  const loadSim = async (x, refresh = false) => {
+    const k = simKey(x);
+    setSim((m) => ({ ...m, [k]: { items: m[k]?.items || [], busy: true } }));
+    const items = await fetchSimilar(x, refresh).catch(() => []);
+    setSim((m) => ({ ...m, [k]: { items, busy: false, tried: true } }));
+  };
+  const searchT = useRef(null);
+  const runSearch = (q) => {
+    setSearch((st) => ({ ...st, q }));
+    clearTimeout(searchT.current);
+    searchT.current = setTimeout(async () => {
+      if (q.trim().length < 2) return setSearch((st) => (st ? { ...st, items: [], busy: false } : st));
+      setSearch((st) => (st ? { ...st, busy: true } : st));
+      const items = await searchTitles(q.trim()).catch(() => []);
+      setSearch((st) => (st && st.q === q ? { ...st, items, busy: false } : st));
+    }, 450);
+  };
   const openSug = (x) => {
     setOpen({ type: 'sug', item: x });
     if (!art[`${x.type === 'movie' ? 'movie' : 'show'}:${x.title}`]) loadArt({ shows: [], movies: [], extra: [x] }, setArt).catch(() => {});
@@ -224,7 +246,7 @@ export default function Chill() {
     for (const c of ['series', 'movies', 'animation']) for (const r of ['trending', 'latest']) for (const x of disc?.[c]?.[r] || []) m[x.title] = x;
     return m;
   }, [disc]);
-  const genresOf = (t) => art[`show:${t}`]?.genres || art[`movie:${t}`]?.genres || discIndex[t]?.genres || (sug?.items || []).find((x) => x.title === t)?.genres || [];
+  const genresOf = (t) => art[`show:${t}`]?.genres || art[`movie:${t}`]?.genres || prog.meta?.[t]?.genres || discIndex[t]?.genres || (sug?.items || []).find((x) => x.title === t)?.genres || [];
   const weights = useMemo(() => tasteWeights(tasteSignals({ shows, movies, prog }), genresOf), [shows, movies, prog, art, discIndex]); // eslint-disable-line react-hooks/exhaustive-deps
   const animated = (t, x) => !!x?.animation || genreTokens(genresOf(t)).some((g) => g === 'anime' || g === 'animation');
   const fresh = (x) => notOwned(x) && !['no', 'seen', 'loved'].includes(prog.feedback?.[x.title]);
@@ -235,6 +257,19 @@ export default function Chill() {
     trending: byTaste((disc?.[cat]?.trending || []).filter(fresh), weights),
     latest: byTaste((disc?.[cat]?.latest || []).filter(fresh), weights),
   };
+  // ❤️ Loved: newest first. The 3 most recent each get a "Because you loved…" row (asked once, kept on the phone).
+  const lovedList = Object.entries(prog.feedback || {}).filter(([, v]) => v === 'loved')
+    .map(([t]) => ({ title: t, ...(prog.meta?.[t] || {}) })).sort((a, b) => (b.at || 0) - (a.at || 0));
+  const lovedKey = lovedList.slice(0, 3).map((x) => x.title).join('|');
+  useEffect(() => {
+    if (!lovedKey) { setBecause([]); return; }
+    let live = true;
+    Promise.all(lovedList.slice(0, 3).map(async (x) => ({ title: x.title, items: await fetchSimilar({ ...x, type: x.type || (art[`movie:${x.title}`] ? 'movie' : 'series') }).catch(() => []) })))
+      .then((rows) => { if (live) setBecause(rows.filter((r) => r.items.length)); });
+    return () => { live = false; };
+  }, [lovedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const inCat = (x) => cat === 'home' || (cat === 'animation' ? animated(x.title, x) : !animated(x.title, x) && (cat === 'movies' ? x.type === 'movie' : x.type !== 'movie'));
+  const becauseRows = because.map((r) => ({ ...r, items: byTaste(r.items.filter(fresh).filter(inCat), weights) })).filter((r) => r.items.length);
   const discTag = (x) => (x.match ? '✨ Your taste' : x.note || (x.type === 'movie' && cat === 'animation' ? 'Movie' : null));
 
   // Coming Soon: the next episode of your series and of the AI's picks that are still airing, soonest first.
@@ -250,6 +285,53 @@ export default function Chill() {
   const dArt = detail ? showArt(detail) : open?.type === 'movie' ? movieArt(open.item) : open?.type === 'sug' ? sugArt(open.item) : {};
   const dSeason = detail ? (season ?? (upNext(detail, prog, dArt).next?.season || detail.seasons[0])) : null;
 
+  // "Because you loved…" rows and (on the shelves) your ❤️ Loved row.
+  const lovedRows = () => {
+          const lovedHere = lovedList.filter(inCat);
+          return <>
+            {becauseRows.map((r) => (
+              <section className="cr-row" key={`b${r.title}`}>
+                <h3>Because you loved {r.title}</h3>
+                <div className="cr-scroll">{r.items.map((x) => <Poster key={x.title} img={x.poster || sugArt(x).poster} title={x.title} tag={x.match ? '✨ Your taste' : x.type === 'movie' ? 'Movie' : null} onClick={() => openSug(x)} />)}</div>
+              </section>
+            ))}
+            {lovedHere.length > 0 && cat !== 'home' && (
+              <section className="cr-row">
+                <h3>❤️ Loved</h3>
+                <div className="cr-scroll">{lovedHere.map((x) => <Poster key={x.title} img={x.poster || sugArt(x).poster || art[`show:${x.title}`]?.poster || art[`movie:${x.title}`]?.poster} title={x.title} badge="❤" onClick={() => openSug({ ...x, type: x.type || 'series' })} />)}</div>
+              </section>
+            )}
+          </>;
+  };
+  // "More like this" in a title's sheet: loads by itself once you ❤️ it, or on a tap.
+  const MoreLike = ({ x }) => {
+    const st = sim[simKey(x)];
+    const list = byTaste((st?.items || []).filter(fresh), weights);
+    return (
+      <div className="cr-parts" style={{ marginTop: 16 }}>
+        <div className="cr-rowHead" style={{ paddingRight: 0 }}>
+          <div className="cr-partsH">{prog.feedback?.[x.title] === 'loved' ? `Because you loved ${x.title}` : `More like ${x.title}`}</div>
+          {st?.items?.length > 0 && <button type="button" className="cr-chip" disabled={st.busy} onClick={() => loadSim(x, true)}>{st.busy ? '…' : '↻'}</button>}
+        </div>
+        {!st ? <button type="button" className="cr-btnG dark" onClick={() => loadSim(x)}>✨ Show me titles like this</button>
+          : st.busy && !list.length ? <div className="cr-meta">Finding titles like {x.title}…</div>
+            : list.length ? (
+              <div className="cr-partsRow">{list.map((y) => (
+                <button type="button" key={y.title} className="cr-part" onClick={() => openSug(y)}>
+                  <div className="cr-partImg" style={bg(y.poster || sugArt(y).poster)}>{y.match && <em>✨</em>}</div>
+                  <b>{y.title}</b><small>{[y.type === 'movie' ? 'Movie' : 'Series', y.year].filter(Boolean).join(' · ')}</small>
+                </button>
+              ))}</div>
+            ) : <div className="cr-meta">{st.tried ? 'Nothing found right now. Tap again in a minute.' : ''}</div>}
+      </div>
+    );
+  };
+  useEffect(() => { // a title you already loved: show its "Because you loved" list straight away
+    if (!open) return;
+    const x = open.type === 'show' ? { title: open.item.title, type: 'series' } : open.type === 'movie' ? { title: open.item.title, type: 'movie', year: open.item.year } : open.item;
+    if (prog.feedback?.[x.title] === 'loved' && !sim[simKey(x)]) loadSim(x);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <Layout>
       <Head><title>Chill Room · Luxe</title></Head>
@@ -257,6 +339,7 @@ export default function Chill() {
         <header className="cr-top">
           <div className="cr-topRow">
             <h1>Chill Room</h1>
+            <button type="button" className="cr-scan" onClick={() => setSearch({ q: '', items: [], busy: false })} aria-label="Search series and movies">🔍</button>
             <button type="button" className="cr-scan" onClick={scanNow} aria-label="Scan the phone for new downloads">⟳</button>
           </div>
           <div className="cr-pills">
@@ -278,6 +361,8 @@ export default function Chill() {
             <button type="button" className="cr-btnW" onClick={scanNow}>Scan my downloads</button>
           </div>
         )}
+
+        {cat !== 'home' && lovedRows()}
 
         {shelf && (
           <>
@@ -352,6 +437,8 @@ export default function Chill() {
           </section>
         )}
 
+        {lovedRows()}
+
         {comingSoon.length > 0 && (
           <section className="cr-row">
             <h3>Coming Soon</h3>
@@ -419,12 +506,13 @@ export default function Chill() {
             {(detail || open.type === 'movie') && (
               <div className="cr-pad" style={{ paddingBottom: 0 }}>
                 <button type="button" className="cr-btnG dark" onClick={() => openTrailer(detail ? detail.title : open.item.title, detail ? '' : String(open.item.year || ''))}>{trailerLabel}</button>
-                {(() => { const t = detail ? detail.title : open.item.title; const on = prog.feedback?.[t] === 'loved'; return <button type="button" className="cr-btnG dark" style={{ marginLeft: 8, color: on ? '#ff375f' : '#fff' }} onClick={() => love(t, { type: detail ? 'series' : 'movie' })}>{on ? '❤️ Loved' : '♡ Loved it'}</button>; })()}
+                {(() => { const t = detail ? detail.title : open.item.title; const on = prog.feedback?.[t] === 'loved'; return <button type="button" className="cr-btnG dark" style={{ marginLeft: 8, color: on ? '#ff375f' : '#fff' }} onClick={() => { love(t, { type: detail ? 'series' : 'movie', year: detail ? null : open.item.year }); if (!on) loadSim({ title: t, type: detail ? 'series' : 'movie', year: detail ? null : open.item.year }); }}>{on ? '❤️ Loved' : '♡ Loved it'}</button>; })()}
                 {dArt.next?.airdate && <span className="cr-meta" style={{ marginLeft: 10 }}>Next: S{String(dArt.next.season).padStart(2, '0')}E{String(dArt.next.number).padStart(2, '0')} · {dayLabel(dArt.next.airdate)}</span>}
               </div>
             )}
             {detail ? (
               <>
+                <div className="cr-pad" style={{ paddingBottom: 0 }}><MoreLike x={{ title: detail.title, type: 'series' }} /></div>
                 <div className="cr-tabs">{detail.seasons.map((n) => <button type="button" key={n} className={n === dSeason ? 'on' : ''} onClick={() => setSeason(n)}>Season {n}</button>)}</div>
                 {(() => { const u = upNext(detail, prog, dArt); return u.missing && !u.next ? <div className="cr-miss">Next up is {u.missing}: not on your phone yet.</div> : null; })()}
                 <div className="cr-eps">
@@ -470,17 +558,46 @@ export default function Chill() {
                 <div className="cr-btns">
                   <button type="button" className="cr-btnG dark" onClick={() => openTrailer(open.item.title, open.item.year ? String(open.item.year) : '')}>{trailerLabel}</button>
                   <button type="button" className="cr-btnW" onClick={() => react(open.item.title, prog.feedback?.[open.item.title] === 'want' ? null : 'want')}>{prog.feedback?.[open.item.title] === 'want' ? '✓ On your list' : '＋ Want'}</button>
-                  <button type="button" className="cr-btnG dark" onClick={() => react(open.item.title, 'loved')}>❤️ Seen, loved it</button>
+                  <button type="button" className="cr-btnG dark" style={{ color: prog.feedback?.[open.item.title] === 'loved' ? '#ff375f' : '#fff' }} onClick={() => { const was = prog.feedback?.[open.item.title] === 'loved'; love(open.item.title, open.item); if (!was) loadSim(open.item); }}>{prog.feedback?.[open.item.title] === 'loved' ? '❤️ Loved' : '♡ Seen, loved it'}</button>
                   <button type="button" className="cr-btnG dark" onClick={() => react(open.item.title, 'seen')}>Seen it</button>
                   <button type="button" className="cr-btnG dark" onClick={() => react(open.item.title, 'no')}>Not for me</button>
                 </div>
+                <MoreLike x={open.item} />
               </div>
             ) : (
               <div className="cr-pad">
                 {dArt.summary && <p className="cr-sum">{dArt.summary}</p>}
                 <div className="cr-btns"><button type="button" className="cr-btnW" onClick={() => play(open.item)}>▶ Play</button><span className="cr-meta">{[mins(open.item.duration), gb(open.item.size)].filter(Boolean).join(' · ')}</span></div>
+                <MoreLike x={{ title: open.item.title, type: 'movie', year: open.item.year }} />
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {search && (
+        <div className="cr-sheet" onClick={(e) => e.target === e.currentTarget && setSearch(null)}>
+          <div className="cr-panel" style={{ minHeight: '70vh' }}>
+            <div className="cr-pad" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input autoFocus className="cr-search" value={search.q} onChange={(e) => runSearch(e.target.value)} placeholder="Search a series or movie you watched…" />
+              <button type="button" className="cr-x" style={{ position: 'static' }} onClick={() => setSearch(null)} aria-label="Close">✕</button>
+            </div>
+            <div className="cr-pad" style={{ paddingTop: 0 }}>
+              {search.busy && <div className="cr-meta">Searching…</div>}
+              {!search.busy && search.q.trim().length >= 2 && !search.items.length && <div className="cr-meta">Nothing found for “{search.q}”.</div>}
+              {!search.q && <div className="cr-meta">Find something you watched anywhere, tap ♡ Seen, loved it, and Luxe shows you titles like it and learns your taste.</div>}
+              <div className="cr-results">
+                {search.items.map((x) => {
+                  const loved = prog.feedback?.[x.title] === 'loved';
+                  return (
+                    <button type="button" key={`${x.type}${x.title}${x.year}`} className="cr-res" onClick={() => { setSearch(null); openSug(x); }}>
+                      <div className="cr-resImg" style={bg(x.poster)}>{loved && <em>❤</em>}</div>
+                      <div style={{ minWidth: 0 }}><b>{x.title}</b><small>{[x.type === 'movie' ? 'Movie' : 'Series', x.animation ? 'Animation' : null, x.year].filter(Boolean).join(' · ')}</small><small>{x.why}</small></div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -518,6 +635,14 @@ export default function Chill() {
         .cr-cats::-webkit-scrollbar { display: none; }
         .cr-cats button { flex-shrink: 0; border: 0; font-family: inherit; cursor: pointer; font-size: 13.5px; font-weight: 700; padding: 8px 14px; border-radius: 999px; background: transparent; color: #8e8e93; }
         .cr-cats button.on { background: #f5f5f7; color: #000; }
+        .cr-search { flex: 1; min-width: 0; font: inherit; font-size: 16px; color: #fff; background: rgba(255,255,255,0.1); border: 0; border-radius: 12px; padding: 12px 14px; outline: none; }
+        .cr-results { display: grid; gap: 10px; }
+        .cr-res { all: unset; box-sizing: border-box; cursor: pointer; display: flex; gap: 12px; align-items: center; }
+        .cr-resImg { position: relative; flex: 0 0 56px; height: 84px; border-radius: 8px; background: #2c2c2e center / cover; }
+        .cr-resImg em { position: absolute; right: 4px; bottom: 4px; font-style: normal; font-size: 12px; color: #ff375f; }
+        .cr-res b { display: block; font-size: 14.5px; }
+        .cr-res small { display: block; font-size: 12px; color: #8e8e93; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cr-partImg em { left: auto !important; right: 5px; }
         .cr-taste { font-size: 12.5px; color: #8e8e93; margin: -4px 16px 10px; line-height: 1.4; }
         .cr-scan { border: 0; cursor: pointer; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,0.1); color: #fff; text-decoration: none; font-size: 17px; flex-shrink: 0; }
         .cr-hero { -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent); mask-image: linear-gradient(to bottom, #000 72%, transparent); position: relative; height: 56vh; min-height: 320px; background: #111 center top / cover no-repeat; display: flex; align-items: flex-end; }

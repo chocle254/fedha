@@ -142,10 +142,35 @@ export async function setFeedback(prog, title, value, item = null) {
   const fb = { ...(prog.feedback || {}) };
   const meta = { ...(prog.meta || {}) };
   if (value) fb[title] = value; else delete fb[title];
-  if (value && item?.type) meta[title] = { type: item.type === 'movie' ? 'movie' : 'series', year: item.year || null }; else if (!value) delete meta[title];
+  // Kept small: type and year, plus genres and poster for titles found by search (not in your library), so they
+  // still teach your taste and show in ❤️ Loved; `at` orders "Because you loved…".
+  if (value && item?.type) meta[title] = { type: item.type === 'movie' ? 'movie' : 'series', year: item.year || null, ...(item.genres?.length ? { genres: item.genres.slice(0, 4) } : {}), ...(item.poster ? { poster: item.poster } : {}), ...(item.animation ? { animation: true } : {}), at: Date.now() };
+  else if (!value) delete meta[title];
   const next = { ...prog, feedback: fb, meta };
   await setSetting(ROOM, roomOnly(next));
   return next;
+}
+
+// Search any series or movie (pages/api/chill/search.js).
+export async function searchTitles(q) {
+  const r = await fetch(`/api/chill/search?q=${encodeURIComponent(q)}`, { cache: 'no-store' });
+  return r.ok ? (await r.json()).items || [] : [];
+}
+// Titles like one you loved (pages/api/chill/similar.js). Kept on this phone (last 30 titles) so each is asked once.
+const SIM = 'luxe_chill_similar';
+export async function fetchSimilar(item, refresh = false) {
+  let all = {}; try { all = JSON.parse(localStorage.getItem(SIM) || '{}'); } catch { /* private */ }
+  const k = `${item.type === 'movie' ? 'movie' : 'series'}:${item.title}`;
+  if (!refresh && all[k]?.items?.length) return all[k].items;
+  const q = new URLSearchParams({ title: item.title, type: item.type === 'movie' ? 'movie' : 'series', year: item.year || '' });
+  const r = await fetch(`/api/chill/similar?${q}`, { cache: 'no-store' });
+  const items = r.ok ? (await r.json()).items || [] : [];
+  if (items.length) {
+    all[k] = { items, at: Date.now() };
+    const keep = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, 30);
+    try { localStorage.setItem(SIM, JSON.stringify(Object.fromEntries(keep))); } catch { /* full */ }
+  }
+  return items;
 }
 
 // For You picks from the AI (pages/api/chill/suggest.js).
