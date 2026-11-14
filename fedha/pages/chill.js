@@ -109,15 +109,15 @@ export default function Chill() {
   const [sim, setSim] = useState({}); // 'series:Title' → { items, busy }
   const [because, setBecause] = useState([]); // [{ title, items }] for the titles you loved most recently
   // 🎄 Holiday row: Halloween, Christmas, New Year, Valentine's, Easter (from 2 weeks before).
-  const season = useMemo(() => watchSeason(), []);
+  const holiday = useMemo(() => watchSeason(), []);
   const [holi, setHoli] = useState({ items: [], busy: false });
   const loadHoli = async (refresh = false) => {
-    if (!season) return;
+    if (!holiday) return;
     setHoli((h) => ({ ...h, busy: true }));
-    const items = await fetchSeason(season, refresh).catch(() => []);
+    const items = await fetchSeason(holiday, refresh).catch(() => []);
     setHoli({ items, busy: false, tried: true });
   };
-  useEffect(() => { if (season) loadHoli(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (holiday) loadHoli(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [disc, setDisc] = useState(null); // /api/chill/discover: { series|movies|animation: { trending, latest } }
   useEffect(() => { setCatState(getCat()); }, []);
   const setCat = (c) => { setCatState(c); try { localStorage.setItem('luxe_chill_cat', c); } catch { /* ignore */ } window.scrollTo({ top: 0 }); };
@@ -300,12 +300,12 @@ export default function Chill() {
   // "Because you loved…" rows and (on the shelves) your ❤️ Loved row.
   const lovedRows = () => {
     const holiItems = byTaste(holi.items.filter(fresh).filter(inCat), weights);
-    const holiRow = season && (holiItems.length > 0 || holi.busy) && (
+    const holiRow = holiday && (holiItems.length > 0 || holi.busy) && (
       <section className="cr-row">
-        <div className="cr-rowHead"><h3>{season.icon} {season.name} picks</h3><button type="button" className="cr-chip" disabled={holi.busy} onClick={() => loadHoli(true)}>{holi.busy ? '…' : '↻'}</button></div>
-        <div className="cr-taste">{season.soon ? `${season.name} season starts in ${season.soon} day${season.soon > 1 ? 's' : ''}: time to download a few.` : `For ${season.name}, picked for your taste.`}</div>
+        <div className="cr-rowHead"><h3>{holiday.icon} {holiday.name} picks</h3><button type="button" className="cr-chip" disabled={holi.busy} onClick={() => loadHoli(true)}>{holi.busy ? '…' : '↻'}</button></div>
+        <div className="cr-taste">{holiday.soon ? `${holiday.name} season starts in ${holiday.soon} day${holiday.soon > 1 ? 's' : ''}: time to download a few.` : `For ${holiday.name}, picked for your taste.`}</div>
         {holiItems.length ? <div className="cr-scroll">{holiItems.map((x) => <Poster key={x.title} img={x.poster || sugArt(x).poster} title={x.title} tag={x.match ? '✨ Your taste' : x.type === 'movie' ? 'Movie' : 'Series'} onClick={() => openSug(x)} />)}</div>
-          : <div className="cr-taste">Finding {season.name} picks…</div>}
+          : <div className="cr-taste">Finding {holiday.name} picks…</div>}
       </section>
     );
           const lovedHere = lovedList.filter(inCat);
