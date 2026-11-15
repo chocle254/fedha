@@ -32,6 +32,17 @@ const readSound = () => { try { return localStorage.getItem('luxe_sound') || 'th
 const SESSION = 'luxe_music_session';
 const lean = ({ dj, smart, why, score, on, ...t }) => t;
 
+// 10 s of silence as a WAV (8 kHz, 8-bit). Phones ignore sounds under ~5 s for the headset buttons, hence 10 s.
+function silentWav() {
+  const n = 80000; const b = new ArrayBuffer(44 + n); const v = new DataView(b);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVE'); str(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true);
+  v.setUint16(32, 1, true); v.setUint16(34, 8, true); str(36, 'data'); v.setUint32(40, n, true);
+  new Uint8Array(b, 44).fill(128);
+  return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+}
+
 export function MusicProvider({ children }) {
   const audio = useRef(null);
   const graph = useRef(null);
@@ -64,6 +75,9 @@ export function MusicProvider({ children }) {
   const wasPlaying = useRef(false); // playing when the app went to the background
   const sleepRef = useRef(null);
   sleepRef.current = sleepAt;
+  const tasteRef = useRef({ likes: [], skips: { artists: {} } }); // the latest likes/skips for async callbacks
+  tasteRef.current = { likes, skips };
+  const keep = useRef(null); // silent <audio> that keeps the headset buttons on Luxe while YouTube plays (below)
   const track = idx >= 0 ? queue[idx] : null;
   state.current = { queue, idx, shuffle, track };
 
@@ -84,13 +98,35 @@ export function MusicProvider({ children }) {
       }
     } catch { /* nothing saved */ }
     const a = new Audio(); a.crossOrigin = 'anonymous'; a.preload = 'auto'; audio.current = a;
+    // Headset / Bluetooth buttons: the phone sends them to whichever frame is playing sound. YouTube plays inside its
+    // own iframe, so without this its player got the button presses (and ignored ⏭). A silent 10 s loop playing in
+    // Luxe's own page alongside YouTube keeps the buttons and the lock-screen card on our handlers.
+    try { const k = new Audio(silentWav()); k.loop = true; k.volume = 0.01; k.preload = 'auto'; keep.current = k; } catch { /* no Audio */ }
     a.addEventListener('play', () => setPlaying(true));
     a.addEventListener('pause', () => setPlaying(false));
     a.addEventListener('timeupdate', () => { if (state.current.track?.source !== 'yt') setTime({ cur: a.currentTime, dur: a.duration || 0 }); });
-    return () => { a.pause(); a.src = ''; };
+    return () => { a.pause(); a.src = ''; keep.current?.pause(); };
   }, []);
 
   const flash = (t) => { setNote(t); setTimeout(() => setNote(''), 3500); };
+  // Songs to play after `t`, steered by your taste (like Chill Room's ❤️): its radio, plus a third from the radio of
+  // a song you liked recently; artists you like float up, artists you keep skipping sink, songs you skipped
+  // early twice are left out, and nothing already in `list` comes back.
+  const moreLikeThis = async (t, list = []) => {
+    const { likes: lk, skips: sk } = tasteRef.current;
+    const recentLike = lk.slice(0, 8).filter((l) => l.id !== t.id && l.source === 'yt')[Math.floor(Math.random() * Math.min(8, lk.length))];
+    const [base, extra] = await Promise.all([songRadio(t).catch(() => []), recentLike ? songRadio(recentLike).catch(() => []) : []]);
+    const likedArtists = {}; for (const l of lk) if (l.artist) likedArtists[l.artist] = (likedArtists[l.artist] || 0) + 1;
+    const seen = new Set(list.map((y) => songKey(y)));
+    const pool = new Map();
+    [...base.slice(1), ...extra.slice(0, 10)].forEach((x, i) => {
+      const k = songKey(x);
+      if (seen.has(k) || pool.has(k) || x.id === t.id || (sk?.tracks?.[k] || 0) >= 2) return;
+      const s = 1 - i / 40 + Math.min(1.5, 0.5 * (likedArtists[x.artist] || 0)) - 0.4 * Math.min(3, sk?.artists?.[x.artist] || 0) + Math.random() * 0.5;
+      pool.set(k, { x, s });
+    });
+    return [...pool.values()].sort((a, b) => b.s - a.s).map((p) => p.x).slice(0, 25);
+  };
   const countPlay = useCallback((t) => {
     if (!t?.artist) return;
     setPlays((p) => { const n = { ...p, [t.artist]: (p[t.artist] || 0) + 1 }; setSetting('music_plays', n).catch(() => {}); return n; });
@@ -209,7 +245,7 @@ export function MusicProvider({ children }) {
     // End of the queue: keep going with songs like the last one (Spotify's autoplay) instead of starting over.
     if (dir > 0 && !state.current.shuffle && i === list.length - 1 && list[i]) {
       try {
-        const more = (await songRadio(list[i])).slice(1).filter((x) => !list.some((y) => y.id === x.id)).slice(0, 25);
+        const more = await moreLikeThis(list[i], list);
         if (more.length) {
           const nl = [...list, ...more]; setQueue(nl); state.current.queue = nl; flash('Autoplay: more like this');
           load(nl, i + 1); flowQueue(nl, i + 1).catch(() => {}); return;
@@ -273,10 +309,9 @@ export function MusicProvider({ children }) {
     if (djRef.current && cur?.chapter) return; // DJ Luxe adds his next chapter himself (below)
     if (sh || !cur || i !== list.length - 1 || cur.source !== 'yt' || topping.current === cur.id) return;
     topping.current = cur.id;
-    songRadio(cur).then((r) => {
+    moreLikeThis(cur, list).then((more) => {
       const now = state.current.queue;
       if (now !== list) return;
-      const more = r.slice(1).filter((x) => !now.some((y) => y.id === x.id)).slice(0, 25);
       if (!more.length) return;
       const nl = [...now, ...more]; setQueue(nl); state.current.queue = nl;
       flowQueue(nl, i).catch(() => {});
@@ -323,9 +358,23 @@ export function MusicProvider({ children }) {
   }, []);
   const like = useCallback(async (t) => {
     const has = likes.some((x) => x.id === t.id);
-    const nextLikes = has ? likes.filter((x) => x.id !== t.id) : [{ ...t, dj: undefined, smart: undefined, liked_at: Date.now() }, ...likes].slice(0, 500);
-    setLikes(nextLikes); await setSetting('music_likes', nextLikes);
-  }, [likes]);
+    const nextLikes = has ? likes.filter((x) => x.id !== t.id) : [{ ...lean(t), liked_at: Date.now() }, ...likes].slice(0, 500);
+    setLikes(nextLikes); tasteRef.current = { ...tasteRef.current, likes: nextLikes }; await setSetting('music_likes', nextLikes);
+    if (has) return;
+    // Like Chill Room's ❤️: what you like steers what comes next. Three songs like it are woven into the next
+    // few spots (1st, 3rd and 5th up), so the session leans that way straight away. DJ Luxe's sets keep his order.
+    if (djRef.current) return;
+    try {
+      const { queue: list0 } = state.current;
+      const picks = (await moreLikeThis(t, list0)).slice(0, 3).map((x) => ({ ...x, why: `Because you liked ${t.title}` }));
+      const { queue: list, idx: i } = state.current;
+      const fresh = picks.filter((x) => !list.some((y) => y.id === x.id || songKey(y) === songKey(x)));
+      if (i < 0 || !fresh.length) return;
+      const nl = [...list];
+      fresh.forEach((x, k) => nl.splice(Math.min(nl.length, i + 1 + k * 2), 0, x));
+      setQueue(nl); state.current.queue = nl; flash(`More like ${t.title} coming up`);
+    } catch { /* the like is saved; the queue just stays as it was */ }
+  }, [likes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ✕ on the mini player: stop everything and hide it.
   const stop = useCallback(() => {
@@ -451,15 +500,34 @@ export function MusicProvider({ children }) {
     return () => { document.removeEventListener('visibilitychange', vis); window.removeEventListener('pagehide', saveSession); };
   }, [saveSession]);
 
-  // Lock screen and headset buttons.
+  // Lock screen and headset / Bluetooth buttons (play, pause, ⏭ double-press, ⏮ triple-press on most earbuds).
+  const playingRef = useRef(false);
+  playingRef.current = playing;
   useEffect(() => {
     if (!track || typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
-    navigator.mediaSession.metadata = new window.MediaMetadata({ title: track.title, artist: track.artist, album: dj?.on ? 'DJ Luxe' : 'Luxe Music Room', artwork: track.artBig ? [{ src: track.artBig, sizes: '1000x1000', type: 'image/jpeg' }] : [] });
-    navigator.mediaSession.setActionHandler('play', toggle);
-    navigator.mediaSession.setActionHandler('pause', toggle);
-    navigator.mediaSession.setActionHandler('nexttrack', next);
-    navigator.mediaSession.setActionHandler('previoustrack', prev);
-  }, [track, toggle, next, prev, dj?.on]);
+    const ms = navigator.mediaSession;
+    ms.metadata = new window.MediaMetadata({ title: track.title, artist: track.artist, album: dj?.on ? 'DJ Luxe' : 'Luxe Music Room', artwork: track.artBig ? [{ src: track.artBig, sizes: '1000x1000', type: 'image/jpeg' }] : track.art ? [{ src: track.art, sizes: '250x250', type: 'image/jpeg' }] : [] });
+    const set = (a, f) => { try { ms.setActionHandler(a, f); } catch { /* not supported on this phone */ } };
+    set('play', () => { if (!playingRef.current) toggle(); });
+    set('pause', () => { if (playingRef.current) toggle(); });
+    set('stop', () => { if (playingRef.current) toggle(); });
+    set('nexttrack', next);
+    set('previoustrack', prev);
+    set('seekto', (d) => { if (d?.seekTime != null) seek(d.seekTime); });
+  }, [track, toggle, next, prev, seek, dj?.on]);
+  // The silent keep-alive follows YouTube (so the phone's card shows the right ▶/⏸), and the card's state too.
+  useEffect(() => {
+    const k = keep.current;
+    if (k) { if (playing && track?.source === 'yt') k.play().catch(() => {}); else if (!k.paused) k.pause(); }
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try { navigator.mediaSession.playbackState = track ? (playing ? 'playing' : 'paused') : 'none'; } catch { /* old phone */ }
+    }
+  }, [playing, track]);
+  useEffect(() => {
+    if (!track || typeof navigator === 'undefined' || !navigator.mediaSession?.setPositionState) return;
+    const { cur, dur } = time;
+    if (dur > 0 && cur >= 0 && cur <= dur) { try { navigator.mediaSession.setPositionState({ duration: dur, position: cur, playbackRate: 1 }); } catch { /* bad numbers mid-load */ } }
+  }, [track, Math.floor(time.cur / 5), time.dur]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Indie tracks end on the <audio> element.
   useEffect(() => {

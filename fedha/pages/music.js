@@ -74,16 +74,20 @@ export default function Music() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // For You: YouTube + Apple Music + Spotify charts blended with your likes, plays and skips (lib/music-foryou.js).
-  // Built again once your listening history has loaded.
+  // Built again once your listening history has loaded, and a few seconds after you like a song (likes count double).
   const tasteReady = (m.likes?.length || 0) + Object.keys(m.plays || {}).length > 0;
+  const likeKey = (m.likes || []).slice(0, 5).map((l) => l.id).join(',');
   useEffect(() => {
-    const artists = { ...(m.plays || {}) };
-    for (const l of m.likes || []) if (l.artist) artists[l.artist] = (artists[l.artist] || 0) + 2;
-    const recent = new Set(Object.values(m.tracksPlayed || {}).filter((x) => Date.now() - x.last < 2 * 864e5).map((x) => x.t.id));
-    forYou({ artists, skips: m.skips, dayparts: m.dayparts, recent, liked: new Set((m.likes || []).map((l) => l.id)) }).then((list) => setHome((h) => ({ ...h, forYou: list }))).catch(() => setHome((h) => ({ ...h, forYou: [] })));
-    // Discover: artists near yours that you have never played (lib/music-foryou.js).
-    discover({ artists, skips: m.skips }).then((list) => setHome((h) => ({ ...h, discover: list }))).catch(() => {});
-  }, [tasteReady]); // eslint-disable-line react-hooks/exhaustive-deps
+    const tm = setTimeout(() => {
+      const artists = { ...(m.plays || {}) };
+      for (const l of m.likes || []) if (l.artist) artists[l.artist] = (artists[l.artist] || 0) + 2;
+      const recent = new Set(Object.values(m.tracksPlayed || {}).filter((x) => Date.now() - x.last < 2 * 864e5).map((x) => x.t.id));
+      forYou({ artists, skips: m.skips, dayparts: m.dayparts, recent, liked: new Set((m.likes || []).map((l) => l.id)) }).then((list) => setHome((h) => ({ ...h, forYou: list }))).catch(() => setHome((h) => ({ ...h, forYou: [] })));
+      // Discover: artists near yours that you have never played (lib/music-foryou.js).
+      discover({ artists, skips: m.skips }).then((list) => setHome((h) => ({ ...h, discover: list }))).catch(() => {});
+    }, home.forYou ? 4000 : 0);
+    return () => clearTimeout(tm);
+  }, [tasteReady, likeKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onRepeat = useMemo(() => Object.values(m.tracksPlayed || {}).filter((x) => x.n >= 2).sort((a, b) => b.n - a.n).slice(0, 20).map((x) => x.t), [m.tracksPlayed]);
   const recently = useMemo(() => Object.values(m.tracksPlayed || {}).sort((a, b) => b.last - a.last).slice(0, 20).map((x) => x.t), [m.tracksPlayed]);
