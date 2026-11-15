@@ -32,6 +32,7 @@ const MORE_GROUPS = [
   ]},
   { title: 'Life', items: [
     { href:'/planner', label:'Planner', icon:'calendar', desc:'Schedule, tasks & activities' },
+    { href:'/review', label:'Daily Review', icon:'list', desc:'Tonight\'s questions, your notebook, patterns' },
     { href:'/living', label:'Live a little', icon:'heart', desc:'Upkeep forecast, first times, a day out' },
     { href:'/chill', label:'Chill Room', icon:'film', desc:'Your series & movies' },
     { href:'/games', label:'Game Room', icon:'film', desc:'GTA VI: the ways in, and a fund for it' },
@@ -47,7 +48,7 @@ const MORE_GROUPS = [
 ];
 const HUBS = [
   [{ href:'/wallets', label:'Wallets' }, { href:'/utilities', label:'Utilities' }],
-  [{ href:'/planner', label:'Planner' }, { href:'/activities', label:'Activities' }],
+  [{ href:'/planner', label:'Planner' }, { href:'/review', label:'Review' }, { href:'/activities', label:'Activities' }],
   [{ href:'/health', label:'Health' }, { href:'/workout', label:'Workout' }],
   [{ href:'/learning', label:'Learning' }, { href:'/tech-hub', label:'Tech Hub' }],
 ];
@@ -86,6 +87,7 @@ const SIDE_GROUPS = [
   ]},
   { title: 'Life', items: [
     { href: '/planner', label: 'Planner', icon: 'planner' },
+    { href: '/review', label: 'Daily Review', icon: 'list' },
     { href: '/living', label: 'Live a little', icon: 'activity' },
     { href: '/activities', label: 'Activities', icon: 'activity' },
     { href: '/chill', label: 'Chill Room', icon: 'film' },

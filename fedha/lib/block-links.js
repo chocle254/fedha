@@ -14,6 +14,7 @@ export function blockLink(block, ctx = {}) {
   if (/^night_(out2|check|pace)$/.test(id)) return { href: '/planner#night-out', text: '🧭 Tonight\'s pace plan' };
   if (id === 'weed_pickup') return { href: '/planner#weed-night', text: '🌿 Tonight\'s plan' };
   if (id === 'go_out_ready') return { href: '/planner#night-out', text: '🪩 See tonight\'s plan' };
+  if (id === 'review') return { href: '/review', text: '📝 Write the Daily Review' };
   if (id === 'upkeep') return { href: '/living#upkeep', text: '🌤 Open Live a little' };
   if (id === 'first_time') return { href: '/living#firsts', text: '✨ Find where to get it' };
   if (id.startsWith('startup_')) {

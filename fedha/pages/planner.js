@@ -6,6 +6,7 @@ import { useFloatingCash } from '../lib/floating';
 import { todayISO, computeJobProgress } from '../lib/utils';
 import { hackStatus, isUrgent, projectStatus } from './tech-hub';
 import { blockLink } from '../lib/block-links';
+import { forToday as reviewForToday } from '../lib/daily-review';
 import { weekdayPlanIndex, estimateWorkoutMinutes, exerciseSummary, planForDay, microMinutes } from './workout';
 import { t2m as dayT2m, planAnchors, getDayPrefs, getHomeLocation, askDeviceLocation, getTodayWeather, searchPlace, saveHomeLocation, setSoapBatches, weatherLabel } from '../lib/day-anchors';
 import { showNotif, VIBRATE } from '../lib/notifications';
@@ -114,6 +115,26 @@ function threeThatCount(blocks) {
   const care = first((b) => /bath/.test(String(b.id))) || first((b) => b.id === 'lunch' || b.id === 'dinner');
   return [work && { ...work, why: 'Work' }, body && { ...body, why: 'Body' }, care && { ...care, why: 'You' }].filter(Boolean);
 }
+// Last night's Daily Review (pages/review.js): your top 3 for today, the one change you promised, and the coach's
+// changes to the plan. Tonight, once the evening starts, a nudge to write the review if it isn't done.
+function ReviewCard({ r, nowMins }) {
+  if (!r) return null;
+  const late = nowMins >= 19 * 60 && !r.reviewedToday;
+  if (!r.top3.length && !r.differently && !r.changes.length && !late) return null;
+  return (
+    <div style={{ padding: 14, borderRadius: 16, background: 'linear-gradient(135deg, rgba(99,102,241,0.14), rgba(236,72,153,0.08))', border: '1px solid rgba(99,102,241,0.3)', marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <b style={{ flex: 1, fontSize: 14 }}>📝 From your Daily Review{r.streak > 1 ? ` · 🔥 ${r.streak}` : ''}</b>
+        <a href="/review" style={{ fontSize: 12.5, fontWeight: 700, color: 'inherit' }}>{late ? 'Write tonight\'s →' : 'Open →'}</a>
+      </div>
+      {r.top3.length > 0 && <div style={{ fontSize: 13, marginTop: 8 }}><b>Today's top 3 (you set them last night):</b>{r.top3.map((t, i) => <div key={i}>{i + 1}. {t}</div>)}</div>}
+      {r.differently && <div style={{ fontSize: 13, marginTop: 6 }}>🔁 <b>Your one change:</b> {r.differently}</div>}
+      {r.changes.length > 0 && <div style={{ fontSize: 12.5, marginTop: 6, color: 'var(--text-2)' }}>🧠 <b>Coach:</b> {r.changes.slice(0, 2).join(' · ')}</div>}
+      {late && <div style={{ fontSize: 12.5, marginTop: 6, color: 'var(--text-2)' }}>Tonight's review isn't written yet: ten minutes, and tomorrow's plan gets your top 3.</div>}
+    </div>
+  );
+}
+
 function ThreeCard({ blocks, completedIds, onToggle, nowMins, wins, onReplan, replanning }) {
   const three = threeThatCount(blocks);
   if (three.length < 2) return null;
@@ -502,7 +523,7 @@ function buildTodayBlocks(ctx, isWeekend, opts = {}) {
     want('eve', 'smoke', 'Smoke Break 🌿', 'personal', '🌿', 'Roll up, step out, drink some water. The Chill Room opens next.', PRIORITY.essential, 15, 20);
     if (ctx.chillNight) want('eve', 'series', 'Weed Night In 🌿📺', 'personal', '🌿', `Tonight's reward for KSh ${WEED_PRICE}: your smoke, snacks and a good movie or a run of episodes in the Chill Room. Water next to you, no alcohol on top, no trades or money moves while high. ${WATCH_MIN / 60} hours, then wind down.`, PRIORITY.essential, WATCH_MIN, WATCH_MIN);
     else want('eve', 'series', 'Chill Room — Series & Movies 📺', 'personal', '📺', `Open the Chill Room and pick up where you left off. ${WATCH_MIN / 60} hours, then wind down.`, PRIORITY.essential, WATCH_MIN, WATCH_MIN);
-    want('eve', 'review', 'Daily Review', 'routine', '📝', 'What did you learn today? What to do differently? Write 3 lines.', PRIORITY.chores, 5, 15);
+    want('eve', 'review', 'Daily Review', 'routine', '📝', 'Open the Daily Review: score the day, your wins, what got in the way, one change and tomorrow\'s top 3. Ten minutes.', PRIORITY.chores, 5, 15);
     want('eve', 'night_prep', 'Night Prep', 'routine', '🌙', 'Set clothes, pack bag, set alarm. Drink milk before bed.', PRIORITY.essential, 10, 15);
   }
 
@@ -879,6 +900,8 @@ export default function PlannerPage() {
   const [completedIds, setCompletedIds] = useState([]);
   const [wins, setWins] = useState([]); // days when the three that count were all done (newest 120 kept)
   useEffect(() => { getSetting('planner_wins', []).then((w) => setWins(Array.isArray(w) ? w : [])).catch(() => {}); }, []);
+  const [reviewCtx, setReviewCtx] = useState(null);
+  useEffect(() => { reviewForToday().then(setReviewCtx).catch(() => {}); }, []);
   useEffect(() => {
     const three = threeThatCount(blocks); const today = todayISO();
     const won = three.length >= 2 && three.every((b) => completedIds.includes(b.id));
@@ -1260,6 +1283,7 @@ export default function PlannerPage() {
             .pl-dot { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 99px; background: #EC4899; }
           `}</style>
           {tab === 'today' && <>
+          <ReviewCard r={reviewCtx} nowMins={now.getHours() * 60 + now.getMinutes()} />
           <ThreeCard blocks={blocks} completedIds={completedIds} onToggle={toggleDone} nowMins={now.getHours() * 60 + now.getMinutes()} wins={wins} onReplan={planFromNow} replanning={aiGenerating} />
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:14 }}>
