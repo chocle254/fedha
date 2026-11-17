@@ -345,10 +345,10 @@ export async function maybeAutoEnter(userId, signal, desk = null, coach = null) 
     const equity = await getEquity(userId, s);
     // Trust gate (lib/desk.js trustGate, set nightly): a verdict trades at the size its own LIVE record has earned.
     // An unproven take trades 1x; a verdict losing over 10+ live signals drops to the watch stake.
-    const gate = s.desk?.gate || null;
+    const trust = s.desk?.gate || null;
     const rawVerdict = desk?.verdict;
-    if (desk) desk = { ...desk, verdict: gatedVerdict(desk.verdict, gate?.desk), diamond: !!desk.diamond && gate?.desk?.take !== 'off' };
-    if (coach) coach = { ...coach, verdict: gatedVerdict(coach.verdict, gate?.coach) };
+    if (desk) desk = { ...desk, verdict: gatedVerdict(desk.verdict, trust?.desk), diamond: !!desk.diamond && trust?.desk?.take !== 'off' };
+    if (coach) coach = { ...coach, verdict: gatedVerdict(coach.verdict, trust?.coach) };
     const verdict = desk?.verdict && DESK_SIZE[desk.verdict] != null ? desk.verdict : 'none';
     const planned = verdict === 'skip' ? (equity * WATCH_PCT) / 100 : riskAmount(s, equity) * DESK_SIZE[verdict];
     const riskUsdt = Math.round(Math.min(planned * news.mult, (equity * MAX_TRADE_PCT) / 100) * 100) / 100;
@@ -365,7 +365,7 @@ export async function maybeAutoEnter(userId, signal, desk = null, coach = null) 
     if (r.ok) {
       const msg = describeEntry(r.trade);
       msg.body += verdict === 'skip' ? ' · Desk: skip, so only a small watch stake' : verdict === 'take' ? ' · Desk: take, 1.5x size' : verdict === 'small' ? ' · Desk: small, normal size' : '';
-      if (rawVerdict && rawVerdict !== verdict) msg.body += ` (it said ${rawVerdict}, but ${rawVerdict}s ${gate?.desk?.[rawVerdict] === 'off' ? 'are losing live, so they wait at a watch stake' : 'have not proven themselves live yet, so 1x'})`;
+      if (rawVerdict && rawVerdict !== verdict) msg.body += ` (it said ${rawVerdict}, but ${rawVerdict}s ${trust?.desk?.[rawVerdict] === 'off' ? 'are losing live, so they wait at a watch stake' : 'have not proven themselves live yet, so 1x'})`;
       if (r.fit?.minLot) msg.body += ` · 0.01 lot minimum: risk $${r.fit.to.toFixed(2)} (planned $${r.fit.from.toFixed(2)}) of the $${r.equity.toFixed(2)} balance`;
       else if (r.fit) msg.body += ` · sized to fit the $${r.equity.toFixed(2)} balance: risk $${r.fit.to.toFixed(2)} instead of $${r.fit.from.toFixed(2)}`;
       if (lr?.ok) msg.body += ` · half at market, half ⏳ limit at ${lim} (cancels if TP1 hits first)`;
