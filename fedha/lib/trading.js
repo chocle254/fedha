@@ -6,6 +6,7 @@ import { klines, bookTicker, lastPrice, isMt5, mt5Filters } from './market';
 import { instrument } from './instruments';
 import { newsCheck, newsReason } from './news-guard';
 import { channelGate } from './channel-pause';
+import { gatedVerdict } from './desk';
 
 const BINANCE = 'https://api.binance.com/api/v3';
 const filterCache = new Map();
@@ -169,7 +170,7 @@ export function riskAmount(settings, equity) {
 
 // growth: { equity, free, cap } when the growth challenge is on — real broker lots (0.01 lot minimum), the
 // stage's risk ceiling, and margin at 1:1000 (crypto spot needs the full amount free).
-export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, growth = null, limitLeg = false, bookName: sideBook = null }) {
+export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, growth = null, limitLeg = false, bookName: sideBook = null, trail = null }) {
   if (!signal || ['won', 'lost', 'expired'].includes(signal.status)) return { ok: false, error: 'That signal is already closed.' };
   if (signal.stop_loss == null) return { ok: false, error: 'This signal has no stop-loss, so the risk cannot be sized.' };
 
@@ -279,7 +280,7 @@ export async function openPaperTrade({ userId, signal, riskUsdt, auto = false, g
     status,
     filled_at: status === 'open' ? new Date().toISOString() : null,
     // Smart trailing: this channel's learned style, and the market's volatility right now.
-    trail_mode: (await trailProfiles(userId))[signal.source]?.mode || TRAIL_DEFAULT,
+    trail_mode: trail || (await trailProfiles(userId))[signal.source]?.mode || TRAIL_DEFAULT,
     trail_atr: await atrBefore(signal.symbol, Date.now()),
     ...(growth ? { book: bookName } : {})
   };
@@ -342,6 +343,12 @@ export async function maybeAutoEnter(userId, signal, desk = null, coach = null) 
     // News guard: quarter lot right around a high-impact release, half lot in the hour before (lib/news-guard.js).
     const news = await newsCheck(signal.symbol).catch(() => ({ level: 'clear', mult: 1 }));
     const equity = await getEquity(userId, s);
+    // Trust gate (lib/desk.js trustGate, set nightly): a verdict trades at the size its own LIVE record has earned.
+    // An unproven take trades 1x; a verdict losing over 10+ live signals drops to the watch stake.
+    const gate = s.desk?.gate || null;
+    const rawVerdict = desk?.verdict;
+    if (desk) desk = { ...desk, verdict: gatedVerdict(desk.verdict, gate?.desk), diamond: !!desk.diamond && gate?.desk?.take !== 'off' };
+    if (coach) coach = { ...coach, verdict: gatedVerdict(coach.verdict, gate?.coach) };
     const verdict = desk?.verdict && DESK_SIZE[desk.verdict] != null ? desk.verdict : 'none';
     const planned = verdict === 'skip' ? (equity * WATCH_PCT) / 100 : riskAmount(s, equity) * DESK_SIZE[verdict];
     const riskUsdt = Math.round(Math.min(planned * news.mult, (equity * MAX_TRADE_PCT) / 100) * 100) / 100;
@@ -358,11 +365,12 @@ export async function maybeAutoEnter(userId, signal, desk = null, coach = null) 
     if (r.ok) {
       const msg = describeEntry(r.trade);
       msg.body += verdict === 'skip' ? ' · Desk: skip, so only a small watch stake' : verdict === 'take' ? ' · Desk: take, 1.5x size' : verdict === 'small' ? ' · Desk: small, normal size' : '';
+      if (rawVerdict && rawVerdict !== verdict) msg.body += ` (it said ${rawVerdict}, but ${rawVerdict}s ${gate?.desk?.[rawVerdict] === 'off' ? 'are losing live, so they wait at a watch stake' : 'have not proven themselves live yet, so 1x'})`;
       if (r.fit?.minLot) msg.body += ` · 0.01 lot minimum: risk $${r.fit.to.toFixed(2)} (planned $${r.fit.from.toFixed(2)}) of the $${r.equity.toFixed(2)} balance`;
       else if (r.fit) msg.body += ` · sized to fit the $${r.equity.toFixed(2)} balance: risk $${r.fit.to.toFixed(2)} instead of $${r.fit.from.toFixed(2)}`;
       if (lr?.ok) msg.body += ` · half at market, half ⏳ limit at ${lim} (cancels if TP1 hits first)`;
       if (news.level !== 'clear') msg.body += ` · 📰 ${news.level === 'danger' ? 'quarter' : 'half'} lot: ${await newsReason(news, signal.symbol)}`;
-      for (const [name, x] of Object.entries(side || {})) if (x?.ok) msg.body += ` · ${name === 'diamond' ? '💎 Diamonds book' : name === 'coach' ? '🎓 Coach book' : '🎯 Takes book'}: risk $${Number(x.trade.actual_risk_usdt).toFixed(2)}`;
+      for (const [name, x] of Object.entries(side || {})) if (x?.ok) msg.body += ` · ${name === 'diamond' ? '💎 Diamonds book' : name === 'coach' ? '🎓 Coach book' : name === 'reverse' ? '🔄 Opposite book' : '🎯 Takes book'}: risk $${Number(x.trade.actual_risk_usdt).toFixed(2)}`;
       if (g) msg.body += g.ok ? ` · 🌱 growth account took it: ${g.trade.qty} ${base(signal.symbol)}, risk $${Number(g.trade.actual_risk_usdt).toFixed(2)} of $${g.equity.toFixed(2)}` : ` · 🌱 growth account skipped: ${g.skipped || g.error}`;
       await notify(msg, `trade-${r.trade.id}-new`);
     }
@@ -565,7 +573,19 @@ export const SIDE_BOOKS = {
   coach: { label: "Coach's calls", start: 1000, cap: 15, pct: (d, c) => ({ take: 15, small: 10, skip: 0.25 }[c?.verdict] ?? 0) },
   // The Coach's own sniper entries on gold (lib/coach-sniper.js), never signals: 10-15% by his conviction.
   coach_own: { label: "Coach's own trades", start: 1000, cap: 15, pct: () => 0 },
+  // The opposite of every signal (user, 2026-11-17): a BUY is sold, a SELL is bought, 10% each (flipSignal below).
+  // If the channels keep losing, this book shows whether fading them actually pays after the spread.
+  reverse: { label: 'Opposite of every signal', start: 1000, cap: 10, pct: () => 10, flip: true },
 };
+
+// The mirror of a signal: BUY <-> SELL at the same entry, the channel's TP1 becomes the stop and its stop becomes
+// the one target, so it wins exactly where the signal would have lost (before the spread, which it pays too).
+// A pending signal stays pending at the channel's entry. Needs a stop and at least one target.
+export function flipSignal(sig) {
+  const tps = (sig.take_profits || []).map(Number).filter(Number.isFinite);
+  if (sig.stop_loss == null || !tps.length) return null;
+  return { ...sig, side: sig.side === 'BUY' ? 'SELL' : 'BUY', stop_loss: tps[0], take_profits: [Number(sig.stop_loss)] };
+}
 
 export async function sideBookState(userId, name, since) {
   const cfg = SIDE_BOOKS[name];
@@ -624,7 +644,10 @@ export async function enterSideBooks(userId, signal, desk, news, settings, coach
       const cap = Math.min((st.equity * cfg.cap) / 100, room);
       const riskUsdt = Math.round(Math.min((st.equity * pct * (news?.mult ?? 1)) / 100, cap) * 100) / 100;
       if (!(riskUsdt >= 0.01)) { out[name] = { ok: false, error: 'no room' }; continue; }
-      out[name] = await openPaperTrade({ userId, signal, riskUsdt, auto: true, growth: { equity: st.equity, free: st.free, cap: cap * 1.0001 }, bookName: name });
+      const sig = cfg.flip ? flipSignal(signal) : signal;
+      if (!sig) { out[name] = { ok: false, error: 'no stop or target to flip' }; continue; }
+      // The opposite book trails with the default style: the channel's learned style is for its own direction.
+      out[name] = await openPaperTrade({ userId, signal: sig, riskUsdt, auto: true, growth: { equity: st.equity, free: st.free, cap: cap * 1.0001 }, bookName: name, ...(cfg.flip ? { trail: TRAIL_DEFAULT } : {}) });
     } catch (e) { out[name] = { ok: false, error: e.message }; }
   }
   return out;

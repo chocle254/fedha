@@ -10,6 +10,7 @@ const ABOUT = {
   diamond: 'Only 💎 diamonds, 15% each. The closest thing to the real account.',
   coach: "The Coach's calls on the signals: take 15% · small 10% · skip 0.25%",
   coach_own: "The Coach's own sniper entries on gold (10-15% by conviction), no signals",
+  reverse: 'The opposite of every signal: BUY becomes SELL, its TP1 is the stop, its stop is the target. 10% each.',
 };
 const tone = (v) => (v > 0.005 ? '#22C55E' : v < -0.005 ? '#EF4444' : 'var(--text-3)');
 const pct = (eq, start) => (start > 0 ? ((eq - start) / start) * 100 : 0);
@@ -37,7 +38,7 @@ export default function PaperBooksCard() {
           const ch = pct(b.equity, b.start);
           return (
             <div key={b.name} style={{ padding: 12, borderRadius: 10, background: 'rgba(132,142,156,.08)', border: b.name === 'diamond' ? '1px solid rgba(56,189,248,.35)' : '1px solid transparent' }}>
-              <div style={{ fontSize: 13, fontWeight: 800 }}>{b.name === 'diamond' ? '💎 ' : b.name === 'takes' ? '🎯 ' : b.name === 'coach' ? '🎓 ' : b.name === 'coach_own' ? '🎯 ' : ''}{b.main ? 'Main' : b.label}</div>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>{b.name === 'diamond' ? '💎 ' : b.name === 'takes' ? '🎯 ' : b.name === 'coach' ? '🎓 ' : b.name === 'coach_own' ? '🎯 ' : b.name === 'reverse' ? '🔄 ' : ''}{b.main ? 'Main' : b.label}</div>
               <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2, lineHeight: 1.4 }}>{b.about}</div>
               <div className="font-num" style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{fmtUsd(b.equity, false)}</div>
               <div className="font-num" style={{ fontSize: 12, color: tone(ch) }}>{ch >= 0 ? '+' : ''}{ch.toFixed(1)}% from {fmtUsd(b.start, false)}</div>
@@ -75,7 +76,7 @@ export function PaperBooksStrip({ onOpen }) {
     return () => clearInterval(t);
   }, []);
   if (!d || d.error) return null;
-  const rows = [{ ...d.main, short: 'Main' }, ...d.books.map((b) => ({ ...b, short: b.name === 'diamond' ? '💎 Diamonds' : b.name === 'coach' ? '🎓 Coach' : b.name === 'coach_own' ? '🎯 Sniper' : '🎯 Big on takes' }))];
+  const rows = [{ ...d.main, short: 'Main' }, ...d.books.map((b) => ({ ...b, short: b.name === 'diamond' ? '💎 Diamonds' : b.name === 'coach' ? '🎓 Coach' : b.name === 'coach_own' ? '🎯 Sniper' : b.name === 'reverse' ? '🔄 Opposite' : '🎯 Big on takes' }))];
   return (
     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
       {rows.map((b) => {

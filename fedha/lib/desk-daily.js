@@ -15,7 +15,7 @@ import { upcomingNews } from './news-guard';
 import { notify } from './trading';
 import { aiJSON } from './ai-json';
 import { supabaseAdmin } from './supabaseAdmin';
-import { deskHistory, deskState, saveDesk, windowOf, WINDOW_LABEL, learnRule, ruleOf, RULES } from './desk';
+import { deskHistory, deskState, saveDesk, windowOf, WINDOW_LABEL, learnRule, ruleOf, RULES, liveResults, trustGate } from './desk';
 import { readNews } from './news-read';
 import { sniperScan } from './coach-sniper';
 import { openPaperTrade, sideBookState, sideBooks } from './trading';
@@ -181,7 +181,22 @@ Return JSON: {"headline":"one sentence: the result and the single biggest reason
 
   // Learn: does another rule now beat the one in use on signals it could not have seen? Switch only on evidence.
   const current = ruleOf(state);
-  const check = learnRule(history, current);
+  const live = await liveResults(userId, history).catch(() => null);
+  const check = learnRule(history, current, live?.rules || null);
+  // Trust gate: each verdict's size from its own live record (lib/desk.js trustGate). Tell the user when one flips.
+  if (live) {
+    const g = trustGate(live);
+    const was = state.gate || null;
+    const flips = [];
+    for (const who of ['desk', 'coach']) for (const v of ['take', 'small']) {
+      if (was && was[who]?.[v] && was[who][v] !== g[who][v] && g[who][v] !== 'trial') {
+        const x = g.live[who][v];
+        flips.push(`${who === 'desk' ? 'Desk' : 'Coach'} ${v}s ${g[who][v] === 'full' ? 'earned full size' : 'drop to a watch stake'} (${x.n} live, ${x.avgR >= 0 ? '+' : ''}${x.avgR}R each)`);
+      }
+    }
+    await saveDesk(userId, { gate: { ...g, at: new Date(now).toISOString() } });
+    if (flips.length) await notify({ title: '⚖️ Desk trust changed', body: flips.join(' · ') }, `desk-gate-${today}`);
+  }
   const ruleNote = check.switched ? `The Desk now scores with "${RULES[check.use].label}": it made ${check.rows.find((r) => r.rule === check.use).all}R against ${check.rows.find((r) => r.rule === current).all}R on your history, and more over the latest 60 signals.` : '';
   await saveDesk(userId, {
     rule: check.use,

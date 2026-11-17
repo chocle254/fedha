@@ -233,15 +233,21 @@ const avgTake = (seq) => { const t = seq.filter(([v]) => v === 'take'); return t
 // Which rule has earned the most on signals it could not have seen. A challenger replaces the rule in use only
 // when it made at least 3R more over all of history AND more over the latest 60, with its takes still winning
 // there. Otherwise the Desk keeps what it has.
-export function learnRule(history, current = 'now') {
+// Forward-only (since 2026-11-17): the replay on history is shown, but it no longer decides anything. On 10 Nov the
+// replay crowned midday signals and ICT_SMC; the next 5 days both lost. So a challenger must ALSO lead live, on
+// signals it scored the moment they arrived (liveRules = liveResults().rules): 20+ live signals, 3R+ ahead.
+export const LIVE_SWITCH = { minLive: 20, aheadR: 3 };
+export function learnRule(history, current = 'now', liveRules = null) {
   const rows = Object.keys(RULES).map((k) => {
     const wf = walkForward(history, k);
     const last = wf.seq.slice(-60);
-    return { rule: k, label: RULES[k].label, all: tradedR(wf.seq), last60: tradedR(last), takeAvg: avgTake(wf.seq), takeAvg60: avgTake(last), takes: wf.take.n, missed: wf.seq.filter(([v, r]) => v === 'skip' && r > 0.5).length, badPicks: wf.seq.filter(([v, r]) => v !== 'skip' && r <= -0.9).length };
+    const lv = liveRules?.[k] || null;
+    return { rule: k, label: RULES[k].label, all: tradedR(wf.seq), last60: tradedR(last), takeAvg: avgTake(wf.seq), takeAvg60: avgTake(last), takes: wf.take.n, missed: wf.seq.filter(([v, r]) => v === 'skip' && r > 0.5).length, badPicks: wf.seq.filter(([v, r]) => v !== 'skip' && r <= -0.9).length, liveN: lv?.n ?? 0, liveR: lv?.traded ?? null };
   });
   const cur = rows.find((r) => r.rule === current) || rows[0];
-  const better = rows.filter((r) => r.rule !== cur.rule && r.all >= cur.all + 3 && r.last60 > cur.last60 && (r.takeAvg60 ?? -1) > 0)
-    .sort((a, b) => b.last60 - a.last60)[0];
+  const liveAhead = (r) => r.liveN >= LIVE_SWITCH.minLive && cur.liveR != null && r.liveR >= cur.liveR + LIVE_SWITCH.aheadR;
+  const better = rows.filter((r) => r.rule !== cur.rule && r.all >= cur.all + 3 && r.last60 > cur.last60 && (r.takeAvg60 ?? -1) > 0 && liveAhead(r))
+    .sort((a, b) => b.liveR - a.liveR)[0];
   return { use: better ? better.rule : cur.rule, switched: !!better, rows, scored: rows.length ? walkForward(history, cur.rule).scored : 0 };
 }
 
@@ -270,8 +276,36 @@ export async function liveResults(userId, history) {
     }
   }
   for (const b of Object.values(rules)) b.traded = round(b.traded, 1);
+  // The Coach's own calls, by verdict, on the same closed signals (for the trust gate).
+  const coach = { take: blank(), small: blank(), skip: blank() };
+  for (const s of data || []) {
+    const r = rById.get(s.id); const v = s.desk?.c2?.v;
+    if (r != null && coach[v]) add(coach[v], r);
+  }
   const recent = (data || []).slice(0, 12).map((s) => ({ id: s.id, source: s.source, symbol: s.symbol, side: s.side, at: s.created_at, verdict: s.desk?.v, diamond: !!s.desk?.d, coach: s.desk?.c2 || null, ctx: s.desk?.x || null, score: s.desk?.s, votes: s.desk?.n, why: s.desk?.why || [], status: s.status, r: rById.has(s.id) ? round(rById.get(s.id)) : null }));
-  return { take: done(out.take), small: done(out.small), skip: done(out.skip), all: done(out.all), diamond: done(out.diamond), since: rows.length ? rows[rows.length - 1].created_at : null, recent, rules };
+  return { take: done(out.take), small: done(out.small), skip: done(out.skip), all: done(out.all), diamond: done(out.diamond), since: rows.length ? rows[rows.length - 1].created_at : null, recent, rules, coach: { take: done(coach.take), small: done(coach.small), skip: done(coach.skip) } };
+}
+
+// ── Trust gate (forward-only): a verdict earns its size from its own LIVE results, never from a replay ──
+// Per verdict (take, small), counted on signals scored as they arrived:
+//   trial  fewer than 10 live results: trades at 1x (a take is NOT sized up until it has proven itself)
+//   full   10+ live, averaging above 0R: its full size (take 1.5x, small 1x)
+//   off    10+ live, averaging 0R or worse: only the 0.25% watch stake, so it keeps being measured and can earn back
+// Saved nightly in trade_settings.desk.gate = { desk: {take, small}, coach: {take, small}, at, live }.
+export const GATE = { min: 10 };
+const gateOf = (b) => (!b || b.n < GATE.min ? 'trial' : b.avgR > 0 ? 'full' : 'off');
+export function trustGate(live) {
+  const pick = (x) => ({ take: gateOf(x?.take), small: gateOf(x?.small) });
+  const nums = (x) => Object.fromEntries(['take', 'small'].map((k) => [k, { n: x?.[k]?.n || 0, avgR: x?.[k]?.avgR ?? null }]));
+  return { desk: pick(live), coach: pick(live?.coach), live: { desk: nums(live), coach: nums(live?.coach) } };
+}
+// The verdict a book actually trades on, after the gate. No gate saved yet = unchanged.
+export function gatedVerdict(v, g) {
+  if (!g || !['take', 'small'].includes(v)) return v;
+  const st = g[v];
+  if (st === 'off') return 'skip';
+  if (v === 'take' && st === 'trial') return 'small';
+  return v;
 }
 
 // ── The Desk's own small state (trade_settings.desk): { real, market, reviews, review_tried } ──

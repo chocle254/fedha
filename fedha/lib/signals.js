@@ -198,8 +198,12 @@ export async function upgradeLevels({ userId, text, externalId }) {
   const { data: trades } = await supabaseAdmin.from('paper_trades').select('*').eq('signal_id', sig.id).in('status', ['open', 'pending']);
   for (const t of trades || []) {
     if ((t.tp_hit || 0) > 0) continue; // already part-closed on the old levels: leave it
-    const risk = Number(t.qty) * Math.abs(Number(t.entry) - sl) * (Number(t.quote_usd) || 1);
-    await supabaseAdmin.from('paper_trades').update({ stop_loss: sl, take_profits: tps, actual_risk_usdt: Math.round(risk * 100) / 100 }).eq('id', t.id);
+    // The opposite book (lib/trading.js flipSignal) holds the mirror: stop at the new TP1, target at the new stop.
+    const flip = t.book === 'reverse';
+    const tSl = flip ? tps[0] : sl;
+    const tTps = flip ? [sl] : tps;
+    const risk = Number(t.qty) * Math.abs(Number(t.entry) - tSl) * (Number(t.quote_usd) || 1);
+    await supabaseAdmin.from('paper_trades').update({ stop_loss: tSl, take_profits: tTps, actual_risk_usdt: Math.round(risk * 100) / 100 }).eq('id', t.id);
   }
   return { id: sig.id, stop_loss: sl, take_profits: tps, trades: (trades || []).length };
 }
