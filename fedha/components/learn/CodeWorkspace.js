@@ -1,48 +1,174 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
+import { EditorState, Compartment } from '@codemirror/state';
+import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection, Decoration } from '@codemirror/view';
+import { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo, insertNewlineAndIndent } from '@codemirror/commands';
+import { syntaxHighlighting, HighlightStyle, indentOnInput, bracketMatching, indentUnit } from '@codemirror/language';
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+import { tags as t } from '@lezer/highlight';
+import { python } from '@codemirror/lang-python';
+import { javascript } from '@codemirror/lang-javascript';
+import { css } from '@codemirror/lang-css';
+import { html } from '@codemirror/lang-html';
+import { json } from '@codemirror/lang-json';
+import { markdown } from '@codemirror/lang-markdown';
+
+// The editor is CodeMirror 6: real syntax colours, undo/redo, auto-indent and bracket pairing, built to behave
+// with phone keyboards. The text is always drawn by the editor itself, so it can never go invisible.
+const LANGS = { python, javascript: () => javascript({ jsx: true, typescript: true }), css, html, json, md: markdown, htm: html };
+
+const HL = HighlightStyle.define([
+  { tag: [t.comment, t.lineComment, t.blockComment], color: '#6B7280', fontStyle: 'italic' },
+  { tag: [t.string, t.special(t.string), t.regexp], color: '#E5B77A' },
+  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword], color: '#C792EA' },
+  { tag: [t.bool, t.null, t.atom], color: '#89DDFF' },
+  { tag: [t.number, t.integer, t.float], color: '#F78C6C' },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName))], color: '#82AAFF' },
+  { tag: [t.className, t.typeName, t.tagName], color: '#FFCB6B' },
+  { tag: [t.propertyName, t.attributeName], color: '#9ECBFF' },
+  { tag: [t.operator, t.punctuation, t.bracket], color: '#89DDFF' },
+  { tag: [t.variableName, t.name], color: '#D6DEEB' },
+]);
+
+const THEME = EditorView.theme({
+  '&': { backgroundColor: '#0d1117', color: '#D6DEEB', fontSize: '14px', maxHeight: '55vh', minHeight: '240px' },
+  '&.cm-focused': { outline: 'none' },
+  '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', lineHeight: '21px', overflow: 'auto', WebkitOverflowScrolling: 'touch' },
+  '.cm-content': { caretColor: '#ffffff', padding: '10px 0 40px' },
+  '.cm-line': { padding: '0 12px 0 6px' },
+  '.cm-gutters': { backgroundColor: '#0d1117', color: '#484f58', border: 'none', minWidth: '34px' },
+  '.cm-activeLine': { backgroundColor: 'rgba(88,166,255,.07)' },
+  '.cm-activeLineGutter': { backgroundColor: 'transparent', color: '#8b949e' },
+  '.cm-cursor': { borderLeftColor: '#ffffff', borderLeftWidth: '2px' },
+  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: 'rgba(88,166,255,.35) !important' },
+  '.cm-matchingBracket': { backgroundColor: 'rgba(63,185,80,.25)', outline: 'none' },
+  '.review-line': { backgroundColor: 'rgba(227,179,65,.16)', boxShadow: 'inset 3px 0 0 #e3b341' },
+}, { dark: true });
 
 function languageFor(name = '') {
   const ext = name.split('.').pop()?.toLowerCase();
   if (ext === 'py') return 'python';
-  if (['js', 'jsx', 'ts', 'tsx'].includes(ext)) return 'javascript';
+  if (['js', 'jsx', 'ts', 'tsx', 'mjs'].includes(ext)) return 'javascript';
   if (ext === 'css') return 'css';
-  if (['html', 'htm'].includes(ext) || ['json', 'md'].includes(ext)) return ext;
+  if (['html', 'htm', 'json', 'md'].includes(ext)) return ext;
   return ext || 'text';
 }
+
+// One editor per open file (the parent keys it by file, so switching tabs makes a fresh one).
+function Editor({ value, language, onChange, onKey, fixLines, viewRef }) {
+  const host = useRef(null);
+  const onChangeRef = useRef(onChange);
+  const marks = useRef(new Compartment());
+  onChangeRef.current = onChange;
+
+  const marksFor = (lines) => EditorView.decorations.of((view) => {
+    const d = [];
+    for (const n of lines) if (n >= 1 && n <= view.state.doc.lines) d.push(Decoration.line({ class: 'review-line' }).range(view.state.doc.line(n).from));
+    return Decoration.set(d, true);
+  });
+
+  useEffect(() => {
+    const lang = LANGS[language];
+    const view = new EditorView({
+      parent: host.current,
+      state: EditorState.create({
+        doc: value || '',
+        extensions: [
+          lineNumbers(), history(), drawSelection(), highlightActiveLine(), indentOnInput(), bracketMatching(), closeBrackets(),
+          indentUnit.of('    '), EditorState.tabSize.of(4),
+          syntaxHighlighting(HL), THEME,
+          lang ? lang() : [],
+          marks.current.of(marksFor(fixLines)),
+          keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab, { key: 'Enter', run: insertNewlineAndIndent }]),
+          EditorView.contentAttributes.of({ autocapitalize: 'off', autocorrect: 'off', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Code editor' }),
+          EditorView.updateListener.of((u) => { if (u.docChanged) onChangeRef.current(u.state.doc.toString()); }),
+        ],
+      }),
+    });
+    viewRef.current = view;
+    return () => { view.destroy(); viewRef.current = null; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Byte's review marks the lines he flagged.
+  useEffect(() => { viewRef.current?.dispatch({ effects: marks.current.reconfigure(marksFor(fixLines)) }); }, [fixLines.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  // If the file changed from outside the editor, show it.
+  useEffect(() => {
+    const v = viewRef.current;
+    if (v && (value || '') !== v.state.doc.toString()) v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value || '' } });
+  }, [value]);
+  return <div ref={host} className="dev-cm" />;
+}
+
+// Phone keyboards bury the symbols code needs, so they sit one tap away above the editor.
+const KEYS = ['⇥', '(', ')', '[', ']', '{', '}', '"', "'", ':', '=', '.', ',', '_', '#', '/', '\\', '<', '>', ';', '!', '+', '-', '*', '&', '|'];
 
 const iconFor = (name) => {
   const ext = name.split('.').pop()?.toLowerCase();
   return ({ py: '🐍', js: '🟨', jsx: '⚛️', ts: '🔷', tsx: '⚛️', css: '🎨', html: '🌐', json: '📋', md: '📝' })[ext] || '📄';
 };
 
-export default function CodeWorkspace({ files, file, setFile, setCode, onKey, reviewFixes = [], addFile, removeFile, maxFiles, lang }) {
-  const editorRef = useRef(null);
+export default function CodeWorkspace({ files, file, setFile, setCode, reviewFixes = [], addFile, removeFile, maxFiles }) {
+  const viewRef = useRef(null);
   const active = files[file];
   const language = languageFor(active?.name || '');
   const lineCount = (active?.content || '').split('\n').length;
+  const fixLines = reviewFixes.filter((x) => active && x.file === active.name && x.line).map((x) => x.line);
+  const press = (k) => {
+    const v = viewRef.current; if (!v) return;
+    if (k === '⇥') { v.dispatch(v.state.replaceSelection('    '), { scrollIntoView: true }); }
+    else { const r = v.state.selection.main; v.dispatch({ changes: { from: r.from, to: r.to, insert: k }, selection: { anchor: r.from + k.length }, scrollIntoView: true }); }
+    v.focus();
+  };
+  const keep = (e) => e.preventDefault(); // tapping a key must not close the phone keyboard
   return (
     <>
     <div className="dev-workspace">
       <div className="dev-topbar">
         <div className="dev-brand"><span className="dev-brand-dot" /> WORKSPACE <span className="dev-divider">/</span> {language.toUpperCase()}</div>
-        <div className="dev-top-actions"><span className="dev-status">● READY</span><span className="dev-mobile-lang">{language}</span><button type="button" className="dev-focus" onClick={() => editorRef.current?.focus()}>⌨ Type</button></div>
+        <div className="dev-top-actions">
+          <button type="button" className="dev-focus" onMouseDown={keep} onClick={() => viewRef.current && undo(viewRef.current)} aria-label="Undo">↶</button>
+          <button type="button" className="dev-focus" onMouseDown={keep} onClick={() => viewRef.current && redo(viewRef.current)} aria-label="Redo">↷</button>
+        </div>
       </div>
       <div className="dev-filebar">
         <div className="dev-filetabs">
           {files.map((f, i) => <div className={'dev-tab ' + (i === file ? 'active' : '')} key={f.name + i}><button type="button" className="dev-tab-open" onClick={() => setFile(i)} title={f.name}><span>{iconFor(f.name)}</span>{f.name}</button>{files.length > 1 && <button type="button" className="dev-tab-close" onClick={() => removeFile?.(i)} aria-label={'Remove ' + f.name} title="Remove file">×</button>}</div>)}
-          {files.length < maxFiles && <button className="dev-addfile" onClick={addFile} title="Add file">＋</button>}
+          {files.length < maxFiles && <button type="button" className="dev-addfile" onClick={addFile} title="Add file">＋</button>}
         </div>
-        <div className="dev-tree" aria-label="Project files"><div className="dev-tree-title">EXPLORER <span>PROJECT</span></div>{files.map((f, i) => { const parts = f.name.split('/').filter(Boolean); const depth = Math.max(0, parts.length - 1); return <button type="button" key={'tree-' + f.name + i} className={'dev-tree-file ' + (i === file ? 'active' : '')} style={{ paddingLeft: 10 + depth * 14 }} onClick={() => setFile(i)}><span>{depth ? '↳' : '›'}</span>{parts[parts.length - 1]}<small>{depth ? parts.slice(0, -1).join('/') : ''}</small></button>; })}</div>
-        <div className="dev-filemeta">{active?.name || 'untitled'} <span>· {language}</span></div>
       </div>
-      {active && <div className="dev-editor-shell">
-        <div className="dev-line-numbers" aria-hidden="true">{Array.from({ length: Math.max(lineCount, 12) }, (_, i) => <div key={i} className={reviewFixes.some((x) => x.file === active.name && x.line === i + 1) ? 'review-line' : ''}>{i + 1}</div>)}</div>
-        <div className="dev-editor-layer">
-          <textarea ref={editorRef} value={active.content || ''} onChange={(e) => setCode(e.target.value)} onKeyDown={onKey} spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" inputMode="text" enterKeyHint="enter" aria-label={'Code editor for ' + active.name} />
-        </div>
-      </div>}
+      <div className="dev-keys" role="toolbar" aria-label="Code symbols">
+        {KEYS.map((k) => <button type="button" key={k} onMouseDown={keep} onTouchStart={keep} onClick={() => press(k)}>{k}</button>)}
+      </div>
+      {active && <div className="dev-editor-shell"><Editor key={file + ':' + active.name} value={active.content || ''} language={language} onChange={setCode} fixLines={fixLines} viewRef={viewRef} /></div>}
       <div className="dev-statusbar"><span>{language}</span><span>UTF-8</span><span>Spaces: 4</span><span className="dev-statusbar-right">Ln {lineCount} · {active?.content?.length || 0} chars</span></div>
     </div>
-    <style jsx global>{`\n      .dev-workspace { overflow: hidden; border: 1px solid #252b36; border-radius: 12px; background: #0d1117; color: #c9d1d9; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }\n      .dev-topbar { display:flex; align-items:center; justify-content:space-between; padding:9px 12px; background:#111720; border-bottom:1px solid #252b36; font-size:10px; letter-spacing:1.2px; }\n      .dev-brand { color:#8b949e; font-weight:800; display:flex; align-items:center; gap:7px; } .dev-brand-dot { width:7px;height:7px;border-radius:50%;background:#3fb950;box-shadow:0 0 8px #3fb95066; } .dev-divider { color:#484f58; } .dev-top-actions { display:flex;gap:10px;align-items:center; } .dev-status { color:#3fb950;font-size:9px; } .dev-mobile-lang { color:#7d8590;letter-spacing:0; text-transform:none; }\n      .dev-filebar { background:#0d1117; border-bottom:1px solid #252b36; } .dev-filetabs { display:flex; align-items:center; overflow-x:auto; scrollbar-width:thin; } .dev-tab { display:flex;align-items:center;background:#111720;border-right:1px solid #252b36; } .dev-tab.active { background:#0d1117;border-top:2px solid #58a6ff; } .dev-filetabs .dev-tab-open { border:0;background:transparent;color:#8b949e;padding:10px 8px 10px 12px;font:11px ui-monospace,monospace;display:flex;gap:7px;align-items:center;white-space:nowrap;cursor:pointer; } .dev-tab.active .dev-tab-open { color:#e6edf3;padding-top:8px;padding-bottom:10px; } .dev-filetabs .dev-tab-close { border:0;background:transparent;color:#7d8590;padding:5px 8px;font:17px/1 ui-monospace,monospace;cursor:pointer; } .dev-filetabs .dev-tab-close:hover { color:#f87171; } .dev-filetabs .dev-addfile { color:#58a6ff;font-size:16px;padding:7px 12px; } .dev-tree { display:flex;align-items:center;gap:4px;overflow-x:auto;padding:6px 8px;border-top:1px solid #1c2530;border-bottom:1px solid #252b36;background:#0b1017;scrollbar-width:thin; } .dev-tree-title { flex:0 0 auto;color:#7d8590;font-size:9px;font-weight:800;letter-spacing:.8px;padding:0 8px 0 2px; } .dev-tree-title span { color:#484f58;font-weight:500;margin-left:5px; } .dev-tree-file { flex:0 0 auto;border:0;border-radius:5px;background:transparent;color:#8b949e;padding:5px 7px;font:10px ui-monospace,monospace;white-space:nowrap;cursor:pointer; } .dev-tree-file.active { background:#172638;color:#c9e1ff; } .dev-tree-file span { color:#58a6ff;margin-right:5px; } .dev-tree-file small { color:#586474;margin-left:5px; } .dev-focus { border:1px solid #34465a;border-radius:6px;background:#172638;color:#c9e1ff;padding:5px 8px;font:10px ui-monospace,monospace;cursor:pointer; } .dev-filemeta { padding:6px 11px;font-size:10px;color:#8b949e;background:#0d1117; } .dev-filemeta span { color:#484f58; }\n      .dev-editor-shell { display:flex; min-height:240px; max-height:55vh; background:#0d1117; overflow:hidden; } .dev-line-numbers { padding:10px 8px 10px 10px; text-align:right; color:#484f58; font:12px/20px ui-monospace,monospace; background:#0d1117; user-select:none; min-width:34px; } .dev-line-numbers .review-line { color:#e3b341; font-weight:700; } .dev-editor-layer { position:relative; flex:1; min-width:0; overflow:hidden; } .dev-editor-layer textarea { position:absolute;inset:0;z-index:2;pointer-events:auto;touch-action:pan-x pan-y;width:100%;height:100%;min-height:240px;resize:vertical;box-sizing:border-box;margin:0;padding:10px 12px;border:0;outline:0;background:#0d1117;color:#D6DEEB;caret-color:#ffffff;font:12px/20px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;overflow:auto;tab-size:4;-webkit-text-fill-color:#D6DEEB;opacity:1; } .dev-editor-layer textarea::selection { background:rgba(88,166,255,.35); } .dev-statusbar { display:flex;gap:12px;align-items:center;padding:5px 10px;background:#17202b;border-top:1px solid #252b36;color:#8b949e;font:9px ui-monospace,monospace; } .dev-statusbar-right { margin-left:auto; }\n      @media(max-width:480px) { .dev-filetabs .dev-tab-open { padding:9px 7px 9px 9px;font-size:10px; } .dev-filetabs .dev-tab-close { padding:5px 6px; } .dev-editor-shell { min-height:210px;max-height:48vh; } .dev-editor-layer textarea { min-height:210px; } .dev-line-numbers { font-size:11.5px; } }\n    `}</style>
+    <style jsx global>{`
+      .dev-workspace { overflow: hidden; border: 1px solid #252b36; border-radius: 12px; background: #0d1117; color: #c9d1d9; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .dev-topbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #111720; border-bottom: 1px solid #252b36; font-size: 10px; letter-spacing: 1.2px; }
+      .dev-brand { color: #8b949e; font-weight: 800; display: flex; align-items: center; gap: 7px; }
+      .dev-brand-dot { width: 7px; height: 7px; border-radius: 50%; background: #3fb950; box-shadow: 0 0 8px #3fb95066; }
+      .dev-divider { color: #484f58; }
+      .dev-top-actions { display: flex; gap: 6px; align-items: center; }
+      .dev-focus { border: 1px solid #34465a; border-radius: 6px; background: #172638; color: #c9e1ff; min-width: 34px; height: 28px; font: 15px ui-monospace, monospace; cursor: pointer; }
+      .dev-filebar { background: #0d1117; border-bottom: 1px solid #252b36; }
+      .dev-filetabs { display: flex; align-items: center; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+      .dev-filetabs::-webkit-scrollbar { display: none; }
+      .dev-tab { display: flex; align-items: center; flex: 0 0 auto; background: #111720; border-right: 1px solid #252b36; }
+      .dev-tab.active { background: #0d1117; box-shadow: inset 0 2px 0 #58a6ff; }
+      .dev-filetabs .dev-tab-open { border: 0; background: transparent; color: #8b949e; padding: 11px 6px 11px 12px; font: 12px ui-monospace, monospace; display: flex; gap: 7px; align-items: center; white-space: nowrap; cursor: pointer; }
+      .dev-tab.active .dev-tab-open { color: #e6edf3; }
+      .dev-filetabs .dev-tab-close { border: 0; background: transparent; color: #7d8590; padding: 8px 10px; font: 18px/1 ui-monospace, monospace; cursor: pointer; }
+      .dev-filetabs .dev-tab-close:hover { color: #f87171; }
+      .dev-filetabs .dev-addfile { flex: 0 0 auto; border: 0; background: transparent; color: #58a6ff; font-size: 18px; padding: 7px 14px; cursor: pointer; }
+      .dev-keys { display: flex; gap: 5px; overflow-x: auto; padding: 6px 8px; background: #111720; border-bottom: 1px solid #252b36; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+      .dev-keys::-webkit-scrollbar { display: none; }
+      .dev-keys button { flex: 0 0 auto; min-width: 36px; height: 34px; padding: 0 8px; border: 1px solid #2d3748; border-radius: 8px; background: #172030; color: #c9e1ff; font: 600 15px ui-monospace, monospace; cursor: pointer; touch-action: manipulation; }
+      .dev-keys button:active { background: #24405f; }
+      .dev-editor-shell { background: #0d1117; }
+      .dev-cm .cm-editor { border: 0; }
+      .dev-statusbar { display: flex; gap: 12px; align-items: center; padding: 5px 10px; background: #17202b; border-top: 1px solid #252b36; color: #8b949e; font: 10px ui-monospace, monospace; }
+      .dev-statusbar-right { margin-left: auto; }
+      @media (max-width: 480px) { .dev-workspace { border-radius: 10px; } .dev-statusbar span:nth-child(2), .dev-statusbar span:nth-child(3) { display: none; } .dev-cm .cm-editor { max-height: 45vh; min-height: 200px; } }
+    `}</style>
     </>
   );
 }
