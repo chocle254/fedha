@@ -1,9 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { EditorState, Compartment } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection, Decoration } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo, insertNewlineAndIndent } from '@codemirror/commands';
 import { syntaxHighlighting, HighlightStyle, indentOnInput, bracketMatching, indentUnit } from '@codemirror/language';
-import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+import { closeBrackets, closeBracketsKeymap, autocompletion, acceptCompletion, closeCompletion, moveCompletionSelection, startCompletion } from '@codemirror/autocomplete';
+import { tooltips } from '@codemirror/view';
+import { pythonLibrarySource, filesSource, snippetsSource } from './code-completions';
 import { tags as t } from '@lezer/highlight';
 import { python } from '@codemirror/lang-python';
 import { javascript } from '@codemirror/lang-javascript';
@@ -41,6 +43,12 @@ const THEME = EditorView.theme({
   '.cm-cursor': { borderLeftColor: '#ffffff', borderLeftWidth: '2px' },
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: 'rgba(88,166,255,.35) !important' },
   '.cm-matchingBracket': { backgroundColor: 'rgba(63,185,80,.25)', outline: 'none' },
+  '.cm-tooltip': { backgroundColor: '#161b22', border: '1px solid #30363d', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,.5)' },
+  '.cm-tooltip-autocomplete > ul': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '13px', maxHeight: '34vh', maxWidth: '86vw' },
+  '.cm-tooltip-autocomplete > ul > li': { padding: '7px 10px', color: '#c9d1d9' },
+  '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: '#1f6feb', color: '#ffffff' },
+  '.cm-completionDetail': { color: '#7d8590', marginLeft: '10px', fontStyle: 'normal', fontSize: '11px' },
+  '.cm-completionMatchedText': { textDecoration: 'none', color: '#58a6ff', fontWeight: '700' },
   '.review-line': { backgroundColor: 'rgba(227,179,65,.16)', boxShadow: 'inset 3px 0 0 #e3b341' },
 }, { dark: true });
 
@@ -54,10 +62,13 @@ function languageFor(name = '') {
 }
 
 // One editor per open file (the parent keys it by file, so switching tabs makes a fresh one).
-function Editor({ value, language, onChange, onKey, fixLines, viewRef }) {
+function Editor({ value, language, onChange, fixLines, viewRef, suggest, others }) {
   const host = useRef(null);
   const onChangeRef = useRef(onChange);
   const marks = useRef(new Compartment());
+  const sugg = useRef(new Compartment());
+  const othersRef = useRef(others);
+  othersRef.current = others;
   onChangeRef.current = onChange;
 
   const marksFor = (lines) => EditorView.decorations.of((view) => {
@@ -65,6 +76,13 @@ function Editor({ value, language, onChange, onKey, fixLines, viewRef }) {
     for (const n of lines) if (n >= 1 && n <= view.state.doc.lines) d.push(Decoration.line({ class: 'review-line' }).range(view.state.doc.line(n).from));
     return Decoration.set(d, true);
   });
+
+  const suggestExt = (on) => (on ? [
+    autocompletion({ defaultKeymap: false, maxRenderedOptions: 8, activateOnTypingDelay: 60 }),
+    tooltips({ parent: document.body }),
+    EditorState.languageData.of(() => [{ autocomplete: filesSource(() => othersRef.current || []) }, { autocomplete: snippetsSource(language) }, ...(language === 'python' ? [{ autocomplete: pythonLibrarySource }] : [])]),
+    keymap.of([{ key: 'Tab', run: acceptCompletion }, { key: 'Escape', run: closeCompletion }, { key: 'ArrowDown', run: moveCompletionSelection(true) }, { key: 'ArrowUp', run: moveCompletionSelection(false) }, { key: 'Ctrl-Space', run: startCompletion }]),
+  ] : []);
 
   useEffect(() => {
     const lang = LANGS[language];
@@ -78,6 +96,7 @@ function Editor({ value, language, onChange, onKey, fixLines, viewRef }) {
           syntaxHighlighting(HL), THEME,
           lang ? lang() : [],
           marks.current.of(marksFor(fixLines)),
+          sugg.current.of(suggestExt(suggest)),
           keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab, { key: 'Enter', run: insertNewlineAndIndent }]),
           EditorView.contentAttributes.of({ autocapitalize: 'off', autocorrect: 'off', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Code editor' }),
           EditorView.updateListener.of((u) => { if (u.docChanged) onChangeRef.current(u.state.doc.toString()); }),
@@ -90,6 +109,7 @@ function Editor({ value, language, onChange, onKey, fixLines, viewRef }) {
 
   // Byte's review marks the lines he flagged.
   useEffect(() => { viewRef.current?.dispatch({ effects: marks.current.reconfigure(marksFor(fixLines)) }); }, [fixLines.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { viewRef.current?.dispatch({ effects: sugg.current.reconfigure(suggestExt(suggest)) }); }, [suggest]); // eslint-disable-line react-hooks/exhaustive-deps
   // If the file changed from outside the editor, show it.
   useEffect(() => {
     const v = viewRef.current;
@@ -108,6 +128,9 @@ const iconFor = (name) => {
 
 export default function CodeWorkspace({ files, file, setFile, setCode, reviewFixes = [], addFile, removeFile, maxFiles }) {
   const viewRef = useRef(null);
+  const [suggest, setSuggest] = useState(true);
+  useEffect(() => { try { if (localStorage.getItem('fedha_code_suggest') === '0') setSuggest(false); } catch { /* private mode */ } }, []);
+  const toggleSuggest = () => { const next = !suggest; setSuggest(next); try { localStorage.setItem('fedha_code_suggest', next ? '1' : '0'); } catch { /* ignore */ } };
   const active = files[file];
   const language = languageFor(active?.name || '');
   const lineCount = (active?.content || '').split('\n').length;
@@ -125,6 +148,7 @@ export default function CodeWorkspace({ files, file, setFile, setCode, reviewFix
       <div className="dev-topbar">
         <div className="dev-brand"><span className="dev-brand-dot" /> WORKSPACE <span className="dev-divider">/</span> {language.toUpperCase()}</div>
         <div className="dev-top-actions">
+          <button type="button" className={'dev-focus dev-auto ' + (suggest ? 'on' : '')} onMouseDown={keep} onClick={toggleSuggest} aria-pressed={suggest} title="Code suggestions">✦ Auto</button>
           <button type="button" className="dev-focus" onMouseDown={keep} onClick={() => viewRef.current && undo(viewRef.current)} aria-label="Undo">↶</button>
           <button type="button" className="dev-focus" onMouseDown={keep} onClick={() => viewRef.current && redo(viewRef.current)} aria-label="Redo">↷</button>
         </div>
@@ -138,7 +162,7 @@ export default function CodeWorkspace({ files, file, setFile, setCode, reviewFix
       <div className="dev-keys" role="toolbar" aria-label="Code symbols">
         {KEYS.map((k) => <button type="button" key={k} onMouseDown={keep} onTouchStart={keep} onClick={() => press(k)}>{k}</button>)}
       </div>
-      {active && <div className="dev-editor-shell"><Editor key={file + ':' + active.name} value={active.content || ''} language={language} onChange={setCode} fixLines={fixLines} viewRef={viewRef} /></div>}
+      {active && <div className="dev-editor-shell"><Editor key={file + ':' + active.name} value={active.content || ''} language={language} onChange={setCode} fixLines={fixLines} viewRef={viewRef} suggest={suggest} others={files.filter((_, i) => i !== file)} /></div>}
       <div className="dev-statusbar"><span>{language}</span><span>UTF-8</span><span>Spaces: 4</span><span className="dev-statusbar-right">Ln {lineCount} · {active?.content?.length || 0} chars</span></div>
     </div>
     <style jsx global>{`
@@ -149,6 +173,7 @@ export default function CodeWorkspace({ files, file, setFile, setCode, reviewFix
       .dev-divider { color: #484f58; }
       .dev-top-actions { display: flex; gap: 6px; align-items: center; }
       .dev-focus { border: 1px solid #34465a; border-radius: 6px; background: #172638; color: #c9e1ff; min-width: 34px; height: 28px; font: 15px ui-monospace, monospace; cursor: pointer; }
+      .dev-auto { width: auto; padding: 0 9px; font-size: 11px !important; color: #7d8590; } .dev-auto.on { color: #3fb950; border-color: #2b6a3a; }
       .dev-filebar { background: #0d1117; border-bottom: 1px solid #252b36; }
       .dev-filetabs { display: flex; align-items: center; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
       .dev-filetabs::-webkit-scrollbar { display: none; }
