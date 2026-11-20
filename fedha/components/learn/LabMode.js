@@ -9,6 +9,7 @@ import { getKb } from '../../lib/byte-kb';
 import { getMaterials, relevantMaterial } from '../../lib/materials';
 import { folderOf } from '../../lib/course-folders';
 import { resizeImage } from '../../lib/utils';
+import CodeWorkspace from './CodeWorkspace';
 
 // The Project Lab: after a unit, Byte (in his lab coat) runs a hands-on project built from it. Skipped a lesson?
 // You explain yourself first. Then: the mission, a milestone checklist, a code workspace (several files, Run with
@@ -191,8 +192,6 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
     say(nextUnit ? `Shipped. Now back to class: unit ${nextUnit.index + 1}, ${nextUnit.section}. Then another lab. No rest for builders.` : 'Shipped. That was the last unit. Capstone time: check the Capstone section.', 'proud');
   };
 
-  const f = L?.files?.[file];
-  const lines = (f?.content || '').split('\n').length;
   const nextUnit = units[unit?.index + 1];
   return (
     <div className="lab">
@@ -270,16 +269,7 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
             </div>
 
             <div className="lab-card lab-ws">
-              <div className="lab-tabs">
-                {L.files.map((x, i) => <button key={x.name + i} className={i === file ? 'on' : ''} onClick={() => setFile(i)}>{x.name}</button>)}
-                {L.files.length < MAX_FILES && <button onClick={addFile} aria-label="New file">＋</button>}
-              </div>
-              {f && (
-                <div className="lab-editor">
-                  <div className="lab-gutter" aria-hidden="true">{Array.from({ length: Math.max(lines, 12) }, (_, i) => <div key={i} style={{ color: review?.fixes?.some((x) => x.file === f.name && x.line === i + 1) ? '#FBBF24' : undefined }}>{i + 1}</div>)}</div>
-                  <textarea value={f.content} onChange={(e) => setCode(e.target.value)} onKeyDown={onKey} spellCheck={false} autoCapitalize="off" autoCorrect="off" style={{ minHeight: Math.max(12, lines) * 19 + 16 }} />
-                </div>
-              )}
+              <CodeWorkspace files={L.files} file={file} setFile={setFile} setCode={setCode} onKey={onKey} reviewFixes={review?.fixes || []} addFile={addFile} maxFiles={MAX_FILES} lang={L.lang} />
               <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                 {(L.domain === 'design' || L.lang === 'none') ? (
                   <div style={{ width: '100%' }}>
