@@ -4,7 +4,7 @@ import { askStudy } from '../../lib/study';
 import { speakByte } from '../../lib/byte-voice';
 import { stopSpeaking } from '../../lib/voice';
 import { labOf, missedLessons, newLab, sharpness, unitsOf, FILE_CAP, MAX_FILES } from '../../lib/labs';
-import { runProject, pythonIsWarm } from '../../lib/code-runner';
+import { runProject, pythonIsWarm, warmPython } from '../../lib/code-runner';
 import { getKb } from '../../lib/byte-kb';
 import { getMaterials, relevantMaterial } from '../../lib/materials';
 import { folderOf } from '../../lib/course-folders';
@@ -36,6 +36,7 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
   const [qs, setQs] = useState(null);
   const [answers, setAnswers] = useState({});
   const [verdict, setVerdict] = useState(null);
+  const [offline, setOffline] = useState('idle'); // the offline Python button: idle | loading | done | fail
   const explainedRef = useRef([]);
   const speaker = useRef(null);
   const saveT = useRef(null);
@@ -53,6 +54,20 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
   const cur = ms.findIndex((m) => !m.done);
   const allDone = ms.length > 0 && cur === -1;
   const sharp = useMemo(() => sharpness(projects, course.id), [projects, course.id]);
+
+  // Python labs: start Python in the background as soon as the bench opens, so the first Run does not wait.
+  // (The files it downloads are kept on the phone by the service worker, so they only come once.)
+  useEffect(() => {
+    try { if (localStorage.getItem('fedha_py_offline') === '1') setOffline('done'); } catch { /* private mode */ }
+    if (phase === 'bench' && /^py/.test(lab?.lab?.lang || '')) warmPython(lab.lab.files || []);
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  const saveOffline = async () => {
+    setOffline('loading');
+    try { await navigator.storage?.persist?.(); } catch { /* the browser decides */ }
+    const ok = await warmPython(L?.files || [], 'import numpy, pandas, matplotlib.pyplot, scipy, sklearn');
+    setOffline(ok ? 'done' : 'fail');
+    if (ok) { try { localStorage.setItem('fedha_py_offline', '1'); } catch { /* ignore */ } }
+  };
 
   // Opening: the explain-yourself gate first, then the lab (designed now if it doesn't exist yet).
   useEffect(() => {
@@ -288,6 +303,11 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
                     </div>
                   </div>
                 ) : <button className="lab-btn ghost" disabled={!!busy} onClick={run}>▶ Run</button>}
+                {/^py/.test(L.lang) && L.domain !== 'design' && L.lang !== 'none' && (
+                  <button className="lab-btn ghost" disabled={offline === 'loading' || offline === 'done'} onClick={saveOffline} title="Saves Python and the common ML libraries (numpy, pandas, matplotlib, scipy, scikit-learn) on this phone, roughly 100 MB, once. Runs then start fast and work offline.">
+                    {offline === 'loading' ? '⏳ Saving Python…' : offline === 'done' ? '✓ Python saved offline' : offline === 'fail' ? '⬇ Retry: save Python offline' : '⬇ Save Python offline'}
+                  </button>
+                )}
                 {!allDone && <button className="lab-btn" disabled={!!busy} onClick={submit}>Submit milestone {cur + 1} to Byte</button>}
                 {allDone && lab.status !== 'shipped' && <button className="lab-btn" onClick={ship}>🚀 Ship the lab</button>}
                 {allDone && nextUnit && <button className="lab-btn ghost" onClick={() => onStudyLesson(nextUnit.lessons.find((l) => !l.completed)?.id || nextUnit.lessons[0].id)}>Next: unit {nextUnit.index + 1} →</button>}

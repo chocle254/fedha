@@ -32,6 +32,24 @@ registerRoute(
   })
 );
 
+// ─── PYTHON FOR THE LABS (Pyodide + packages) ────────────────────────────────────────────────────────────────
+// Python, numpy, pandas, scikit-learn... are downloaded once and kept here, so labs start fast and run offline.
+// Registered before the generic script route below so these big files are never evicted by its 250-entry limit.
+const keepOkAndOpaque = { cacheWillUpdate: async ({ response }) => (response && (response.status === 200 || response.status === 0) ? response : null) };
+registerRoute(
+  ({ url }) => url.hostname === 'cdn.jsdelivr.net' && url.pathname.startsWith('/pyodide/'),
+  new CacheFirst({ cacheName: 'fedha-pyodide', plugins: [keepOkAndOpaque, new ExpirationPlugin({ maxEntries: 500, purgeOnQuotaError: true })] })
+);
+// Pure-Python packages installed with micropip (the wheel files never change; the package list is tried live first).
+registerRoute(
+  ({ url }) => url.hostname === 'files.pythonhosted.org',
+  new CacheFirst({ cacheName: 'fedha-pypi-files', plugins: [keepOkAndOpaque, new ExpirationPlugin({ maxEntries: 150, purgeOnQuotaError: true })] })
+);
+registerRoute(
+  ({ url }) => url.hostname === 'pypi.org' && url.pathname.startsWith('/pypi/'),
+  new NetworkFirst({ cacheName: 'fedha-pypi-meta', networkTimeoutSeconds: 4, plugins: [keepOkAndOpaque, new ExpirationPlugin({ maxEntries: 100, purgeOnQuotaError: true })] })
+);
+
 // ─── PRECACHE ────────────────────────────────────────────────────────────────
 // Next-pwa injects the current build's JS/CSS/static assets here.
 precacheAndRoute(self.__WB_MANIFEST);

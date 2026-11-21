@@ -13,6 +13,13 @@ const PY_WORKER = `
     return p;
   });
   onmessage = async (e) => {
+    // Warm-up: start Python and load the packages the code imports, without running anything.
+    if (e.data.warm) {
+      let ok = true;
+      try { const p = await ready; await p.loadPackagesFromImports(e.data.code); } catch (x) { ok = false; }
+      postMessage({ warmId: e.data.id, ok });
+      return;
+    }
     const { files, entry, id } = e.data; let out = ''; const installed = [];
     try {
       const p = await ready;
@@ -72,6 +79,21 @@ function runPython(files, entry) {
 }
 
 export const pythonIsWarm = () => !!py?.warm;
+
+// Starts Python in the background (and loads the packages the files import, plus any extra imports) so the
+// first Run does not wait. The downloaded files are kept by the service worker, so they only come once.
+export function warmPython(files = [], extra = '') {
+  if (typeof Worker === 'undefined') return Promise.resolve(false);
+  const w = pyWorker(); const id = ++seq;
+  const code = files.filter((f) => /\.py$/.test(f.name)).map((f) => f.content).join('\n') + '\n' + extra;
+  return new Promise((resolve) => {
+    const done = (ok) => { clearTimeout(t); w.worker.removeEventListener('message', on); resolve(ok); };
+    const on = (e) => { if (e.data?.warmId !== id) return; if (e.data.ok) w.warm = true; else if (py === w) dropPy(); done(!!e.data.ok); };
+    const t = setTimeout(() => done(false), 600000);
+    w.worker.addEventListener('message', on);
+    w.worker.postMessage({ warm: true, code, id });
+  });
+}
 
 export function runProject({ lang, files, main }) {
   const isPy = /^py/.test(lang || 'python');
