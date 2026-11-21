@@ -297,7 +297,7 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
             </div>
 
             <div className="lab-card lab-ws">
-              <CodeWorkspace files={L.files} file={file} setFile={setFile} setCode={setCode} onKey={onKey} reviewFixes={review?.fixes || []} addFile={addFile} removeFile={removeFile} maxFiles={MAX_FILES} lang={L.lang} />
+              <CodeWorkspace files={L.files} file={file} setFile={setFile} setCode={setCode} onKey={onKey} reviewFixes={review?.fixes || []} addFile={addFile} removeFile={removeFile} maxFiles={MAX_FILES} lang={L.lang} domain={L.domain} />
               <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                 {(L.domain === 'design' || L.lang === 'none') ? (
                   <div style={{ width: '100%' }}>

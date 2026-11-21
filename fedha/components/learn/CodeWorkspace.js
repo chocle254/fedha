@@ -6,7 +6,7 @@ import { syntaxHighlighting, HighlightStyle, indentOnInput, bracketMatching, ind
 import { closeBrackets, closeBracketsKeymap, autocompletion, acceptCompletion, closeCompletion, moveCompletionSelection, startCompletion, snippet, nextSnippetField } from '@codemirror/autocomplete';
 import { tooltips } from '@codemirror/view';
 import { pythonLibrarySource, filesSource, snippetsSource, nextStepSource } from './code-completions';
-import { nextSteps } from './ml-flow';
+import { nextSteps, placement } from './flows';
 import { tags as t } from '@lezer/highlight';
 import { python } from '@codemirror/lang-python';
 import { javascript } from '@codemirror/lang-javascript';
@@ -14,10 +14,27 @@ import { css } from '@codemirror/lang-css';
 import { html } from '@codemirror/lang-html';
 import { json } from '@codemirror/lang-json';
 import { markdown } from '@codemirror/lang-markdown';
+import { sql } from '@codemirror/lang-sql';
+import { java } from '@codemirror/lang-java';
+import { cpp } from '@codemirror/lang-cpp';
+import { php } from '@codemirror/lang-php';
+import { rust } from '@codemirror/lang-rust';
+import { go } from '@codemirror/lang-go';
+import { yaml } from '@codemirror/lang-yaml';
+import { xml } from '@codemirror/lang-xml';
+import { solidity } from '@replit/codemirror-lang-solidity';
+import { StreamLanguage, LanguageSupport } from '@codemirror/language';
+import { shell } from '@codemirror/legacy-modes/mode/shell';
+import { dockerFile } from '@codemirror/legacy-modes/mode/dockerfile';
+import { toml } from '@codemirror/legacy-modes/mode/toml';
 
 // The editor is CodeMirror 6: real syntax colours, undo/redo, auto-indent and bracket pairing, built to behave
 // with phone keyboards. The text is always drawn by the editor itself, so it can never go invisible.
-const LANGS = { python, javascript: () => javascript({ jsx: true, typescript: true }), css, html, json, md: markdown, htm: html };
+const legacy = (mode) => () => new LanguageSupport(StreamLanguage.define(mode));
+const LANGS = {
+  python, javascript: () => javascript({ jsx: true, typescript: true }), css, html, json, md: markdown, htm: html,
+  sql, java, cpp, c: cpp, php, rust, go, yaml, xml, solidity, shell: legacy(shell), dockerfile: legacy(dockerFile), toml: legacy(toml),
+};
 
 const HL = HighlightStyle.define([
   { tag: [t.comment, t.lineComment, t.blockComment], color: '#6B7280', fontStyle: 'italic' },
@@ -54,16 +71,22 @@ const THEME = EditorView.theme({
 }, { dark: true });
 
 function languageFor(name = '') {
-  const ext = name.split('.').pop()?.toLowerCase();
+  const base = name.split('/').pop().toLowerCase();
+  if (base === 'dockerfile' || base.startsWith('dockerfile.')) return 'dockerfile';
+  const ext = base.includes('.') ? base.split('.').pop() : '';
   if (ext === 'py') return 'python';
-  if (['js', 'jsx', 'ts', 'tsx', 'mjs'].includes(ext)) return 'javascript';
-  if (ext === 'css') return 'css';
-  if (['html', 'htm', 'json', 'md'].includes(ext)) return ext;
+  if (['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs'].includes(ext)) return 'javascript';
+  if (['yml', 'yaml'].includes(ext)) return 'yaml';
+  if (['sh', 'bash', 'zsh'].includes(ext)) return 'shell';
+  if (['h', 'hpp', 'cc'].includes(ext)) return 'cpp';
+  if (ext === 'sol') return 'solidity';
+  if (ext === 'htm') return 'html';
+  if (ext === 'markdown') return 'md';
   return ext || 'text';
 }
 
 // One editor per open file (the parent keys it by file, so switching tabs makes a fresh one).
-function Editor({ value, language, onChange, fixLines, viewRef, suggest, others }) {
+function Editor({ value, language, onChange, fixLines, viewRef, suggest, others, domain, fileName }) {
   const host = useRef(null);
   const onChangeRef = useRef(onChange);
   const marks = useRef(new Compartment());
@@ -80,7 +103,7 @@ function Editor({ value, language, onChange, fixLines, viewRef, suggest, others 
 
   const suggestExt = (on) => { if (!on) return [];
     // Built once: CodeMirror tells sources apart by identity, so new functions on every call would never finish.
-    const sources = [{ autocomplete: filesSource(() => othersRef.current || []) }, { autocomplete: snippetsSource(language) }, ...(language === 'python' ? [{ autocomplete: pythonLibrarySource }, { autocomplete: nextStepSource }] : [])];
+    const sources = [{ autocomplete: filesSource(() => othersRef.current || []) }, { autocomplete: snippetsSource(language) }, { autocomplete: nextStepSource({ lang: language, domain, name: fileName }) }, ...(language === 'python' ? [{ autocomplete: pythonLibrarySource }] : [])];
     return [
     autocompletion({ defaultKeymap: false, maxRenderedOptions: 8, activateOnTypingDelay: 60 }),
     tooltips({ parent: document.body }),
@@ -130,7 +153,7 @@ const iconFor = (name) => {
   return ({ py: '🐍', js: '🟨', jsx: '⚛️', ts: '🔷', tsx: '⚛️', css: '🎨', html: '🌐', json: '📋', md: '📝' })[ext] || '📄';
 };
 
-export default function CodeWorkspace({ files, file, setFile, setCode, reviewFixes = [], addFile, removeFile, maxFiles }) {
+export default function CodeWorkspace({ files, file, setFile, setCode, reviewFixes = [], addFile, removeFile, maxFiles, domain }) {
   const viewRef = useRef(null);
   const [suggest, setSuggest] = useState(true);
   useEffect(() => { try { if (localStorage.getItem('fedha_code_suggest') === '0') setSuggest(false); } catch { /* private mode */ } }, []);
@@ -147,14 +170,16 @@ export default function CodeWorkspace({ files, file, setFile, setCode, reviewFix
   };
   const keep = (e) => e.preventDefault(); // tapping a key must not close the phone keyboard
   // What a data scientist would do next, judged from the code so far (ML files only). Tap to insert the whole block.
-  const steps = useMemo(() => (language === 'python' && suggest ? nextSteps(active?.content || '') : []), [language, suggest, active?.content]);
+  const steps = useMemo(
+    () => (suggest ? nextSteps(active?.content || '', { lang: language, domain, name: active?.name }) : []),
+    [language, suggest, active?.content, active?.name, domain]
+  );
   const insertStep = (st) => {
     const v = viewRef.current; if (!v) return;
     const doc = v.state.doc;
-    const from = v.hasFocus ? doc.lineAt(v.state.selection.main.head).to : doc.length; // after this line, or at the end
-    const tail = doc.sliceString(Math.max(0, from - 2), from);
-    const gap = doc.length === 0 ? '' : tail.endsWith('\n\n') ? '' : tail.endsWith('\n') ? '\n' : '\n\n';
-    snippet(gap + st.text)(v, null, from, from);
+    const caret = v.hasFocus ? doc.lineAt(v.state.selection.main.head).to : null; // after this line, or at the end
+    const pl = placement(doc.toString(), st, caret);
+    snippet(pl.text)(v, null, pl.from, pl.from);
     v.focus();
   };
   return (
@@ -183,7 +208,7 @@ export default function CodeWorkspace({ files, file, setFile, setCode, reviewFix
       <div className="dev-keys" role="toolbar" aria-label="Code symbols">
         {KEYS.map((k) => <button type="button" key={k} onMouseDown={keep} onTouchStart={keep} onClick={() => press(k)}>{k}</button>)}
       </div>
-      {active && <div className="dev-editor-shell"><Editor key={file + ':' + active.name} value={active.content || ''} language={language} onChange={setCode} fixLines={fixLines} viewRef={viewRef} suggest={suggest} others={files.filter((_, i) => i !== file)} /></div>}
+      {active && <div className="dev-editor-shell"><Editor key={file + ':' + active.name} value={active.content || ''} language={language} onChange={setCode} fixLines={fixLines} viewRef={viewRef} suggest={suggest} domain={domain} fileName={active.name} others={files.filter((_, i) => i !== file)} /></div>}
       <div className="dev-statusbar"><span>{language}</span><span>UTF-8</span><span>Spaces: 4</span><span className="dev-statusbar-right">Ln {lineCount} · {active?.content?.length || 0} chars</span></div>
     </div>
     <style jsx global>{`

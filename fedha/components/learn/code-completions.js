@@ -1,5 +1,5 @@
 import { snippetCompletion } from '@codemirror/autocomplete';
-import { nextSteps } from './ml-flow';
+import { nextSteps } from './flows';
 
 // Suggestions that run entirely in the browser (no server, no AI). CodeMirror's own language support already
 // completes keywords, built-ins and the names in the file. This adds: Python data-science / ML libraries
@@ -192,15 +192,15 @@ export function snippetsSource(language) {
 
 // "Next step" blocks for ML code: at the start of a line, type "next" (or the step's word: clean, encode, split, fit,
 // eval...) to get the whole block that should come after what the file already does. See ml-flow.js.
-export function nextStepSource(ctx) {
+export const nextStepSource = (info) => (ctx) => {
   const line = ctx.state.doc.lineAt(ctx.pos);
   const m = /^(\w*)$/.exec(line.text.slice(0, ctx.pos - line.from));
   if (!m || (!m[1] && !ctx.explicit)) return null;
-  const steps = nextSteps(ctx.state.doc.toString());
+  const steps = nextSteps(ctx.state.doc.toString(), info || {});
   if (!steps.length) return null;
   const options = [
     snippetCompletion(steps[0].text, { label: 'next', detail: '✦ ' + steps[0].title, type: 'snippet', boost: 99 }),
     ...steps.map((st) => snippetCompletion(st.text, { label: st.id, detail: '✦ ' + st.title, type: 'snippet', boost: 50 })),
   ];
   return { from: ctx.pos - m[1].length, options, validFor: /^\w*$/ };
-}
+};

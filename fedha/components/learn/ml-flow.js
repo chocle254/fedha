@@ -30,7 +30,7 @@ function read(code) {
 
 const step = (id, title, text) => ({ id, title, text });
 
-function stages(c) {
+export function stagesOf(c) {
   const { code, pd, df } = c; const s = c.split || { Xtr: 'X_train', Xte: 'X_test', ytr: 'y_train', yte: 'y_test' };
   const m = c.est?.name || 'model';
   const out = [];
@@ -42,8 +42,16 @@ function stages(c) {
   if (c.hasData && !c.split && has(code, new RegExp(`\\b${df}\\b`))) {
     if (!has(code, /\.(info|describe)\(/)) add(step('explore', 'Explore the data', `# Explore the data\nprint(${df}.shape)\nprint(${df}.info())\nprint(${df}.describe())\nprint(${df}.isna().sum())\n`));
     if (!has(code, /\.(fillna|dropna|drop_duplicates)\(|SimpleImputer/)) add(step('clean', 'Clean the data', `# Clean the data\n${df} = ${df}.drop_duplicates()\nnum_cols = ${df}.select_dtypes(include="number").columns\ncat_cols = ${df}.select_dtypes(exclude="number").columns\n${df}[num_cols] = ${df}[num_cols].fillna(${df}[num_cols].median())\nfor col in cat_cols:\n    ${df}[col] = ${df}[col].fillna(${df}[col].mode()[0])\n`));
-    if (has(code, /\.(fillna|dropna|drop_duplicates)\(/) && !has(code, /\.hist\(|heatmap\(|\.corr\(|\.plot\(|plt\.(hist|scatter|plot)/)) add(step('plot', 'Plot the data', `# Look at the data\n${df}.hist(figsize=(10, 8))\nplt.tight_layout()\nplt.show()\nprint(${df}.corr(numeric_only=True))\n`));
-    if (!has(code, /get_dummies\(|LabelEncoder|OneHotEncoder|OrdinalEncoder/) && has(code, /\.(fillna|dropna|drop_duplicates)\(/)) add(step('encode', 'Encode categories', `# Turn text columns into numbers\ncat_cols = ${df}.select_dtypes(exclude="number").columns.drop("\${1:target}", errors="ignore")\n${df} = ${pd}.get_dummies(${df}, columns=cat_cols, drop_first=True)\n`));
+    const cleaned = has(code, /\.(fillna|dropna|drop_duplicates)\(/);
+    const looked = has(code, /\.hist\(|heatmap\(|\.corr\(|\.plot\(|plt\.(hist|scatter|plot|bar)/), summed = has(code, /\.groupby\(|pivot_table\(|value_counts\(/);
+    const eda = [];
+    if (cleaned && !looked) eda.push(step('plot', 'Plot the data', `# Look at the data\n${df}.hist(figsize=(10, 8))\nplt.tight_layout()\nplt.show()\nprint(${df}.corr(numeric_only=True))\n`));
+    if (cleaned && !summed) eda.push(step('summarise', 'Group and summarise', `# Summarise by group\nsummary = ${df}.groupby("\${1:category}")["\${2:value}"].agg(["count", "mean", "median", "max"]).sort_values("mean", ascending=False)\nprint(summary)\nsummary["mean"].plot(kind="bar")\nplt.tight_layout()\nplt.show()\n`));
+    if (eda.length) add(...eda);
+    const enc = [];
+    if (cleaned && !has(code, /get_dummies\(|LabelEncoder|OneHotEncoder|OrdinalEncoder/)) enc.push(step('encode', 'Encode categories', `# Turn text columns into numbers\ncat_cols = ${df}.select_dtypes(exclude="number").columns.drop("\${1:target}", errors="ignore")\n${df} = ${pd}.get_dummies(${df}, columns=cat_cols, drop_first=True)\n`));
+    if (cleaned && !has(code, /\.to_csv\(/)) enc.push(step('savecsv', 'Save the cleaned data', `# Save the cleaned data\n${df}.to_csv("\${1:clean_data.csv}", index=False)\n`));
+    if (enc.length) add(...enc);
     if (!has(code, /^X[ \t]*=/m) && has(code, /\.(fillna|dropna|drop_duplicates)\(/)) add(step('features', 'Features and target', `# Features (X) and target (y)\nX = ${df}.drop("\${1:target}", axis=1)\ny = ${df}["\${1:target}"]\n`));
   }
   if ((has(code, /^X[ \t]*=/m) || (c.hasData && has(code, /\b(data|iris|digits|wine)\.(data|target)\b/))) && !c.split && !has(code, /train_test_split\(/)) {
@@ -92,8 +100,10 @@ function stages(c) {
 export function nextSteps(code) {
   if (typeof code !== 'string') return [];
   if (code.length > 60000) return [];
-  const st = stages(read(code));
+  const st = stagesOf(read(code));
   if (!st.length) return [];
   const first = st[0].slice(0, 3);
   return st[1] && first.length < 3 ? [...first, st[1][0]] : first;
 }
+
+export const mlStages = (code) => stagesOf(read(code));
