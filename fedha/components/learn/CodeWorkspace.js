@@ -77,12 +77,15 @@ function Editor({ value, language, onChange, fixLines, viewRef, suggest, others 
     return Decoration.set(d, true);
   });
 
-  const suggestExt = (on) => (on ? [
+  const suggestExt = (on) => { if (!on) return [];
+    // Built once: CodeMirror tells sources apart by identity, so new functions on every call would never finish.
+    const sources = [{ autocomplete: filesSource(() => othersRef.current || []) }, { autocomplete: snippetsSource(language) }, ...(language === 'python' ? [{ autocomplete: pythonLibrarySource }] : [])];
+    return [
     autocompletion({ defaultKeymap: false, maxRenderedOptions: 8, activateOnTypingDelay: 60 }),
     tooltips({ parent: document.body }),
-    EditorState.languageData.of(() => [{ autocomplete: filesSource(() => othersRef.current || []) }, { autocomplete: snippetsSource(language) }, ...(language === 'python' ? [{ autocomplete: pythonLibrarySource }] : [])]),
+    EditorState.languageData.of(() => sources),
     keymap.of([{ key: 'Tab', run: acceptCompletion }, { key: 'Escape', run: closeCompletion }, { key: 'ArrowDown', run: moveCompletionSelection(true) }, { key: 'ArrowUp', run: moveCompletionSelection(false) }, { key: 'Ctrl-Space', run: startCompletion }]),
-  ] : []);
+  ]; };
 
   useEffect(() => {
     const lang = LANGS[language];
