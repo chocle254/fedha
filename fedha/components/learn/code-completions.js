@@ -63,7 +63,9 @@ const FROM = {
   math: 'sqrt pi e sin cos tan log exp floor ceil factorial gcd inf',
 };
 
-const MODULES = 'numpy pandas matplotlib matplotlib.pyplot seaborn scipy sklearn torch torchvision tensorflow keras xgboost lightgbm nltk spacy requests bs4 json csv os sys re math random time datetime collections itertools functools typing dataclasses pathlib statistics string heapq bisect copy pickle sqlite3 urllib argparse logging unittest asyncio threading'.split(' ');
+const BASE_MODULES = 'numpy pandas matplotlib matplotlib.pyplot seaborn scipy sklearn torch torchvision tensorflow keras xgboost lightgbm nltk spacy requests bs4 json csv os sys re math random time datetime collections itertools functools typing dataclasses pathlib statistics string heapq bisect copy pickle sqlite3 urllib argparse logging unittest asyncio threading'.split(' ');
+// Dotted paths too (sklearn.metrics, torch.nn, ...), so "from sklearn." lists its parts.
+const MODULES = [...new Set([...BASE_MODULES, 'sklearn.model_selection', 'sklearn.metrics', 'sklearn.preprocessing', 'sklearn.linear_model', 'sklearn.ensemble', 'sklearn.tree', 'sklearn.svm', 'sklearn.neighbors', 'sklearn.cluster', 'sklearn.decomposition', 'sklearn.pipeline', 'sklearn.impute', 'sklearn.naive_bayes', 'sklearn.datasets', 'scipy.stats', 'scipy.optimize', 'torch.nn', 'torch.optim', 'torch.utils.data', 'torchvision.transforms', 'torchvision.datasets', 'tensorflow.keras', 'tensorflow.keras.layers', 'tensorflow.keras.models', 'tensorflow.keras.optimizers', 'tensorflow.keras.callbacks', 'os.path', 'numpy.random', 'numpy.linalg', ...Object.keys(FROM)])];
 const ALIAS = { np: 'numpy', pd: 'pandas', plt: 'matplotlib.pyplot', sns: 'seaborn', tf: 'tensorflow', nn: 'torch.nn', F: 'torch.nn.functional', optim: 'torch.optim' };
 
 // ── Methods on things you've made ───────────────────────────────────────────────────────────────────
@@ -102,6 +104,9 @@ export function pythonLibrarySource(ctx) {
   if ((m = /^\s*from\s+([\w.]+)\s+import\s+(?:[\w\s,]*,\s*)?(\w*)$/.exec(before))) {
     const names = FROM[m[1]]; if (!names) return null;
     return { from: pos - m[2].length, options: opt(names, m[1]), validFor: /^\w*$/ };
+  }
+  if ((m = /^\s*from\s+[\w.]+\s+(\w*)$/.exec(before))) {
+    return { from: pos - m[1].length, options: [{ label: 'import', type: 'keyword' }], validFor: /^\w*$/ };
   }
   if ((m = /^\s*(?:import|from)\s+(?:[\w\s,.]*,\s*)?([\w.]*)$/.exec(before))) {
     return { from: pos - m[1].length, options: MODULES.map((n) => ({ label: n, type: 'namespace', detail: 'module' })), validFor: /^[\w.]*$/ };
