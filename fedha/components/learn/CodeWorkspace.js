@@ -176,6 +176,8 @@ export default function CodeWorkspace({ files, file, setFile, setCode, reviewFix
       .dev-divider { color: #484f58; }
       .dev-top-actions { display: flex; gap: 6px; align-items: center; }
       .dev-focus { border: 1px solid #34465a; border-radius: 6px; background: #172638; color: #c9e1ff; min-width: 34px; height: 28px; font: 15px ui-monospace, monospace; cursor: pointer; }
+      /* The suggestion list lives on <body>; the lab screen is a fixed overlay (z-index 950), so it must sit above it. */
+      .cm-tooltip, .cm-tooltip-autocomplete { z-index: 3000 !important; }
       .dev-auto { width: auto; padding: 0 9px; font-size: 11px !important; color: #7d8590; } .dev-auto.on { color: #3fb950; border-color: #2b6a3a; }
       .dev-filebar { background: #0d1117; border-bottom: 1px solid #252b36; }
       .dev-filetabs { display: flex; align-items: center; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
