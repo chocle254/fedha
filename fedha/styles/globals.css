@@ -2083,6 +2083,7 @@ html[data-holiday="vice"] .bottom-nav { background: rgba(14,2,30,.94) !important
 .lab-editor { display: flex; border-radius: 0 8px 8px 8px; overflow: hidden; background: #050A08; border: 1px solid rgba(52,211,153,.2); }
 .lab-gutter { padding: 8px 6px; text-align: right; color: rgba(255,255,255,.25); font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; line-height: 19px; user-select: none; background: rgba(255,255,255,.02); }
 .lab-editor textarea { flex: 1; padding: 8px; border: 0; outline: none; resize: vertical; background: transparent; color: #D1FAE5; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; line-height: 19px; white-space: pre; overflow-x: auto; }
+.lab-stdin { display: flex; gap: 6px; margin-top: 6px; } .lab-stdin input { flex: 1; min-width: 0; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid rgba(52,211,153,.5); background: #000; color: #86EFAC; font-family: ui-monospace, Menlo, monospace; font-size: 16px; outline: none; } .lab-stdin input:focus { border-color: #34D399; box-shadow: 0 0 0 2px rgba(52,211,153,.2); }
 .lab-term { margin: 8px 0 0; padding: 10px; border-radius: 8px; background: #000; color: #86EFAC; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; max-height: 260px; overflow-y: auto; }
 
 /* ═══ KEEPING COOL (components/PowerSaver.js) ═══

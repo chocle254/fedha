@@ -6,7 +6,35 @@
 // An endless loop is stopped by the timeout, which throws the warm worker away.
 const PYODIDE = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';
 
+const INPUT_SHIM = [
+  'import builtins, json, sys, random',
+  '_fedha_answers = json.loads(_fedha_inputs)',
+  '_fedha_pos = [0]',
+  'class NeedInput(BaseException):',
+  '    pass',
+  'def _fedha_next(prompt=""):',
+  '    global _fedha_need',
+  '    if _fedha_pos[0] < len(_fedha_answers):',
+  '        a = str(_fedha_answers[_fedha_pos[0]]); _fedha_pos[0] += 1',
+  '        return a',
+  '    _fedha_need = str(prompt)',
+  '    raise NeedInput(str(prompt))',
+  'def _fedha_input(prompt=""):',
+  '    a = _fedha_next(prompt)',
+  '    sys.stdout.write(str(prompt) + a + "\\n")',
+  '    return a',
+  'builtins.input = _fedha_input',
+  'class _FedhaStdin:',
+  '    def readline(self, *args):',
+  '        return _fedha_next("") + "\\n"',
+  '    def isatty(self):',
+  '        return False',
+  'sys.stdin = _FedhaStdin()',
+  'random.seed(_fedha_seed)',
+].join('\n');
+
 const PY_WORKER = `
+  const SHIM = ${JSON.stringify(INPUT_SHIM)};
   importScripts('${PYODIDE}pyodide.js');
   const ready = loadPyodide({ indexURL: '${PYODIDE}' }).then(async (p) => {
     p.runPython('import os\\nos.environ["MPLBACKEND"] = "Agg"');
@@ -20,16 +48,24 @@ const PY_WORKER = `
       postMessage({ warmId: e.data.id, ok });
       return;
     }
-    const { files, entry, id } = e.data; let out = ''; const installed = [];
+    const { files, entry, id, inputs, seed } = e.data; let out = ''; const installed = [];
+    let p = null;
+    const flush = () => { try { if (p) p.runPython('import sys\\nsys.stdout.flush()\\nsys.stderr.flush()'); } catch (x) {} };
     try {
-      const p = await ready;
-      p.setStdout({ batched: (s) => { out += s + '\\n'; } });
-      p.setStderr({ batched: (s) => { out += s + '\\n'; } });
+      p = await ready;
+      const dec = new TextDecoder();
+      p.setStdout({ write: (b) => { out += dec.decode(b, { stream: true }); return b.length; } });
+      p.setStderr({ write: (b) => { out += dec.decode(b, { stream: true }); return b.length; } });
+      // input(): a phone has no blocking stdin, so the program asks, stops, and is run again with the answers so far.
+      p.globals.set('_fedha_inputs', JSON.stringify(inputs || []));
+      p.globals.set('_fedha_seed', seed || 0);
+      p.runPython(SHIM);
       for (const f of files) { const parts = f.name.split('/'); for (let i = 1; i < parts.length; i++) { try { p.FS.mkdir(parts.slice(0, i).join('/')); } catch (x) {} } p.FS.writeFile(f.name, f.content); }
       p.runPython('import sys\\nif "." not in sys.path: sys.path.insert(0, ".")');
       // Packages the code imports (numpy, pandas, sklearn...): Pyodide's builds first.
       const all = files.filter((f) => /\\.py$/.test(f.name)).map((f) => f.content).join('\\n');
       await p.loadPackagesFromImports(all, { messageCallback: (m) => { if (/^Loaded /.test(m)) installed.push(m.replace(/^Loaded /, '')); } });
+      if (/\\b(numpy|np)\\b/.test(all)) { try { p.runPython('import numpy as _fedha_np\\n_fedha_np.random.seed(_fedha_seed)'); } catch (x) {} }
       // Anything still missing: micropip (pure-Python wheels from PyPI), then run again. Up to 3 tries.
       for (let tries = 0; ; tries++) {
         try {
@@ -49,9 +85,12 @@ const PY_WORKER = `
           out = '';
         }
       }
+      flush();
       postMessage({ id, out, installed });
     } catch (err) {
       const msg = String(err.message || err);
+      flush();
+      if (err && err.type === 'NeedInput' && p) { postMessage({ id, out, installed, needInput: String(p.globals.get('_fedha_need') || '') }); return; }
       const missing = msg.match(/No module named '([\\w.]+)'/);
       postMessage({ id, out, installed, error: missing ? \`The package "\${missing[1]}" can't be installed on the phone (it needs native code Pyodide doesn't have). Try it on a computer, or use a package from Pyodide's list.\` : msg.split('\\n').slice(-4).join('\\n') });
     }
@@ -65,7 +104,7 @@ function pyWorker() {
 }
 function dropPy() { try { py?.worker.terminate(); } catch { /* gone */ } py = null; }
 
-function runPython(files, entry) {
+function runPython(files, entry, inputs, seed) {
   const w = pyWorker(); const id = ++seq;
   // The first run downloads Python plus the packages (numpy + pandas + scikit-learn is a few minutes on mobile data).
   const limit = w.warm ? 90000 : 240000;
@@ -74,7 +113,7 @@ function runPython(files, entry) {
     const onMsg = (e) => { if (e.data?.id !== id) return; clearTimeout(t); w.worker.removeEventListener('message', onMsg); w.warm = true; resolve({ ...e.data, entry }); };
     w.worker.addEventListener('message', onMsg);
     w.worker.onerror = (e) => { clearTimeout(t); dropPy(); resolve({ error: `Python could not start: ${e.message || 'check your internet connection (it is downloaded the first time).'}` }); };
-    w.worker.postMessage({ files, entry, id });
+    w.worker.postMessage({ files, entry, id, inputs: inputs || [], seed: seed || 0 });
   });
 }
 
@@ -95,11 +134,11 @@ export function warmPython(files = [], extra = '') {
   });
 }
 
-export function runProject({ lang, files, main }) {
+export function runProject({ lang, files, main, inputs, seed }) {
   const isPy = /^py/.test(lang || 'python');
   const entry = main || (isPy ? (files.find((f) => /main\.py$/.test(f.name)) || files.find((f) => /\.py$/.test(f.name)))?.name : (files.find((f) => /(main|index)\.js$/.test(f.name)) || files.find((f) => /\.js$/.test(f.name)))?.name);
   if (!entry) return Promise.resolve({ error: `No ${isPy ? '.py' : '.js'} file to run.` });
-  if (isPy) return runPython(files, entry);
+  if (isPy) return runPython(files, entry, inputs, seed);
   const src = `
     onmessage = (e) => {
       const { files, entry } = e.data; let out = '';

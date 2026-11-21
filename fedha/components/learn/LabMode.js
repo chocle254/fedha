@@ -26,6 +26,7 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
   const [mood, setMood] = useState('happy');
   const [file, setFile] = useState(0);
   const [out, setOut] = useState(null);
+  const [ask, setAsk] = useState(null); // the program is waiting for input(): { prompt, answers, seed, value }
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const [review, setReview] = useState(null);
@@ -152,7 +153,7 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
     clearTimeout(saveT.current);
     saveT.current = setTimeout(() => onSave(next), 2000);
   };
-  const setCode = (content) => update({ ...lab, lab: { ...L, files: L.files.map((f, i) => (i === file ? { ...f, content: content.slice(0, FILE_CAP) } : f)) } });
+  const setCode = (content) => { setAsk(null); update({ ...lab, lab: { ...L, files: L.files.map((f, i) => (i === file ? { ...f, content: content.slice(0, FILE_CAP) } : f)) } }); };
   const removeFile = (index) => {
     if (L.files.length <= 1) return;
     const removed = L.files[index];
@@ -178,10 +179,14 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
     }
   };
 
-  const run = async () => {
+  // input(): the program stops and asks here, then runs again from the top with the answers so far (same random
+  // seed each time, so it behaves the same up to the question it stopped at).
+  const run = async (answers = [], seed = Date.now() % 1000000007) => {
     setBusy(/^py/.test(L.lang) && !pythonIsWarm() ? 'Starting Python and installing the packages your code imports (first run: up to a few minutes on mobile data)…' : 'Running…'); setErr('');
-    const r = await runProject({ lang: L.lang, files: L.files });
+    const r = await runProject({ lang: L.lang, files: L.files, inputs: answers, seed });
     setBusy(''); setOut(r);
+    if (r.needInput !== undefined) { setAsk({ prompt: r.needInput, answers, seed, value: '' }); return r; }
+    setAsk(null);
     if (r.error) say(pick(['It crashed. Read the error, it is literally telling you what is wrong.', 'Boom. Error. Look at the last line of the traceback first.', 'Red text. My favourite. Read it, fix it, run it again.']), 'facepalm');
     return r;
   };
@@ -302,7 +307,7 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
                       {shots.length < 4 && <label className="lab-btn ghost" style={{ cursor: 'pointer' }}>📷 {shots.length ? 'Add' : 'Add photos / screenshots'}<input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={async (e) => { const outImgs = []; for (const fl of Array.from(e.target.files || []).slice(0, 4 - shots.length)) { try { outImgs.push(await resizeImage(fl, 1400, 0.8)); } catch { /* skip */ } } setShots((x) => [...x, ...outImgs].slice(0, 4)); e.target.value = ''; }} /></label>}
                     </div>
                   </div>
-                ) : <button className="lab-btn ghost" disabled={!!busy} onClick={run}>▶ Run</button>}
+                ) : <button className="lab-btn ghost" disabled={!!busy} onClick={() => run()}>▶ Run</button>}
                 {/^py/.test(L.lang) && L.domain !== 'design' && L.lang !== 'none' && (
                   <button className="lab-btn ghost" disabled={offline === 'loading' || offline === 'done'} onClick={saveOffline} title="Saves Python and the common ML libraries (numpy, pandas, matplotlib, scipy, scikit-learn) on this phone, roughly 100 MB, once. Runs then start fast and work offline.">
                     {offline === 'loading' ? '⏳ Saving Python…' : offline === 'done' ? '✓ Python saved offline' : offline === 'fail' ? '⬇ Retry: save Python offline' : '⬇ Save Python offline'}
@@ -312,7 +317,13 @@ export default function LabMode({ course, section, projects, onSave, onMilestone
                 {allDone && lab.status !== 'shipped' && <button className="lab-btn" onClick={ship}>🚀 Ship the lab</button>}
                 {allDone && nextUnit && <button className="lab-btn ghost" onClick={() => onStudyLesson(nextUnit.lessons.find((l) => !l.completed)?.id || nextUnit.lessons[0].id)}>Next: unit {nextUnit.index + 1} →</button>}
               </div>
-              {out && <pre className="lab-term">{out.installed?.length ? `$ installed ${out.installed.join(', ')}\n` : ''}{`$ run ${out.entry || ''}\n`}{out.out || ''}{out.error ? `\n${out.error}` : ''}{!out.out && !out.error ? '(no output)' : ''}</pre>}
+              {out && <pre className="lab-term">{out.installed?.length ? `$ installed ${out.installed.join(', ')}\n` : ''}{`$ run ${out.entry || ''}\n`}{out.out || ''}{ask ? ask.prompt : ''}{out.error ? `\n${out.error}` : ''}{!out.out && !out.error && !ask ? '(no output)' : ''}</pre>}
+              {ask && (
+                <form className="lab-stdin" onSubmit={(e) => { e.preventDefault(); if (!busy) run([...ask.answers, ask.value], ask.seed); }}>
+                  <input autoFocus value={ask.value} onChange={(e) => setAsk({ ...ask, value: e.target.value })} placeholder={ask.prompt ? `Answer: ${ask.prompt}` : 'Type your answer…'} enterKeyHint="send" autoCapitalize="off" autoCorrect="off" autoComplete="off" spellCheck={false} aria-label="Input for the program" />
+                  <button type="submit" className="lab-btn" disabled={!!busy}>Send</button>
+                </form>
+              )}
             </div>
 
             {review && (
