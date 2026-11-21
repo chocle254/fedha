@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { EditorState, Compartment } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection, Decoration } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo, insertNewlineAndIndent } from '@codemirror/commands';
 import { syntaxHighlighting, HighlightStyle, indentOnInput, bracketMatching, indentUnit } from '@codemirror/language';
-import { closeBrackets, closeBracketsKeymap, autocompletion, acceptCompletion, closeCompletion, moveCompletionSelection, startCompletion } from '@codemirror/autocomplete';
+import { closeBrackets, closeBracketsKeymap, autocompletion, acceptCompletion, closeCompletion, moveCompletionSelection, startCompletion, snippet, nextSnippetField } from '@codemirror/autocomplete';
 import { tooltips } from '@codemirror/view';
-import { pythonLibrarySource, filesSource, snippetsSource } from './code-completions';
+import { pythonLibrarySource, filesSource, snippetsSource, nextStepSource } from './code-completions';
+import { nextSteps } from './ml-flow';
 import { tags as t } from '@lezer/highlight';
 import { python } from '@codemirror/lang-python';
 import { javascript } from '@codemirror/lang-javascript';
@@ -79,7 +80,7 @@ function Editor({ value, language, onChange, fixLines, viewRef, suggest, others 
 
   const suggestExt = (on) => { if (!on) return [];
     // Built once: CodeMirror tells sources apart by identity, so new functions on every call would never finish.
-    const sources = [{ autocomplete: filesSource(() => othersRef.current || []) }, { autocomplete: snippetsSource(language) }, ...(language === 'python' ? [{ autocomplete: pythonLibrarySource }] : [])];
+    const sources = [{ autocomplete: filesSource(() => othersRef.current || []) }, { autocomplete: snippetsSource(language) }, ...(language === 'python' ? [{ autocomplete: pythonLibrarySource }, { autocomplete: nextStepSource }] : [])];
     return [
     autocompletion({ defaultKeymap: false, maxRenderedOptions: 8, activateOnTypingDelay: 60 }),
     tooltips({ parent: document.body }),
@@ -140,11 +141,22 @@ export default function CodeWorkspace({ files, file, setFile, setCode, reviewFix
   const fixLines = reviewFixes.filter((x) => active && x.file === active.name && x.line).map((x) => x.line);
   const press = (k) => {
     const v = viewRef.current; if (!v) return;
-    if (k === '⇥') { v.dispatch(v.state.replaceSelection('    '), { scrollIntoView: true }); }
+    if (k === '⇥') { if (!nextSnippetField(v)) v.dispatch(v.state.replaceSelection('    '), { scrollIntoView: true }); }
     else { const r = v.state.selection.main; v.dispatch({ changes: { from: r.from, to: r.to, insert: k }, selection: { anchor: r.from + k.length }, scrollIntoView: true }); }
     v.focus();
   };
   const keep = (e) => e.preventDefault(); // tapping a key must not close the phone keyboard
+  // What a data scientist would do next, judged from the code so far (ML files only). Tap to insert the whole block.
+  const steps = useMemo(() => (language === 'python' && suggest ? nextSteps(active?.content || '') : []), [language, suggest, active?.content]);
+  const insertStep = (st) => {
+    const v = viewRef.current; if (!v) return;
+    const doc = v.state.doc;
+    const from = v.hasFocus ? doc.lineAt(v.state.selection.main.head).to : doc.length; // after this line, or at the end
+    const tail = doc.sliceString(Math.max(0, from - 2), from);
+    const gap = doc.length === 0 ? '' : tail.endsWith('\n\n') ? '' : tail.endsWith('\n') ? '\n' : '\n\n';
+    snippet(gap + st.text)(v, null, from, from);
+    v.focus();
+  };
   return (
     <>
     <div className="dev-workspace">
@@ -162,6 +174,12 @@ export default function CodeWorkspace({ files, file, setFile, setCode, reviewFix
           {files.length < maxFiles && <button type="button" className="dev-addfile" onClick={addFile} title="Add file">＋</button>}
         </div>
       </div>
+      {steps.length > 0 && (
+        <div className="dev-next" role="toolbar" aria-label="Next step suggestions">
+          <span className="dev-next-label">✦ Next</span>
+          {steps.map((st) => <button type="button" key={st.id} onMouseDown={keep} onClick={() => insertStep(st)}>{st.title}</button>)}
+        </div>
+      )}
       <div className="dev-keys" role="toolbar" aria-label="Code symbols">
         {KEYS.map((k) => <button type="button" key={k} onMouseDown={keep} onTouchStart={keep} onClick={() => press(k)}>{k}</button>)}
       </div>
@@ -189,6 +207,11 @@ export default function CodeWorkspace({ files, file, setFile, setCode, reviewFix
       .dev-filetabs .dev-tab-close { border: 0; background: transparent; color: #7d8590; padding: 8px 10px; font: 18px/1 ui-monospace, monospace; cursor: pointer; }
       .dev-filetabs .dev-tab-close:hover { color: #f87171; }
       .dev-filetabs .dev-addfile { flex: 0 0 auto; border: 0; background: transparent; color: #58a6ff; font-size: 18px; padding: 7px 14px; cursor: pointer; }
+      .dev-next { display: flex; gap: 6px; align-items: center; overflow-x: auto; padding: 6px 8px; background: #161b12; border-bottom: 1px solid #252b36; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+      .dev-next::-webkit-scrollbar { display: none; }
+      .dev-next-label { flex: 0 0 auto; color: #e3b341; font: 700 11px ui-monospace, monospace; letter-spacing: .6px; }
+      .dev-next button { flex: 0 0 auto; height: 34px; padding: 0 12px; border: 1px solid #6b5a1f; border-radius: 17px; background: #2a2410; color: #f3d98a; font: 600 12px ui-monospace, monospace; cursor: pointer; touch-action: manipulation; white-space: nowrap; }
+      .dev-next button:active { background: #4a3f15; }
       .dev-keys { display: flex; gap: 5px; overflow-x: auto; padding: 6px 8px; background: #111720; border-bottom: 1px solid #252b36; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
       .dev-keys::-webkit-scrollbar { display: none; }
       .dev-keys button { flex: 0 0 auto; min-width: 36px; height: 34px; padding: 0 8px; border: 1px solid #2d3748; border-radius: 8px; background: #172030; color: #c9e1ff; font: 600 15px ui-monospace, monospace; cursor: pointer; touch-action: manipulation; }
